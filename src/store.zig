@@ -41,7 +41,8 @@
 //! lazy single spawn on Terminal tab open); scrollback / status / live
 //! PTY process state stay runtime-only);
 //! Background row, Files preview, and directory expands stay
-//! runtime-only),
+//! runtime-only; session-switch panel open/closed is the in-memory
+//! `right_panel_session` stash, not per-session JSON),
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
 //! `last_reasoning_effort` /
 //! `last_project_path` / `last_daemon_address` / `theme_preference` /

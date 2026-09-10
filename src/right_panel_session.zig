@@ -1,20 +1,20 @@
 //! In-memory per-session right-panel restore (expand + tab +
-//! Files/Diff selection + one Files preview editor).
+//! open/closed + Files/Diff selection + one Files preview editor).
 //!
 //! Waku keeps `expanded_paths` / `diff_expanded_paths`,
 //! `active_surface`, `files_selected_path`, `diff_source`,
 //! `diff_selected_file`, and `file_editors` on
 //! `RightPanelSessionState` and restores via `take_or_closed`
-//! (missing key → empty/collapsed). Faku matches that on session
-//! switch / New Task / remove: take the leaving session's live sets
-//! into a bounded table keyed by session id, then restore the
-//! destination (or empty). Not written to `sessions.json`. Cap
+//! (missing key → empty/collapsed/closed). Faku matches that on
+//! session switch / New Task / remove: take the leaving session's
+//! live sets into a bounded table keyed by session id, then restore
+//! the destination (or empty). Not written to `sessions.json`. Cap
 //! `max_states` (last-N / LRU when full) so Zig stays bounded — no
 //! HashMap growth. Faku's single Files preview stashes at most one
 //! dirty/editing editor per slot (relpath + draft + disk baseline),
-//! capped at the Files preview read window. Per-session panel
-//! visibility and nested `file_tree_width` stay out of this stash
-//! (`file_tree_width` remains the global sessions.json extra).
+//! capped at the Files preview read window. Nested `file_tree_width`
+//! / Diff list width stay out of this stash (those remain the global
+//! `sessions.json` extras).
 //!
 //! Live Files expand still lives on `right_panel_expanded_store` (heap
 //! last-window; `file_mention.clearCache` frees it). Live Diff expand
@@ -50,6 +50,9 @@ pub const max_states: usize = 16;
 pub const State = struct {
     session_id: u32 = 0,
     stamp: u32 = 0,
+    /// Panel open/closed at take. Missing / cleared slot is closed
+    /// (Waku `take_or_closed` empty).
+    open: bool = false,
     tab: right_panel.Tab = .files,
     files_store: []CachedPath = &.{},
     files_count: u32 = 0,
@@ -71,17 +74,18 @@ pub const State = struct {
     files_editor_disk: []u8 = &.{},
 };
 
-/// Copy the live Files + Diff expand sets, tab, Files preview path,
-/// Diff selection, and dirty/editing Files preview editor under
-/// `model.selected`. No-op when nothing is selected. Evicts the
-/// least-recently-taken slot when the table is full of other session
-/// ids.
+/// Copy the live Files + Diff expand sets, tab, panel open/closed,
+/// Files preview path, Diff selection, and dirty/editing Files preview
+/// editor under `model.selected`. No-op when nothing is selected.
+/// Evicts the least-recently-taken slot when the table is full of
+/// other session ids.
 pub fn take(model: *Model) void {
     const session_id = model.selected;
     if (session_id == 0) return;
     const slot = slotForTake(model, session_id) orelse return;
     slot.session_id = session_id;
     slot.stamp = bumpStamp(model);
+    slot.open = model.right_panel_open;
     slot.tab = model.right_panel_tab;
     clonePaths(
         &slot.files_store,
@@ -104,13 +108,14 @@ pub fn take(model: *Model) void {
     takeFilesEditor(slot, model);
 }
 
-/// Restore tab, Files + Diff expand, Files preview path, Diff
-/// selection, and dirty/editing Files preview editor for
-/// `model.selected`. Missing key is Waku `take_or_closed`: Files tab,
-/// collapsed trees, closed preview, no Diff selection. Re-applies
-/// expand into the live stores so `clearCache` / `review_diff.close`
-/// on the way in cannot keep the leaving session's keys. Does not
-/// open a closed panel (visibility stays global this cut).
+/// Restore panel open/closed, tab, Files + Diff expand, Files preview
+/// path, Diff selection, and dirty/editing Files preview editor for
+/// `model.selected`. Missing key is Waku `take_or_closed`: closed
+/// panel, Files tab, collapsed trees, closed preview, no Diff
+/// selection. Re-applies expand into the live stores so `clearCache`
+/// / `review_diff.close` on the way in cannot keep the leaving
+/// session's keys. Visibility is applied first via `setOpen` so an
+/// open restore paints through the existing select helpers.
 pub fn restore(model: *Model, fx: *Effects) void {
     const session_id = model.selected;
     if (session_id == 0) {
@@ -121,6 +126,7 @@ pub fn restore(model: *Model, fx: *Effects) void {
         restoreEmpty(model, fx);
         return;
     };
+    right_panel.setOpen(model, slot.open);
     applyLiveFiles(model, slot.files_store, slot.files_count);
     applyLiveDiff(model, slot.diff_store, slot.diff_count);
     copyPath(&model.right_panel_session_pending_files, slot.files_selected.text());
@@ -250,6 +256,7 @@ fn clearSlot(slot: *State) void {
     freeSlice(&slot.diff_store);
     slot.diff_count = 0;
     slot.diff_selected = .{};
+    slot.open = false;
     slot.tab = .files;
     slot.diff_source = .branch;
     slot.diff_source_set = false;
@@ -265,6 +272,7 @@ fn clearPending(model: *Model) void {
 }
 
 fn restoreEmpty(model: *Model, fx: *Effects) void {
+    right_panel.setOpen(model, false);
     applyLiveFiles(model, &.{}, 0);
     applyLiveDiff(model, &.{}, 0);
     clearPending(model);
@@ -343,10 +351,11 @@ fn diffIdForPath(model: *const Model, relpath: []const u8) ?u32 {
     return null;
 }
 
-/// Restore the tab without opening a closed panel. When the panel is
-/// already open, reuse the existing select helpers so Diff starts
-/// Compare (pending `diff_source` is consumed by `ensureDiff`),
-/// widths bump, and Terminal/Browser side effects match a tab click.
+/// Restore the tab without opening a closed panel. Restore sets
+/// visibility first; when the panel is open, reuse the existing
+/// select helpers so Diff starts Compare (pending `diff_source` is
+/// consumed by `ensureDiff`), widths bump, and Terminal/Browser side
+/// effects match a tab click.
 fn applyTab(model: *Model, fx: *Effects, tab: right_panel.Tab) void {
     if (!model.right_panel_open) {
         if (model.right_panel_tab == .diff and tab != .diff) {
@@ -560,6 +569,7 @@ test "restored stale Files keys stay in the store and are ignored by the tree" {
 
     palette_run.applySessionSelection(&model, &fx, session_b);
     palette_run.applySessionSelection(&model, &fx, session_a);
+    try std.testing.expect(model.right_panel_open);
     try std.testing.expect(liveFilesHas(&model, "src"));
     try std.testing.expect(liveFilesHas(&model, "gone"));
 
@@ -625,6 +635,7 @@ test "new session starts collapsed; leaving session restores on return" {
     const session_a = model.addSession("new from", .fx);
     model.selected = session_a;
     model.right_panel_tab = .diff;
+    model.showRightPanel();
     setLiveFiles(&model, &.{"src"});
     setLiveDiff(&model, &.{"src"});
 
@@ -634,6 +645,7 @@ test "new session starts collapsed; leaving session restores on return" {
     try std.testing.expectEqual(@as(u32, 0), model.right_panel_expanded_count);
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_expanded_count);
     try std.testing.expectEqual(right_panel.Tab.files, model.right_panel_tab);
+    try std.testing.expect(!model.right_panel_open);
     try std.testing.expect(hasState(&model, session_a));
     try std.testing.expect(!hasState(&model, session_new));
 
@@ -641,6 +653,7 @@ test "new session starts collapsed; leaving session restores on return" {
     try std.testing.expect(liveFilesHas(&model, "src"));
     try std.testing.expect(liveDiffHas(&model, "src"));
     try std.testing.expectEqual(right_panel.Tab.diff, model.right_panel_tab);
+    try std.testing.expect(model.right_panel_open);
 }
 
 test "stash table evicts the least-recently-taken session when full" {
@@ -683,15 +696,104 @@ test "tab round-trip across session switch; missing key is Files" {
     palette_run.applySessionSelection(&model, &fx, session_b);
     try std.testing.expectEqual(session_b, model.selected);
     try std.testing.expectEqual(right_panel.Tab.files, model.right_panel_tab);
+    try std.testing.expect(!model.right_panel_open);
     try std.testing.expect(hasState(&model, session_a));
     try std.testing.expect(!hasState(&model, session_b));
 
     model.right_panel_tab = .terminal;
     palette_run.applySessionSelection(&model, &fx, session_a);
     try std.testing.expectEqual(right_panel.Tab.browser, model.right_panel_tab);
+    try std.testing.expect(!model.right_panel_open);
 
     palette_run.applySessionSelection(&model, &fx, session_b);
     try std.testing.expectEqual(right_panel.Tab.terminal, model.right_panel_tab);
+    try std.testing.expect(!model.right_panel_open);
+}
+
+test "panel open round-trip across session switch; missing key is closed" {
+    const palette_run = @import("palette_run.zig");
+    var fx = main.Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer file_mention.clearCache(&model);
+    defer freeStores(&model);
+
+    const session_a = model.addSession("open a", .fx);
+    const session_b = model.addSession("open b", .fx);
+    model.selected = session_a;
+    model.right_panel_file_tree_width = 220;
+    right_panel.selectDiff(&model, &fx);
+    try std.testing.expect(model.right_panel_open);
+    try std.testing.expectEqual(right_panel.Tab.diff, model.right_panel_tab);
+    try std.testing.expect(model.review_diff_active);
+
+    palette_run.applySessionSelection(&model, &fx, session_b);
+    try std.testing.expectEqual(session_b, model.selected);
+    try std.testing.expect(!model.right_panel_open);
+    try std.testing.expectEqual(right_panel.Tab.files, model.right_panel_tab);
+    try std.testing.expect(!model.review_diff_active);
+    try std.testing.expect(!hasState(&model, session_b));
+    try std.testing.expectEqual(@as(f32, 220), model.right_panel_file_tree_width);
+
+    palette_run.applySessionSelection(&model, &fx, session_a);
+    try std.testing.expect(model.right_panel_open);
+    try std.testing.expectEqual(right_panel.Tab.diff, model.right_panel_tab);
+    try std.testing.expect(model.review_diff_active);
+    try std.testing.expectEqual(@as(f32, 220), model.right_panel_file_tree_width);
+
+    palette_run.applySessionSelection(&model, &fx, session_b);
+    try std.testing.expect(!model.right_panel_open);
+    try std.testing.expectEqual(right_panel.Tab.files, model.right_panel_tab);
+    try std.testing.expect(!model.review_diff_active);
+}
+
+test "remove session drops open stash; destination missing is closed" {
+    const palette_run = @import("palette_run.zig");
+    const session_actions = @import("session_actions.zig");
+    var fx = main.Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer file_mention.clearCache(&model);
+    defer freeStores(&model);
+
+    const session_a = model.addSession("vis drop a", .fx);
+    const session_b = model.addSession("vis drop b", .fx);
+    model.selected = session_a;
+    model.showRightPanel();
+    try std.testing.expect(model.right_panel_open);
+
+    palette_run.applySessionSelection(&model, &fx, session_b);
+    try std.testing.expect(!model.right_panel_open);
+
+    take(&model);
+    model.dropSession(session_b);
+    try std.testing.expect(!hasState(&model, session_b));
+    try std.testing.expectEqual(session_a, model.selected);
+    restore(&model, &fx);
+    try std.testing.expect(model.right_panel_open);
+
+    session_actions.handleRemoveSession(&model, &fx, session_b);
+    try std.testing.expect(!hasState(&model, session_b));
+    try std.testing.expect(model.right_panel_open);
+
+    const session_c = model.addSession("vis drop c", .fx);
+    palette_run.applySessionSelection(&model, &fx, session_c);
+    try std.testing.expect(!model.right_panel_open);
+
+    take(&model);
+    model.dropSession(session_a);
+    try std.testing.expect(!hasState(&model, session_a));
+    try std.testing.expectEqual(session_c, model.selected);
+    restore(&model, &fx);
+    try std.testing.expect(!model.right_panel_open);
+
+    session_actions.handleRemoveSession(&model, &fx, session_a);
+    try std.testing.expect(!hasState(&model, session_a));
+    try std.testing.expect(!model.right_panel_open);
 }
 
 test "Files preview path round-trip; stale path closes" {
@@ -774,9 +876,11 @@ test "Diff selected file and source round-trip; stale path clears" {
     try std.testing.expectEqual(right_panel.Tab.files, model.right_panel_tab);
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_selected_id);
     try std.testing.expect(!model.review_diff_active);
+    try std.testing.expect(!model.right_panel_open);
 
     palette_run.applySessionSelection(&model, &fx, session_a);
     try std.testing.expectEqual(right_panel.Tab.diff, model.right_panel_tab);
+    try std.testing.expect(!model.right_panel_open);
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_selected_id);
     try std.testing.expectEqualStrings("src/b.zig", model.right_panel_session_pending_diff.text());
     try std.testing.expect(model.right_panel_session_pending_diff_source_set);

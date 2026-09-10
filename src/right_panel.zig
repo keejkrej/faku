@@ -256,13 +256,15 @@
 //! top-level dirs. Live keys sit on `right_panel_expanded_store`;
 //! session switch / New Task / remove take-or-closed through
 //! `right_panel_session` (Waku in-memory `RightPanelSessionState`,
-//! not `sessions.json`): expand keys, live tab, Files selected
-//! preview path, dirty/editing Files preview buffer, and Diff selected
-//! file. `file_mention.clearCache` still frees the live expand table;
-//! restore re-applies remembered keys afterward. Files preview / Diff
-//! selection re-apply when the index or Review tree next fills if it
-//! was empty at restore; a stashed dirty/editing buffer is re-applied
-//! after that path reopens.
+//! not `sessions.json`): expand keys, live tab, panel open/closed,
+//! Files selected preview path, dirty/editing Files preview buffer, and
+//! Diff selected file. Missing stash key restores closed (Waku
+//! `take_or_closed` empty). Nested `file_tree_width` / Diff list width
+//! stay the global `sessions.json` extras this cut. `file_mention.clearCache`
+//! still frees the live expand table; restore re-applies remembered
+//! keys afterward. Files preview / Diff selection re-apply when the
+//! index or Review tree next fills if it was empty at restore; a
+//! stashed dirty/editing buffer is re-applied after that path reopens.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -539,6 +541,19 @@ pub fn applyPersisted(model: *Model, open: bool, tab: Tab, width_px: u32) void {
         model.right_panel_width = clampWidthTab(model.right_panel_width, tab);
     }
     model.syncRightPanelSplit();
+}
+
+/// Open or close using Show / Hide so Diff leave-surface, Files
+/// clamp, and split stay in sync. Browser park is layout
+/// (`right_panel_open`). Session restore calls this before applying
+/// the stashed tab so an open restore actually paints via the select
+/// helpers. Nested `file_tree_width` is not touched.
+pub fn setOpen(model: *Model, open: bool) void {
+    if (open) {
+        model.showRightPanel();
+        return;
+    }
+    model.hideRightPanel();
 }
 
 pub fn closedSplit() f32 {
