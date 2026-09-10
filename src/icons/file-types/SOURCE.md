@@ -2,9 +2,10 @@
 
 This directory contains a curated subset of the
 [Material Icon Theme](https://github.com/PKief/vscode-material-icon-theme)
-file icons (69 SVGs: first-cut coding-agent languages, a
+file icons (73 SVGs: first-cut coding-agent languages, a
 second-cut language/data expansion, a third-cut tooling
-subset, plus a fourth-cut frameworks/meta subset). That project is MIT; see its
+subset, a fourth-cut frameworks/meta subset, plus a fifth-cut
+media/config swap). That project is MIT; see its
 [upstream license](https://github.com/PKief/vscode-material-icon-theme/blob/main/LICENSE).
 
 SVG bytes come from the already-curated Waku subset (`egoist/waku`

@@ -4,10 +4,9 @@
 //! Behavior follows Waku `file_icon_for_path` / `file_icon_for_name`
 //! (basename specials, then extension) and maps onto a curated MIT
 //! Material app-icon subset (`app:zig`, `app:rust`, `app:ruby`, … from
-//! `src/icons/file-types/`) plus Native built-ins for directories
-//! (`folder` / `folder-open`), shells (`app:console` /
-//! `app:powershell`), archives (`archive`), audio (`music`), leftover
-//! config (`settings`), and unknown files (`file-text`). Diff tree
+//! `src/icons/file-types/`, including `app:zip` / `app:audio` /
+//! `app:video` / `app:settings`) plus Native built-ins for directories
+//! (`folder` / `folder-open`) and unknown files (`file-text`). Diff tree
 //! rows, the selected-file Diff header, and composer `@` mention
 //! rows reuse this same map
 //! (dirs stay `folder` in `@`; the list has no expand chevron).
@@ -43,8 +42,9 @@ pub fn fileIconForName(name: []const u8) []const u8 {
     const ext = extensionOf(name);
     if (extensionIs(ext, &.{ "sh", "bash", "zsh", "fish" })) return app("console");
     if (extensionIs(ext, &.{ "ps1", "psm1" })) return app("powershell");
-    if (extensionIs(ext, &.{ "zip", "tar", "gz", "tgz", "7z", "rar" })) return "archive";
-    if (extensionIs(ext, &.{ "mp3", "wav", "ogg", "flac", "m4a" })) return "music";
+    if (extensionIs(ext, &.{ "zip", "gz", "tgz", "bz2", "xz", "7z", "rar", "tar", "jar" })) return app("zip");
+    if (extensionIs(ext, &.{ "mp3", "wav", "flac", "ogg", "m4a" })) return app("audio");
+    if (extensionIs(ext, &.{ "mp4", "mov", "avi", "webm", "mkv" })) return app("video");
     if (extensionIs(ext, &.{ "zig" })) return app("zig");
     if (extensionIs(ext, &.{ "rs" })) return app("rust");
     if (extensionIs(ext, &.{ "go" })) return app("go");
@@ -86,7 +86,7 @@ pub fn fileIconForName(name: []const u8) []const u8 {
     if (extensionIs(ext, &.{ "svg" })) return app("svg");
     if (extensionIs(ext, &.{ "tf", "tfvars" })) return app("terraform");
     if (extensionIs(ext, &.{ "wasm" })) return app("webassembly");
-    if (extensionIs(ext, &.{ "ini", "cfg", "conf", "config", "toml" })) return "settings";
+    if (extensionIs(ext, &.{ "ini", "cfg", "conf", "config", "toml" })) return app("settings");
     return "file-text";
 }
 
@@ -147,7 +147,7 @@ fn basenameSpecial(name: []const u8) ?[]const u8 {
         return app("storybook");
     if (startsWithIgnoreCase(name, "deno.json") or std.ascii.eqlIgnoreCase(name, "deno.lock"))
         return app("deno");
-    if (isSettingsName(name)) return "settings";
+    if (isSettingsName(name)) return app("settings");
     return null;
 }
 
@@ -226,26 +226,36 @@ test "fileIconForName maps shells, archives, audio, leftover config" {
     try std.testing.expectEqualStrings("app:powershell", fileIconForName("build.ps1"));
     try std.testing.expectEqualStrings("app:powershell", fileIconForName("Tools.psm1"));
 
-    try std.testing.expectEqualStrings("settings", fileIconForName("php.ini"));
-    try std.testing.expectEqualStrings("settings", fileIconForName("app.cfg"));
-    try std.testing.expectEqualStrings("settings", fileIconForName("nginx.conf"));
-    try std.testing.expectEqualStrings("settings", fileIconForName("app.config"));
-    try std.testing.expectEqualStrings("settings", fileIconForName(".env"));
-    try std.testing.expectEqualStrings("settings", fileIconForName(".env.local"));
-    try std.testing.expectEqualStrings("settings", fileIconForName(".editorconfig"));
+    try std.testing.expectEqualStrings("app:settings", fileIconForName("php.ini"));
+    try std.testing.expectEqualStrings("app:settings", fileIconForName("app.cfg"));
+    try std.testing.expectEqualStrings("app:settings", fileIconForName("nginx.conf"));
+    try std.testing.expectEqualStrings("app:settings", fileIconForName("app.config"));
+    try std.testing.expectEqualStrings("app:settings", fileIconForName("other.toml"));
+    try std.testing.expectEqualStrings("app:settings", fileIconForName(".env"));
+    try std.testing.expectEqualStrings("app:settings", fileIconForName(".env.local"));
+    try std.testing.expectEqualStrings("app:settings", fileIconForName(".editorconfig"));
 
-    try std.testing.expectEqualStrings("archive", fileIconForName("out.zip"));
-    try std.testing.expectEqualStrings("archive", fileIconForName("src.tar"));
-    try std.testing.expectEqualStrings("archive", fileIconForName("src.tar.gz"));
-    try std.testing.expectEqualStrings("archive", fileIconForName("pkg.tgz"));
-    try std.testing.expectEqualStrings("archive", fileIconForName("pack.7z"));
-    try std.testing.expectEqualStrings("archive", fileIconForName("old.rar"));
+    try std.testing.expectEqualStrings("app:zip", fileIconForName("out.zip"));
+    try std.testing.expectEqualStrings("app:zip", fileIconForName("lib.jar"));
+    try std.testing.expectEqualStrings("app:zip", fileIconForName("src.tar"));
+    try std.testing.expectEqualStrings("app:zip", fileIconForName("src.tar.gz"));
+    try std.testing.expectEqualStrings("app:zip", fileIconForName("pkg.tgz"));
+    try std.testing.expectEqualStrings("app:zip", fileIconForName("src.tar.bz2"));
+    try std.testing.expectEqualStrings("app:zip", fileIconForName("src.tar.xz"));
+    try std.testing.expectEqualStrings("app:zip", fileIconForName("pack.7z"));
+    try std.testing.expectEqualStrings("app:zip", fileIconForName("old.rar"));
 
-    try std.testing.expectEqualStrings("music", fileIconForName("track.mp3"));
-    try std.testing.expectEqualStrings("music", fileIconForName("loop.wav"));
-    try std.testing.expectEqualStrings("music", fileIconForName("clip.ogg"));
-    try std.testing.expectEqualStrings("music", fileIconForName("song.flac"));
-    try std.testing.expectEqualStrings("music", fileIconForName("voice.m4a"));
+    try std.testing.expectEqualStrings("app:audio", fileIconForName("track.mp3"));
+    try std.testing.expectEqualStrings("app:audio", fileIconForName("loop.wav"));
+    try std.testing.expectEqualStrings("app:audio", fileIconForName("clip.ogg"));
+    try std.testing.expectEqualStrings("app:audio", fileIconForName("song.flac"));
+    try std.testing.expectEqualStrings("app:audio", fileIconForName("voice.m4a"));
+
+    try std.testing.expectEqualStrings("app:video", fileIconForName("clip.mp4"));
+    try std.testing.expectEqualStrings("app:video", fileIconForName("clip.mov"));
+    try std.testing.expectEqualStrings("app:video", fileIconForName("clip.avi"));
+    try std.testing.expectEqualStrings("app:video", fileIconForName("clip.webm"));
+    try std.testing.expectEqualStrings("app:video", fileIconForName("clip.mkv"));
 }
 
 test "fileIconForName maps Material app icons for common extensions" {
@@ -410,7 +420,7 @@ test "fileIconForName skipped nest and unmatched stories stay generic" {
     try std.testing.expectEqualStrings("app:json", fileIconForName("nest-cli.json"));
     try std.testing.expectEqualStrings("app:typescript", fileIconForName("index.ts"));
     try std.testing.expectEqualStrings("app:javascript", fileIconForName("stories.js"));
-    try std.testing.expectEqualStrings("settings", fileIconForName("other.toml"));
+    try std.testing.expectEqualStrings("app:settings", fileIconForName("other.toml"));
 }
 
 test "fileIconForPath uses the basename of a repo-relative path" {
@@ -420,6 +430,10 @@ test "fileIconForPath uses the basename of a repo-relative path" {
     try std.testing.expectEqualStrings("app:zig", fileIconForPath("src/main.zig"));
     try std.testing.expectEqualStrings("app:ruby", fileIconForPath("lib/app.rb"));
     try std.testing.expectEqualStrings("app:svg", fileIconForPath("assets/logo.svg"));
+    try std.testing.expectEqualStrings("app:zip", fileIconForPath("dist/out.zip"));
+    try std.testing.expectEqualStrings("app:audio", fileIconForPath("assets/track.mp3"));
+    try std.testing.expectEqualStrings("app:video", fileIconForPath("assets/clip.mp4"));
+    try std.testing.expectEqualStrings("app:settings", fileIconForPath("config/php.ini"));
     try std.testing.expectEqualStrings("app:next", fileIconForPath("apps/web/next.config.ts"));
     try std.testing.expectEqualStrings("app:prisma", fileIconForPath("prisma/schema.prisma"));
     try std.testing.expectEqualStrings("app:storybook", fileIconForPath("src/Button.stories.tsx"));
@@ -442,7 +456,13 @@ test "files tree icons stay in Native built-ins or registered app: names" {
         fileIconForName("bun.lock"),
         fileIconForName("vite.config.ts"),
         fileIconForName("out.zip"),
+        fileIconForName("lib.jar"),
+        fileIconForName("src.tar.xz"),
         fileIconForName("track.mp3"),
+        fileIconForName("clip.mp4"),
+        fileIconForName("clip.mkv"),
+        fileIconForName("php.ini"),
+        fileIconForName("other.toml"),
         fileIconForName(".gitignore"),
         fileIconForName("README.md"),
         fileIconForName("Makefile"),

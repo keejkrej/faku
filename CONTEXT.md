@@ -625,8 +625,10 @@ a preview is open; not the no-project empty state and not Loading.
 Directory rows paint Native `folder-open` when expanded and `folder` when
 collapsed (chevrons stay). File rows pick a Material app icon
 (`app:zig`, `app:rust`, `app:ruby`, … MIT subset under `src/icons/file-types/`) or a
-Native built-in (`settings` / `archive` / `music`, else
-`file-text`; shells bind Material `app:console` / `app:powershell`).
+Native built-in (`file-text` for unknown files; directories stay
+`folder` / `folder-open`; archives/audio/video/config bind Material
+`app:zip` / `app:audio` / `app:video` / `app:settings`; shells bind
+Material `app:console` / `app:powershell`).
 Diff tree rows, the selected-file Diff header, and composer
 `@` mention rows reuse this same `file_icon` map (mention dirs stay
 `folder`, collapsed; no expand chevron). Browser / Terminal stay
@@ -698,8 +700,8 @@ rows paint a first-cut nested directory tree matching Waku
 `review_diff_tree_rows` (collapsible Directory + File, default
 collapsed, basename leaves, Material app icon from the same
 Files `file_icon` map — dirs `folder` / `folder-open`, files `app:zig` /
-`app:rust` / `app:ruby` / … plus built-in `settings` / `archive` /
-`music` else `file-text` (shells `app:console` / `app:powershell`) — colored status letter `A`/`D`/`B`/`M`/`?` separate from
+`app:rust` / `app:ruby` / … plus `app:zip` / `app:audio` /
+`app:video` / `app:settings` else `file-text` (shells `app:console` / `app:powershell`) — colored status letter `A`/`D`/`B`/`M`/`?` separate from
 the basename, optional `+N` / `-M` from
 numstat; zeros omitted; numstat `-` is Binary `B`; daemon CollectReviewDiff and local
 `--numstat`). A Native search-field above that tree is Waku
@@ -1173,9 +1175,9 @@ live watch.
 
 Honest gaps this cut does not implement:
 
-- Remaining Material / Waku file-type SVGs (zip/audio/video/settings
-  Material swaps, nest/kotlin/graphql/prettier Native-dialect skips, …)
-  stay later PRs; this cut vendors a fourth-cut frameworks subset
+- Remaining Material / Waku file-type SVGs (certificate/lock/exe/nginx,
+  nest/kotlin/graphql/prettier Native-dialect skips, …)
+  stay later PRs; this cut vendors a fifth-cut media/config swap
 - Full onboarding / OAuth / auto-install (fx install/login copy
   ships; other CLIs get a PATH hint only)
 - Native Pi ACP / `--mode rpc` (json-mode one-shot
