@@ -4263,9 +4263,20 @@ pub const Model = struct {
         return model.sidebarChrome().collapse_all_folders;
     }
 
-    /// Delete-folder trash button. Folder context-menu Delete stays English.
+    /// Delete-folder trash button. Distinct from context-menu Delete.
     pub fn delete_folder_label(model: *const Model) []const u8 {
         return model.sidebarChrome().delete_folder;
+    }
+
+    /// Folder context-menu Rename. Session Rename stays English.
+    pub fn rename_folder_label(model: *const Model) []const u8 {
+        return model.sidebarChrome().rename;
+    }
+
+    /// Folder context-menu Delete (plain Delete, not Delete folder).
+    /// Session Remove stays English.
+    pub fn delete_label(model: *const Model) []const u8 {
+        return model.sidebarChrome().delete;
     }
 
     pub fn systemLocaleId(model: *const Model) []const u8 {

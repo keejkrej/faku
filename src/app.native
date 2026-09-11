@@ -220,12 +220,12 @@
                     </else>
                     <button variant="ghost" size="icon" icon="trash" label="{delete_folder_label}" on-press="delete_folder:{s.folder_id}"></button>
                     <context-menu>
-                      <menu-item on-press="rename_folder:{s.folder_id}">Rename</menu-item>
+                      <menu-item on-press="rename_folder:{s.folder_id}">{rename_folder_label}</menu-item>
                       <separator />
-                      <!-- Folder context-menu Delete stays English this cut
-                           (Rename is also English). Trash button uses
-                           delete_folder_label. -->
-                      <menu-item on-press="delete_folder:{s.folder_id}">Delete</menu-item>
+                      <!-- Folder context-menu Rename / Delete follow
+                           Appearance language. Trash button uses
+                           delete_folder_label. Session menus stay English. -->
+                      <menu-item on-press="delete_folder:{s.folder_id}">{delete_label}</menu-item>
                     </context-menu>
                   </list-item>
                 </if>
