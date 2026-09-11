@@ -14,9 +14,12 @@
 //! first-cut composer interaction chip / Settings General Build /
 //! Plan (same `Interaction` strings), first-cut right-panel tab
 //! button labels (same `RightPanelTabs` strings; EN Diff tab reads
-//! Review), and first-cut right-panel Diff filter + Files/Background
+//! Review), first-cut right-panel Diff filter + Files/Background
 //! empty-state chrome plus Browser start page / Open in browser /
-//! Open in Terminal (same `RightPanelChrome` strings) live here so
+//! Open in Terminal (same `RightPanelChrome` strings), and first-cut
+//! composer project-row Pick folder / Reveal folder / Open in Editor /
+//! Copy path (same `ComposerProjectChrome` strings; Open in Terminal
+//! reuses `RightPanelChrome.open_in_terminal`) live here so
 //! `main.zig` does not grow. Palette ids / `PaletteAction` / keywords
 //! stay English. Wire `access_mode` ids stay `ask` / `auto` /
 //! `fullAccess`. Wire `reasoning_effort` ids stay `auto` / `none` /
@@ -25,8 +28,10 @@
 //! `right_panel_tab` ids stay `files` / `diff` / `browser` /
 //! `terminal` / `background`. Diff filter `on-input` and filter text
 //! stay English. Open in browser / Open in Terminal `on-press` stay
-//! `open_url` / `open_terminal`. Not rust_i18n, not YAML catalogs,
-//! not full-app translation, not tz-aware grouping.
+//! `open_url` / `open_terminal`. Composer Pick folder / Reveal folder /
+//! Open in Editor / Copy path `on-press` stay `pick_folder` /
+//! `reveal_folder` / `open_editor` / `copy_project_path`. Not rust_i18n,
+//! not YAML catalogs, not full-app translation, not tz-aware grouping.
 
 const std = @import("std");
 
@@ -558,8 +563,8 @@ const right_panel_tabs_ja: RightPanelTabs = .{
 /// labels for the resolved locale. Same resolve path as RightPanelTabs.
 /// Wire ids / on-press / filter text stay English; only these visible
 /// strings translate. English Diff filter reads "Filter files", not
-/// Filter. Composer Open in Terminal and remaining Background row chrome
-/// stay English.
+/// Filter. Composer Open in Terminal reuses `open_in_terminal`. Remaining
+/// Background row chrome stays English.
 pub const RightPanelChrome = struct {
     filter_files: []const u8,
     no_project_open: []const u8,
@@ -602,6 +607,40 @@ const right_panel_chrome_ja: RightPanelChrome = .{
     .address_focus_hint = "Cmd/Ctrl-L でアドレス欄にフォーカス。",
     .open_in_browser = "ブラウザで開く",
     .open_in_terminal = "ターミナルで開く",
+};
+
+/// Composer project-row Pick folder / Reveal folder / Open in Editor /
+/// Copy path for the resolved locale. Same resolve path as RightPanelChrome.
+/// Open in Terminal reuses `RightPanelChrome.open_in_terminal` (not
+/// duplicated here). Wire ids / on-press stay English. English matches
+/// the former hardcoded composer buttons. Distinct from palette
+/// `Open project in Editor` / `Reveal project folder` / `Copy project path`.
+pub const ComposerProjectChrome = struct {
+    pick_folder: []const u8,
+    reveal_folder: []const u8,
+    open_in_editor: []const u8,
+    copy_path: []const u8,
+};
+
+const composer_project_chrome_en: ComposerProjectChrome = .{
+    .pick_folder = "Pick folder",
+    .reveal_folder = "Reveal folder",
+    .open_in_editor = "Open in Editor",
+    .copy_path = "Copy path",
+};
+
+const composer_project_chrome_zh_cn: ComposerProjectChrome = .{
+    .pick_folder = "选择文件夹",
+    .reveal_folder = "显示文件夹",
+    .open_in_editor = "在编辑器中打开",
+    .copy_path = "复制路径",
+};
+
+const composer_project_chrome_ja: ComposerProjectChrome = .{
+    .pick_folder = "フォルダを選択",
+    .reveal_folder = "フォルダを表示",
+    .open_in_editor = "エディターで開く",
+    .copy_path = "パスをコピー",
 };
 
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
@@ -751,6 +790,18 @@ pub fn rightPanelChromeFor(preference: LanguagePreference, system_locale_id: []c
         .simplified_chinese => right_panel_chrome_zh_cn,
         .japanese => right_panel_chrome_ja,
         .system, .english => right_panel_chrome_en,
+    };
+}
+
+/// Composer project-row Pick folder / Reveal folder / Open in Editor /
+/// Copy path for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does not read
+/// process env. Open in Terminal stays on `rightPanelChromeFor`.
+pub fn composerProjectChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ComposerProjectChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => composer_project_chrome_zh_cn,
+        .japanese => composer_project_chrome_ja,
+        .system, .english => composer_project_chrome_en,
     };
 }
 
@@ -1169,4 +1220,40 @@ test "rightPanelChromeFor english default; zh and ja chrome; english ignores ja 
     try testing.expectEqualStrings("Cmd/Ctrl-L focuses the address.", rightPanelChromeFor(.english, "zh_CN.UTF-8").address_focus_hint);
     try testing.expectEqualStrings("Open in browser", rightPanelChromeFor(.english, "ja_JP.UTF-8").open_in_browser);
     try testing.expectEqualStrings("Open in Terminal", rightPanelChromeFor(.english, "zh_CN.UTF-8").open_in_terminal);
+}
+
+test "composerProjectChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Pick folder", composerProjectChromeFor(.english, "ja").pick_folder);
+    try testing.expectEqualStrings("Reveal folder", composerProjectChromeFor(.english, "").reveal_folder);
+    try testing.expectEqualStrings("Open in Editor", composerProjectChromeFor(.english, "").open_in_editor);
+    try testing.expectEqualStrings("Copy path", composerProjectChromeFor(.english, "").copy_path);
+    try testing.expectEqualStrings("Pick folder", composerProjectChromeFor(.system, "").pick_folder);
+
+    try testing.expectEqualStrings("选择文件夹", composerProjectChromeFor(.simplified_chinese, "").pick_folder);
+    try testing.expectEqualStrings("显示文件夹", composerProjectChromeFor(.simplified_chinese, "").reveal_folder);
+    try testing.expectEqualStrings("在编辑器中打开", composerProjectChromeFor(.simplified_chinese, "").open_in_editor);
+    try testing.expectEqualStrings("复制路径", composerProjectChromeFor(.simplified_chinese, "").copy_path);
+
+    try testing.expectEqualStrings("フォルダを選択", composerProjectChromeFor(.japanese, "").pick_folder);
+    try testing.expectEqualStrings("フォルダを表示", composerProjectChromeFor(.japanese, "").reveal_folder);
+    try testing.expectEqualStrings("エディターで開く", composerProjectChromeFor(.japanese, "").open_in_editor);
+    try testing.expectEqualStrings("パスをコピー", composerProjectChromeFor(.japanese, "").copy_path);
+
+    try testing.expectEqualStrings("选择文件夹", composerProjectChromeFor(.system, "zh_CN.UTF-8").pick_folder);
+    try testing.expectEqualStrings("パスをコピー", composerProjectChromeFor(.system, "ja_JP.UTF-8").copy_path);
+    try testing.expectEqualStrings("Pick folder", composerProjectChromeFor(.english, "ja_JP.UTF-8").pick_folder);
+    try testing.expectEqualStrings("Reveal folder", composerProjectChromeFor(.english, "zh_CN.UTF-8").reveal_folder);
+    try testing.expectEqualStrings("Open in Editor", composerProjectChromeFor(.english, "ja_JP.UTF-8").open_in_editor);
+    try testing.expectEqualStrings("Copy path", composerProjectChromeFor(.english, "zh_CN.UTF-8").copy_path);
+
+    try testing.expect(!std.mem.eql(u8, composerProjectChromeFor(.english, "").open_in_editor, paletteFor(.english, "").open_project_in_editor));
+    try testing.expect(!std.mem.eql(u8, composerProjectChromeFor(.english, "").reveal_folder, paletteFor(.english, "").reveal_project_folder));
+    try testing.expect(!std.mem.eql(u8, composerProjectChromeFor(.english, "").copy_path, paletteFor(.english, "").copy_project_path));
+    try testing.expect(!std.mem.eql(u8, composerProjectChromeFor(.simplified_chinese, "").open_in_editor, paletteFor(.simplified_chinese, "").open_project_in_editor));
+    try testing.expect(!std.mem.eql(u8, composerProjectChromeFor(.simplified_chinese, "").reveal_folder, paletteFor(.simplified_chinese, "").reveal_project_folder));
+    try testing.expect(!std.mem.eql(u8, composerProjectChromeFor(.simplified_chinese, "").copy_path, paletteFor(.simplified_chinese, "").copy_project_path));
+    try testing.expect(!std.mem.eql(u8, composerProjectChromeFor(.japanese, "").open_in_editor, paletteFor(.japanese, "").open_project_in_editor));
+    try testing.expect(!std.mem.eql(u8, composerProjectChromeFor(.japanese, "").reveal_folder, paletteFor(.japanese, "").reveal_project_folder));
+    try testing.expect(!std.mem.eql(u8, composerProjectChromeFor(.japanese, "").copy_path, paletteFor(.japanese, "").copy_project_path));
 }

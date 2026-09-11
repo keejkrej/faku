@@ -2102,6 +2102,7 @@ pub const Model = struct {
         "paletteOverlayChrome",
         "rightPanelTabs",
         "rightPanelChrome",
+        "composerProjectChrome",
         "palette_action_label",
         "show_right_panel_label",
         "sidebarDates",
@@ -3455,11 +3456,34 @@ pub const Model = struct {
         return model.rightPanelChrome().open_in_browser;
     }
 
-    /// Right-panel Terminal tab OS-fallback ghost button. `on-press`
-    /// stays `open_terminal`. Composer Open in Terminal stays English
-    /// this cut.
+    /// Right-panel Terminal tab and composer project-row OS-fallback
+    /// ghost button. Same `i18n.RightPanelChrome.open_in_terminal`.
+    /// `on-press` stays `open_terminal`.
     pub fn open_in_terminal_label(model: *const Model) []const u8 {
         return model.rightPanelChrome().open_in_terminal;
+    }
+
+    /// Composer project-row Pick folder. `on-press` stays `pick_folder`.
+    pub fn pick_folder_label(model: *const Model) []const u8 {
+        return model.composerProjectChrome().pick_folder;
+    }
+
+    /// Composer project-row Reveal folder. `on-press` stays `reveal_folder`.
+    /// Distinct from palette `Reveal project folder`.
+    pub fn reveal_folder_label(model: *const Model) []const u8 {
+        return model.composerProjectChrome().reveal_folder;
+    }
+
+    /// Composer project-row Open in Editor. `on-press` stays `open_editor`.
+    /// Distinct from palette `Open project in Editor`.
+    pub fn open_in_editor_label(model: *const Model) []const u8 {
+        return model.composerProjectChrome().open_in_editor;
+    }
+
+    /// Composer project-row Copy path. `on-press` stays `copy_project_path`.
+    /// Distinct from palette `Copy project path`.
+    pub fn copy_path_label(model: *const Model) []const u8 {
+        return model.composerProjectChrome().copy_path;
     }
 
     pub fn switcher_rows(model: *const Model, arena: std.mem.Allocator) []const SessionRow {
@@ -4364,6 +4388,10 @@ pub const Model = struct {
 
     fn rightPanelChrome(model: *const Model) i18n.RightPanelChrome {
         return i18n.rightPanelChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn composerProjectChrome(model: *const Model) i18n.ComposerProjectChrome {
+        return i18n.composerProjectChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Palette row display label for `action`. New Task / Settings /
