@@ -9579,7 +9579,7 @@ test "toggle right panel opens and closes the Files pane" {
     tree = try buildTree(arena, &model);
     const files_tab = try expectButtonMsg(tree, "Files", .set_right_panel_tab_files);
     try testing.expect(files_tab.state.selected);
-    const diff_tab = try expectButtonMsg(tree, "Diff", .set_right_panel_tab_diff);
+    const diff_tab = try expectButtonMsg(tree, "Review", .set_right_panel_tab_diff);
     try testing.expect(!diff_tab.state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "Browser", .set_right_panel_tab_browser)).state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "Terminal", .set_right_panel_tab_terminal)).state.selected);
@@ -10278,7 +10278,7 @@ test "right panel Files, Diff, Browser, Terminal, and Background tabs switch sur
     var tree = try buildTree(arena, &model);
     const files_tab = try expectButtonMsg(tree, "Files", .set_right_panel_tab_files);
     try testing.expect(files_tab.state.selected);
-    const diff_tab = try expectButtonMsg(tree, "Diff", .set_right_panel_tab_diff);
+    const diff_tab = try expectButtonMsg(tree, "Review", .set_right_panel_tab_diff);
     try testing.expect(!diff_tab.state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "Browser", .set_right_panel_tab_browser)).state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "Terminal", .set_right_panel_tab_terminal)).state.selected);
@@ -10302,7 +10302,7 @@ test "right panel Files, Diff, Browser, Terminal, and Background tabs switch sur
     tree = try buildTree(arena, &model);
     const files_off = try expectButtonMsg(tree, "Files", .set_right_panel_tab_files);
     try testing.expect(!files_off.state.selected);
-    const diff_on = try expectButtonMsg(tree, "Diff", .set_right_panel_tab_diff);
+    const diff_on = try expectButtonMsg(tree, "Review", .set_right_panel_tab_diff);
     try testing.expect(diff_on.state.selected);
     const background_off = try expectButtonMsg(tree, "Background", .set_right_panel_tab_background);
     try testing.expect(!background_off.state.selected);
@@ -10329,7 +10329,7 @@ test "right panel Files, Diff, Browser, Terminal, and Background tabs switch sur
     const background_on = try expectButtonMsg(tree, "Background", .set_right_panel_tab_background);
     try testing.expect(background_on.state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "Files", .set_right_panel_tab_files)).state.selected);
-    try testing.expect(!(try expectButtonMsg(tree, "Diff", .set_right_panel_tab_diff)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Review", .set_right_panel_tab_diff)).state.selected);
     _ = try expectByText(tree.root, .text, "No background work");
     try testing.expect(findByText(tree.root, .text, "Review") == null);
     try testing.expect(findByText(tree.root, .text, "No project open") == null);
@@ -24507,6 +24507,108 @@ test "palette section headers and empty-state follow Appearance language" {
     try testing.expectEqualStrings("一致するタスクやコマンドはありません", model.paletteOverlayChrome().no_matches);
 }
 
+test "right panel tab labels follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Files", model.right_panel_tab_files_label());
+    try testing.expectEqualStrings("Review", model.right_panel_tab_diff_label());
+    try testing.expectEqualStrings("Browser", model.right_panel_tab_browser_label());
+    try testing.expectEqualStrings("Terminal", model.right_panel_tab_terminal_label());
+    try testing.expectEqualStrings("Background", model.right_panel_tab_background_label());
+
+    main.update(&model, .show_right_panel, &fx);
+    try testing.expect(model.right_panel_open);
+    try testing.expect(model.right_panel_tab_files());
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Files", .set_right_panel_tab_files)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Review", .set_right_panel_tab_diff)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Browser", .set_right_panel_tab_browser)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Terminal", .set_right_panel_tab_terminal)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Background", .set_right_panel_tab_background)).state.selected);
+    try testing.expect(findByText(tree.root, .button, "Diff") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("文件", model.right_panel_tab_files_label());
+    try testing.expectEqualStrings("审阅", model.right_panel_tab_diff_label());
+    try testing.expectEqualStrings("浏览器", model.right_panel_tab_browser_label());
+    try testing.expectEqualStrings("终端", model.right_panel_tab_terminal_label());
+    try testing.expectEqualStrings("后台工作", model.right_panel_tab_background_label());
+    try testing.expect(model.right_panel_tab_files());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "文件", .set_right_panel_tab_files)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "审阅", .set_right_panel_tab_diff)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "浏览器", .set_right_panel_tab_browser)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "终端", .set_right_panel_tab_terminal)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "后台工作", .set_right_panel_tab_background)).state.selected);
+    try testing.expect(findByText(tree.root, .button, "Files") == null);
+    try testing.expect(findByText(tree.root, .button, "Review") == null);
+    try testing.expect(findByText(tree.root, .button, "Diff") == null);
+    try testing.expect(findByText(tree.root, .button, "Background") == null);
+
+    main.update(&model, .set_right_panel_tab_diff, &fx);
+    try testing.expect(model.right_panel_tab_diff());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "审阅", .set_right_panel_tab_diff)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "文件", .set_right_panel_tab_files)).state.selected);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("ファイル", model.right_panel_tab_files_label());
+    try testing.expectEqualStrings("レビュー", model.right_panel_tab_diff_label());
+    try testing.expectEqualStrings("ブラウザ", model.right_panel_tab_browser_label());
+    try testing.expectEqualStrings("ターミナル", model.right_panel_tab_terminal_label());
+    try testing.expectEqualStrings("バックグラウンド", model.right_panel_tab_background_label());
+    try testing.expect(model.right_panel_tab_diff());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "レビュー", .set_right_panel_tab_diff)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "ファイル", .set_right_panel_tab_files)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "ブラウザ", .set_right_panel_tab_browser)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "ターミナル", .set_right_panel_tab_terminal)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "バックグラウンド", .set_right_panel_tab_background)).state.selected);
+    try testing.expect(findByText(tree.root, .button, "Files") == null);
+    try testing.expect(findByText(tree.root, .button, "Review") == null);
+    try testing.expect(findByText(tree.root, .button, "审阅") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Files", model.right_panel_tab_files_label());
+    try testing.expectEqualStrings("Review", model.right_panel_tab_diff_label());
+    try testing.expectEqualStrings("Browser", model.right_panel_tab_browser_label());
+    try testing.expectEqualStrings("Terminal", model.right_panel_tab_terminal_label());
+    try testing.expectEqualStrings("Background", model.right_panel_tab_background_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Review", .set_right_panel_tab_diff)).state.selected);
+    try testing.expect(findByText(tree.root, .button, "Diff") == null);
+    try testing.expect(findByText(tree.root, .button, "レビュー") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("文件", model.right_panel_tab_files_label());
+    try testing.expectEqualStrings("审阅", model.right_panel_tab_diff_label());
+    try testing.expectEqualStrings("浏览器", model.right_panel_tab_browser_label());
+    try testing.expectEqualStrings("终端", model.right_panel_tab_terminal_label());
+    try testing.expectEqualStrings("后台工作", model.right_panel_tab_background_label());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("ファイル", model.right_panel_tab_files_label());
+    try testing.expectEqualStrings("レビュー", model.right_panel_tab_diff_label());
+    try testing.expectEqualStrings("ブラウザ", model.right_panel_tab_browser_label());
+    try testing.expectEqualStrings("ターミナル", model.right_panel_tab_terminal_label());
+    try testing.expectEqualStrings("バックグラウンド", model.right_panel_tab_background_label());
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Files", model.right_panel_tab_files_label());
+    try testing.expectEqualStrings("Review", model.right_panel_tab_diff_label());
+    try testing.expectEqualStrings("Background", model.right_panel_tab_background_label());
+}
+
 test "DateBucket.title english default; zh and ja follow datesFor" {
     try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
     try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());
@@ -25878,7 +25980,7 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     _ = try expectButtonMsg(tree, "Cancel", .close_review_diff);
     const files_tab = try expectButtonMsg(tree, "Files", .set_right_panel_tab_files);
     try testing.expect(!files_tab.state.selected);
-    const diff_tab = try expectButtonMsg(tree, "Diff", .set_right_panel_tab_diff);
+    const diff_tab = try expectButtonMsg(tree, "Review", .set_right_panel_tab_diff);
     try testing.expect(diff_tab.state.selected);
     const branch_btn = try expectButtonMsg(tree, "Branch", .set_review_diff_source_branch);
     try testing.expect(!branch_btn.state.selected);
