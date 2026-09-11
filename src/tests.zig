@@ -8948,7 +8948,8 @@ test "cmd-n and ctrl-n create a session via onKey" {
     };
     try testing.expectEqual(Msg.new_session, keys.onKey(ctrl_n).?);
     main.update(&model, keys.onKey(ctrl_n).?, &fx);
-    try testing.expectEqual(@as(u32, 4), model.session_count);
+    try testing.expectEqual(@as(u32, 3), model.session_count);
+    try testing.expectEqualStrings("untitled", model.selected_title());
     try testing.expectEqualStrings("fx", model.selected_provider());
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
@@ -9027,7 +9028,7 @@ test "new task and cmd-n focus the composer via the same autofocus edge" {
     };
     try testing.expectEqual(Msg.new_session, keys.onKey(cmd_n).?);
     main.update(&model, keys.onKey(cmd_n).?, &fx);
-    try testing.expectEqual(@as(u32, 4), model.session_count);
+    try testing.expectEqual(@as(u32, 3), model.session_count);
     try testing.expect(model.sessionById(model.selected).?.untitled);
     try testing.expect(model.composer_active);
     try testing.expect(model.palette_open);
