@@ -4,8 +4,9 @@
 //! Native `details-expanded` (`[]const bool` in details-block document
 //! order) and `on-details` (bare Msg tag; payload is that index). Cap
 //! `canvas.markdown.max_markdown_details_per_document`. Missing /
-//! false flags stay collapsed. Runtime-only — not sessions.json.
-//! Verified: Native markdown `details-expanded` + `on-details`.
+//! false flags stay collapsed. Runtime-only — not `sessions.json`
+//! (Native `app_dirs` data, app name `faku`). Verified: Native markdown
+//! `details-expanded` + `on-details`.
 //!
 //! Native `on-details` is a bare `usize` index and `details-expanded`
 //! is one Model-owned iterable (a field, pub decl, or fn — the same

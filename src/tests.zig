@@ -1047,6 +1047,53 @@ test "assistant markdown details share flags across turns; drop on session switc
     try testing.expect(findPressableContaining(tree.root, "▸ Alpha") == null);
 }
 
+test "transcript details flags stay out of sessions.json" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-tx-details-catalog", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    const id = model.addSession("tx details catalog", .fx);
+    model.selected = id;
+    _ = model.appendTurn(id, .assistant,
+        \\<details>
+        \\<summary>More</summary>
+        \\
+        \\Hidden
+        \\
+        \\</details>
+        \\
+    );
+    main.update(&model, .{ .transcript_toggle_details = 0 }, &fx);
+    try testing.expect(model.transcript_details_expanded()[0]);
+
+    try store.saveSession(&model, id, testing.allocator, testing.io);
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = store.catalogPath(dir, &path_buf).?;
+    try testing.expect(std.mem.endsWith(u8, path, store.catalog_name));
+    try testing.expectEqualStrings("sessions.json", store.catalog_name);
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(testing.io, path, testing.allocator, .limited(64 * 1024));
+    defer testing.allocator.free(bytes);
+    try testing.expect(std.mem.indexOf(u8, bytes, "transcript_details") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "details_expanded") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "details-expanded") == null);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    store.hydrateSession(&loaded, id, testing.allocator, testing.io);
+    try testing.expect(!loaded.transcript_details_expanded()[0]);
+}
+
 test "user turns hug the right in a bubble; assistant turns stay left" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
