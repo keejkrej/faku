@@ -85,13 +85,20 @@ There is no `listSessions` / `createSession`. Catalog is
 first content. First-cut remembered New Task: runtime-only
 `new_task` id (Waku `SessionNavigation.new_task`; not persisted on
 `sessions.json`; Faku ids are `u32`, not Uuid). Selecting an
-unstarted session remembers it. New Task reopens that draft when
-it still exists and has not started (same select path as
-projectless draft reuse: `pushSelectionHistory` +
-`applySessionSelection`). Visiting started sessions does not clear
-the slot. Started, removed, or missing drafts are ignored; then
-projectless reuse or create as today. Selection history Back /
-Forward stays a separate stack.
+unstarted session remembers it. New Task on an ordinary project
+reopens that draft when it still exists, has not started, and
+`projectPath()` equals the current ordinary project path (selected
+session cwd when present, else `lastProjectPath()` — the path a
+fresh draft would get; Waku `remembered_new_task` project filter;
+same select path as projectless draft reuse:
+`pushSelectionHistory` + `applySessionSelection`). A remembered
+draft for another path is skipped without clearing the slot;
+create does not steal it. Projectless New Task does not consult
+the slot (Waku `create_projectless_session`) and keeps today's
+reuse / CreateProjectlessWorkspace path. Visiting started
+sessions does not clear the slot. Started, removed, or missing
+drafts are ignored. Selection history Back / Forward stays a
+separate stack.
 
 Session `workspace` on `sessions.json` is omitted when `local`. A
 `newWorktree` skeleton is `{"kind":"newWorktree"}`, or
@@ -397,11 +404,11 @@ today's ACP path). First-cut daemon
 `WorkspaceOperation::CreateProjectlessWorkspace` ships on New Task
 when there is no ordinary project (empty `last_project_path`, or
 the selected session's `project_path` is already a projectless path
-under `~/.waku/projects` / legacy `~/.waku/<date>/…`) and no valid
-remembered New Task draft and no unstarted non-legacy projectless
-draft exists (Waku `create_projectless_session` selects that draft
-instead of creating a row; bare `~/.waku` is not reused) and a daemon
-address is set
+under `~/.waku/projects` / legacy `~/.waku/<date>/…`). Projectless
+New Task does not consult remembered New Task. An unstarted
+non-legacy projectless draft is selected instead of creating a row
+(Waku `create_projectless_session`; bare `~/.waku` is not reused).
+Create runs when no such draft exists and a daemon address is set
 (ok is nested `projectlessWorkspace` + `cwd`; paints
 the new session `project_path` and `last_project_path`; Native 4 KiB
 stdin overflow / error / unusable parse / empty cwd fall back to
@@ -1372,12 +1379,15 @@ Honest gaps this cut does not implement:
   not a T3 layered / stacked canvas chart.
 - First-cut remembered New Task ships (runtime-only
   `SessionNavigation.new_task` id; selecting an unstarted session
-  remembers it; New Task reopens that draft when it still exists and
-  `!has_started`, via the same select path as projectless draft reuse;
+  remembers it; ordinary New Task reopens that draft when it still
+  exists, `!has_started`, and `projectPath()` matches the current
+  ordinary project; a different path skips without clearing; create
+  does not steal the slot; projectless New Task does not consult it
+  and keeps today's reuse / CreateProjectlessWorkspace path;
   visiting started sessions does not clear it; started, removed, or
-  missing drafts are ignored, then projectless reuse or create as
-  today). Not persisted on `sessions.json`. Selection history Back /
-  Forward stays a separate stack. Not Waku Uuid. First-cut remove
+  missing drafts are ignored). Not persisted on `sessions.json`.
+  Selection history Back / Forward stays a separate stack. Not Waku
+  Uuid. First-cut remove
   destination ships (same-path newest remaining, else projectless New
   Task, else ordinary New Task for that `project_path`, else 0;
   non-selected remove unchanged). Not Waku Project UUID.
@@ -1590,8 +1600,9 @@ Honest gaps this cut does not implement:
   `WorkspaceOperation::CreateProjectlessWorkspace` ships on New Task
   when there is no ordinary project (empty `last_project_path`, or
   the selected session's `project_path` is already a projectless path
-  under `~/.waku/projects`) and no valid remembered New Task draft and
-  no unstarted non-legacy projectless draft exists to select; ok is
+  under `~/.waku/projects`). Projectless New Task does not consult
+  remembered New Task. Create runs when no unstarted non-legacy
+  projectless draft exists to select; ok is
   nested `projectlessWorkspace` +
   `cwd`; Native 4 KiB stdin overflow / error / unusable parse / empty
   cwd fall back to local mkdir under `~/.waku/projects/<date>/<slug>`;
@@ -1730,9 +1741,9 @@ Honest gaps this cut does not implement:
   createProjectlessWorkspace on New Task when there is no ordinary
   project (empty `last_project_path`, or the selected session's
   `project_path` is already a projectless path under
-  `~/.waku/projects` and legacy `~/.waku/<date>/…`) and no valid
-  remembered New Task draft and no unstarted non-legacy projectless
-  draft exists to select (Waku
+  `~/.waku/projects` and legacy `~/.waku/<date>/…`). Projectless New
+  Task does not consult remembered New Task. When no unstarted
+  non-legacy projectless draft exists to select (Waku
   `create_projectless_session`; bare `~/.waku` is not reused; dated
   `~/.waku/<date>/…` is; local `sessions.json` stays canonical;
   sidecar only on actual create); ok is nested
@@ -1757,10 +1768,13 @@ Honest gaps this cut does not implement:
   already-under-projects is a no-op; home / failure must not
   toast-block session select; ordinary real project paths do not
   spawn migrate. First-cut remembered New Task reopens a
-  remembered unstarted draft when that id is still valid (runtime-only
-  `new_task`; visiting started sessions does not clear it). Else New
-  Task reuses an unstarted non-legacy projectless draft instead of
-  always creating. First-cut remove destination on the selected
+  remembered unstarted draft on ordinary New Task when that id is
+  still valid and `projectPath()` matches the current ordinary
+  project (runtime-only `new_task`; a different path skips without
+  clearing; visiting started sessions does not clear it). Projectless
+  New Task does not consult the slot. Else New Task reuses an
+  unstarted non-legacy projectless draft instead of always creating.
+  First-cut remove destination on the selected
   session follows same-path newest remaining, else that same
   projectless New Task path, else an ordinary New Task draft for
   that `project_path`, else `selected = 0`. Amend/force and
