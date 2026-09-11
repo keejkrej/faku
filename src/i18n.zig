@@ -12,16 +12,19 @@
 //! Full access (same `Access` strings), first-cut composer effort chip /
 //! Settings General effort labels (same `Effort` strings),
 //! first-cut composer interaction chip / Settings General Build /
-//! Plan (same `Interaction` strings), and first-cut right-panel tab
+//! Plan (same `Interaction` strings), first-cut right-panel tab
 //! button labels (same `RightPanelTabs` strings; EN Diff tab reads
-//! Review) live here so `main.zig` does not grow. Palette ids /
-//! `PaletteAction` / keywords stay English. Wire `access_mode` ids
-//! stay `ask` / `auto` / `fullAccess`. Wire `reasoning_effort` ids stay
-//! `auto` / `none` / `minimal` / `low` / `medium` / `high` / `xhigh` /
-//! `max`. Wire `interaction_mode` ids stay `build` / `plan`. Wire
+//! Review), and first-cut right-panel Diff filter + Files/Background
+//! empty-state chrome (same `RightPanelChrome` strings) live here so
+//! `main.zig` does not grow. Palette ids / `PaletteAction` / keywords
+//! stay English. Wire `access_mode` ids stay `ask` / `auto` /
+//! `fullAccess`. Wire `reasoning_effort` ids stay `auto` / `none` /
+//! `minimal` / `low` / `medium` / `high` / `xhigh` / `max`. Wire
+//! `interaction_mode` ids stay `build` / `plan`. Wire
 //! `right_panel_tab` ids stay `files` / `diff` / `browser` /
-//! `terminal` / `background`. Not rust_i18n, not YAML catalogs, not
-//! full-app translation, not tz-aware grouping.
+//! `terminal` / `background`. Diff filter `on-input` and filter text
+//! stay English. Not rust_i18n, not YAML catalogs, not full-app
+//! translation, not tz-aware grouping.
 
 const std = @import("std");
 
@@ -512,8 +515,9 @@ const palette_chrome_ja: PaletteChrome = .{
 /// path as PaletteChrome. Wire `right_panel_tab` ids stay `files` /
 /// `diff` / `browser` / `terminal` / `background`; only the visible
 /// label translates. English Diff tab reads Review (Waku
-/// `right_panel.diff`), not Diff. Pane `label=` attributes, Diff
-/// filter placeholders, and Background row chrome stay English.
+/// `right_panel.diff`), not Diff. Diff filter / Files empty /
+/// Background empty chrome live in `RightPanelChrome`. Pane `label=`
+/// attributes and remaining Background row chrome stay English.
 pub const RightPanelTabs = struct {
     files: []const u8,
     diff: []const u8,
@@ -544,6 +548,40 @@ const right_panel_tabs_ja: RightPanelTabs = .{
     .browser = "ブラウザ",
     .terminal = "ターミナル",
     .background = "バックグラウンド",
+};
+
+/// Right-panel Diff filter placeholder and Files/Background empty-state
+/// chrome for the resolved locale. Same resolve path as RightPanelTabs.
+/// Wire ids / on-press / filter text stay English; only these visible
+/// strings translate. English Diff filter reads "Filter files", not
+/// Filter. Browser start page, Open in browser / Terminal, and
+/// remaining Background row chrome stay English.
+pub const RightPanelChrome = struct {
+    filter_files: []const u8,
+    no_project_open: []const u8,
+    no_background_work: []const u8,
+    no_output: []const u8,
+};
+
+const right_panel_chrome_en: RightPanelChrome = .{
+    .filter_files = "Filter files",
+    .no_project_open = "No project open",
+    .no_background_work = "No background work",
+    .no_output = "No output",
+};
+
+const right_panel_chrome_zh_cn: RightPanelChrome = .{
+    .filter_files = "筛选文件",
+    .no_project_open = "未打开项目",
+    .no_background_work = "没有后台工作",
+    .no_output = "没有输出",
+};
+
+const right_panel_chrome_ja: RightPanelChrome = .{
+    .filter_files = "ファイルを絞り込む",
+    .no_project_open = "プロジェクトが開かれていません",
+    .no_background_work = "バックグラウンド作業はありません",
+    .no_output = "出力がありません",
 };
 
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
@@ -680,6 +718,18 @@ pub fn rightPanelTabsFor(preference: LanguagePreference, system_locale_id: []con
         .simplified_chinese => right_panel_tabs_zh_cn,
         .japanese => right_panel_tabs_ja,
         .system, .english => right_panel_tabs_en,
+    };
+}
+
+/// Right-panel Diff filter + Files/Background empty-state chrome for
+/// the resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Wire ids /
+/// on-press / filter text stay English.
+pub fn rightPanelChromeFor(preference: LanguagePreference, system_locale_id: []const u8) RightPanelChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => right_panel_chrome_zh_cn,
+        .japanese => right_panel_chrome_ja,
+        .system, .english => right_panel_chrome_en,
     };
 }
 
@@ -1054,4 +1104,30 @@ test "rightPanelTabsFor english default; zh and ja chrome; english ignores ja LA
     try testing.expectEqualStrings("Browser", rightPanelTabsFor(.english, "ja_JP.UTF-8").browser);
     try testing.expectEqualStrings("Terminal", rightPanelTabsFor(.english, "zh_CN.UTF-8").terminal);
     try testing.expectEqualStrings("Background", rightPanelTabsFor(.english, "ja_JP.UTF-8").background);
+}
+
+test "rightPanelChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Filter files", rightPanelChromeFor(.english, "ja").filter_files);
+    try testing.expectEqualStrings("No project open", rightPanelChromeFor(.english, "").no_project_open);
+    try testing.expectEqualStrings("No background work", rightPanelChromeFor(.english, "").no_background_work);
+    try testing.expectEqualStrings("No output", rightPanelChromeFor(.english, "").no_output);
+    try testing.expectEqualStrings("Filter files", rightPanelChromeFor(.system, "").filter_files);
+
+    try testing.expectEqualStrings("筛选文件", rightPanelChromeFor(.simplified_chinese, "").filter_files);
+    try testing.expectEqualStrings("未打开项目", rightPanelChromeFor(.simplified_chinese, "").no_project_open);
+    try testing.expectEqualStrings("没有后台工作", rightPanelChromeFor(.simplified_chinese, "").no_background_work);
+    try testing.expectEqualStrings("没有输出", rightPanelChromeFor(.simplified_chinese, "").no_output);
+
+    try testing.expectEqualStrings("ファイルを絞り込む", rightPanelChromeFor(.japanese, "").filter_files);
+    try testing.expectEqualStrings("プロジェクトが開かれていません", rightPanelChromeFor(.japanese, "").no_project_open);
+    try testing.expectEqualStrings("バックグラウンド作業はありません", rightPanelChromeFor(.japanese, "").no_background_work);
+    try testing.expectEqualStrings("出力がありません", rightPanelChromeFor(.japanese, "").no_output);
+
+    try testing.expectEqualStrings("筛选文件", rightPanelChromeFor(.system, "zh_CN.UTF-8").filter_files);
+    try testing.expectEqualStrings("出力がありません", rightPanelChromeFor(.system, "ja_JP.UTF-8").no_output);
+    try testing.expectEqualStrings("Filter files", rightPanelChromeFor(.english, "ja_JP.UTF-8").filter_files);
+    try testing.expectEqualStrings("No project open", rightPanelChromeFor(.english, "zh_CN.UTF-8").no_project_open);
+    try testing.expectEqualStrings("No background work", rightPanelChromeFor(.english, "ja_JP.UTF-8").no_background_work);
+    try testing.expectEqualStrings("No output", rightPanelChromeFor(.english, "zh_CN.UTF-8").no_output);
 }

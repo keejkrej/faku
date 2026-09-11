@@ -24609,6 +24609,139 @@ test "right panel tab labels follow Appearance language" {
     try testing.expectEqualStrings("Background", model.right_panel_tab_background_label());
 }
 
+test "right panel Diff filter and Files/Background empty chrome follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "placeholder=\"{review_diff_filter_placeholder}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{right_panel_no_project_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{background_work_empty_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{background_work_no_output_label}"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No project open<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No background work<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No output<"));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Filter files", model.review_diff_filter_placeholder());
+    try testing.expectEqualStrings("No project open", model.right_panel_no_project_label());
+    try testing.expectEqualStrings("No background work", model.background_work_empty_label());
+    try testing.expectEqualStrings("No output", model.background_work_no_output_label());
+
+    main.update(&model, .show_right_panel, &fx);
+    try testing.expect(model.right_panel_open);
+    try testing.expect(model.right_panel_tab_files());
+    try testing.expect(model.right_panel_no_project());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "No project open");
+    try testing.expect((try expectButtonMsg(tree, "Files", .set_right_panel_tab_files)).state.selected);
+
+    main.update(&model, .set_right_panel_tab_background, &fx);
+    try testing.expect(model.right_panel_tab_background());
+    try testing.expect(model.background_work_empty());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "No background work");
+    try testing.expect(findByText(tree.root, .text, "No output") == null);
+
+    model.review_diff_active = true;
+    model.review_diff_file_store[0].setCounts('M', "src/a.zig", 2, 1);
+    model.review_diff_file_count = 1;
+    main.update(&model, .set_right_panel_tab_diff, &fx);
+    try testing.expect(model.right_panel_tab_diff());
+    try testing.expect(model.has_review_diff_files());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "Filter files") != null);
+    try testing.expectEqualStrings("", model.review_diff_filter());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "stream for empty output chrome" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    main.update(&model, .{ .open_background_work = 1 }, &fx);
+    try testing.expect(model.right_panel_tab_background());
+    try testing.expect(!model.background_work_empty());
+    try testing.expect(!model.background_work_has_output());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "No output");
+    try testing.expect(findByText(tree.root, .text, "No background work") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("筛选文件", model.review_diff_filter_placeholder());
+    try testing.expectEqualStrings("未打开项目", model.right_panel_no_project_label());
+    try testing.expectEqualStrings("没有后台工作", model.background_work_empty_label());
+    try testing.expectEqualStrings("没有输出", model.background_work_no_output_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "没有输出");
+    try testing.expect(findByText(tree.root, .text, "No output") == null);
+    try testing.expect(findByText(tree.root, .text, "No background work") == null);
+    try testing.expect((try expectButtonMsg(tree, "后台工作", .set_right_panel_tab_background)).state.selected);
+
+    main.update(&model, .set_right_panel_tab_files, &fx);
+    try testing.expect(model.right_panel_tab_files());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "未打开项目");
+    try testing.expect(findByText(tree.root, .text, "No project open") == null);
+
+    main.update(&model, .set_right_panel_tab_diff, &fx);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "筛选文件") != null);
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "Filter files") == null);
+    try testing.expectEqualStrings("", model.review_diff_filter());
+    try testing.expect((try expectButtonMsg(tree, "审阅", .set_right_panel_tab_diff)).state.selected);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("ファイルを絞り込む", model.review_diff_filter_placeholder());
+    try testing.expectEqualStrings("プロジェクトが開かれていません", model.right_panel_no_project_label());
+    try testing.expectEqualStrings("バックグラウンド作業はありません", model.background_work_empty_label());
+    try testing.expectEqualStrings("出力がありません", model.background_work_no_output_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "ファイルを絞り込む") != null);
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "筛选文件") == null);
+    try testing.expect((try expectButtonMsg(tree, "レビュー", .set_right_panel_tab_diff)).state.selected);
+
+    main.update(&model, .set_right_panel_tab_files, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "プロジェクトが開かれていません");
+    try testing.expect(findByText(tree.root, .text, "未打开项目") == null);
+
+    main.update(&model, .set_right_panel_tab_background, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "出力がありません");
+    try testing.expect(findByText(tree.root, .text, "没有输出") == null);
+    try testing.expect(findByText(tree.root, .text, "No output") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Filter files", model.review_diff_filter_placeholder());
+    try testing.expectEqualStrings("No project open", model.right_panel_no_project_label());
+    try testing.expectEqualStrings("No background work", model.background_work_empty_label());
+    try testing.expectEqualStrings("No output", model.background_work_no_output_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "No output");
+    try testing.expect(findByText(tree.root, .text, "出力がありません") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("筛选文件", model.review_diff_filter_placeholder());
+    try testing.expectEqualStrings("未打开项目", model.right_panel_no_project_label());
+    try testing.expectEqualStrings("没有后台工作", model.background_work_empty_label());
+    try testing.expectEqualStrings("没有输出", model.background_work_no_output_label());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("ファイルを絞り込む", model.review_diff_filter_placeholder());
+    try testing.expectEqualStrings("プロジェクトが開かれていません", model.right_panel_no_project_label());
+    try testing.expectEqualStrings("バックグラウンド作業はありません", model.background_work_empty_label());
+    try testing.expectEqualStrings("出力がありません", model.background_work_no_output_label());
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Filter files", model.review_diff_filter_placeholder());
+    try testing.expectEqualStrings("No project open", model.right_panel_no_project_label());
+    try testing.expectEqualStrings("No background work", model.background_work_empty_label());
+    try testing.expectEqualStrings("No output", model.background_work_no_output_label());
+}
+
 test "DateBucket.title english default; zh and ja follow datesFor" {
     try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
     try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());
@@ -26045,7 +26178,8 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{r.deletions_label}"));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "toggle_review_diff_dir:{r.id}"));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "on-input=\"review_diff_filter_edit\""));
-    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "placeholder=\"Filter files\""));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "placeholder=\"{review_diff_filter_placeholder}\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Filter files\""));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "has_review_diff_hunk_file_header"));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{review_diff_hunk_file_path}"));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{review_diff_hunk_file_additions_label}"));
