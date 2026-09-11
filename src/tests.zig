@@ -24772,6 +24772,7 @@ test "right panel Browser start page and Open in browser/Terminal follow Appeara
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, ">Open in Terminal</button>"));
 
     var model = main.initialModel();
+    model.store_io = testing.io;
     model.setSelectedProjectPath(project);
     try testing.expect(model.can_open_terminal());
     try testing.expectEqualStrings("Browse the web", model.browser_start_title());
