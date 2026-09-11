@@ -145,7 +145,8 @@
 //! `fx.registerImageBytes`; outside-project stay alt-text; `<details>` via
 //! documented `details-expanded` + `on-details`, runtime-only flags,
 //! default collapsed; bare `#N` via documented `issue-link-base` when
-//! the session project has a usable GitHub/GitLab remote). Source keeps today's
+//! the session project has a usable GitHub/GitLab remote; transcript
+//! assistant `<markdown>` binds the same `{file_preview_issue_link_base}`). Source keeps today's
 //! highlighted `<code language="markdown">`. http(s) / bare-host links
 //! reuse `open_url` OS browser spawn; relative / `file:` / absolute
 //! project paths open the Files preview (same as a tree click);
@@ -998,7 +999,6 @@ pub fn acceptPendingDiscard(model: *Model) PendingDiscard {
 /// Close preview. Parks a confirm when dirty instead of discarding.
 pub fn closeFilePreview(model: *Model) void {
     if (!beginDiscardOrPark(model, .close_preview)) return;
-    file_preview_issue_link.drop(model, null);
     clearFilePreview(model);
 }
 

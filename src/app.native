@@ -953,7 +953,7 @@
                 <else>
                   <column gap="4" label="{t.text}">
                     <row gap="8" label="Assistant said">
-                      <markdown source="{t.text}" images="{transcript_images}" details-expanded="{transcript_details_expanded}" on-details="transcript_toggle_details" on-link="transcript_open_url" />
+                      <markdown source="{t.text}" images="{transcript_images}" details-expanded="{transcript_details_expanded}" issue-link-base="{file_preview_issue_link_base}" on-details="transcript_toggle_details" on-link="transcript_open_url" />
                     </row>
                     <row gap="4" cross="center">
                       <if test="{t.is_find_current}">

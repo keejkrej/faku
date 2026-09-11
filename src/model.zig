@@ -1173,9 +1173,10 @@ pub const Model = struct {
     /// `max_markdown_details_per_document`. Default collapsed. Not persisted.
     file_preview_details_expanded_flags: [file_preview_details_mod.max_details]bool =
         [_]bool{false} ** file_preview_details_mod.max_details,
-    /// Runtime-only Files markdown Preview `issue-link-base`. One-shot
-    /// `git remote` + `git remote get-url` for the selected session
-    /// `project_path`. Empty when missing / non-forge. Not sessions.json.
+    /// Runtime-only Files Preview + transcript assistant markdown
+    /// `issue-link-base`. One-shot `git remote` + `git remote get-url`
+    /// for the selected session `project_path`. Empty when missing /
+    /// non-forge. Not sessions.json.
     file_preview_issue_link_base_storage: [file_preview_issue_link_mod.max_issue_link_base]u8 =
         [_]u8{0} ** file_preview_issue_link_mod.max_issue_link_base,
     file_preview_issue_link_base_len: usize = 0,
@@ -3286,7 +3287,7 @@ pub const Model = struct {
         return file_preview_details_mod.expanded(model);
     }
 
-    /// Files Preview `#N` prefix for
+    /// Files Preview + transcript assistant `#N` prefix for
     /// `<markdown issue-link-base="{file_preview_issue_link_base}">`.
     /// Empty when missing / non-forge so Native leaves `#N` unlinked.
     pub fn file_preview_issue_link_base(model: *const Model) []const u8 {

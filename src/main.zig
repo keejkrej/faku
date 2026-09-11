@@ -352,8 +352,8 @@ pub const review_diff_hunk_key_first = review_diff.review_diff_hunk_key_first;
 /// review hunk (520+). Band is 530+. Incremented per scan from
 /// `skills_key_first`.
 pub const skills_key_first = skills.skills_key_first;
-/// One-shot Files Preview `git remote` / `git remote get-url` for
-/// markdown `issue-link-base`. Distinct from skills (530+). Band is
+/// One-shot Files Preview + transcript `git remote` / `git remote get-url`
+/// for markdown `issue-link-base`. Distinct from skills (530+). Band is
 /// 540+. Incremented per spawn from `file_preview_issue_link_key_first`.
 pub const file_preview_issue_link_key_first = file_preview_issue_link.key_first;
 /// One-shot Settings Providers non-fx `{binary} --help` probes.

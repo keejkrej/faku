@@ -267,14 +267,12 @@ pub fn afterFilesIndexReady(model: *Model, fx: *Effects) void {
         model.right_panel_session_pending_files = .{};
         file_preview_images.drop(model, fx);
         file_preview_details.drop(model);
-        file_preview_issue_link.drop(model, fx);
         right_panel.clearFilePreview(model);
         dropEditorForPath(model, path);
         return;
     };
     file_preview_images.drop(model, fx);
     file_preview_details.drop(model);
-    file_preview_issue_link.drop(model, fx);
     right_panel.clearFilePreview(model);
     copyPath(&model.right_panel_session_pending_files, path);
     right_panel.selectCachedFile(model, fx, id);
