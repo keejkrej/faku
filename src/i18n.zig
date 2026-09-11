@@ -7,8 +7,9 @@
 //! chrome, session context-menu Rename / Remove, palette action
 //! display labels (same `Sidebar` / `Chrome` strings for New Task /
 //! Settings / Collapse all folders; remaining command names in
-//! `Palette`), composer / Settings General Ask / Auto / Full access
-//! (same `Access` strings), first-cut composer effort chip /
+//! `Palette`), palette overlay section headers and empty-state
+//! lines (`PaletteChrome`), composer / Settings General Ask / Auto /
+//! Full access (same `Access` strings), first-cut composer effort chip /
 //! Settings General effort labels (same `Effort` strings), and
 //! first-cut composer interaction chip / Settings General Build /
 //! Plan (same `Interaction` strings) live here so `main.zig` does
@@ -381,9 +382,11 @@ const interaction_ja: Interaction = .{
 /// Command-palette action display labels for the resolved locale.
 /// Same resolve path as Interaction. New Task / Settings / Collapse
 /// all folders reuse `Sidebar` / `Chrome` (not duplicated here).
-/// Palette ids / `PaletteAction` / keywords stay English; matching
-/// still checks the English spec label, the localized label, and
-/// English keywords. Expand / Collapse sidebar are chrome a11y
+/// Overlay Suggested / Commands / Tasks headers and empty-state
+/// lines live in `PaletteChrome` (not duplicated here). Palette ids
+/// / `PaletteAction` / keywords stay English; matching still checks
+/// the English spec label, the localized label, and English keywords.
+/// Expand / Collapse sidebar are chrome a11y
 /// (`sidebar_toggle_label`), not the palette "Toggle sidebar"
 /// command name.
 pub const Palette = struct {
@@ -464,6 +467,43 @@ const palette_ja: Palette = .{
     .show_terminal_tab = "ターミナルのタブを表示",
     .expand_sidebar = "サイドバーを展開",
     .collapse_sidebar = "サイドバーを折りたたむ",
+};
+
+/// Command-palette overlay section headers and empty-state lines.
+/// Same resolve path as Palette. Action names stay in `Palette`;
+/// ids / `PaletteAction` / keywords stay English. Right-panel tab
+/// names (Files / Diff / Browser / Terminal / Background) stay
+/// English this cut.
+pub const PaletteChrome = struct {
+    suggested: []const u8,
+    commands: []const u8,
+    tasks: []const u8,
+    no_matches: []const u8,
+    try_query: []const u8,
+};
+
+const palette_chrome_en: PaletteChrome = .{
+    .suggested = "Suggested",
+    .commands = "Commands",
+    .tasks = "Tasks",
+    .no_matches = "No matching tasks or commands",
+    .try_query = "Try a task title, project, provider, model, or command",
+};
+
+const palette_chrome_zh_cn: PaletteChrome = .{
+    .suggested = "建议",
+    .commands = "命令",
+    .tasks = "任务",
+    .no_matches = "没有匹配的任务或命令",
+    .try_query = "试试任务标题、项目、提供商、模型或命令",
+};
+
+const palette_chrome_ja: PaletteChrome = .{
+    .suggested = "おすすめ",
+    .commands = "コマンド",
+    .tasks = "タスク",
+    .no_matches = "一致するタスクやコマンドはありません",
+    .try_query = "タスク名、プロジェクト、プロバイダー、モデル、コマンドを試す",
 };
 
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
@@ -577,6 +617,18 @@ pub fn paletteFor(preference: LanguagePreference, system_locale_id: []const u8) 
         .simplified_chinese => palette_zh_cn,
         .japanese => palette_ja,
         .system, .english => palette_en,
+    };
+}
+
+/// Palette overlay section headers and empty-state lines for the
+/// resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Action
+/// names stay on `paletteFor`.
+pub fn paletteChromeFor(preference: LanguagePreference, system_locale_id: []const u8) PaletteChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => palette_chrome_zh_cn,
+        .japanese => palette_chrome_ja,
+        .system, .english => palette_chrome_en,
     };
 }
 
@@ -891,4 +943,34 @@ test "paletteFor english default; zh and ja chrome; english ignores ja LANG" {
     try testing.expectEqualStrings("Hide right panel", paletteFor(.english, "zh_CN.UTF-8").hide_right_panel);
     try testing.expectEqualStrings("Expand sidebar", paletteFor(.english, "ja_JP.UTF-8").expand_sidebar);
     try testing.expectEqualStrings("Collapse sidebar", paletteFor(.english, "zh_CN.UTF-8").collapse_sidebar);
+}
+
+test "paletteChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Suggested", paletteChromeFor(.english, "ja").suggested);
+    try testing.expectEqualStrings("Commands", paletteChromeFor(.english, "").commands);
+    try testing.expectEqualStrings("Tasks", paletteChromeFor(.english, "").tasks);
+    try testing.expectEqualStrings("No matching tasks or commands", paletteChromeFor(.english, "").no_matches);
+    try testing.expectEqualStrings("Try a task title, project, provider, model, or command", paletteChromeFor(.english, "").try_query);
+    try testing.expectEqualStrings("Suggested", paletteChromeFor(.system, "").suggested);
+
+    try testing.expectEqualStrings("建议", paletteChromeFor(.simplified_chinese, "").suggested);
+    try testing.expectEqualStrings("命令", paletteChromeFor(.simplified_chinese, "").commands);
+    try testing.expectEqualStrings("任务", paletteChromeFor(.simplified_chinese, "").tasks);
+    try testing.expectEqualStrings("没有匹配的任务或命令", paletteChromeFor(.simplified_chinese, "").no_matches);
+    try testing.expectEqualStrings("试试任务标题、项目、提供商、模型或命令", paletteChromeFor(.simplified_chinese, "").try_query);
+
+    try testing.expectEqualStrings("おすすめ", paletteChromeFor(.japanese, "").suggested);
+    try testing.expectEqualStrings("コマンド", paletteChromeFor(.japanese, "").commands);
+    try testing.expectEqualStrings("タスク", paletteChromeFor(.japanese, "").tasks);
+    try testing.expectEqualStrings("一致するタスクやコマンドはありません", paletteChromeFor(.japanese, "").no_matches);
+    try testing.expectEqualStrings("タスク名、プロジェクト、プロバイダー、モデル、コマンドを試す", paletteChromeFor(.japanese, "").try_query);
+
+    try testing.expectEqualStrings("建议", paletteChromeFor(.system, "zh_CN.UTF-8").suggested);
+    try testing.expectEqualStrings("コマンド", paletteChromeFor(.system, "ja_JP.UTF-8").commands);
+    try testing.expectEqualStrings("Suggested", paletteChromeFor(.english, "ja_JP.UTF-8").suggested);
+    try testing.expectEqualStrings("Commands", paletteChromeFor(.english, "zh_CN.UTF-8").commands);
+    try testing.expectEqualStrings("Tasks", paletteChromeFor(.english, "ja_JP.UTF-8").tasks);
+    try testing.expectEqualStrings("No matching tasks or commands", paletteChromeFor(.english, "zh_CN.UTF-8").no_matches);
+    try testing.expectEqualStrings("Try a task title, project, provider, model, or command", paletteChromeFor(.english, "ja_JP.UTF-8").try_query);
 }

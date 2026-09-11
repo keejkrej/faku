@@ -5,10 +5,11 @@
 //! lives in `session.zig`. Action display labels follow Appearance
 //! via `Model.palette_action_label()` (New Task / Settings / Collapse
 //! all folders reuse Sidebar / Chrome strings; remaining names live
-//! in `i18n.Palette`). Ids / `PaletteAction` / keywords stay English.
-//! Matching checks the English spec label, the localized label, and
-//! English keywords. Behavior is otherwise unchanged from the former
-//! `main` palette helpers.
+//! in `i18n.Palette`). Section headers and empty-state lines follow
+//! Appearance via `Model.paletteOverlayChrome()` (`i18n.PaletteChrome`).
+//! Ids / `PaletteAction` / keywords stay English. Matching checks the
+//! English spec label, the localized label, and English keywords.
+//! Behavior is otherwise unchanged from the former `main` palette helpers.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -145,22 +146,23 @@ pub fn rows(model: *const Model, arena: std.mem.Allocator) []const PaletteRow {
     const out = arena.alloc(PaletteRow, count) catch return &.{};
     var i: usize = 0;
     var selectable: u32 = 0;
+    const chrome = model.paletteOverlayChrome();
     if (query.len == 0) {
-        out[i] = paletteHeaderRow(1, "Suggested");
+        out[i] = paletteHeaderRow(1, chrome.suggested);
         i += 1;
         appendPaletteActionRows(out, &i, &selectable, model.palette_highlight, specs, true);
-        out[i] = paletteHeaderRow(2, "Commands");
+        out[i] = paletteHeaderRow(2, chrome.commands);
         i += 1;
         appendPaletteActionRows(out, &i, &selectable, model.palette_highlight, specs, false);
     } else if (miss) {
-        out[i] = paletteHeaderRow(4, "No matching tasks or commands");
+        out[i] = paletteHeaderRow(4, chrome.no_matches);
         i += 1;
-        out[i] = paletteHeaderRow(5, "Try a task title, project, provider, model, or command");
+        out[i] = paletteHeaderRow(5, chrome.try_query);
         i += 1;
     } else {
         appendPaletteActionRows(out, &i, &selectable, model.palette_highlight, specs, null);
         if (sessions_n > 0) {
-            out[i] = paletteHeaderRow(3, "Tasks");
+            out[i] = paletteHeaderRow(3, chrome.tasks);
             i += 1;
             var s: usize = 0;
             while (s < sessions_n) : (s += 1) {

@@ -24338,6 +24338,175 @@ test "palette action labels follow Appearance language" {
     try testing.expectEqualStrings("サイドバーを折りたたむ", model.sidebar_toggle_label());
 }
 
+test "palette section headers and empty-state follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Suggested", model.paletteOverlayChrome().suggested);
+    try testing.expectEqualStrings("Commands", model.paletteOverlayChrome().commands);
+    try testing.expectEqualStrings("Tasks", model.paletteOverlayChrome().tasks);
+    try testing.expectEqualStrings("No matching tasks or commands", model.paletteOverlayChrome().no_matches);
+    try testing.expectEqualStrings("Try a task title, project, provider, model, or command", model.paletteOverlayChrome().try_query);
+
+    main.update(&model, .start_search, &fx);
+    const empty = model.palette_rows(arena);
+    try testing.expect(paletteHasLabel(empty, "Suggested"));
+    try testing.expect(paletteHasLabel(empty, "Commands"));
+    try testing.expect(!paletteHasLabel(empty, "Tasks"));
+    try testing.expectEqual(main.palette_header_id_base + 1, paletteRowId(empty, "Suggested"));
+    try testing.expectEqual(main.palette_header_id_base + 2, paletteRowId(empty, "Commands"));
+    try testing.expect(!paletteRowIsAction(empty, "Suggested"));
+    try testing.expect(!paletteRowIsAction(empty, "Commands"));
+    try testing.expect(paletteHasLabel(empty, "New Task"));
+    try testing.expect(paletteHasLabel(empty, "Focus composer"));
+
+    var tree = try buildTree(arena, &model);
+    const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    _ = try expectByText(dialog, .text, "Suggested");
+    _ = try expectByText(dialog, .text, "Commands");
+    main.update(&model, .palette_cancel, &fx);
+
+    main.update(&model, .start_search, &fx);
+    main.update(&model, .{ .search_edit = .{ .insert_text = "port waku" } }, &fx);
+    const tasks = model.palette_rows(arena);
+    try testing.expect(paletteHasLabel(tasks, "Tasks"));
+    try testing.expect(paletteHasLabel(tasks, "port waku to zig"));
+    try testing.expectEqual(main.palette_header_id_base + 3, paletteRowId(tasks, "Tasks"));
+    try testing.expect(!paletteRowIsAction(tasks, "Tasks"));
+    try testing.expect(!paletteHasLabel(tasks, "Suggested"));
+    try testing.expect(!paletteHasLabel(tasks, "Commands"));
+
+    main.update(&model, .{ .search_edit = .clear }, &fx);
+    main.update(&model, .{ .search_edit = .{ .insert_text = "zzzznonexistent" } }, &fx);
+    const miss = model.palette_rows(arena);
+    try testing.expectEqual(@as(usize, 2), miss.len);
+    try testing.expectEqualStrings("No matching tasks or commands", miss[0].label);
+    try testing.expect(miss[0].is_header);
+    try testing.expectEqual(main.palette_header_id_base + 4, miss[0].id);
+    try testing.expectEqualStrings("Try a task title, project, provider, model, or command", miss[1].label);
+    try testing.expect(miss[1].is_header);
+    main.update(&model, .palette_cancel, &fx);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("建议", model.paletteOverlayChrome().suggested);
+    try testing.expectEqualStrings("命令", model.paletteOverlayChrome().commands);
+    try testing.expectEqualStrings("任务", model.paletteOverlayChrome().tasks);
+    try testing.expectEqualStrings("没有匹配的任务或命令", model.paletteOverlayChrome().no_matches);
+    try testing.expectEqualStrings("试试任务标题、项目、提供商、模型或命令", model.paletteOverlayChrome().try_query);
+
+    main.update(&model, .start_search, &fx);
+    const zh_empty = model.palette_rows(arena);
+    try testing.expect(paletteHasLabel(zh_empty, "建议"));
+    try testing.expect(paletteHasLabel(zh_empty, "命令"));
+    try testing.expect(!paletteHasLabel(zh_empty, "Suggested"));
+    try testing.expect(!paletteHasLabel(zh_empty, "Commands"));
+    try testing.expect(paletteHasLabel(zh_empty, "新建任务"));
+    try testing.expectEqual(main.palette_header_id_base + 1, paletteRowId(zh_empty, "建议"));
+    try testing.expectEqual(main.palette_header_id_base + 2, paletteRowId(zh_empty, "命令"));
+    tree = try buildTree(arena, &model);
+    const zh_dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    _ = try expectByText(zh_dialog, .text, "建议");
+    _ = try expectByText(zh_dialog, .text, "命令");
+    try testing.expect(findByText(zh_dialog, .text, "Suggested") == null);
+    try testing.expect(findByText(zh_dialog, .text, "Commands") == null);
+
+    main.update(&model, .{ .search_edit = .{ .insert_text = "port waku" } }, &fx);
+    const zh_tasks = model.palette_rows(arena);
+    try testing.expect(paletteHasLabel(zh_tasks, "任务"));
+    try testing.expect(!paletteHasLabel(zh_tasks, "Tasks"));
+    try testing.expect(paletteHasLabel(zh_tasks, "port waku to zig"));
+    try testing.expectEqual(main.palette_header_id_base + 3, paletteRowId(zh_tasks, "任务"));
+
+    main.update(&model, .{ .search_edit = .clear }, &fx);
+    main.update(&model, .{ .search_edit = .{ .insert_text = "zzzznonexistent" } }, &fx);
+    const zh_miss = model.palette_rows(arena);
+    try testing.expectEqual(@as(usize, 2), zh_miss.len);
+    try testing.expectEqualStrings("没有匹配的任务或命令", zh_miss[0].label);
+    try testing.expect(zh_miss[0].is_header);
+    try testing.expectEqual(main.palette_header_id_base + 4, zh_miss[0].id);
+    try testing.expectEqualStrings("试试任务标题、项目、提供商、模型或命令", zh_miss[1].label);
+    try testing.expect(!paletteHasLabel(zh_miss, "No matching tasks or commands"));
+    try testing.expect(!paletteHasLabel(zh_miss, "New Task"));
+    tree = try buildTree(arena, &model);
+    const zh_miss_dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    _ = try expectByText(zh_miss_dialog, .text, "没有匹配的任务或命令");
+    _ = try expectByText(zh_miss_dialog, .text, "试试任务标题、项目、提供商、模型或命令");
+    try testing.expect(findByText(zh_miss_dialog, .text, "No matching tasks or commands") == null);
+    main.update(&model, .palette_cancel, &fx);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("おすすめ", model.paletteOverlayChrome().suggested);
+    try testing.expectEqualStrings("コマンド", model.paletteOverlayChrome().commands);
+    try testing.expectEqualStrings("タスク", model.paletteOverlayChrome().tasks);
+    try testing.expectEqualStrings("一致するタスクやコマンドはありません", model.paletteOverlayChrome().no_matches);
+    try testing.expectEqualStrings("タスク名、プロジェクト、プロバイダー、モデル、コマンドを試す", model.paletteOverlayChrome().try_query);
+
+    main.update(&model, .start_search, &fx);
+    const ja_empty = model.palette_rows(arena);
+    try testing.expect(paletteHasLabel(ja_empty, "おすすめ"));
+    try testing.expect(paletteHasLabel(ja_empty, "コマンド"));
+    try testing.expect(!paletteHasLabel(ja_empty, "Suggested"));
+    try testing.expect(!paletteHasLabel(ja_empty, "建议"));
+    try testing.expect(paletteHasLabel(ja_empty, "新しいタスク"));
+    try testing.expectEqual(main.palette_header_id_base + 1, paletteRowId(ja_empty, "おすすめ"));
+    try testing.expectEqual(main.palette_header_id_base + 2, paletteRowId(ja_empty, "コマンド"));
+    tree = try buildTree(arena, &model);
+    const ja_dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    _ = try expectByText(ja_dialog, .text, "おすすめ");
+    _ = try expectByText(ja_dialog, .text, "コマンド");
+    try testing.expect(findByText(ja_dialog, .text, "Suggested") == null);
+
+    main.update(&model, .{ .search_edit = .{ .insert_text = "port waku" } }, &fx);
+    const ja_tasks = model.palette_rows(arena);
+    try testing.expect(paletteHasLabel(ja_tasks, "タスク"));
+    try testing.expect(!paletteHasLabel(ja_tasks, "Tasks"));
+    try testing.expect(!paletteHasLabel(ja_tasks, "任务"));
+    try testing.expect(paletteHasLabel(ja_tasks, "port waku to zig"));
+
+    main.update(&model, .{ .search_edit = .clear }, &fx);
+    main.update(&model, .{ .search_edit = .{ .insert_text = "zzzznonexistent" } }, &fx);
+    const ja_miss = model.palette_rows(arena);
+    try testing.expectEqualStrings("一致するタスクやコマンドはありません", ja_miss[0].label);
+    try testing.expectEqualStrings("タスク名、プロジェクト、プロバイダー、モデル、コマンドを試す", ja_miss[1].label);
+    try testing.expect(!paletteHasLabel(ja_miss, "No matching tasks or commands"));
+    tree = try buildTree(arena, &model);
+    const ja_miss_dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    _ = try expectByText(ja_miss_dialog, .text, "一致するタスクやコマンドはありません");
+    _ = try expectByText(ja_miss_dialog, .text, "タスク名、プロジェクト、プロバイダー、モデル、コマンドを試す");
+    main.update(&model, .palette_cancel, &fx);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Suggested", model.paletteOverlayChrome().suggested);
+    try testing.expectEqualStrings("Commands", model.paletteOverlayChrome().commands);
+    try testing.expectEqualStrings("Tasks", model.paletteOverlayChrome().tasks);
+    try testing.expectEqualStrings("No matching tasks or commands", model.paletteOverlayChrome().no_matches);
+    main.update(&model, .start_search, &fx);
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "Suggested"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "Commands"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "おすすめ"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "コマンド"));
+    main.update(&model, .palette_cancel, &fx);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("建议", model.paletteOverlayChrome().suggested);
+    try testing.expectEqualStrings("命令", model.paletteOverlayChrome().commands);
+    try testing.expectEqualStrings("任务", model.paletteOverlayChrome().tasks);
+    try testing.expectEqualStrings("没有匹配的任务或命令", model.paletteOverlayChrome().no_matches);
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("おすすめ", model.paletteOverlayChrome().suggested);
+    try testing.expectEqualStrings("コマンド", model.paletteOverlayChrome().commands);
+    try testing.expectEqualStrings("タスク", model.paletteOverlayChrome().tasks);
+    try testing.expectEqualStrings("一致するタスクやコマンドはありません", model.paletteOverlayChrome().no_matches);
+}
+
 test "DateBucket.title english default; zh and ja follow datesFor" {
     try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
     try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());
