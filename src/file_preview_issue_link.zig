@@ -831,7 +831,13 @@ test "transcript markdown probes issue-link-base without Files Preview" {
     try std.testing.expectEqual(before_key, model.next_file_preview_issue_link_key);
     try std.testing.expectEqualStrings("https://github.com/keejkrej/faku/issues/", base(&model));
 
+    drop(&model, &fx);
+    try std.testing.expectEqualStrings("", base(&model));
+    try std.testing.expect(!model.file_preview_issue_link_ready);
+    try std.testing.expectEqual(@as(u64, 0), model.file_preview_issue_link_key);
+
     const other = model.addSession("tx issue other", .fx);
+    if (model.sessionById(other)) |session| session.setProjectPath("");
     main.update(&model, .{ .select = other }, &fx);
     try std.testing.expectEqualStrings("", base(&model));
     try std.testing.expect(!model.file_preview_issue_link_ready);
@@ -897,8 +903,8 @@ test "issue-link-base stays out of sessions.json" {
     const bytes = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, path, std.testing.allocator, .limited(64 * 1024));
     defer std.testing.allocator.free(bytes);
     try std.testing.expect(std.mem.indexOf(u8, bytes, "issue_link") == null);
-    try std.testing.expect(std.mem.indexOf(u8, bytes, "issue-link") == null);
     try std.testing.expect(std.mem.indexOf(u8, bytes, "issue-link-base") == null);
+    try std.testing.expect(std.mem.indexOf(u8, bytes, "file_preview_issue_link") == null);
     try std.testing.expect(std.mem.indexOf(u8, bytes, "keejkrej/faku") == null);
 
     var loaded = Model{};

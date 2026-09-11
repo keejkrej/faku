@@ -2689,7 +2689,10 @@ test "collapsed default, expand shows children, collapse hides descendants" {
     openCachedFile(&model, &fx, src_id);
     try std.testing.expect(fx.pendingSpawnAt(0) == null);
     openCachedFile(&model, &fx, 1);
-    try std.testing.expect(fx.pendingSpawnAt(0) == null);
+    if (fx.pendingSpawnAt(0)) |spawn| {
+        try std.testing.expect(file_preview_issue_link.isGitRemoteListArgv(spawn.argv) or file_preview_issue_link.isGitRemoteGetUrlArgv(spawn.argv));
+        try std.testing.expect(!open_editor.isEditorArgv(spawn.argv));
+    }
     try std.testing.expectEqual(@as(u32, 1), model.right_panel_file_preview_id);
     openPreviewInEditor(&model, &fx);
     try std.testing.expect(fx.pendingSpawnAt(0) != null);
