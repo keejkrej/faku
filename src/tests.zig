@@ -205,12 +205,22 @@ fn expectNoContextMenu(widget: canvas.Widget) !void {
 }
 
 fn expectSessionContextMenu(tree: AppUi.Tree, row: canvas.Widget, session_id: u32) !void {
+    try expectSessionContextMenuLabels(tree, row, session_id, "Rename", "Remove");
+}
+
+fn expectSessionContextMenuLabels(
+    tree: AppUi.Tree,
+    row: canvas.Widget,
+    session_id: u32,
+    rename_label: []const u8,
+    remove_label: []const u8,
+) !void {
     if (!@hasField(canvas.Widget, "context_menu")) return error.ContextMenuUnsupported;
     try testing.expectEqual(@as(usize, 3), row.context_menu.len);
-    try testing.expectEqualStrings("Rename", row.context_menu[0].label);
+    try testing.expectEqualStrings(rename_label, row.context_menu[0].label);
     try testing.expect(!row.context_menu[0].separator);
     try testing.expect(row.context_menu[1].separator);
-    try testing.expectEqualStrings("Remove", row.context_menu[2].label);
+    try testing.expectEqualStrings(remove_label, row.context_menu[2].label);
     try testing.expect(!row.context_menu[2].separator);
     if (@hasDecl(@TypeOf(tree), "msgForContextMenu")) {
         try testing.expectEqual(Msg{ .rename_session = session_id }, tree.msgForContextMenu(row.id, 0).?);
@@ -23315,6 +23325,9 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     try testing.expectEqualStrings("Delete folder", model.delete_folder_label());
     try testing.expectEqualStrings("Rename", model.rename_folder_label());
     try testing.expectEqualStrings("Delete", model.delete_label());
+    try testing.expectEqualStrings("Rename", model.rename_session_label());
+    try testing.expectEqualStrings("Remove", model.remove_label());
+    try testing.expectEqualStrings("Remove session", model.remove_session_label());
 
     var tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "New Task");
@@ -23325,11 +23338,15 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     main.update(&model, .new_folder, &fx);
     try testing.expectEqualStrings("New folder", model.folder_store[0].title());
     try testing.expect(model.can_collapse_folders());
+    const session_id = model.addSession("gap audit session", .fx);
     tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "Collapse all folders");
     _ = try expectButton(tree.root, "Delete folder");
     const en_folder = try expectByText(tree.root, .list_item, "New folder");
     try expectFolderContextMenu(tree, en_folder, model.folder_store[0].id);
+    const en_session = try expectByText(tree.root, .list_item, "gap audit session");
+    try expectSessionContextMenu(tree, en_session, session_id);
+    _ = try expectButton(en_session, "Remove session");
 
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("新建任务", model.new_task_label());
@@ -23339,6 +23356,9 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     try testing.expectEqualStrings("删除文件夹", model.delete_folder_label());
     try testing.expectEqualStrings("重命名", model.rename_folder_label());
     try testing.expectEqualStrings("删除", model.delete_label());
+    try testing.expectEqualStrings("重命名", model.rename_session_label());
+    try testing.expectEqualStrings("移除", model.remove_label());
+    try testing.expectEqualStrings("移除会话", model.remove_session_label());
     try testing.expectEqualStrings("New folder", model.folder_store[0].title());
     tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "新建任务");
@@ -23348,11 +23368,15 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     _ = try expectButton(tree.root, "删除文件夹");
     const zh_folder = try expectByText(tree.root, .list_item, "New folder");
     try expectFolderContextMenuLabels(tree, zh_folder, model.folder_store[0].id, "重命名", "删除");
+    const zh_session = try expectByText(tree.root, .list_item, "gap audit session");
+    try expectSessionContextMenuLabels(tree, zh_session, session_id, "重命名", "移除");
+    _ = try expectButton(zh_session, "移除会话");
     try testing.expect(findByText(tree.root, .list_item, "New Task") == null);
     try testing.expect(findPressableContaining(tree.root, "New Task") == null);
     try testing.expect(findPressableContaining(tree.root, "Search") == null);
     try testing.expect(findPressableContaining(tree.root, "Collapse all folders") == null);
     try testing.expect(findPressableContaining(tree.root, "Delete folder") == null);
+    try testing.expect(findPressableContaining(tree.root, "Remove session") == null);
 
     main.update(&model, .start_search, &fx);
     tree = try buildTree(arena, &model);
@@ -23369,6 +23393,9 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     try testing.expectEqualStrings("フォルダを削除", model.delete_folder_label());
     try testing.expectEqualStrings("名前を変更", model.rename_folder_label());
     try testing.expectEqualStrings("削除", model.delete_label());
+    try testing.expectEqualStrings("名前を変更", model.rename_session_label());
+    try testing.expectEqualStrings("取り除く", model.remove_label());
+    try testing.expectEqualStrings("セッションを取り除く", model.remove_session_label());
     tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "新しいタスク");
     _ = try expectButton(tree.root, "検索");
@@ -23377,7 +23404,11 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     _ = try expectButton(tree.root, "フォルダを削除");
     const ja_folder = try expectByText(tree.root, .list_item, "New folder");
     try expectFolderContextMenuLabels(tree, ja_folder, model.folder_store[0].id, "名前を変更", "削除");
+    const ja_session = try expectByText(tree.root, .list_item, "gap audit session");
+    try expectSessionContextMenuLabels(tree, ja_session, session_id, "名前を変更", "取り除く");
+    _ = try expectButton(ja_session, "セッションを取り除く");
     try testing.expect(findPressableContaining(tree.root, "New Task") == null);
+    try testing.expect(findPressableContaining(tree.root, "Remove session") == null);
 
     main.update(&model, .{ .rename_folder = model.folder_store[0].id }, &fx);
     tree = try buildTree(arena, &model);
@@ -23394,6 +23425,9 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     try testing.expectEqualStrings("Delete folder", model.delete_folder_label());
     try testing.expectEqualStrings("Rename", model.rename_folder_label());
     try testing.expectEqualStrings("Delete", model.delete_label());
+    try testing.expectEqualStrings("Rename", model.rename_session_label());
+    try testing.expectEqualStrings("Remove", model.remove_label());
+    try testing.expectEqualStrings("Remove session", model.remove_session_label());
     tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "New Task");
     _ = try expectButton(tree.root, "Search");
@@ -23401,6 +23435,8 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     _ = try expectButton(tree.root, "Collapse all folders");
     _ = try expectButton(tree.root, "Delete folder");
     try expectFolderContextMenu(tree, try expectByText(tree.root, .list_item, "New folder"), model.folder_store[0].id);
+    try expectSessionContextMenu(tree, try expectByText(tree.root, .list_item, "gap audit session"), session_id);
+    _ = try expectButton(try expectByText(tree.root, .list_item, "gap audit session"), "Remove session");
 
     model.language_preference = .system;
     model.setSystemLocaleId("zh_CN.UTF-8");

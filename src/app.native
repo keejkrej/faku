@@ -224,7 +224,8 @@
                       <separator />
                       <!-- Folder context-menu Rename / Delete follow
                            Appearance language. Trash button uses
-                           delete_folder_label. Session menus stay English. -->
+                           delete_folder_label. Session menus use
+                           rename_session_label / remove_label. -->
                       <menu-item on-press="delete_folder:{s.folder_id}">{delete_label}</menu-item>
                     </context-menu>
                   </list-item>
@@ -257,11 +258,11 @@
                             </if>
                           </row>
                         </column>
-                        <button variant="ghost" size="icon" icon="trash" label="Remove session" on-press="remove_session:{s.id}"></button>
+                        <button variant="ghost" size="icon" icon="trash" label="{remove_session_label}" on-press="remove_session:{s.id}"></button>
                         <context-menu>
-                          <menu-item on-press="rename_session:{s.id}">Rename</menu-item>
+                          <menu-item on-press="rename_session:{s.id}">{rename_session_label}</menu-item>
                           <separator />
-                          <menu-item on-press="remove_session:{s.id}">Remove</menu-item>
+                          <menu-item on-press="remove_session:{s.id}">{remove_label}</menu-item>
                         </context-menu>
                       </list-item>
                     </row>
@@ -288,11 +289,11 @@
                           </if>
                         </row>
                       </column>
-                      <button variant="ghost" size="icon" icon="trash" label="Remove session" on-press="remove_session:{s.id}"></button>
+                      <button variant="ghost" size="icon" icon="trash" label="{remove_session_label}" on-press="remove_session:{s.id}"></button>
                       <context-menu>
-                        <menu-item on-press="rename_session:{s.id}">Rename</menu-item>
+                        <menu-item on-press="rename_session:{s.id}">{rename_session_label}</menu-item>
                         <separator />
-                        <menu-item on-press="remove_session:{s.id}">Remove</menu-item>
+                        <menu-item on-press="remove_session:{s.id}">{remove_label}</menu-item>
                       </context-menu>
                     </list-item>
                   </else>
