@@ -6,8 +6,10 @@
 //! Msg routing lives in `update.zig`. Model fields stay in `main.zig`.
 //! Selecting an unstarted session remembers it as the New Task
 //! target (runtime-only SessionNavigation.new_task). Started
-//! sessions leave that slot alone. Behavior is otherwise unchanged
-//! from the former `main` palette runners.
+//! sessions leave that slot alone. Ordinary New Task reopens that
+//! draft only when it belongs to the current ordinary project;
+//! projectless New Task does not consult the slot. Behavior is
+//! otherwise unchanged from the former `main` palette runners.
 
 const main = @import("main.zig");
 const palette = @import("palette.zig");

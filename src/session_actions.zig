@@ -4,14 +4,19 @@
 //! `handleRemoveSession` / `handleEditQueued` live here.
 //! Msg routing stays in `update.zig`. First-cut remembered New Task
 //! (runtime-only Waku SessionNavigation.new_task): selecting an
-//! unstarted session stores its id; later New Task reopens that
-//! draft when it still exists and has not started (same select
-//! path as projectless draft reuse). Visiting started sessions does
-//! not clear the slot. Started / removed / missing drafts are
-//! ignored. When New Task would be projectless and nothing valid is
-//! remembered, an existing unstarted non-legacy projectless draft
-//! is selected (Waku `create_projectless_session`; same select
-//! effects as clicking that session) instead of `addSession`.
+//! unstarted session stores its id. Ordinary New Task reopens that
+//! draft when it still exists, has not started, and `projectPath()`
+//! equals the current ordinary project path (Waku
+//! `remembered_new_task` project filter; same select path as
+//! projectless draft reuse). A draft for another path is skipped
+//! without clearing the slot; create does not steal it. Visiting
+//! started sessions does not clear the slot. Started / removed /
+//! missing drafts are ignored.
+//! Projectless New Task does not consult the slot (Waku
+//! `create_projectless_session` never calls `remembered_new_task`).
+//! An existing unstarted non-legacy projectless draft is selected
+//! (same select effects as clicking that session) instead of
+//! `addSession`.
 //! First-cut remove destination (Waku `taskRemovalDestination` on
 //! `project_path`): when the removed row was selected, remaining
 //! same-path newest (`updated_at` desc, higher id on a tie) is
@@ -75,17 +80,16 @@ pub fn handleNewSession(model: *Model, fx: *Effects) void {
     const prior_n = @min(prior_src.len, prior_buf.len);
     @memcpy(prior_buf[0..prior_n], prior_src[0..prior_n]);
     const prior = prior_buf[0..prior_n];
-    if (model.rememberedNewTask()) |draft_id| {
-        model.pushSelectionHistory(draft_id);
-        palette_run.applySessionSelection(model, fx, draft_id);
-        return;
-    }
     if (projectless.wantsProjectlessWorkspace(model, prior)) {
         if (projectless.reusableUnstartedDraftId(model)) |draft_id| {
             model.pushSelectionHistory(draft_id);
             palette_run.applySessionSelection(model, fx, draft_id);
             return;
         }
+    } else if (model.rememberedNewTask(ordinaryNewTaskProjectPath(model, prior))) |draft_id| {
+        model.pushSelectionHistory(draft_id);
+        palette_run.applySessionSelection(model, fx, draft_id);
+        return;
     }
     right_panel_session.take(model);
     store.persistDraftIfPossible(model);
@@ -109,7 +113,10 @@ pub fn handleNewSession(model: *Model, fx: *Effects) void {
     if (model.sessionById(id)) |session| session.untitled = true;
     model.pushSelectionHistory(id);
     model.selected = id;
-    model.rememberNewTask(id);
+    // Occupied slot is a still-valid other-project draft (Waku
+    // remembered_new_task returns None without clearing; create does
+    // not steal it). Empty / started / missing already cleared to 0.
+    if (model.new_task == 0) model.rememberNewTask(id);
     // Client-built; persist is a no-op until first real content.
     store.persistIfPossible(model, id, fx);
     store.loadDraftIfPossible(model);
@@ -262,6 +269,14 @@ pub fn handleRemoveSession(model: *Model, fx: *Effects, id: u32) void {
     if (model.daemon_projectless_session == id) projectless.cancel(model, fx);
     if (model.daemon_migrate_projectless_session == id) projectless.cancelMigrate(model, fx);
     model.maybeEnsureSkillsScanned(fx);
+}
+
+/// Path a fresh ordinary New Task draft would inherit: selected
+/// session cwd when present, else `lastProjectPath()`. Callers already
+/// checked `!wantsProjectlessWorkspace` (Faku has no Project UUID).
+fn ordinaryNewTaskProjectPath(model: *const Model, prior: []const u8) []const u8 {
+    if (prior.len > 0) return prior;
+    return model.lastProjectPath();
 }
 
 /// After dropping the selected session: remaining same-path newest
@@ -627,6 +642,190 @@ test "handleNewSession reopening remembered draft restores right-panel stash" {
     try std.testing.expectEqual(draft, model.selected);
     try std.testing.expect(model.right_panel_open);
     try std.testing.expectEqual(right_panel.Tab.diff, model.right_panel_tab);
+}
+
+test "rememberedNewTask returns the current-project draft" {
+    var model = Model{};
+    const draft = model.addSession("untitled", .fx);
+    if (model.sessionById(draft)) |session| {
+        session.untitled = true;
+        session.setProjectPath("/tmp/current");
+    }
+    model.new_task = draft;
+    try std.testing.expectEqual(draft, model.rememberedNewTask("/tmp/current").?);
+    try std.testing.expectEqual(draft, model.new_task);
+}
+
+test "rememberedNewTask skips another project without clearing" {
+    var model = Model{};
+    const draft = model.addSession("untitled", .fx);
+    if (model.sessionById(draft)) |session| {
+        session.untitled = true;
+        session.setProjectPath("/tmp/a");
+    }
+    model.new_task = draft;
+    try std.testing.expect(model.rememberedNewTask("/tmp/b") == null);
+    try std.testing.expectEqual(draft, model.new_task);
+}
+
+test "rememberedNewTask clears a started draft" {
+    var model = Model{};
+    const draft = model.addSession("untitled", .fx);
+    if (model.sessionById(draft)) |session| {
+        session.setProjectPath("/tmp/a");
+        session.has_started = true;
+    }
+    model.new_task = draft;
+    try std.testing.expect(model.rememberedNewTask("/tmp/a") == null);
+    try std.testing.expectEqual(@as(u32, 0), model.new_task);
+}
+
+test "handleNewSession reuses a remembered draft from the current project" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var a_buf: [256]u8 = undefined;
+    const project_a = try std.fmt.bufPrint(&a_buf, ".zig-cache/tmp/{s}/remembered-current-a", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project_a);
+    var b_buf: [256]u8 = undefined;
+    const project_b = try std.fmt.bufPrint(&b_buf, ".zig-cache/tmp/{s}/remembered-current-b", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project_b);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastProjectPath(project_a);
+    handleNewSession(&model, &fx);
+    const draft_a = model.selected;
+    try std.testing.expectEqual(draft_a, model.new_task);
+    const other = model.addSession("other project", .fx);
+    if (model.sessionById(other)) |session| {
+        session.setProjectPath(project_b);
+        session.has_started = true;
+    }
+    const started = model.addSession("started same", .fx);
+    if (model.sessionById(started)) |session| {
+        session.setProjectPath(project_a);
+        session.has_started = true;
+    }
+    handleSelect(&model, &fx, started);
+    try std.testing.expectEqual(started, model.selected);
+    try std.testing.expectEqual(draft_a, model.new_task);
+    const count = model.session_count;
+
+    handleNewSession(&model, &fx);
+    try std.testing.expectEqual(draft_a, model.selected);
+    try std.testing.expectEqual(count, model.session_count);
+    try std.testing.expectEqual(draft_a, model.new_task);
+}
+
+test "handleNewSession does not reopen a remembered draft from another project" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var a_buf: [256]u8 = undefined;
+    const project_a = try std.fmt.bufPrint(&a_buf, ".zig-cache/tmp/{s}/remembered-other-a", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project_a);
+    var b_buf: [256]u8 = undefined;
+    const project_b = try std.fmt.bufPrint(&b_buf, ".zig-cache/tmp/{s}/remembered-other-b", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project_b);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastProjectPath(project_a);
+    handleNewSession(&model, &fx);
+    const draft_a = model.selected;
+    try std.testing.expectEqual(draft_a, model.new_task);
+    const started_b = model.addSession("started b", .fx);
+    if (model.sessionById(started_b)) |session| {
+        session.setProjectPath(project_b);
+        session.has_started = true;
+    }
+    model.setLastProjectPath(project_b);
+    handleSelect(&model, &fx, started_b);
+    try std.testing.expectEqual(started_b, model.selected);
+    try std.testing.expectEqual(draft_a, model.new_task);
+    const count = model.session_count;
+
+    handleNewSession(&model, &fx);
+    try std.testing.expect(model.selected != draft_a);
+    try std.testing.expectEqual(count + 1, model.session_count);
+    try std.testing.expectEqual(draft_a, model.new_task);
+    const created = model.sessionById(model.selected) orelse return error.MissingOrdinaryDraft;
+    try std.testing.expect(created.untitled);
+    try std.testing.expect(!created.hasStarted());
+    try std.testing.expectEqualStrings(project_b, created.projectPath());
+}
+
+test "handleNewSession projectless ignores remembered and reuses a projectless draft" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/remembered-projectless-reuse", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setHome("/home/me");
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    model.setLastProjectPath(project);
+    handleNewSession(&model, &fx);
+    const ordinary = model.selected;
+    try std.testing.expectEqual(ordinary, model.new_task);
+    const projectless_draft = model.addSession("untitled", .fx);
+    if (model.sessionById(projectless_draft)) |session| {
+        session.untitled = true;
+        session.setProjectPath("/home/me/.waku/projects/2026-09-06/kept-draft");
+    }
+    model.setLastProjectPath("/home/me/.waku/projects/2026-09-06/new-chat");
+    const count = model.session_count;
+
+    handleNewSession(&model, &fx);
+    try std.testing.expectEqual(projectless_draft, model.selected);
+    try std.testing.expectEqual(count, model.session_count);
+    try std.testing.expectEqual(projectless_draft, model.new_task);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_projectless_key);
+}
+
+test "handleNewSession projectless ignores remembered and creates" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/remembered-projectless-create", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setHome("/home/me");
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    model.setLastProjectPath(project);
+    handleNewSession(&model, &fx);
+    const ordinary = model.selected;
+    try std.testing.expectEqual(ordinary, model.new_task);
+    model.setLastProjectPath("/home/me/.waku/projects/2026-09-06/new-chat");
+    const count = model.session_count;
+
+    handleNewSession(&model, &fx);
+    try std.testing.expect(model.selected != ordinary);
+    try std.testing.expectEqual(count + 1, model.session_count);
+    try std.testing.expectEqual(ordinary, model.new_task);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_projectless_key) orelse return error.MissingProjectlessCreateAfterRemembered;
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"createProjectlessWorkspace\"") != null);
 }
 
 test "handleSelect with a daemon address and legacy path issues migrateProjectlessWorkspace" {

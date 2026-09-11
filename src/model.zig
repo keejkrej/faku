@@ -860,6 +860,9 @@ pub const Model = struct {
     history_index: u32 = 0,
     /// Runtime-only Waku SessionNavigation.new_task. 0 is none.
     /// Separate from selection history Back / Forward. Not persisted.
+    /// New Task on an ordinary project reopens this draft only when
+    /// `projectPath()` matches that project; a different path leaves
+    /// the slot alone. Projectless New Task does not consult it.
     new_task: u32 = 0,
     next_id: u32 = 1,
     turn_store: [max_turns]Turn = [_]Turn{.{}} ** max_turns,
@@ -3911,9 +3914,11 @@ pub const Model = struct {
         model.new_task = id;
     }
 
-    /// Valid remembered unstarted draft, or null. Started, missing, or
-    /// 0 is ignored and the slot is cleared (Waku remembered_new_task).
-    pub fn rememberedNewTask(model: *Model) ?u32 {
+    /// Valid remembered unstarted draft for `current_project_path`, or
+    /// null (Waku `SessionNavigation::remembered_new_task`). Started,
+    /// missing, or 0 clears the slot. A draft whose `projectPath()` is
+    /// a different path returns null without clearing.
+    pub fn rememberedNewTask(model: *Model, current_project_path: []const u8) ?u32 {
         const id = model.new_task;
         if (id == 0) return null;
         const session = model.sessionByIdConst(id) orelse {
@@ -3924,6 +3929,7 @@ pub const Model = struct {
             model.new_task = 0;
             return null;
         }
+        if (!std.mem.eql(u8, session.projectPath(), current_project_path)) return null;
         return id;
     }
 
