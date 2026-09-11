@@ -23607,7 +23607,8 @@ test "composer and Settings General access labels follow Appearance language" {
     try testing.expectEqualStrings("询问", model.access_ask_label());
     try testing.expectEqualStrings("自动", model.access_auto_label());
     try testing.expectEqualStrings("完全访问", model.access_full_label());
-    try testing.expectEqualStrings("Ask", main.accessLabel(model.resolvedAccessMode()));
+    try testing.expectEqualStrings("Full access", main.accessLabel(model.resolvedAccessMode()));
+    try testing.expectEqualStrings("Ask", main.accessLabel("ask"));
     try testing.expect(model.access_selected_full());
     try testing.expect(!model.access_selected_ask());
     try testing.expect(!model.access_selected_auto());
