@@ -4263,6 +4263,18 @@ pub const Model = struct {
         return model.sidebarChrome().collapse_all_folders;
     }
 
+    /// Folder-header chevron a11y when the folder is collapsed.
+    /// Distinct from `collapse_all_folders_label`.
+    pub fn expand_folder_label(model: *const Model) []const u8 {
+        return model.sidebarChrome().expand_folder;
+    }
+
+    /// Folder-header chevron a11y when the folder is expanded.
+    /// Distinct from `collapse_all_folders_label`.
+    pub fn collapse_folder_label(model: *const Model) []const u8 {
+        return model.sidebarChrome().collapse_folder;
+    }
+
     /// Delete-folder trash button. Distinct from context-menu Delete.
     pub fn delete_folder_label(model: *const Model) []const u8 {
         return model.sidebarChrome().delete_folder;

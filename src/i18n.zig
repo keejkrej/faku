@@ -172,14 +172,17 @@ const dates_ja: Dates = .{
 /// are chrome (plain Delete, not `delete_folder`). Session context-menu
 /// Rename reuses `rename` (same wording). Session Remove is distinct
 /// from folder Delete (`remove` vs `delete`); trash a11y is
-/// `remove_session` ("Remove session"). Expand / Collapse folder a11y,
-/// palette "Collapse all folders" command text, and composer Ask / Full
-/// access stay English.
+/// `remove_session` ("Remove session"). Folder-header chevron a11y is
+/// `expand_folder` / `collapse_folder` (distinct from
+/// `collapse_all_folders`). Palette "Collapse all folders" command text
+/// and composer Ask / Full access stay English.
 pub const Sidebar = struct {
     new_task: []const u8,
     search: []const u8,
     new_folder: []const u8,
     collapse_all_folders: []const u8,
+    expand_folder: []const u8,
+    collapse_folder: []const u8,
     delete_folder: []const u8,
     rename: []const u8,
     delete: []const u8,
@@ -192,6 +195,8 @@ const sidebar_en: Sidebar = .{
     .search = "Search",
     .new_folder = "New folder",
     .collapse_all_folders = "Collapse all folders",
+    .expand_folder = "Expand folder",
+    .collapse_folder = "Collapse folder",
     .delete_folder = "Delete folder",
     .rename = "Rename",
     .delete = "Delete",
@@ -204,6 +209,8 @@ const sidebar_zh_cn: Sidebar = .{
     .search = "搜索",
     .new_folder = "新建文件夹",
     .collapse_all_folders = "折叠所有文件夹",
+    .expand_folder = "展开文件夹",
+    .collapse_folder = "折叠文件夹",
     .delete_folder = "删除文件夹",
     .rename = "重命名",
     .delete = "删除",
@@ -216,6 +223,8 @@ const sidebar_ja: Sidebar = .{
     .search = "検索",
     .new_folder = "新しいフォルダ",
     .collapse_all_folders = "すべてのフォルダを折りたたむ",
+    .expand_folder = "フォルダを展開",
+    .collapse_folder = "フォルダを折りたたむ",
     .delete_folder = "フォルダを削除",
     .rename = "名前を変更",
     .delete = "削除",
@@ -381,6 +390,8 @@ test "sidebarFor english default; zh and ja chrome; english ignores ja LANG" {
     try testing.expectEqualStrings("Search", sidebarFor(.english, "").search);
     try testing.expectEqualStrings("New folder", sidebarFor(.english, "").new_folder);
     try testing.expectEqualStrings("Collapse all folders", sidebarFor(.english, "").collapse_all_folders);
+    try testing.expectEqualStrings("Expand folder", sidebarFor(.english, "").expand_folder);
+    try testing.expectEqualStrings("Collapse folder", sidebarFor(.english, "").collapse_folder);
     try testing.expectEqualStrings("Delete folder", sidebarFor(.english, "").delete_folder);
     try testing.expectEqualStrings("Rename", sidebarFor(.english, "").rename);
     try testing.expectEqualStrings("Delete", sidebarFor(.english, "").delete);
@@ -392,6 +403,8 @@ test "sidebarFor english default; zh and ja chrome; english ignores ja LANG" {
     try testing.expectEqualStrings("搜索", sidebarFor(.simplified_chinese, "").search);
     try testing.expectEqualStrings("新建文件夹", sidebarFor(.simplified_chinese, "").new_folder);
     try testing.expectEqualStrings("折叠所有文件夹", sidebarFor(.simplified_chinese, "").collapse_all_folders);
+    try testing.expectEqualStrings("展开文件夹", sidebarFor(.simplified_chinese, "").expand_folder);
+    try testing.expectEqualStrings("折叠文件夹", sidebarFor(.simplified_chinese, "").collapse_folder);
     try testing.expectEqualStrings("删除文件夹", sidebarFor(.simplified_chinese, "").delete_folder);
     try testing.expectEqualStrings("重命名", sidebarFor(.simplified_chinese, "").rename);
     try testing.expectEqualStrings("删除", sidebarFor(.simplified_chinese, "").delete);
@@ -402,6 +415,8 @@ test "sidebarFor english default; zh and ja chrome; english ignores ja LANG" {
     try testing.expectEqualStrings("検索", sidebarFor(.japanese, "").search);
     try testing.expectEqualStrings("新しいフォルダ", sidebarFor(.japanese, "").new_folder);
     try testing.expectEqualStrings("すべてのフォルダを折りたたむ", sidebarFor(.japanese, "").collapse_all_folders);
+    try testing.expectEqualStrings("フォルダを展開", sidebarFor(.japanese, "").expand_folder);
+    try testing.expectEqualStrings("フォルダを折りたたむ", sidebarFor(.japanese, "").collapse_folder);
     try testing.expectEqualStrings("フォルダを削除", sidebarFor(.japanese, "").delete_folder);
     try testing.expectEqualStrings("名前を変更", sidebarFor(.japanese, "").rename);
     try testing.expectEqualStrings("削除", sidebarFor(.japanese, "").delete);
@@ -417,4 +432,6 @@ test "sidebarFor english default; zh and ja chrome; english ignores ja LANG" {
     try testing.expectEqualStrings("Delete", sidebarFor(.english, "zh_CN.UTF-8").delete);
     try testing.expectEqualStrings("Remove", sidebarFor(.english, "zh_CN.UTF-8").remove);
     try testing.expectEqualStrings("Remove session", sidebarFor(.english, "ja_JP.UTF-8").remove_session);
+    try testing.expectEqualStrings("Expand folder", sidebarFor(.english, "zh_CN.UTF-8").expand_folder);
+    try testing.expectEqualStrings("Collapse folder", sidebarFor(.english, "ja_JP.UTF-8").collapse_folder);
 }

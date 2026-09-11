@@ -206,10 +206,10 @@
                 <if test="{s.is_header}">
                   <list-item height="32" padding="4" gap="6" cross="center" selected="{s.selected}" on-press="assign_selected:{s.folder_id}" label="{s.title}">
                     <if test="{s.collapsed}">
-                      <button variant="ghost" size="icon" icon="chevron-right" label="Expand folder" on-press="toggle_folder:{s.folder_id}"></button>
+                      <button variant="ghost" size="icon" icon="chevron-right" label="{expand_folder_label}" on-press="toggle_folder:{s.folder_id}"></button>
                     </if>
                     <else>
-                      <button variant="ghost" size="icon" icon="chevron-down" label="Collapse folder" on-press="toggle_folder:{s.folder_id}"></button>
+                      <button variant="ghost" size="icon" icon="chevron-down" label="{collapse_folder_label}" on-press="toggle_folder:{s.folder_id}"></button>
                     </else>
                     <icon name="folder" />
                     <if test="{s.editing}">
@@ -223,9 +223,11 @@
                       <menu-item on-press="rename_folder:{s.folder_id}">{rename_folder_label}</menu-item>
                       <separator />
                       <!-- Folder context-menu Rename / Delete follow
-                           Appearance language. Trash button uses
-                           delete_folder_label. Session menus use
-                           rename_session_label / remove_label. -->
+                           Appearance language. Chevron a11y uses
+                           expand_folder_label / collapse_folder_label.
+                           Trash button uses delete_folder_label.
+                           Session menus use rename_session_label /
+                           remove_label. -->
                       <menu-item on-press="delete_folder:{s.folder_id}">{delete_label}</menu-item>
                     </context-menu>
                   </list-item>
