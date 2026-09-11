@@ -23744,6 +23744,237 @@ test "composer and Settings General access labels follow Appearance language" {
     try testing.expectEqualStrings("確認", model.access_ask_label());
 }
 
+test "composer and Settings General effort labels follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("auto", model.resolvedReasoningEffort());
+    try testing.expectEqualStrings("Auto", model.effort_label());
+    try testing.expectEqualStrings("Auto", model.settings_effort_label());
+    try testing.expectEqualStrings("Auto", main.effortLabel("auto"));
+    try testing.expect(model.effort_selected_auto());
+    try testing.expect(!model.effort_selected_none());
+    try testing.expect(!model.effort_selected_high());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectChip(tree.root, "Auto");
+
+    var rows = model.effort_picker_rows(arena);
+    try testing.expectEqual(@as(usize, 8), rows.len);
+    try testing.expectEqualStrings("auto", rows[0].id);
+    try testing.expectEqualStrings("Auto", rows[0].label);
+    try testing.expect(rows[0].selected);
+    try testing.expectEqualStrings("none", rows[1].id);
+    try testing.expectEqualStrings("None", rows[1].label);
+    try testing.expect(!rows[1].selected);
+    try testing.expectEqualStrings("minimal", rows[2].id);
+    try testing.expectEqualStrings("Minimal", rows[2].label);
+    try testing.expectEqualStrings("low", rows[3].id);
+    try testing.expectEqualStrings("Low", rows[3].label);
+    try testing.expectEqualStrings("medium", rows[4].id);
+    try testing.expectEqualStrings("Medium", rows[4].label);
+    try testing.expectEqualStrings("high", rows[5].id);
+    try testing.expectEqualStrings("High", rows[5].label);
+    try testing.expectEqualStrings("xhigh", rows[6].id);
+    try testing.expectEqualStrings("Extra high", rows[6].label);
+    try testing.expectEqualStrings("max", rows[7].id);
+    try testing.expectEqualStrings("Max", rows[7].label);
+    try testing.expect(!rows[7].selected);
+
+    var settings_rows = model.settings_effort_picker_rows(arena);
+    try testing.expectEqualStrings("auto", settings_rows[0].id);
+    try testing.expectEqualStrings("Auto", settings_rows[0].label);
+    try testing.expect(settings_rows[0].selected);
+    try testing.expectEqualStrings("high", settings_rows[5].id);
+    try testing.expectEqualStrings("High", settings_rows[5].label);
+    try testing.expect(!settings_rows[5].selected);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("自动", model.effort_label());
+    try testing.expectEqualStrings("自动", model.settings_effort_label());
+    try testing.expectEqualStrings("Auto", main.effortLabel(model.resolvedReasoningEffort()));
+    try testing.expectEqualStrings("Auto", main.effortLabel("auto"));
+    try testing.expectEqualStrings("High", main.effortLabel("high"));
+    try testing.expectEqualStrings("Extra high", main.effortLabel("xhigh"));
+    try testing.expect(model.effort_selected_auto());
+    try testing.expect(!model.effort_selected_none());
+    try testing.expect(!model.effort_selected_high());
+
+    rows = model.effort_picker_rows(arena);
+    try testing.expectEqualStrings("auto", rows[0].id);
+    try testing.expectEqualStrings("自动", rows[0].label);
+    try testing.expect(rows[0].selected);
+    try testing.expectEqualStrings("none", rows[1].id);
+    try testing.expectEqualStrings("无", rows[1].label);
+    try testing.expect(!rows[1].selected);
+    try testing.expectEqualStrings("minimal", rows[2].id);
+    try testing.expectEqualStrings("最低", rows[2].label);
+    try testing.expectEqualStrings("low", rows[3].id);
+    try testing.expectEqualStrings("低", rows[3].label);
+    try testing.expectEqualStrings("medium", rows[4].id);
+    try testing.expectEqualStrings("中", rows[4].label);
+    try testing.expectEqualStrings("high", rows[5].id);
+    try testing.expectEqualStrings("高", rows[5].label);
+    try testing.expect(!rows[5].selected);
+    try testing.expectEqualStrings("xhigh", rows[6].id);
+    try testing.expectEqualStrings("极高", rows[6].label);
+    try testing.expectEqualStrings("max", rows[7].id);
+    try testing.expectEqualStrings("最大", rows[7].label);
+
+    settings_rows = model.settings_effort_picker_rows(arena);
+    try testing.expectEqualStrings("auto", settings_rows[0].id);
+    try testing.expectEqualStrings("自动", settings_rows[0].label);
+    try testing.expect(settings_rows[0].selected);
+    try testing.expectEqualStrings("高", settings_rows[5].label);
+    try testing.expect(!settings_rows[5].selected);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectChip(tree.root, "自动");
+    try testing.expect(findByText(tree.root, .button, "Auto") == null);
+
+    main.update(&model, .toggle_effort_picker, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .menu_item, "自动");
+    _ = try expectByText(tree.root, .menu_item, "无");
+    _ = try expectByText(tree.root, .menu_item, "最低");
+    _ = try expectByText(tree.root, .menu_item, "低");
+    _ = try expectByText(tree.root, .menu_item, "中");
+    _ = try expectByText(tree.root, .menu_item, "高");
+    _ = try expectByText(tree.root, .menu_item, "极高");
+    _ = try expectByText(tree.root, .menu_item, "最大");
+    const zh_auto = try expectByText(tree.root, .menu_item, "自动");
+    try testing.expect(zh_auto.state.selected);
+    const zh_high = try expectByText(tree.root, .menu_item, "高");
+    try testing.expect(!zh_high.state.selected);
+    try testing.expect(findByText(tree.root, .menu_item, "Auto") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "High") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Extra high") == null);
+    switch (tree.msgForPointer(zh_high.id, .up).?) {
+        .pick_effort => |picked| try testing.expectEqualStrings("high", picked),
+        else => return error.WrongMsg,
+    }
+    main.update(&model, tree.msgForPointer(zh_high.id, .up).?, &fx);
+    try testing.expectEqualStrings("high", model.resolvedReasoningEffort());
+    try testing.expectEqualStrings("高", model.effort_label());
+    try testing.expect(model.effort_selected_high());
+    try testing.expect(!model.effort_selected_auto());
+    try testing.expectEqualStrings("High", main.effortLabel(model.resolvedReasoningEffort()));
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_open);
+    try testing.expectEqualStrings("高", model.settings_effort_label());
+    tree = try buildTree(arena, &model);
+    const zh_settings = try expectSelectMsg(tree, "高", .toggle_settings_effort_picker);
+    main.update(&model, tree.msgForPointer(zh_settings.id, .up).?, &fx);
+    try testing.expect(model.settings_effort_picker_open);
+    tree = try buildTree(arena, &model);
+    const zh_settings_high = try expectByText(tree.root, .menu_item, "高");
+    try testing.expect(zh_settings_high.state.selected);
+    try testing.expect(!(try expectByText(tree.root, .menu_item, "自动")).state.selected);
+    const zh_settings_xhigh = try expectByText(tree.root, .menu_item, "极高");
+    try testing.expect(!zh_settings_xhigh.state.selected);
+    try testing.expect(findByText(tree.root, .menu_item, "Extra high") == null);
+    switch (tree.msgForPointer(zh_settings_xhigh.id, .up).?) {
+        .pick_settings_effort => |picked| try testing.expectEqualStrings("xhigh", picked),
+        else => return error.WrongMsg,
+    }
+    main.update(&model, tree.msgForPointer(zh_settings_xhigh.id, .up).?, &fx);
+    try testing.expectEqualStrings("xhigh", model.lastReasoningEffort());
+    try testing.expectEqualStrings("high", model.session_store[0].reasoningEffort());
+    try testing.expectEqualStrings("极高", model.settings_effort_label());
+    try testing.expectEqualStrings("高", model.effort_label());
+    try testing.expect(model.effort_selected_high());
+    try testing.expect(!model.effort_selected_xhigh());
+    try testing.expectEqualStrings("Extra high", main.effortLabel(model.lastReasoningEffort()));
+    tree = try buildTree(arena, &model);
+    _ = try expectSelectMsg(tree, "极高", .toggle_settings_effort_picker);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .{ .pick_effort = "xhigh" }, &fx);
+    try testing.expectEqualStrings("xhigh", model.resolvedReasoningEffort());
+    try testing.expectEqualStrings("极高", model.effort_label());
+    try testing.expect(model.effort_selected_xhigh());
+    try testing.expect(!model.effort_selected_high());
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("非常に高い", model.effort_label());
+    try testing.expectEqualStrings("非常に高い", model.settings_effort_label());
+    try testing.expect(model.effort_selected_xhigh());
+    try testing.expect(!model.effort_selected_auto());
+    try testing.expect(!model.effort_selected_high());
+
+    rows = model.effort_picker_rows(arena);
+    try testing.expectEqualStrings("auto", rows[0].id);
+    try testing.expectEqualStrings("自動", rows[0].label);
+    try testing.expect(!rows[0].selected);
+    try testing.expectEqualStrings("なし", rows[1].label);
+    try testing.expectEqualStrings("最小", rows[2].label);
+    try testing.expectEqualStrings("低", rows[3].label);
+    try testing.expectEqualStrings("中", rows[4].label);
+    try testing.expectEqualStrings("高", rows[5].label);
+    try testing.expect(!rows[5].selected);
+    try testing.expectEqualStrings("xhigh", rows[6].id);
+    try testing.expectEqualStrings("非常に高い", rows[6].label);
+    try testing.expect(rows[6].selected);
+    try testing.expectEqualStrings("最大", rows[7].label);
+
+    settings_rows = model.settings_effort_picker_rows(arena);
+    try testing.expectEqualStrings("非常に高い", settings_rows[6].label);
+    try testing.expect(settings_rows[6].selected);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectChip(tree.root, "非常に高い");
+    try testing.expect(findByText(tree.root, .button, "极高") == null);
+
+    main.update(&model, .toggle_effort_picker, &fx);
+    tree = try buildTree(arena, &model);
+    const ja_xhigh = try expectByText(tree.root, .menu_item, "非常に高い");
+    try testing.expect(ja_xhigh.state.selected);
+    try testing.expect(!(try expectByText(tree.root, .menu_item, "自動")).state.selected);
+    try testing.expect(!(try expectByText(tree.root, .menu_item, "なし")).state.selected);
+    try testing.expect(!(try expectByText(tree.root, .menu_item, "最大")).state.selected);
+    try testing.expect(findByText(tree.root, .menu_item, "Auto") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Extra high") == null);
+    main.update(&model, .close_effort_picker, &fx);
+
+    main.update(&model, .{ .pick_effort = "max" }, &fx);
+    try testing.expectEqualStrings("max", model.resolvedReasoningEffort());
+    try testing.expectEqualStrings("最大", model.effort_label());
+    try testing.expect(model.effort_selected_max());
+    try testing.expect(!model.effort_selected_xhigh());
+
+    main.update(&model, .toggle_settings, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectSelectMsg(tree, "最大", .toggle_settings_effort_picker);
+    try testing.expectEqualStrings("最大", model.settings_effort_label());
+    main.update(&model, .toggle_settings, &fx);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Max", model.effort_label());
+    try testing.expectEqualStrings("Max", model.settings_effort_label());
+    try testing.expect(model.effort_selected_max());
+    tree = try buildTree(arena, &model);
+    _ = try expectChip(tree.root, "Max");
+    try testing.expect(findByText(tree.root, .button, "最大") == null);
+    try testing.expect(findByText(tree.root, .button, "非常に高い") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("最大", model.effort_label());
+    try testing.expectEqualStrings("最大", model.settings_effort_label());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("最大", model.effort_label());
+    try testing.expectEqualStrings("最大", model.settings_effort_label());
+}
+
 test "DateBucket.title english default; zh and ja follow datesFor" {
     try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
     try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());
