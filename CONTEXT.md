@@ -33,7 +33,7 @@ send circle.
 | **runtime_id** | Daemon runtime id. Empty until a daemon `start` / attach path stores one. |
 | **project_path** | Session cwd. Empty is Local / host cwd. |
 | **workspace** | Session workspace kind. `local` (default; omitted from `sessions.json`) is the ordinary `project_path` checkout. `newWorktree` is a composer draft until Send — it does not spawn `git worktree add` yet. `worktree` is `{path, branch}` after Send materializes that dest and retargets `project_path`. Composer **Work in**. Optional Base for `newWorktree` persists camelCase `baseBranch` (Waku `SessionWorkspace::NewWorktree { base_branch }`; omitted when empty) and keeps the runtime New worktree… picker (`git_worktree_base_override_*`) in sync. Fork copies `project_path` (including a materialized dest) and resets kind to `local`. First-cut daemon `WorkspaceOperation::CreateWorktree` is a best-effort sidecar on Send when a daemon address is set; no address keeps local `git worktree add`. |
-| **access_mode** | Stored Waku runtime mode. Maps onto fx `ask` / `code` (ACP) and `FX_PERMISSION_MODE` (`ask` / `auto` / `yolo`). New sessions default to Waku `fullAccess`. |
+| **access_mode** | Stored Waku runtime mode. Maps onto fx `ask` / `code` (ACP) and `FX_PERMISSION_MODE` (`ask` / `auto` / `yolo`). New Task create prefers the selected session's access mode (Waku `new_task_runtime_mode`); else remembered `last_access_mode`; else Waku `fullAccess`. |
 | **loadTaskState** | Catalog fill. Local JSON today. Daemon `loadTaskState` is only a first-run fill when the local catalog is missing. |
 | **saveTaskState** | Best-effort daemon mirror of one started-session skeleton. Does not replace the local catalog. |
 | **hydrateSession** | Daemon transcript fill when the local transcript is empty. Local turns win. |
@@ -98,7 +98,15 @@ the slot (Waku `create_projectless_session`) and keeps today's
 reuse / CreateProjectlessWorkspace path. Visiting started
 sessions does not clear the slot. Started, removed, or missing
 drafts are ignored. Selection history Back / Forward stays a
-separate stack.
+separate stack. New Task create (ordinary or projectless
+`addSession` for a fresh untitled draft) prefers the currently
+selected session's `access_mode` when that field is non-empty
+(Waku `new_task_runtime_mode`); else remembered
+`last_access_mode`; else Waku `fullAccess`.
+`applySessionSelection` does not copy the selected row into
+`last_access_mode`. Remembered New Task and projectless draft
+reuse only select the existing draft and do not rewrite its
+access mode.
 
 Session `workspace` on `sessions.json` is omitted when `local`. A
 `newWorktree` skeleton is `{"kind":"newWorktree"}`, or
@@ -1385,9 +1393,12 @@ Honest gaps this cut does not implement:
   does not steal the slot; projectless New Task does not consult it
   and keeps today's reuse / CreateProjectlessWorkspace path;
   visiting started sessions does not clear it; started, removed, or
-  missing drafts are ignored). Not persisted on `sessions.json`.
-  Selection history Back / Forward stays a separate stack. Not Waku
-  Uuid. First-cut remove
+  missing drafts are ignored). New Task create prefers the selected
+  session's `access_mode` (Waku `new_task_runtime_mode`), else
+  `last_access_mode` / `fullAccess`; reopen / projectless draft
+  reuse do not rewrite that draft's access mode. Not persisted on
+  `sessions.json`. Selection history Back / Forward stays a separate
+  stack. Not Waku Uuid. First-cut remove
   destination ships (same-path newest remaining, else projectless New
   Task, else ordinary New Task for that `project_path`, else 0;
   non-selected remove unchanged). Not Waku Project UUID.
@@ -1771,7 +1782,10 @@ Honest gaps this cut does not implement:
   remembered unstarted draft on ordinary New Task when that id is
   still valid and `projectPath()` matches the current ordinary
   project (runtime-only `new_task`; a different path skips without
-  clearing; visiting started sessions does not clear it). Projectless
+  clearing; visiting started sessions does not clear it). New Task
+  create prefers the selected session's `access_mode` (Waku
+  `new_task_runtime_mode`), else `last_access_mode` / `fullAccess`;
+  reopen does not rewrite that draft's access mode. Projectless
   New Task does not consult the slot. Else New Task reuses an
   unstarted non-legacy projectless draft instead of always creating.
   First-cut remove destination on the selected

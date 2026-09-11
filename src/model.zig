@@ -4508,6 +4508,7 @@ pub const Model = struct {
         }
     }
 
+    /// Composer chip + New Task `addSession` (Waku `new_task_runtime_mode`).
     pub fn resolvedAccessMode(model: *const Model) []const u8 {
         if (model.sessionByIdConst(model.selected)) |session| {
             if (session.accessMode().len > 0) return session.accessMode();
@@ -6129,7 +6130,9 @@ pub const Model = struct {
         writeFixed(&session.title_storage, &session.title_len, title_text);
         writeFixed(&session.project_path_storage, &session.project_path_len, model.lastProjectPath());
         writeFixed(&session.model_storage, &session.model_len, model.lastModel());
-        const access = if (model.lastAccessMode().len > 0) model.lastAccessMode() else default_access_mode;
+        // Waku `new_task_runtime_mode`: prefer the selected session's
+        // access mode, then remembered `last_access_mode`, then `fullAccess`.
+        const access = model.resolvedAccessMode();
         writeFixed(&session.access_mode_storage, &session.access_mode_len, access);
         const interaction = if (model.lastInteractionMode().len > 0) model.lastInteractionMode() else default_interaction_mode;
         writeFixed(&session.interaction_mode_storage, &session.interaction_mode_len, interaction);
