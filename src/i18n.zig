@@ -15,7 +15,8 @@
 //! Plan (same `Interaction` strings), first-cut right-panel tab
 //! button labels (same `RightPanelTabs` strings; EN Diff tab reads
 //! Review), and first-cut right-panel Diff filter + Files/Background
-//! empty-state chrome (same `RightPanelChrome` strings) live here so
+//! empty-state chrome plus Browser start page / Open in browser /
+//! Open in Terminal (same `RightPanelChrome` strings) live here so
 //! `main.zig` does not grow. Palette ids / `PaletteAction` / keywords
 //! stay English. Wire `access_mode` ids stay `ask` / `auto` /
 //! `fullAccess`. Wire `reasoning_effort` ids stay `auto` / `none` /
@@ -23,8 +24,9 @@
 //! `interaction_mode` ids stay `build` / `plan`. Wire
 //! `right_panel_tab` ids stay `files` / `diff` / `browser` /
 //! `terminal` / `background`. Diff filter `on-input` and filter text
-//! stay English. Not rust_i18n, not YAML catalogs, not full-app
-//! translation, not tz-aware grouping.
+//! stay English. Open in browser / Open in Terminal `on-press` stay
+//! `open_url` / `open_terminal`. Not rust_i18n, not YAML catalogs,
+//! not full-app translation, not tz-aware grouping.
 
 const std = @import("std");
 
@@ -516,7 +518,8 @@ const palette_chrome_ja: PaletteChrome = .{
 /// `diff` / `browser` / `terminal` / `background`; only the visible
 /// label translates. English Diff tab reads Review (Waku
 /// `right_panel.diff`), not Diff. Diff filter / Files empty /
-/// Background empty chrome live in `RightPanelChrome`. Pane `label=`
+/// Background empty / Browser start page / Open in browser /
+/// Open in Terminal chrome live in `RightPanelChrome`. Pane `label=`
 /// attributes and remaining Background row chrome stay English.
 pub const RightPanelTabs = struct {
     files: []const u8,
@@ -550,17 +553,22 @@ const right_panel_tabs_ja: RightPanelTabs = .{
     .background = "バックグラウンド",
 };
 
-/// Right-panel Diff filter placeholder and Files/Background empty-state
-/// chrome for the resolved locale. Same resolve path as RightPanelTabs.
+/// Right-panel Diff filter placeholder, Files/Background empty-state
+/// chrome, and Browser start-page / Open in browser / Open in Terminal
+/// labels for the resolved locale. Same resolve path as RightPanelTabs.
 /// Wire ids / on-press / filter text stay English; only these visible
 /// strings translate. English Diff filter reads "Filter files", not
-/// Filter. Browser start page, Open in browser / Terminal, and
-/// remaining Background row chrome stay English.
+/// Filter. Composer Open in Terminal and remaining Background row chrome
+/// stay English.
 pub const RightPanelChrome = struct {
     filter_files: []const u8,
     no_project_open: []const u8,
     no_background_work: []const u8,
     no_output: []const u8,
+    browse_the_web: []const u8,
+    address_focus_hint: []const u8,
+    open_in_browser: []const u8,
+    open_in_terminal: []const u8,
 };
 
 const right_panel_chrome_en: RightPanelChrome = .{
@@ -568,6 +576,10 @@ const right_panel_chrome_en: RightPanelChrome = .{
     .no_project_open = "No project open",
     .no_background_work = "No background work",
     .no_output = "No output",
+    .browse_the_web = "Browse the web",
+    .address_focus_hint = "Cmd/Ctrl-L focuses the address.",
+    .open_in_browser = "Open in browser",
+    .open_in_terminal = "Open in Terminal",
 };
 
 const right_panel_chrome_zh_cn: RightPanelChrome = .{
@@ -575,6 +587,10 @@ const right_panel_chrome_zh_cn: RightPanelChrome = .{
     .no_project_open = "未打开项目",
     .no_background_work = "没有后台工作",
     .no_output = "没有输出",
+    .browse_the_web = "浏览网页",
+    .address_focus_hint = "Cmd/Ctrl-L 聚焦地址栏。",
+    .open_in_browser = "在浏览器中打开",
+    .open_in_terminal = "在终端中打开",
 };
 
 const right_panel_chrome_ja: RightPanelChrome = .{
@@ -582,6 +598,10 @@ const right_panel_chrome_ja: RightPanelChrome = .{
     .no_project_open = "プロジェクトが開かれていません",
     .no_background_work = "バックグラウンド作業はありません",
     .no_output = "出力がありません",
+    .browse_the_web = "ウェブを閲覧",
+    .address_focus_hint = "Cmd/Ctrl-L でアドレス欄にフォーカス。",
+    .open_in_browser = "ブラウザで開く",
+    .open_in_terminal = "ターミナルで開く",
 };
 
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
@@ -721,8 +741,9 @@ pub fn rightPanelTabsFor(preference: LanguagePreference, system_locale_id: []con
     };
 }
 
-/// Right-panel Diff filter + Files/Background empty-state chrome for
-/// the resolved locale. Callers pass Model `language_preference` +
+/// Right-panel Diff filter + Files/Background empty-state chrome plus
+/// Browser start page / Open in browser / Open in Terminal for the
+/// resolved locale. Callers pass Model `language_preference` +
 /// `system_locale_id`; this file does not read process env. Wire ids /
 /// on-press / filter text stay English.
 pub fn rightPanelChromeFor(preference: LanguagePreference, system_locale_id: []const u8) RightPanelChrome {
@@ -1112,22 +1133,40 @@ test "rightPanelChromeFor english default; zh and ja chrome; english ignores ja 
     try testing.expectEqualStrings("No project open", rightPanelChromeFor(.english, "").no_project_open);
     try testing.expectEqualStrings("No background work", rightPanelChromeFor(.english, "").no_background_work);
     try testing.expectEqualStrings("No output", rightPanelChromeFor(.english, "").no_output);
+    try testing.expectEqualStrings("Browse the web", rightPanelChromeFor(.english, "").browse_the_web);
+    try testing.expectEqualStrings("Cmd/Ctrl-L focuses the address.", rightPanelChromeFor(.english, "").address_focus_hint);
+    try testing.expectEqualStrings("Open in browser", rightPanelChromeFor(.english, "").open_in_browser);
+    try testing.expectEqualStrings("Open in Terminal", rightPanelChromeFor(.english, "").open_in_terminal);
     try testing.expectEqualStrings("Filter files", rightPanelChromeFor(.system, "").filter_files);
 
     try testing.expectEqualStrings("筛选文件", rightPanelChromeFor(.simplified_chinese, "").filter_files);
     try testing.expectEqualStrings("未打开项目", rightPanelChromeFor(.simplified_chinese, "").no_project_open);
     try testing.expectEqualStrings("没有后台工作", rightPanelChromeFor(.simplified_chinese, "").no_background_work);
     try testing.expectEqualStrings("没有输出", rightPanelChromeFor(.simplified_chinese, "").no_output);
+    try testing.expectEqualStrings("浏览网页", rightPanelChromeFor(.simplified_chinese, "").browse_the_web);
+    try testing.expectEqualStrings("Cmd/Ctrl-L 聚焦地址栏。", rightPanelChromeFor(.simplified_chinese, "").address_focus_hint);
+    try testing.expectEqualStrings("在浏览器中打开", rightPanelChromeFor(.simplified_chinese, "").open_in_browser);
+    try testing.expectEqualStrings("在终端中打开", rightPanelChromeFor(.simplified_chinese, "").open_in_terminal);
 
     try testing.expectEqualStrings("ファイルを絞り込む", rightPanelChromeFor(.japanese, "").filter_files);
     try testing.expectEqualStrings("プロジェクトが開かれていません", rightPanelChromeFor(.japanese, "").no_project_open);
     try testing.expectEqualStrings("バックグラウンド作業はありません", rightPanelChromeFor(.japanese, "").no_background_work);
     try testing.expectEqualStrings("出力がありません", rightPanelChromeFor(.japanese, "").no_output);
+    try testing.expectEqualStrings("ウェブを閲覧", rightPanelChromeFor(.japanese, "").browse_the_web);
+    try testing.expectEqualStrings("Cmd/Ctrl-L でアドレス欄にフォーカス。", rightPanelChromeFor(.japanese, "").address_focus_hint);
+    try testing.expectEqualStrings("ブラウザで開く", rightPanelChromeFor(.japanese, "").open_in_browser);
+    try testing.expectEqualStrings("ターミナルで開く", rightPanelChromeFor(.japanese, "").open_in_terminal);
 
     try testing.expectEqualStrings("筛选文件", rightPanelChromeFor(.system, "zh_CN.UTF-8").filter_files);
     try testing.expectEqualStrings("出力がありません", rightPanelChromeFor(.system, "ja_JP.UTF-8").no_output);
+    try testing.expectEqualStrings("浏览网页", rightPanelChromeFor(.system, "zh_CN.UTF-8").browse_the_web);
+    try testing.expectEqualStrings("ターミナルで開く", rightPanelChromeFor(.system, "ja_JP.UTF-8").open_in_terminal);
     try testing.expectEqualStrings("Filter files", rightPanelChromeFor(.english, "ja_JP.UTF-8").filter_files);
     try testing.expectEqualStrings("No project open", rightPanelChromeFor(.english, "zh_CN.UTF-8").no_project_open);
     try testing.expectEqualStrings("No background work", rightPanelChromeFor(.english, "ja_JP.UTF-8").no_background_work);
     try testing.expectEqualStrings("No output", rightPanelChromeFor(.english, "zh_CN.UTF-8").no_output);
+    try testing.expectEqualStrings("Browse the web", rightPanelChromeFor(.english, "ja_JP.UTF-8").browse_the_web);
+    try testing.expectEqualStrings("Cmd/Ctrl-L focuses the address.", rightPanelChromeFor(.english, "zh_CN.UTF-8").address_focus_hint);
+    try testing.expectEqualStrings("Open in browser", rightPanelChromeFor(.english, "ja_JP.UTF-8").open_in_browser);
+    try testing.expectEqualStrings("Open in Terminal", rightPanelChromeFor(.english, "zh_CN.UTF-8").open_in_terminal);
 }
