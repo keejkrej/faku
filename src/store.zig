@@ -2523,7 +2523,7 @@ test "session runtime_id persists and loads" {
     try testing.expectEqualStrings("00000000-0000-0000-0000-000000000003", loaded.session_store[0].runtimeId());
 }
 
-test "session model and access_mode persist; new sessions inherit last-used" {
+test "session model and access_mode persist; new sessions inherit last-used (access follows selected)" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -3388,7 +3388,10 @@ test "settings extras persist last_model access path and daemon; missing catalog
 
     const inherited = loaded.addSession("next", .fx);
     try testing.expectEqualStrings("openai/gpt-5.4", loaded.sessionById(inherited).?.model());
-    try testing.expectEqualStrings("auto", loaded.sessionById(inherited).?.accessMode());
+    // Catalog row was created at fullAccess; settings extra is auto.
+    // New Task create prefers the selected row's access_mode.
+    try testing.expectEqualStrings("fullAccess", loaded.sessionById(inherited).?.accessMode());
+    try testing.expectEqualStrings("auto", loaded.lastAccessMode());
     try testing.expectEqualStrings("plan", loaded.sessionById(inherited).?.interactionMode());
     try testing.expectEqualStrings("high", loaded.sessionById(inherited).?.reasoningEffort());
     try testing.expectEqualStrings("/tmp/faku-settings", loaded.sessionById(inherited).?.projectPath());
