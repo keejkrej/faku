@@ -11681,6 +11681,78 @@ test "empty palette lists New Task; query new t still includes it" {
     try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
 }
 
+test "palette Collapse all folders follows Appearance language when folders exist" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expect(!model.can_collapse_folders());
+    main.update(&model, .start_search, &fx);
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "Collapse all folders"));
+    main.update(&model, .palette_cancel, &fx);
+
+    main.update(&model, .new_folder, &fx);
+    try testing.expect(model.can_collapse_folders());
+    try testing.expectEqualStrings("Collapse all folders", model.collapse_all_folders_label());
+
+    main.update(&model, .start_search, &fx);
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "Collapse all folders"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "New Task"));
+    try testing.expectEqual(
+        main.paletteActionId(.collapse_folders),
+        paletteRowId(model.palette_rows(arena), "Collapse all folders"),
+    );
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("折叠所有文件夹", model.collapse_all_folders_label());
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "折叠所有文件夹"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "Collapse all folders"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "New Task"));
+
+    main.update(&model, .{ .search_edit = .{ .insert_text = "collapse" } }, &fx);
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "折叠所有文件夹"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "New Task"));
+
+    main.update(&model, .{ .search_edit = .clear }, &fx);
+    main.update(&model, .{ .search_edit = .{ .insert_text = "折叠" } }, &fx);
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "折叠所有文件夹"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "New Task"));
+
+    main.update(&model, .{ .search_edit = .clear }, &fx);
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("すべてのフォルダを折りたたむ", model.collapse_all_folders_label());
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "すべてのフォルダを折りたたむ"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "折叠所有文件夹"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "New Task"));
+
+    main.update(&model, .{ .search_edit = .{ .insert_text = "folder" } }, &fx);
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "すべてのフォルダを折りたたむ"));
+
+    main.update(&model, .{ .search_edit = .clear }, &fx);
+    main.update(&model, .{ .search_edit = .{ .insert_text = "フォルダ" } }, &fx);
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "すべてのフォルダを折りたたむ"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "New Task"));
+
+    main.update(&model, .{ .search_edit = .clear }, &fx);
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Collapse all folders", model.collapse_all_folders_label());
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "Collapse all folders"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "すべてのフォルダを折りたたむ"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "New Task"));
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("折叠所有文件夹", model.collapse_all_folders_label());
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "折叠所有文件夹"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "New Task"));
+}
+
 test "palette copies local session id and fx session id; empty fx id skips clipboard" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

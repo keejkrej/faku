@@ -4258,7 +4258,7 @@ pub const Model = struct {
         return model.sidebarChrome().new_folder;
     }
 
-    /// Collapse-all-folders icon button. Palette command label stays English.
+    /// Collapse-all-folders icon button. Palette command reuses this label.
     pub fn collapse_all_folders_label(model: *const Model) []const u8 {
         return model.sidebarChrome().collapse_all_folders;
     }
