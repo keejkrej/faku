@@ -2,8 +2,10 @@
 //!
 //! Access / effort labels, chip option tables, slash command prefix,
 //! caret-at-end `@` mention parse/insert, mention path score / labels,
-//! and image-drop path checks live here. Model chip cycling and persist
-//! stay in `main.zig`.
+//! and image-drop path checks live here. `accessLabel` / `access_chip_options`
+//! stay English; composer chip and Settings General chrome use `i18n.Access`.
+//! Selection uses `accessChipId`, not English label text. Model chip cycling
+//! and persist stay in `main.zig`.
 
 const std = @import("std");
 
@@ -43,6 +45,17 @@ pub fn nextAccessMode(access_mode: []const u8) []const u8 {
     return "ask";
 }
 
+/// Canonical chip id for selection. `autoAcceptEdits` counts as auto;
+/// empty / `yolo` / unknown count as fullAccess. Display labels go
+/// through `i18n.Access`; do not compare English chrome text.
+pub fn accessChipId(access_mode: []const u8) []const u8 {
+    if (std.mem.eql(u8, access_mode, "ask")) return "ask";
+    if (std.mem.eql(u8, access_mode, "auto") or std.mem.eql(u8, access_mode, "autoAcceptEdits")) return "auto";
+    return "fullAccess";
+}
+
+/// English chrome fallback. Localized composer / Settings General
+/// labels use `i18n.accessFor` + `accessChipId`.
 pub fn accessLabel(access_mode: []const u8) []const u8 {
     if (std.mem.eql(u8, access_mode, "ask")) return "Ask";
     if (std.mem.eql(u8, access_mode, "auto") or std.mem.eql(u8, access_mode, "autoAcceptEdits")) return "Auto";
@@ -373,4 +386,20 @@ test "fileMentionScore prefers basename prefix over contains" {
     try std.testing.expectEqual(@as(u32, 1), fileMentionDepth("src/main.zig"));
     try std.testing.expectEqual(@as(u32, 1), fileMentionDepth("src/lib/"));
     try std.testing.expectEqual(@as(u32, 2), fileMentionDepth("src/lib/util.zig"));
+}
+
+test "accessChipId classifies aliases; accessLabel stays English" {
+    try std.testing.expectEqualStrings("ask", accessChipId("ask"));
+    try std.testing.expectEqualStrings("auto", accessChipId("auto"));
+    try std.testing.expectEqualStrings("auto", accessChipId("autoAcceptEdits"));
+    try std.testing.expectEqualStrings("fullAccess", accessChipId("fullAccess"));
+    try std.testing.expectEqualStrings("fullAccess", accessChipId("yolo"));
+    try std.testing.expectEqualStrings("fullAccess", accessChipId(""));
+    try std.testing.expectEqualStrings("fullAccess", accessChipId("nope"));
+    try std.testing.expectEqualStrings("Ask", accessLabel("ask"));
+    try std.testing.expectEqualStrings("Auto", accessLabel("auto"));
+    try std.testing.expectEqualStrings("Auto", accessLabel("autoAcceptEdits"));
+    try std.testing.expectEqualStrings("Full access", accessLabel("fullAccess"));
+    try std.testing.expectEqualStrings("Full access", accessLabel("yolo"));
+    try std.testing.expectEqualStrings("Full access", accessLabel(""));
 }
