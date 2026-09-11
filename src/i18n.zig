@@ -15,8 +15,10 @@
 //! Plan (same `Interaction` strings), first-cut right-panel tab
 //! button labels (same `RightPanelTabs` strings; EN Diff tab reads
 //! Review), first-cut right-panel Diff filter + Files/Background
-//! empty-state chrome plus Browser start page / Open in browser /
-//! Open in Terminal (same `RightPanelChrome` strings), and first-cut
+//! empty-state chrome (including Files empty secondary Open a
+//! project to browse its files / Loading files…) plus Browser
+//! start page / Open in browser / Open in Terminal (same
+//! `RightPanelChrome` strings), and first-cut
 //! composer project-row Pick folder / Reveal folder / Open in Editor /
 //! Copy path (same `ComposerProjectChrome` strings; Open in Terminal
 //! reuses `RightPanelChrome.open_in_terminal`) live here so
@@ -522,10 +524,12 @@ const palette_chrome_ja: PaletteChrome = .{
 /// path as PaletteChrome. Wire `right_panel_tab` ids stay `files` /
 /// `diff` / `browser` / `terminal` / `background`; only the visible
 /// label translates. English Diff tab reads Review (Waku
-/// `right_panel.diff`), not Diff. Diff filter / Files empty /
-/// Background empty / Browser start page / Open in browser /
-/// Open in Terminal chrome live in `RightPanelChrome`. Pane `label=`
-/// attributes and remaining Background row chrome stay English.
+/// `right_panel.diff`), not Diff. Diff filter / Files empty
+/// (including empty secondary Open a project to browse its files /
+/// Loading files…) / Background empty / Browser start page /
+/// Open in browser / Open in Terminal chrome live in
+/// `RightPanelChrome`. Pane `label=` attributes and remaining
+/// Background row chrome stay English.
 pub const RightPanelTabs = struct {
     files: []const u8,
     diff: []const u8,
@@ -559,15 +563,19 @@ const right_panel_tabs_ja: RightPanelTabs = .{
 };
 
 /// Right-panel Diff filter placeholder, Files/Background empty-state
-/// chrome, and Browser start-page / Open in browser / Open in Terminal
-/// labels for the resolved locale. Same resolve path as RightPanelTabs.
-/// Wire ids / on-press / filter text stay English; only these visible
-/// strings translate. English Diff filter reads "Filter files", not
-/// Filter. Composer Open in Terminal reuses `open_in_terminal`. Remaining
-/// Background row chrome stays English.
+/// chrome (including Files empty secondary Open a project to browse
+/// its files / Loading files…), and Browser start-page / Open in
+/// browser / Open in Terminal labels for the resolved locale. Same
+/// resolve path as RightPanelTabs. Wire ids / on-press / filter text
+/// stay English; only these visible strings translate. English Diff
+/// filter reads "Filter files", not Filter. Composer Open in Terminal
+/// reuses `open_in_terminal`. Remaining Background row chrome stays
+/// English.
 pub const RightPanelChrome = struct {
     filter_files: []const u8,
     no_project_open: []const u8,
+    open_project_to_browse_files: []const u8,
+    loading_files: []const u8,
     no_background_work: []const u8,
     no_output: []const u8,
     browse_the_web: []const u8,
@@ -579,6 +587,8 @@ pub const RightPanelChrome = struct {
 const right_panel_chrome_en: RightPanelChrome = .{
     .filter_files = "Filter files",
     .no_project_open = "No project open",
+    .open_project_to_browse_files = "Open a project to browse its files",
+    .loading_files = "Loading files…",
     .no_background_work = "No background work",
     .no_output = "No output",
     .browse_the_web = "Browse the web",
@@ -590,6 +600,8 @@ const right_panel_chrome_en: RightPanelChrome = .{
 const right_panel_chrome_zh_cn: RightPanelChrome = .{
     .filter_files = "筛选文件",
     .no_project_open = "未打开项目",
+    .open_project_to_browse_files = "打开项目以浏览文件",
+    .loading_files = "正在加载文件…",
     .no_background_work = "没有后台工作",
     .no_output = "没有输出",
     .browse_the_web = "浏览网页",
@@ -601,6 +613,8 @@ const right_panel_chrome_zh_cn: RightPanelChrome = .{
 const right_panel_chrome_ja: RightPanelChrome = .{
     .filter_files = "ファイルを絞り込む",
     .no_project_open = "プロジェクトが開かれていません",
+    .open_project_to_browse_files = "プロジェクトを開いてファイルを閲覧",
+    .loading_files = "ファイルを読み込み中…",
     .no_background_work = "バックグラウンド作業はありません",
     .no_output = "出力がありません",
     .browse_the_web = "ウェブを閲覧",
@@ -780,9 +794,10 @@ pub fn rightPanelTabsFor(preference: LanguagePreference, system_locale_id: []con
     };
 }
 
-/// Right-panel Diff filter + Files/Background empty-state chrome plus
-/// Browser start page / Open in browser / Open in Terminal for the
-/// resolved locale. Callers pass Model `language_preference` +
+/// Right-panel Diff filter + Files/Background empty-state chrome
+/// (including Files empty secondary / Loading files…) plus Browser
+/// start page / Open in browser / Open in Terminal for the resolved
+/// locale. Callers pass Model `language_preference` +
 /// `system_locale_id`; this file does not read process env. Wire ids /
 /// on-press / filter text stay English.
 pub fn rightPanelChromeFor(preference: LanguagePreference, system_locale_id: []const u8) RightPanelChrome {
@@ -1182,6 +1197,8 @@ test "rightPanelChromeFor english default; zh and ja chrome; english ignores ja 
     const testing = std.testing;
     try testing.expectEqualStrings("Filter files", rightPanelChromeFor(.english, "ja").filter_files);
     try testing.expectEqualStrings("No project open", rightPanelChromeFor(.english, "").no_project_open);
+    try testing.expectEqualStrings("Open a project to browse its files", rightPanelChromeFor(.english, "").open_project_to_browse_files);
+    try testing.expectEqualStrings("Loading files…", rightPanelChromeFor(.english, "").loading_files);
     try testing.expectEqualStrings("No background work", rightPanelChromeFor(.english, "").no_background_work);
     try testing.expectEqualStrings("No output", rightPanelChromeFor(.english, "").no_output);
     try testing.expectEqualStrings("Browse the web", rightPanelChromeFor(.english, "").browse_the_web);
@@ -1192,6 +1209,8 @@ test "rightPanelChromeFor english default; zh and ja chrome; english ignores ja 
 
     try testing.expectEqualStrings("筛选文件", rightPanelChromeFor(.simplified_chinese, "").filter_files);
     try testing.expectEqualStrings("未打开项目", rightPanelChromeFor(.simplified_chinese, "").no_project_open);
+    try testing.expectEqualStrings("打开项目以浏览文件", rightPanelChromeFor(.simplified_chinese, "").open_project_to_browse_files);
+    try testing.expectEqualStrings("正在加载文件…", rightPanelChromeFor(.simplified_chinese, "").loading_files);
     try testing.expectEqualStrings("没有后台工作", rightPanelChromeFor(.simplified_chinese, "").no_background_work);
     try testing.expectEqualStrings("没有输出", rightPanelChromeFor(.simplified_chinese, "").no_output);
     try testing.expectEqualStrings("浏览网页", rightPanelChromeFor(.simplified_chinese, "").browse_the_web);
@@ -1201,6 +1220,8 @@ test "rightPanelChromeFor english default; zh and ja chrome; english ignores ja 
 
     try testing.expectEqualStrings("ファイルを絞り込む", rightPanelChromeFor(.japanese, "").filter_files);
     try testing.expectEqualStrings("プロジェクトが開かれていません", rightPanelChromeFor(.japanese, "").no_project_open);
+    try testing.expectEqualStrings("プロジェクトを開いてファイルを閲覧", rightPanelChromeFor(.japanese, "").open_project_to_browse_files);
+    try testing.expectEqualStrings("ファイルを読み込み中…", rightPanelChromeFor(.japanese, "").loading_files);
     try testing.expectEqualStrings("バックグラウンド作業はありません", rightPanelChromeFor(.japanese, "").no_background_work);
     try testing.expectEqualStrings("出力がありません", rightPanelChromeFor(.japanese, "").no_output);
     try testing.expectEqualStrings("ウェブを閲覧", rightPanelChromeFor(.japanese, "").browse_the_web);
@@ -1209,11 +1230,17 @@ test "rightPanelChromeFor english default; zh and ja chrome; english ignores ja 
     try testing.expectEqualStrings("ターミナルで開く", rightPanelChromeFor(.japanese, "").open_in_terminal);
 
     try testing.expectEqualStrings("筛选文件", rightPanelChromeFor(.system, "zh_CN.UTF-8").filter_files);
+    try testing.expectEqualStrings("打开项目以浏览文件", rightPanelChromeFor(.system, "zh_CN.UTF-8").open_project_to_browse_files);
+    try testing.expectEqualStrings("正在加载文件…", rightPanelChromeFor(.system, "zh_CN.UTF-8").loading_files);
     try testing.expectEqualStrings("出力がありません", rightPanelChromeFor(.system, "ja_JP.UTF-8").no_output);
+    try testing.expectEqualStrings("プロジェクトを開いてファイルを閲覧", rightPanelChromeFor(.system, "ja_JP.UTF-8").open_project_to_browse_files);
+    try testing.expectEqualStrings("ファイルを読み込み中…", rightPanelChromeFor(.system, "ja_JP.UTF-8").loading_files);
     try testing.expectEqualStrings("浏览网页", rightPanelChromeFor(.system, "zh_CN.UTF-8").browse_the_web);
     try testing.expectEqualStrings("ターミナルで開く", rightPanelChromeFor(.system, "ja_JP.UTF-8").open_in_terminal);
     try testing.expectEqualStrings("Filter files", rightPanelChromeFor(.english, "ja_JP.UTF-8").filter_files);
     try testing.expectEqualStrings("No project open", rightPanelChromeFor(.english, "zh_CN.UTF-8").no_project_open);
+    try testing.expectEqualStrings("Open a project to browse its files", rightPanelChromeFor(.english, "ja_JP.UTF-8").open_project_to_browse_files);
+    try testing.expectEqualStrings("Loading files…", rightPanelChromeFor(.english, "zh_CN.UTF-8").loading_files);
     try testing.expectEqualStrings("No background work", rightPanelChromeFor(.english, "ja_JP.UTF-8").no_background_work);
     try testing.expectEqualStrings("No output", rightPanelChromeFor(.english, "zh_CN.UTF-8").no_output);
     try testing.expectEqualStrings("Browse the web", rightPanelChromeFor(.english, "ja_JP.UTF-8").browse_the_web);

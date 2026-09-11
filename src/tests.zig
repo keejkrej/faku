@@ -24620,15 +24620,21 @@ test "right panel Diff filter and Files/Background empty chrome follow Appearanc
 
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "placeholder=\"{review_diff_filter_placeholder}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{right_panel_no_project_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{right_panel_files_empty_secondary_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{right_panel_loading_files_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{background_work_empty_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{background_work_no_output_label}"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No project open<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Open a project to browse its files<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Loading files…<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No background work<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No output<"));
 
     var model = main.initialModel();
     try testing.expectEqualStrings("Filter files", model.review_diff_filter_placeholder());
     try testing.expectEqualStrings("No project open", model.right_panel_no_project_label());
+    try testing.expectEqualStrings("Open a project to browse its files", model.right_panel_files_empty_secondary_label());
+    try testing.expectEqualStrings("Loading files…", model.right_panel_loading_files_label());
     try testing.expectEqualStrings("No background work", model.background_work_empty_label());
     try testing.expectEqualStrings("No output", model.background_work_no_output_label());
 
@@ -24639,6 +24645,7 @@ test "right panel Diff filter and Files/Background empty chrome follow Appearanc
 
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "No project open");
+    _ = try expectByText(tree.root, .text, "Open a project to browse its files");
     try testing.expect((try expectButtonMsg(tree, "Files", .set_right_panel_tab_files)).state.selected);
 
     main.update(&model, .set_right_panel_tab_background, &fx);
@@ -24675,6 +24682,8 @@ test "right panel Diff filter and Files/Background empty chrome follow Appearanc
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("筛选文件", model.review_diff_filter_placeholder());
     try testing.expectEqualStrings("未打开项目", model.right_panel_no_project_label());
+    try testing.expectEqualStrings("打开项目以浏览文件", model.right_panel_files_empty_secondary_label());
+    try testing.expectEqualStrings("正在加载文件…", model.right_panel_loading_files_label());
     try testing.expectEqualStrings("没有后台工作", model.background_work_empty_label());
     try testing.expectEqualStrings("没有输出", model.background_work_no_output_label());
     tree = try buildTree(arena, &model);
@@ -24687,7 +24696,9 @@ test "right panel Diff filter and Files/Background empty chrome follow Appearanc
     try testing.expect(model.right_panel_tab_files());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "未打开项目");
+    _ = try expectByText(tree.root, .text, "打开项目以浏览文件");
     try testing.expect(findByText(tree.root, .text, "No project open") == null);
+    try testing.expect(findByText(tree.root, .text, "Open a project to browse its files") == null);
 
     model.right_panel_tab = .diff;
     model.review_diff_active = true;
@@ -24702,6 +24713,8 @@ test "right panel Diff filter and Files/Background empty chrome follow Appearanc
     model.language_preference = .japanese;
     try testing.expectEqualStrings("ファイルを絞り込む", model.review_diff_filter_placeholder());
     try testing.expectEqualStrings("プロジェクトが開かれていません", model.right_panel_no_project_label());
+    try testing.expectEqualStrings("プロジェクトを開いてファイルを閲覧", model.right_panel_files_empty_secondary_label());
+    try testing.expectEqualStrings("ファイルを読み込み中…", model.right_panel_loading_files_label());
     try testing.expectEqualStrings("バックグラウンド作業はありません", model.background_work_empty_label());
     try testing.expectEqualStrings("出力がありません", model.background_work_no_output_label());
     tree = try buildTree(arena, &model);
@@ -24712,7 +24725,9 @@ test "right panel Diff filter and Files/Background empty chrome follow Appearanc
     main.update(&model, .set_right_panel_tab_files, &fx);
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "プロジェクトが開かれていません");
+    _ = try expectByText(tree.root, .text, "プロジェクトを開いてファイルを閲覧");
     try testing.expect(findByText(tree.root, .text, "未打开项目") == null);
+    try testing.expect(findByText(tree.root, .text, "打开项目以浏览文件") == null);
 
     main.update(&model, .set_right_panel_tab_background, &fx);
     tree = try buildTree(arena, &model);
@@ -24724,6 +24739,8 @@ test "right panel Diff filter and Files/Background empty chrome follow Appearanc
     model.setSystemLocaleId("ja_JP.UTF-8");
     try testing.expectEqualStrings("Filter files", model.review_diff_filter_placeholder());
     try testing.expectEqualStrings("No project open", model.right_panel_no_project_label());
+    try testing.expectEqualStrings("Open a project to browse its files", model.right_panel_files_empty_secondary_label());
+    try testing.expectEqualStrings("Loading files…", model.right_panel_loading_files_label());
     try testing.expectEqualStrings("No background work", model.background_work_empty_label());
     try testing.expectEqualStrings("No output", model.background_work_no_output_label());
     tree = try buildTree(arena, &model);
@@ -24734,18 +24751,66 @@ test "right panel Diff filter and Files/Background empty chrome follow Appearanc
     model.setSystemLocaleId("zh_CN.UTF-8");
     try testing.expectEqualStrings("筛选文件", model.review_diff_filter_placeholder());
     try testing.expectEqualStrings("未打开项目", model.right_panel_no_project_label());
+    try testing.expectEqualStrings("打开项目以浏览文件", model.right_panel_files_empty_secondary_label());
+    try testing.expectEqualStrings("正在加载文件…", model.right_panel_loading_files_label());
     try testing.expectEqualStrings("没有后台工作", model.background_work_empty_label());
     try testing.expectEqualStrings("没有输出", model.background_work_no_output_label());
     model.setSystemLocaleId("ja_JP.UTF-8");
     try testing.expectEqualStrings("ファイルを絞り込む", model.review_diff_filter_placeholder());
     try testing.expectEqualStrings("プロジェクトが開かれていません", model.right_panel_no_project_label());
+    try testing.expectEqualStrings("プロジェクトを開いてファイルを閲覧", model.right_panel_files_empty_secondary_label());
+    try testing.expectEqualStrings("ファイルを読み込み中…", model.right_panel_loading_files_label());
     try testing.expectEqualStrings("バックグラウンド作業はありません", model.background_work_empty_label());
     try testing.expectEqualStrings("出力がありません", model.background_work_no_output_label());
     model.setSystemLocaleId("");
     try testing.expectEqualStrings("Filter files", model.review_diff_filter_placeholder());
     try testing.expectEqualStrings("No project open", model.right_panel_no_project_label());
+    try testing.expectEqualStrings("Open a project to browse its files", model.right_panel_files_empty_secondary_label());
+    try testing.expectEqualStrings("Loading files…", model.right_panel_loading_files_label());
     try testing.expectEqualStrings("No background work", model.background_work_empty_label());
     try testing.expectEqualStrings("No output", model.background_work_no_output_label());
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try absOpenTerminalDir(tmp, "i18n-files-loading", &project_buf);
+    model.store_io = testing.io;
+    model.setSelectedProjectPath(project);
+    main.update(&model, .show_right_panel, &fx);
+    main.update(&model, .set_right_panel_tab_files, &fx);
+    try testing.expect(model.right_panel_loading());
+    try testing.expect(!model.right_panel_no_project());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Loading files…");
+    try testing.expect(findByText(tree.root, .text, "No project open") == null);
+    try testing.expect(findByText(tree.root, .text, "Open a project to browse its files") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("正在加载文件…", model.right_panel_loading_files_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "正在加载文件…");
+    try testing.expect(findByText(tree.root, .text, "Loading files…") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("ファイルを読み込み中…", model.right_panel_loading_files_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "ファイルを読み込み中…");
+    try testing.expect(findByText(tree.root, .text, "正在加载文件…") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Loading files…", model.right_panel_loading_files_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Loading files…");
+    try testing.expect(findByText(tree.root, .text, "ファイルを読み込み中…") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("正在加载文件…", model.right_panel_loading_files_label());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("ファイルを読み込み中…", model.right_panel_loading_files_label());
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Loading files…", model.right_panel_loading_files_label());
 }
 
 test "right panel Browser start page and Open in browser/Terminal follow Appearance language" {

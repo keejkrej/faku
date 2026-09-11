@@ -1729,13 +1729,13 @@
         <if test="{right_panel_no_project}">
           <column padding="14" gap="6">
             <text>{right_panel_no_project_label}</text>
-            <text foreground="text_muted">Open a project to browse its files</text>
+            <text foreground="text_muted">{right_panel_files_empty_secondary_label}</text>
           </column>
         </if>
         <else>
           <if test="{right_panel_loading}">
             <column padding="14">
-              <text foreground="text_muted">Loading files…</text>
+              <text foreground="text_muted">{right_panel_loading_files_label}</text>
             </column>
           </if>
           <else>
