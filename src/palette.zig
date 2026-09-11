@@ -2,7 +2,9 @@
 //!
 //! Overlay matching, section headers, and action ids live here. `Msg`
 //! and `Model` live in `model.zig` (re-exported from `main`). `Session`
-//! lives in `session.zig`. Behavior is unchanged from the former
+//! lives in `session.zig`. Collapse-all-folders display text follows
+//! Appearance via `Model.collapse_all_folders_label()`; other action
+//! labels stay English. Behavior is unchanged from the former
 //! `main` palette helpers.
 
 const std = @import("std");
@@ -83,6 +85,7 @@ pub const palette_action_specs = [_]PaletteActionSpec{
     .{ .action = .new_task, .label = "New Task", .keywords = &.{ "new", "task", "session" }, .suggested = true },
     .{ .action = .focus_composer, .label = "Focus composer", .keywords = &.{ "composer", "prompt", "input" }, .suggested = true },
     .{ .action = .toggle_sidebar, .label = "Toggle sidebar", .keywords = &.{ "sidebar", "panel" }, .suggested = false },
+    // Display label is filled from sidebar chrome at row-build time.
     .{ .action = .collapse_folders, .label = "Collapse all folders", .keywords = &.{ "collapse", "folder", "folders" }, .suggested = false },
     .{ .action = .find_in_transcript, .label = "Find in transcript", .keywords = &.{ "find", "search", "transcript" }, .suggested = false },
     .{ .action = .settings, .label = "Settings", .keywords = &.{ "settings", "preferences" }, .suggested = false },
@@ -256,9 +259,20 @@ fn paletteActionAvailable(model: *const Model, spec: PaletteActionSpec) bool {
     };
 }
 
-fn paletteActionMatches(spec: PaletteActionSpec, query: []const u8) bool {
+fn paletteSpecForModel(model: *const Model, spec: PaletteActionSpec) PaletteActionSpec {
+    var out = spec;
+    switch (spec.action) {
+        .collapse_folders => out.label = model.collapse_all_folders_label(),
+        else => {},
+    }
+    return out;
+}
+
+fn paletteActionMatches(model: *const Model, spec: PaletteActionSpec, query: []const u8) bool {
     if (query.len == 0) return true;
     if (main.asciiContainsIgnoreCase(spec.label, query)) return true;
+    const localized = paletteSpecForModel(model, spec);
+    if (main.asciiContainsIgnoreCase(localized.label, query)) return true;
     for (spec.keywords) |keyword| {
         if (main.asciiContainsIgnoreCase(keyword, query)) return true;
     }
@@ -269,9 +283,9 @@ fn matchingPaletteActions(model: *const Model, query: []const u8, dest: []Palett
     var n: usize = 0;
     for (palette_action_specs) |spec| {
         if (!paletteActionAvailable(model, spec)) continue;
-        if (!paletteActionMatches(spec, query)) continue;
+        if (!paletteActionMatches(model, spec, query)) continue;
         if (n >= dest.len) break;
-        dest[n] = spec;
+        dest[n] = paletteSpecForModel(model, spec);
         n += 1;
     }
     return dest[0..n];

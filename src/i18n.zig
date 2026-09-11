@@ -4,9 +4,11 @@
 //! `LC_ALL`, else `LC_MESSAGES`, else `LANG` (non-macOS Waku path), copied
 //! at boot onto the model. Settings chrome strings, first-cut sidebar
 //! date-bucket titles, first-cut sidebar New Task / Search / folder
-//! chrome, and session context-menu Rename / Remove live here so
-//! `main.zig` does not grow. Not rust_i18n, not YAML catalogs, not
-//! full-app translation, not tz-aware grouping.
+//! chrome, session context-menu Rename / Remove, and the palette
+//! Collapse all folders command (same `Sidebar.collapse_all_folders`
+//! string as the sidebar button) live here so `main.zig` does not
+//! grow. Composer Ask / Full access stay English. Not rust_i18n, not
+//! YAML catalogs, not full-app translation, not tz-aware grouping.
 
 const std = @import("std");
 
@@ -174,8 +176,8 @@ const dates_ja: Dates = .{
 /// from folder Delete (`remove` vs `delete`); trash a11y is
 /// `remove_session` ("Remove session"). Folder-header chevron a11y is
 /// `expand_folder` / `collapse_folder` (distinct from
-/// `collapse_all_folders`). Palette "Collapse all folders" command text
-/// and composer Ask / Full access stay English.
+/// `collapse_all_folders`). Palette Collapse all folders reuses
+/// `collapse_all_folders`. Composer Ask / Full access stay English.
 pub const Sidebar = struct {
     new_task: []const u8,
     search: []const u8,
