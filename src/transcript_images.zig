@@ -131,7 +131,10 @@ fn sourceIsWanted(sources: []const []const u8, source: []const u8) bool {
 fn projectOrCwd(model: *const Model, cwd_buf: []u8) []const u8 {
     const project = model.selectedProjectPath();
     if (project.len > 0) return project;
-    return std.posix.getcwd(cwd_buf) catch "";
+    const io = model.store_io orelse return "";
+    const n = std.process.currentPath(io, cwd_buf) catch return "";
+    if (n == 0) return "";
+    return cwd_buf[0..n];
 }
 
 fn previewAbsForProject(project: []const u8, dest: []u8) []const u8 {
