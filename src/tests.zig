@@ -24648,15 +24648,18 @@ test "right panel Diff filter and Files/Background empty chrome follow Appearanc
     _ = try expectByText(tree.root, .text, "No background work");
     try testing.expect(findByText(tree.root, .text, "No output") == null);
 
+    // Stuff Diff files without `set_right_panel_tab_diff` / `ensureDiff`
+    // (that path starts a git probe and clears the store).
+    model.right_panel_tab = .diff;
     model.review_diff_active = true;
     model.review_diff_file_store[0].setCounts('M', "src/a.zig", 2, 1);
     model.review_diff_file_count = 1;
-    main.update(&model, .set_right_panel_tab_diff, &fx);
     try testing.expect(model.right_panel_tab_diff());
     try testing.expect(model.has_review_diff_files());
     tree = try buildTree(arena, &model);
     try testing.expect(findByPlaceholder(tree.root, .search_field, "Filter files") != null);
     try testing.expectEqualStrings("", model.review_diff_filter());
+    try testing.expect((try expectButtonMsg(tree, "Review", .set_right_panel_tab_diff)).state.selected);
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "stream for empty output chrome" } }, &fx);
     main.update(&model, .send, &fx);
@@ -24686,7 +24689,10 @@ test "right panel Diff filter and Files/Background empty chrome follow Appearanc
     _ = try expectByText(tree.root, .text, "未打开项目");
     try testing.expect(findByText(tree.root, .text, "No project open") == null);
 
-    main.update(&model, .set_right_panel_tab_diff, &fx);
+    model.right_panel_tab = .diff;
+    model.review_diff_active = true;
+    model.review_diff_file_store[0].setCounts('M', "src/a.zig", 2, 1);
+    model.review_diff_file_count = 1;
     tree = try buildTree(arena, &model);
     try testing.expect(findByPlaceholder(tree.root, .search_field, "筛选文件") != null);
     try testing.expect(findByPlaceholder(tree.root, .search_field, "Filter files") == null);
