@@ -1196,6 +1196,8 @@ test "nested Files tree and Diff list width round-trip across session switch" {
 
     const session_a = model.addSession("width a", .fx);
     const session_b = model.addSession("width b", .fx);
+    if (model.sessionById(session_a)) |session| session.has_started = true;
+    if (model.sessionById(session_b)) |session| session.has_started = true;
     model.selected = session_a;
     model.right_panel_file_tree_width = 248;
     model.right_panel_diff_file_list_width = 220;
@@ -1565,6 +1567,8 @@ test "Background row round-trip across session switch; missing key is 0" {
 
     const session_a = model.addSession("bg a", .fx);
     const session_b = model.addSession("bg b", .fx);
+    if (model.sessionById(session_a)) |session| session.has_started = true;
+    if (model.sessionById(session_b)) |session| session.has_started = true;
     model.selected = session_a;
     environment_summary.settle(&model, session_a, .completed);
     right_panel.selectBackground(&model, &fx, environment_summary.process_row_id);
@@ -2028,6 +2032,8 @@ test "missing Browser stash restores default empty slot 0" {
 
     const session_a = model.addSession("browser miss a", .fx);
     const session_b = model.addSession("browser miss b", .fx);
+    if (model.sessionById(session_a)) |session| session.has_started = true;
+    if (model.sessionById(session_b)) |session| session.has_started = true;
     model.selected = session_a;
     browser_pane.setDraft(&model, "https://keep.example");
     browser_pane.commitNavigation(&model);
@@ -2192,6 +2198,8 @@ test "missing Terminal stash restores empty persist (today's lazy single)" {
 
     const session_a = model.addSession("term miss a", .fx);
     const session_b = model.addSession("term miss b", .fx);
+    if (model.sessionById(session_a)) |session| session.has_started = true;
+    if (model.sessionById(session_b)) |session| session.has_started = true;
     model.selected = session_a;
     occupyEnded(&model, &.{ true, true, false, false }, 1);
     try std.testing.expectEqual(@as(usize, 2), pty_terminal.visibleCount(&model));

@@ -9980,6 +9980,8 @@ test "Files preview dirty Close shows discard confirm; Keep editing and Discard"
     model.store_io = testing.io;
     const first = model.addSession("discard ui", .fx);
     const second = model.addSession("other session", .fx);
+    if (model.sessionById(first)) |session| session.has_started = true;
+    if (model.sessionById(second)) |session| session.has_started = true;
     model.selected = first;
     model.setSelectedProjectPath(project);
     defer right_panel.clearFilePreview(&model);

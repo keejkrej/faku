@@ -858,6 +858,9 @@ pub const Model = struct {
     history_store: [selection_history_cap]u32 = [_]u32{0} ** selection_history_cap,
     history_count: u32 = 0,
     history_index: u32 = 0,
+    /// Runtime-only Waku SessionNavigation.new_task. 0 is none.
+    /// Separate from selection history Back / Forward. Not persisted.
+    new_task: u32 = 0,
     next_id: u32 = 1,
     turn_store: [max_turns]Turn = [_]Turn{.{}} ** max_turns,
     turn_count: u32 = 0,
@@ -1997,6 +2000,10 @@ pub const Model = struct {
         "history_index",
         "can_go_back",
         "can_go_forward",
+        "new_task",
+        "rememberNewTask",
+        "rememberedNewTask",
+        "forgetNewTask",
         "has_goal",
         "pushSelectionHistory",
         "dropSelectionHistory",
@@ -3892,6 +3899,37 @@ pub const Model = struct {
         model.history_store[model.history_count] = id;
         model.history_count += 1;
         model.history_index = model.history_count - 1;
+    }
+
+    /// Remember `id` as the New Task draft when it is still unstarted.
+    /// Selecting a started session is a no-op and does not clear the slot.
+    pub fn rememberNewTask(model: *Model, id: u32) void {
+        if (id == 0) return;
+        const session = model.sessionByIdConst(id) orelse return;
+        if (session.hasStarted()) return;
+        model.new_task = id;
+    }
+
+    /// Valid remembered unstarted draft, or null. Started, missing, or
+    /// 0 is ignored and the slot is cleared (Waku remembered_new_task).
+    pub fn rememberedNewTask(model: *Model) ?u32 {
+        const id = model.new_task;
+        if (id == 0) return null;
+        const session = model.sessionByIdConst(id) orelse {
+            model.new_task = 0;
+            return null;
+        };
+        if (session.hasStarted()) {
+            model.new_task = 0;
+            return null;
+        }
+        return id;
+    }
+
+    /// Clear the slot when it still points at `id` (RemoveSession /
+    /// the draft has_started). Other ids leave it alone.
+    pub fn forgetNewTask(model: *Model, id: u32) void {
+        if (id != 0 and model.new_task == id) model.new_task = 0;
     }
 
     /// Drop every occurrence of `id` so Back / Forward cannot land on a
@@ -6087,6 +6125,7 @@ pub const Model = struct {
         model.next_turn_id += 1;
         if (model.sessionById(session_id)) |session| {
             session.has_started = true;
+            model.forgetNewTask(session_id);
             if (role == .user or role == .assistant) main.stampSessionActivity(session, model.now_ms);
         }
         if (model.transcript_pinned and (session_id == model.selected or model.selected == 0)) {
@@ -6102,6 +6141,7 @@ pub const Model = struct {
         model.selected = 0;
         model.history_count = 0;
         model.history_index = 0;
+        model.new_task = 0;
         model.next_id = 1;
         model.next_turn_id = 1;
         model.next_queued_id = 1;
@@ -6285,6 +6325,7 @@ pub const Model = struct {
         model.dropTurnsForSession(session_id);
         model.dropQueuedForSession(session_id);
         model.dropSelectionHistory(session_id);
+        model.forgetNewTask(session_id);
         var kept: u32 = 0;
         for (model.session_store[0..model.session_count]) |session| {
             if (session.id == session_id) continue;

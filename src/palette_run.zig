@@ -4,7 +4,10 @@
 //! `runPalettePick` / `confirmPalette` / `applySessionSelection` /
 //! `goHistory` live here. Palette row building stays in `palette.zig`.
 //! Msg routing lives in `update.zig`. Model fields stay in `main.zig`.
-//! Behavior is unchanged from the former `main` palette runners.
+//! Selecting an unstarted session remembers it as the New Task
+//! target (runtime-only SessionNavigation.new_task). Started
+//! sessions leave that slot alone. Behavior is otherwise unchanged
+//! from the former `main` palette runners.
 
 const main = @import("main.zig");
 const palette = @import("palette.zig");
@@ -128,6 +131,7 @@ pub fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     model.closeFolderTitleEdit();
     model.closeSessionTitleEdit();
     model.selected = id;
+    model.rememberNewTask(id);
     store.hydrateIfPossible(model, id);
     store.maybeHydrateDaemonSession(model, fx, id);
     store.loadDraftIfPossible(model);

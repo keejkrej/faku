@@ -74,7 +74,16 @@ Composer drafts are a sibling `drafts.json`. Keys match Waku:
 
 There is no `listSessions` / `createSession`. Catalog is
 `loadTaskState`. New session is a client-built session saved after
-first content.
+first content. First-cut remembered New Task: runtime-only
+`new_task` id (Waku `SessionNavigation.new_task`; not persisted on
+`sessions.json`; Faku ids are `u32`, not Uuid). Selecting an
+unstarted session remembers it. New Task reopens that draft when
+it still exists and has not started (same select path as
+projectless draft reuse: `pushSelectionHistory` +
+`applySessionSelection`). Visiting started sessions does not clear
+the slot. Started, removed, or missing drafts are ignored; then
+projectless reuse or create as today. Selection history Back /
+Forward stays a separate stack.
 
 Session `workspace` on `sessions.json` is omitted when `local`. A
 `newWorktree` skeleton is `{"kind":"newWorktree"}`, or
@@ -380,10 +389,11 @@ today's ACP path). First-cut daemon
 `WorkspaceOperation::CreateProjectlessWorkspace` ships on New Task
 when there is no ordinary project (empty `last_project_path`, or
 the selected session's `project_path` is already a projectless path
-under `~/.waku/projects` / legacy `~/.waku/<date>/…`) and no
-unstarted non-legacy projectless draft exists (Waku
-`create_projectless_session` selects that draft instead of creating
-a row; bare `~/.waku` is not reused) and a daemon address is set
+under `~/.waku/projects` / legacy `~/.waku/<date>/…`) and no valid
+remembered New Task draft and no unstarted non-legacy projectless
+draft exists (Waku `create_projectless_session` selects that draft
+instead of creating a row; bare `~/.waku` is not reused) and a daemon
+address is set
 (ok is nested `projectlessWorkspace` + `cwd`; paints
 the new session `project_path` and `last_project_path`; Native 4 KiB
 stdin overflow / error / unusable parse / empty cwd fall back to
@@ -1224,6 +1234,7 @@ live watch.
 | Settings Usage history | `src/usage_history.zig`, `src/protocol.zig` |
 | LiteLLM rate table | `src/litellm_rates.zig` |
 | Composer usage meter | `src/usage_meter.zig`, `src/protocol.zig` |
+| Session New Task / folders | `src/session_actions.zig`, `src/palette_run.zig` |
 
 ## Leftovers
 
@@ -1351,6 +1362,14 @@ Honest gaps this cut does not implement:
   does not clear the others). Still not Waku's circular GPUI gauge,
   not LiteLLM on the meter (rate-table fetch ships on Settings Usage),
   not a T3 layered / stacked canvas chart.
+- First-cut remembered New Task ships (runtime-only
+  `SessionNavigation.new_task` id; selecting an unstarted session
+  remembers it; New Task reopens that draft when it still exists and
+  `!has_started`, via the same select path as projectless draft reuse;
+  visiting started sessions does not clear it; started, removed, or
+  missing drafts are ignored, then projectless reuse or create as
+  today). Not persisted on `sessions.json`. Selection history Back /
+  Forward stays a separate stack. Not Waku Uuid.
 - Real Computer Use: Native Screen Recording / Accessibility APIs,
   macOS helper, permission probe, always-allowed app picker (Settings
   Computer Use first-cut is nav + Unavailable / Off / empty apps)
@@ -1559,8 +1578,9 @@ Honest gaps this cut does not implement:
   `WorkspaceOperation::CreateProjectlessWorkspace` ships on New Task
   when there is no ordinary project (empty `last_project_path`, or
   the selected session's `project_path` is already a projectless path
-  under `~/.waku/projects`) and no unstarted non-legacy projectless
-  draft exists to select; ok is nested `projectlessWorkspace` +
+  under `~/.waku/projects`) and no valid remembered New Task draft and
+  no unstarted non-legacy projectless draft exists to select; ok is
+  nested `projectlessWorkspace` +
   `cwd`; Native 4 KiB stdin overflow / error / unusable parse / empty
   cwd fall back to local mkdir under `~/.waku/projects/<date>/<slug>`;
   no address keeps that local mkdir. First-cut
@@ -1698,8 +1718,9 @@ Honest gaps this cut does not implement:
   createProjectlessWorkspace on New Task when there is no ordinary
   project (empty `last_project_path`, or the selected session's
   `project_path` is already a projectless path under
-  `~/.waku/projects` and legacy `~/.waku/<date>/…`) and no
-  unstarted non-legacy projectless draft exists to select (Waku
+  `~/.waku/projects` and legacy `~/.waku/<date>/…`) and no valid
+  remembered New Task draft and no unstarted non-legacy projectless
+  draft exists to select (Waku
   `create_projectless_session`; bare `~/.waku` is not reused; dated
   `~/.waku/<date>/…` is; local `sessions.json` stays canonical;
   sidecar only on actual create); ok is nested
@@ -1723,8 +1744,11 @@ Honest gaps this cut does not implement:
   fresh mkdir like Create when the path is bare `~/.waku`;
   already-under-projects is a no-op; home / failure must not
   toast-block session select; ordinary real project paths do not
-  spawn migrate. New Task reuses an unstarted non-legacy
-  projectless draft instead of always creating. Amend/force and
+  spawn migrate. First-cut remembered New Task reopens a
+  remembered unstarted draft when that id is still valid (runtime-only
+  `new_task`; visiting started sessions does not clear it). Else New
+  Task reuses an unstarted non-legacy projectless draft instead of
+  always creating. Amend/force and
   remote `--track` stay local (not daemon WorkspaceOperation variants)
 - Long-lived ACP or daemon socket in the update loop
 - fx ACP still rejects image blocks (`fx ask --image`). First-cut
