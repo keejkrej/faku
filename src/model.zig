@@ -4268,15 +4268,33 @@ pub const Model = struct {
         return model.sidebarChrome().delete_folder;
     }
 
-    /// Folder context-menu Rename. Session Rename stays English.
+    /// Folder context-menu Rename. Session Rename reuses the same
+    /// `sidebarChrome().rename` wording via `rename_session_label`.
     pub fn rename_folder_label(model: *const Model) []const u8 {
         return model.sidebarChrome().rename;
     }
 
     /// Folder context-menu Delete (plain Delete, not Delete folder).
-    /// Session Remove stays English.
+    /// Distinct from session Remove.
     pub fn delete_label(model: *const Model) []const u8 {
         return model.sidebarChrome().delete;
+    }
+
+    /// Session context-menu Rename. Same `rename` string as folder
+    /// Rename (EN "Rename" / zh "重命名" / ja "名前を変更").
+    pub fn rename_session_label(model: *const Model) []const u8 {
+        return model.sidebarChrome().rename;
+    }
+
+    /// Session context-menu Remove. Distinct from folder Delete.
+    pub fn remove_label(model: *const Model) []const u8 {
+        return model.sidebarChrome().remove;
+    }
+
+    /// Session-row trash a11y ("Remove session"). Distinct from
+    /// `delete_folder_label`.
+    pub fn remove_session_label(model: *const Model) []const u8 {
+        return model.sidebarChrome().remove_session;
     }
 
     pub fn systemLocaleId(model: *const Model) []const u8 {

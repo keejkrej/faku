@@ -3,9 +3,10 @@
 //! Native has no locale / NSLocale API this cut. System follows process
 //! `LC_ALL`, else `LC_MESSAGES`, else `LANG` (non-macOS Waku path), copied
 //! at boot onto the model. Settings chrome strings, first-cut sidebar
-//! date-bucket titles, and first-cut sidebar New Task / Search / folder
-//! chrome live here so `main.zig` does not grow. Not rust_i18n, not YAML
-//! catalogs, not full-app translation, not tz-aware grouping.
+//! date-bucket titles, first-cut sidebar New Task / Search / folder
+//! chrome, and session context-menu Rename / Remove live here so
+//! `main.zig` does not grow. Not rust_i18n, not YAML catalogs, not
+//! full-app translation, not tz-aware grouping.
 
 const std = @import("std");
 
@@ -168,9 +169,12 @@ const dates_ja: Dates = .{
 /// placeholder (same wording). New folder is the button label and the
 /// folder title-field placeholder; stored catalog titles stay English
 /// `New folder` (data, not chrome). Folder context-menu Rename / Delete
-/// are chrome (plain Delete, not `delete_folder`). Session Rename /
-/// Remove, Expand / Collapse folder, and composer Ask / Full access
-/// stay English.
+/// are chrome (plain Delete, not `delete_folder`). Session context-menu
+/// Rename reuses `rename` (same wording). Session Remove is distinct
+/// from folder Delete (`remove` vs `delete`); trash a11y is
+/// `remove_session` ("Remove session"). Expand / Collapse folder a11y,
+/// palette "Collapse all folders" command text, and composer Ask / Full
+/// access stay English.
 pub const Sidebar = struct {
     new_task: []const u8,
     search: []const u8,
@@ -179,6 +183,8 @@ pub const Sidebar = struct {
     delete_folder: []const u8,
     rename: []const u8,
     delete: []const u8,
+    remove: []const u8,
+    remove_session: []const u8,
 };
 
 const sidebar_en: Sidebar = .{
@@ -189,6 +195,8 @@ const sidebar_en: Sidebar = .{
     .delete_folder = "Delete folder",
     .rename = "Rename",
     .delete = "Delete",
+    .remove = "Remove",
+    .remove_session = "Remove session",
 };
 
 const sidebar_zh_cn: Sidebar = .{
@@ -199,6 +207,8 @@ const sidebar_zh_cn: Sidebar = .{
     .delete_folder = "删除文件夹",
     .rename = "重命名",
     .delete = "删除",
+    .remove = "移除",
+    .remove_session = "移除会话",
 };
 
 const sidebar_ja: Sidebar = .{
@@ -209,6 +219,8 @@ const sidebar_ja: Sidebar = .{
     .delete_folder = "フォルダを削除",
     .rename = "名前を変更",
     .delete = "削除",
+    .remove = "取り除く",
+    .remove_session = "セッションを取り除く",
 };
 
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
@@ -269,9 +281,9 @@ pub fn datesFor(preference: LanguagePreference, system_locale_id: []const u8) Da
     };
 }
 
-/// Sidebar New Task / Search / folder chrome for the resolved locale.
-/// Callers pass Model `language_preference` + `system_locale_id`; this
-/// file does not read process env.
+/// Sidebar New Task / Search / folder / session chrome for the resolved
+/// locale. Callers pass Model `language_preference` + `system_locale_id`;
+/// this file does not read process env.
 pub fn sidebarFor(preference: LanguagePreference, system_locale_id: []const u8) Sidebar {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => sidebar_zh_cn,
@@ -372,6 +384,8 @@ test "sidebarFor english default; zh and ja chrome; english ignores ja LANG" {
     try testing.expectEqualStrings("Delete folder", sidebarFor(.english, "").delete_folder);
     try testing.expectEqualStrings("Rename", sidebarFor(.english, "").rename);
     try testing.expectEqualStrings("Delete", sidebarFor(.english, "").delete);
+    try testing.expectEqualStrings("Remove", sidebarFor(.english, "").remove);
+    try testing.expectEqualStrings("Remove session", sidebarFor(.english, "").remove_session);
     try testing.expectEqualStrings("New Task", sidebarFor(.system, "").new_task);
 
     try testing.expectEqualStrings("新建任务", sidebarFor(.simplified_chinese, "").new_task);
@@ -381,6 +395,8 @@ test "sidebarFor english default; zh and ja chrome; english ignores ja LANG" {
     try testing.expectEqualStrings("删除文件夹", sidebarFor(.simplified_chinese, "").delete_folder);
     try testing.expectEqualStrings("重命名", sidebarFor(.simplified_chinese, "").rename);
     try testing.expectEqualStrings("删除", sidebarFor(.simplified_chinese, "").delete);
+    try testing.expectEqualStrings("移除", sidebarFor(.simplified_chinese, "").remove);
+    try testing.expectEqualStrings("移除会话", sidebarFor(.simplified_chinese, "").remove_session);
 
     try testing.expectEqualStrings("新しいタスク", sidebarFor(.japanese, "").new_task);
     try testing.expectEqualStrings("検索", sidebarFor(.japanese, "").search);
@@ -389,6 +405,8 @@ test "sidebarFor english default; zh and ja chrome; english ignores ja LANG" {
     try testing.expectEqualStrings("フォルダを削除", sidebarFor(.japanese, "").delete_folder);
     try testing.expectEqualStrings("名前を変更", sidebarFor(.japanese, "").rename);
     try testing.expectEqualStrings("削除", sidebarFor(.japanese, "").delete);
+    try testing.expectEqualStrings("取り除く", sidebarFor(.japanese, "").remove);
+    try testing.expectEqualStrings("セッションを取り除く", sidebarFor(.japanese, "").remove_session);
 
     try testing.expectEqualStrings("新建任务", sidebarFor(.system, "zh_CN.UTF-8").new_task);
     try testing.expectEqualStrings("検索", sidebarFor(.system, "ja_JP.UTF-8").search);
@@ -397,4 +415,6 @@ test "sidebarFor english default; zh and ja chrome; english ignores ja LANG" {
     try testing.expectEqualStrings("New folder", sidebarFor(.english, "zh_CN.UTF-8").new_folder);
     try testing.expectEqualStrings("Rename", sidebarFor(.english, "ja_JP.UTF-8").rename);
     try testing.expectEqualStrings("Delete", sidebarFor(.english, "zh_CN.UTF-8").delete);
+    try testing.expectEqualStrings("Remove", sidebarFor(.english, "zh_CN.UTF-8").remove);
+    try testing.expectEqualStrings("Remove session", sidebarFor(.english, "ja_JP.UTF-8").remove_session);
 }
