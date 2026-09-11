@@ -71,7 +71,10 @@
 //! set. Local turns win; a failed sidecar leaves the empty transcript.
 //! After a successful local `removeSession`, a one-shot sidecar may send
 //! `closeSession` when a daemon address is set. Sidecar failure does
-//! not resurrect the local row. After that same local remove, a
+//! not resurrect the local row. When the removed id was selected,
+//! catalog `selected` follows the in-memory destination after
+//! `dropSession` (newest remaining same `project_path`, else 0) rather
+//! than `sessions[0]`. After that same local remove, a
 //! best-effort hello + `WorkspaceOperation::DeleteSessionRefs` sidecar
 //! may also fire when a daemon address is set, cwd is a git worktree,
 //! and stdin fits Native's 4 KiB buffer. Local catalog remove stays
@@ -313,9 +316,11 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
         else => return error.Corrupt,
     };
     dropStoredSession(&document, session_id);
-    if (document.selected == session_id) {
-        document.selected = if (document.sessions.len > 0) document.sessions[0].id else 0;
-    }
+    model.dropSession(session_id);
+    document.selected = model.selected;
+    document.next_id = model.next_id;
+    document.next_turn_id = model.next_turn_id;
+    document.next_queued_id = model.next_queued_id;
     document.last_project_path = model.lastProjectPath();
     document.last_model = model.lastModel();
     document.last_access_mode = model.lastAccessMode();
@@ -328,7 +333,6 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
     applySidebarExtras(&document, model);
     try applyFolderExtras(&document, arena, model);
     try writeDocument(allocator, io, dir, document);
-    model.dropSession(session_id);
 }
 
 /// Local delete, then a best-effort hello + `closeSession` when a daemon
@@ -399,6 +403,14 @@ pub fn persistFoldersIfPossible(model: *const Model) void {
     saveExtras(model, std.heap.page_allocator, io, .folders) catch {};
 }
 
+/// Merge-only write of catalog `selected` / `next_id` after remove
+/// destination (including an unstarted New Task draft that is not a
+/// session row yet). Missing / corrupt catalogs are a no-op.
+pub fn persistSelectedIfPossible(model: *const Model) void {
+    const io = model.store_io orelse return;
+    saveSelected(model, std.heap.page_allocator, io) catch {};
+}
+
 const ExtrasKind = enum { layout, settings, folders };
 
 fn saveExtras(model: *const Model, allocator: std.mem.Allocator, io: std.Io, kind: ExtrasKind) !void {
@@ -419,6 +431,24 @@ fn saveExtras(model: *const Model, allocator: std.mem.Allocator, io: std.Io, kin
         .settings => applySettingsExtras(&document, model),
         .folders => try applyFolderExtras(&document, arena, model),
     }
+    try writeDocument(allocator, io, dir, document);
+}
+
+fn saveSelected(model: *const Model, allocator: std.mem.Allocator, io: std.Io) !void {
+    if (!model.task_state_loaded) return error.TaskStateNotLoaded;
+    const dir = model.storeDir();
+    if (dir.len == 0) return error.NoStoreDir;
+
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var document = readDocument(arena, io, dir) catch |err| switch (err) {
+        error.FileNotFound => return,
+        else => return error.Corrupt,
+    };
+    document.selected = model.selected;
+    document.next_id = model.next_id;
     try writeDocument(allocator, io, dir, document);
 }
 
@@ -4029,4 +4059,52 @@ test "updated_at persists; missing field loads as 0" {
     try testing.expectEqual(@as(u32, 1), legacy.session_count);
     try testing.expectEqual(@as(i64, 0), legacy.session_store[0].updated_at);
     try testing.expectEqual(main.DateBucket.today, main.sessionDateBucket(legacy.session_store[0].updated_at, 1_704_067_200_000));
+}
+
+test "removeSession catalog selected follows same-project newest not sessions[0]" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = io;
+    const other = model.addSession("other", .fx);
+    const older = model.addSession("older same", .fx);
+    const newer = model.addSession("newer same", .fx);
+    if (model.sessionById(other)) |session| {
+        session.setProjectPath("/tmp/other");
+        session.updated_at = 30;
+    }
+    if (model.sessionById(older)) |session| {
+        session.setProjectPath("/tmp/same");
+        session.updated_at = 10;
+    }
+    if (model.sessionById(newer)) |session| {
+        session.setProjectPath("/tmp/same");
+        session.updated_at = 20;
+    }
+    _ = model.appendTurn(other, .user, "other turn");
+    _ = model.appendTurn(older, .user, "older turn");
+    _ = model.appendTurn(newer, .user, "newer turn");
+    try saveSession(&model, other, allocator, io);
+    try saveSession(&model, older, allocator, io);
+    try saveSession(&model, newer, allocator, io);
+    model.selected = older;
+    try saveSession(&model, older, allocator, io);
+
+    try removeSession(&model, older, allocator, io);
+    try testing.expectEqual(newer, model.selected);
+    try testing.expectEqual(other, model.session_store[0].id);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqual(newer, loaded.selected);
+    try testing.expect(loaded.sessionById(older) == null);
 }

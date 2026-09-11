@@ -2004,6 +2004,7 @@ pub const Model = struct {
         "rememberNewTask",
         "rememberedNewTask",
         "forgetNewTask",
+        "newestSameProjectSession",
         "has_goal",
         "pushSelectionHistory",
         "dropSelectionHistory",
@@ -3930,6 +3931,25 @@ pub const Model = struct {
     /// the draft has_started). Other ids leave it alone.
     pub fn forgetNewTask(model: *Model, id: u32) void {
         if (id != 0 and model.new_task == id) model.new_task = 0;
+    }
+
+    /// Newest remaining session whose `projectPath()` equals `project_path`
+    /// (`updated_at` desc, higher id on a tie). Empty path matches other
+    /// empty paths. None when no remaining row shares that path.
+    pub fn newestSameProjectSession(model: *const Model, project_path: []const u8) ?u32 {
+        var best_id: u32 = 0;
+        var best_updated: i64 = 0;
+        var found = false;
+        for (model.sessions()) |session| {
+            if (!std.mem.eql(u8, session.projectPath(), project_path)) continue;
+            if (!found or session.updated_at > best_updated or (session.updated_at == best_updated and session.id > best_id)) {
+                best_id = session.id;
+                best_updated = session.updated_at;
+                found = true;
+            }
+        }
+        if (!found) return null;
+        return best_id;
     }
 
     /// Drop every occurrence of `id` so Back / Forward cannot land on a
@@ -6321,6 +6341,16 @@ pub const Model = struct {
     }
 
     pub fn dropSession(model: *Model, session_id: u32) void {
+        const was_selected = model.selected == session_id;
+        var path_buf: [max_project_path]u8 = undefined;
+        var path_len: usize = 0;
+        if (was_selected) {
+            if (model.sessionByIdConst(session_id)) |session| {
+                const path = session.projectPath();
+                path_len = @min(path.len, path_buf.len);
+                @memcpy(path_buf[0..path_len], path[0..path_len]);
+            }
+        }
         right_panel_session.drop(model, session_id);
         model.dropTurnsForSession(session_id);
         model.dropQueuedForSession(session_id);
@@ -6333,8 +6363,8 @@ pub const Model = struct {
             kept += 1;
         }
         model.session_count = kept;
-        if (model.selected == session_id) {
-            model.selected = if (model.session_count > 0) model.session_store[0].id else 0;
+        if (was_selected) {
+            model.selected = model.newestSameProjectSession(path_buf[0..path_len]) orelse 0;
         }
     }
 
