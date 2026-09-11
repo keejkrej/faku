@@ -168,13 +168,13 @@
       </row>
       <if test="{sidebar_expanded}">
         <column padding="10" grow="1">
-          <list-item height="32" padding="8" gap="8" cross="center" on-press="new_session" label="New Task">
+          <list-item height="32" padding="8" gap="8" cross="center" on-press="new_session" label="{new_task_label}">
             <icon name="edit" width="14" height="14" />
-            <text>New Task</text>
+            <text>{new_task_label}</text>
           </list-item>
-          <list-item height="32" padding="8" gap="8" cross="center" on-press="start_search" label="Search">
+          <list-item height="32" padding="8" gap="8" cross="center" on-press="start_search" label="{search_label}">
             <icon name="search" width="14" height="14" />
-            <text>Search</text>
+            <text>{search_label}</text>
           </list-item>
           <spacer height="10" />
           <row height="28" cross="center">
@@ -186,9 +186,9 @@
             </list-item>
             <spacer grow="1" />
             <if test="{can_collapse_folders}">
-              <button variant="ghost" size="icon" icon="chevron-down" label="Collapse all folders" on-press="collapse_all_folders"></button>
+              <button variant="ghost" size="icon" icon="chevron-down" label="{collapse_all_folders_label}" on-press="collapse_all_folders"></button>
             </if>
-            <button variant="ghost" size="icon" icon="folder" label="New folder" on-press="new_folder"></button>
+            <button variant="ghost" size="icon" icon="folder" label="{new_folder_label}" on-press="new_folder"></button>
           </row>
           <spacer height="10" />
           <scroll grow="1">
@@ -213,15 +213,18 @@
                     </else>
                     <icon name="folder" />
                     <if test="{s.editing}">
-                      <text-field grow="1" height="24" placeholder="New folder" text="{folder_title_draft}" on-input="folder_title_edit" autofocus="true" />
+                      <text-field grow="1" height="24" placeholder="{new_folder_label}" text="{folder_title_draft}" on-input="folder_title_edit" autofocus="true" />
                     </if>
                     <else>
                       <text grow="1" wrap="false" overflow="ellipsis" foreground="text_muted">{s.title}</text>
                     </else>
-                    <button variant="ghost" size="icon" icon="trash" label="Delete folder" on-press="delete_folder:{s.folder_id}"></button>
+                    <button variant="ghost" size="icon" icon="trash" label="{delete_folder_label}" on-press="delete_folder:{s.folder_id}"></button>
                     <context-menu>
                       <menu-item on-press="rename_folder:{s.folder_id}">Rename</menu-item>
                       <separator />
+                      <!-- Folder context-menu Delete stays English this cut
+                           (Rename is also English). Trash button uses
+                           delete_folder_label. -->
                       <menu-item on-press="delete_folder:{s.folder_id}">Delete</menu-item>
                     </context-menu>
                   </list-item>
@@ -1907,7 +1910,7 @@
     <dialog text="Command palette" width="680" height="480" padding="16" on-dismiss="palette_cancel">
       <column gap="8">
         <spacer height="34"></spacer>
-        <search-field grow="1" height="60" placeholder="Search" text="{search_query}" on-input="search_edit" autofocus="true" />
+        <search-field grow="1" height="60" placeholder="{search_label}" text="{search_query}" on-input="search_edit" autofocus="true" />
         <scroll grow="1">
           <column>
             <for each="palette_rows" key="id" as="r">
