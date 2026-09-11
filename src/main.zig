@@ -104,6 +104,7 @@ const file_preview_images = @import("file_preview_images.zig");
 const file_preview_details = @import("file_preview_details.zig");
 const file_preview_issue_link = @import("file_preview_issue_link.zig");
 const transcript_images = @import("transcript_images.zig");
+const transcript_details = @import("transcript_details.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -554,6 +555,7 @@ test {
     _ = @import("file_preview_details.zig");
     _ = @import("file_preview_issue_link.zig");
     _ = @import("transcript_images.zig");
+    _ = @import("transcript_details.zig");
     _ = @import("file_preview_find.zig");
     _ = @import("file_preview_regex.zig");
     _ = @import("maximize_window.zig");

@@ -689,7 +689,10 @@ first-cut paint Native `<markdown source>` GFM with `images=`
 (in-project local via `fx.loadImage` `.path`, remote http(s) via
 `.url`, `data:` via `fx.registerImageBytes`; id band 816–831,
 distinct from Files Preview 800–815; user / tool / reasoning stay
-`<text>`; http(s) on-link reuses `open_url`); first-cut Edit switches a full
+`<text>`; http(s) on-link reuses `open_url`; `<details>` via documented
+`details-expanded` + `on-details`, runtime-only flags, default
+collapsed, cap 16; Native `on-details` is a bare document-order index
+so visible assistant `<markdown>` documents share those flags); first-cut Edit switches a full
 text window to `<textarea>`, Save (or Cmd/Ctrl-S when dirty-editing) prefers hello + daemon
 `WorkspaceOperation::WriteTextFile` when a daemon address is set
 (ok Ack adopts the saved buffer; Native 4 KiB stdin overflow /
@@ -1210,6 +1213,7 @@ live watch.
 | Environment Summary | `src/environment_summary.zig` |
 | Right panel | `src/right_panel.zig`, `src/review_diff.zig`, `src/open_url.zig`, `src/file_icon.zig`, `src/file_type_icons.zig`, `src/file_preview_images.zig`, `src/file_preview_details.zig`, `src/file_preview_issue_link.zig` |
 | Transcript markdown images | `src/transcript_images.zig` |
+| Transcript markdown details | `src/transcript_details.zig` |
 | Skills scan | `src/skills.zig` |
 | Providers catalog | `src/providers.zig`, `src/cli_probe.zig` |
 | Composer / attach | `src/composer.zig`, `src/attach.zig`, `src/slash_commands.zig` |
@@ -1479,7 +1483,10 @@ Honest gaps this cut does not implement:
   `<markdown source>` GFM with `images=` (in-project local /
   http(s) / `data:` same documented load path as Files Preview; id
   band 816–831; user / tool / reasoning stay `<text>`; http(s)
-  on-link reuses `open_url`). First-cut: opening the first Files preview widens the pane
+  on-link reuses `open_url`; `<details>` via documented
+  `details-expanded` + `on-details`, runtime-only flags, default
+  collapsed, cap 16; Native `on-details` is a bare document-order
+  index so visible assistant `<markdown>` documents share those flags). First-cut: opening the first Files preview widens the pane
   with Waku `FILE_EDITOR_INITIAL_WIDTH` 500 (wide clamp 280–1000 while
   that preview is open). First-cut: opening Diff / Review widens the pane
   with Waku `REVIEW_INITIAL_WIDTH` 820 (wide clamp 280–1000; Browser /
@@ -1714,12 +1721,15 @@ Honest gaps this cut does not implement:
   spawn migrate. New Task reuses an unstarted non-legacy
   projectless draft instead of always creating. Amend/force and
   remote `--track` stay local (not daemon WorkspaceOperation variants)
-- Transcript markdown `details-expanded` / `on-details`, transcript
-  `issue-link-base`, and user / tool / reasoning markdown (this cut
-  maps assistant turns via documented `images=` + `fx.loadImage`
-  `.path` / `.url` and `fx.registerImageBytes` for `data:`; Files
-  Preview already maps in-project local / http(s) / `data:` plus
-  Preview `<details>` and `#N` `issue-link-base`)
+- Transcript markdown `issue-link-base`, and user / tool / reasoning
+  markdown (this cut maps assistant turns via documented `images=` +
+  `fx.loadImage` `.path` / `.url` and `fx.registerImageBytes` for
+  `data:`, plus assistant `<details>` via documented `details-expanded`
+  + `on-details`, runtime-only flags, default collapsed, cap 16;
+  Native `on-details` is a bare document-order index so visible
+  assistant `<markdown>` documents share those flags; Files Preview
+  already maps in-project local / http(s) / `data:` plus Preview
+  `<details>` and `#N` `issue-link-base`)
 - Long-lived ACP or daemon socket in the update loop
 - fx ACP still rejects image blocks (`fx ask --image`). First-cut
   ACP image content blocks (base64 + mimeType, ~256KB raw, size
