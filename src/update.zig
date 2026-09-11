@@ -54,6 +54,7 @@ const right_panel = @import("right_panel.zig");
 const file_preview_images = @import("file_preview_images.zig");
 const file_preview_details = @import("file_preview_details.zig");
 const file_preview_issue_link = @import("file_preview_issue_link.zig");
+const transcript_images = @import("transcript_images.zig");
 
 const Model = main.Model;
 const Msg = main.Msg;
@@ -537,6 +538,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             file_preview_details.drop(model);
         },
         .file_preview_open_url => |url| right_panel.openFilePreviewMarkdownUrl(model, fx, url),
+        .transcript_open_url => |url| transcript_images.openUrl(model, fx, url),
         .file_preview_toggle_details => |index| file_preview_details.toggle(model, index),
         .toggle_right_panel_dir => |id| right_panel.toggleDir(model, fx, id),
         .set_right_panel_tab_files => {
@@ -580,6 +582,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .clipboard_done => {},
         .attach_preview_done => |result| attach_helpers.applyAttachPreviewResult(model, fx, result),
         .file_preview_image_done => |result| file_preview_images.applyResult(model, fx, result),
+        .transcript_image_done => |result| transcript_images.applyResult(model, fx, result),
         .tick => |timer| {
             if (timer.outcome != .fired) return;
             turn_stream.tickStream(model, fx);
@@ -613,6 +616,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
     // Same `now_ms` / update-tick piggyback. Native has no FS
     // watcher / dedicated timer this cut.
     _ = right_panel.pollFilePreviewDisk(model, fx);
+    // First-cut transcript assistant markdown `images=`. Reconciles
+    // visible assistant-turn sources after stream ticks / session
+    // switch / find filter. Existing successes for still-wanted
+    // sources survive without refetching.
+    transcript_images.refresh(model, fx);
 }
 
 /// Boot probes: `$HOME/.fx/bin/fx --help`, leftover `~/.local/bin/fx`,
@@ -641,4 +649,5 @@ pub fn initFx(model: *Model, fx: *Effects) void {
     fx_probe.startFxProbe(model, fx);
     cli_probe.startCliProbes(model, fx);
     pty_terminal.spawnShell(model, fx);
+    transcript_images.refresh(model, fx);
 }

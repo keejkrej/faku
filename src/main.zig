@@ -103,6 +103,7 @@ const open_editor = @import("open_editor.zig");
 const file_preview_images = @import("file_preview_images.zig");
 const file_preview_details = @import("file_preview_details.zig");
 const file_preview_issue_link = @import("file_preview_issue_link.zig");
+const transcript_images = @import("transcript_images.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -368,14 +369,21 @@ pub const no_provider_session_id_status = copy_helpers.no_provider_session_id_st
 /// uses this as the effect key (shared with spawn / clipboard / file).
 /// 0 is the no-image sentinel. Sits in the gap after `copy_turn_key`
 /// and before `fx_spawn_overlap`. Files markdown Preview images use
-/// 800–815. Verified: Native 0.9.3 `LoadImageOptions` + markup
+/// 800–815; transcript assistant markdown images use 816–831.
+/// Verified: Native 0.9.3 `LoadImageOptions` + markup
 /// `<image image="{binding}">`.
 pub const attach_preview_id_first = attach_helpers.attach_preview_id_first;
 pub const attach_preview_id_last = attach_helpers.attach_preview_id_last;
 /// Files Preview markdown image ids (`fx.loadImage` / `registerImageBytes`).
-/// Cap Native `max_markdown_images`. Distinct from attach preview 33–63.
+/// Cap Native `max_markdown_images`. Distinct from attach preview 33–63
+/// and transcript assistant markdown images 816–831.
 pub const file_preview_image_id_first = file_preview_images.id_first;
 pub const file_preview_image_id_last = file_preview_images.id_last;
+/// Transcript assistant markdown image ids (`fx.loadImage` /
+/// `registerImageBytes`). Cap Native `max_markdown_images`. Distinct
+/// from Files Preview 800–815 and attach preview 33–63.
+pub const transcript_image_id_first = transcript_images.id_first;
+pub const transcript_image_id_last = transcript_images.id_last;
 pub const demo_ticks_complete: u32 = 12;
 pub const demo_reply = "fx here (demo). The fx CLI was not found, so this is a local timer stream. Install fx and Send runs `fx ask`.";
 /// Desktop notification title when the session has no stored title.
@@ -545,6 +553,7 @@ test {
     _ = @import("file_preview_images.zig");
     _ = @import("file_preview_details.zig");
     _ = @import("file_preview_issue_link.zig");
+    _ = @import("transcript_images.zig");
     _ = @import("file_preview_find.zig");
     _ = @import("file_preview_regex.zig");
     _ = @import("maximize_window.zig");

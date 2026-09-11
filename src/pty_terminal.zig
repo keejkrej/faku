@@ -40,7 +40,8 @@ const Effects = main.Effects;
 /// Dedicated pty occupancy band. Outside stream (1), fx_ask (2), probe (3),
 /// daemon 4+, OS sidecars 25–32, attach preview 33–63, overlap 64+,
 /// git / mention / skills / cli_probe 200–608, litellm 650,
-/// Files markdown Preview images 800–815.
+/// Files markdown Preview images 800–815, transcript assistant
+/// markdown images 816–831.
 pub const pty_shell_key: u64 = 700;
 pub const max_sessions: usize = 4;
 pub const pty_shell_key_last: u64 = pty_shell_key + max_sessions - 1;
