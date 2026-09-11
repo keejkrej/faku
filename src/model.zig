@@ -46,6 +46,7 @@ const right_panel_session = @import("right_panel_session.zig");
 const file_preview_images_mod = @import("file_preview_images.zig");
 const file_preview_details_mod = @import("file_preview_details.zig");
 const file_preview_issue_link_mod = @import("file_preview_issue_link.zig");
+const transcript_images_mod = @import("transcript_images.zig");
 const i18n = @import("i18n.zig");
 const session_workspace = @import("session_workspace.zig");
 const pick_folder = @import("pick_folder.zig");
@@ -826,13 +827,20 @@ pub const Msg = union(enum) {
     /// Files Preview markdown `fx.loadImage` result. Distinct from composer
     /// `attach_preview_done` so attach ids 33–63 stay on that arm.
     file_preview_image_done: native_sdk.EffectImageResult,
+    /// Transcript assistant markdown `fx.loadImage` result. Distinct from
+    /// Files Preview `file_preview_image_done` so ids 800–815 stay on
+    /// that arm. Band is 816–831.
+    transcript_image_done: native_sdk.EffectImageResult,
+    /// Native `<markdown on-link>` from assistant turns. Payload is the
+    /// pressed URL (`[]const u8`). http(s) reuses `open_url`.
+    transcript_open_url: []const u8,
     tick: native_sdk.EffectTimer,
     fx_line: native_sdk.EffectLine,
     fx_exit: native_sdk.EffectExit,
     fx_probe_exit: native_sdk.EffectExit,
     cli_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "cli_probe_exit", "term_pty", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "focus_browser_or_composer", "open_find", "open_file_preview_find_replace", "clipboard_done", "attach_preview_done", "file_preview_image_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app", "start_image_attach", "show_right_panel", "navigate_back", "navigate_forward" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "cli_probe_exit", "term_pty", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "focus_browser_or_composer", "open_find", "open_file_preview_find_replace", "clipboard_done", "attach_preview_done", "file_preview_image_done", "transcript_image_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app", "start_image_attach", "show_right_panel", "navigate_back", "navigate_forward" };
 };
 
 pub const Model = struct {
@@ -1145,6 +1153,11 @@ pub const Model = struct {
     file_preview_image_slots: [file_preview_images_mod.max_images]file_preview_images_mod.Slot =
         [_]file_preview_images_mod.Slot{.{}} ** file_preview_images_mod.max_images,
     next_file_preview_image_id: u64 = file_preview_images_mod.id_first,
+    /// Runtime-only transcript assistant markdown image slots. Cap Native
+    /// `max_markdown_images`. Distinct band 816–831. Not persisted.
+    transcript_image_slots: [transcript_images_mod.max_images]transcript_images_mod.Slot =
+        [_]transcript_images_mod.Slot{.{}} ** transcript_images_mod.max_images,
+    next_transcript_image_id: u64 = transcript_images_mod.id_first,
     /// Runtime-only Files markdown Preview `<details>` flags. Cap Native
     /// `max_markdown_details_per_document`. Default collapsed. Not persisted.
     file_preview_details_expanded_flags: [file_preview_details_mod.max_details]bool =
@@ -2155,6 +2168,8 @@ pub const Model = struct {
         "right_panel_file_preview_markdown_source",
         "file_preview_image_slots",
         "next_file_preview_image_id",
+        "transcript_image_slots",
+        "next_transcript_image_id",
         "file_preview_details_expanded_flags",
         "file_preview_issue_link_base_storage",
         "file_preview_issue_link_base_len",
@@ -3235,6 +3250,13 @@ pub const Model = struct {
     /// remote http(s), and first-cut `data:`). Arena fn.
     pub fn file_preview_images(model: *const Model, arena: std.mem.Allocator) []const canvas.markdown.ResolvedImage {
         return file_preview_images_mod.resolved(model, arena);
+    }
+
+    /// Successful transcript assistant markdown image mappings for
+    /// `<markdown images="{transcript_images}">` (in-project local,
+    /// remote http(s), and first-cut `data:`). Arena fn.
+    pub fn transcript_images(model: *const Model, arena: std.mem.Allocator) []const canvas.markdown.ResolvedImage {
+        return transcript_images_mod.resolved(model, arena);
     }
 
     /// Files Preview `<details>` expansion flags for

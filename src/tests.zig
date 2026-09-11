@@ -889,7 +889,7 @@ test "fork at turn 1 copies two turns; source unchanged; empty fx_session_id; he
     try testing.expectEqual(@as(u32, 3), model.turnCount(id));
 }
 
-test "user and assistant turns wrap as plain text" {
+test "user turns wrap as plain text; assistant turns render markdown" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -902,9 +902,16 @@ test "user and assistant turns wrap as plain text" {
 
     const tree = try buildTree(arena, &model);
     const user_text = try expectByText(tree.root, .text, "**bold**");
-    const assistant_text = try expectByText(tree.root, .text, "**also**");
     try testing.expect(!user_text.text_no_wrap);
-    try testing.expect(!assistant_text.text_no_wrap);
+    try testing.expect(findTextContaining(tree.root, "**also**") == null);
+    const assistant_md = findBoldSpanText(tree.root, "also") orelse {
+        dumpTexts(tree.root, 0);
+        return error.WidgetNotFound;
+    };
+    _ = assistant_md;
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<markdown source=\"{t.text}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "images=\"{transcript_images}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-link=\"transcript_open_url\"") != null);
 }
 
 test "user turns hug the right in a bubble; assistant turns stay left" {
@@ -933,9 +940,8 @@ test "user turns hug the right in a bubble; assistant turns stay left" {
     const assistant_row = try expectByText(transcript, .column, "a wrapped assistant reply that should stay on the left");
     try testing.expect(findByKind(assistant_row, .bubble) == null);
     _ = try expectByText(assistant_row, .row, "Assistant said");
-    const assistant_text = try expectByText(assistant_row, .text, "a wrapped assistant reply that should stay on the left");
-    try testing.expect(!assistant_text.text_no_wrap);
-    try testing.expect(assistant_text.layout.grow >= 1);
+    try testing.expect(findAnyText(assistant_row, "a wrapped assistant reply that should stay on the left"));
+    try testing.expect(findByKind(assistant_row, .bubble) == null);
 
     const tool_row = try expectByText(transcript, .column, "read src/align.ts");
     try testing.expect(findByKind(tool_row, .bubble) == null);
@@ -9435,6 +9441,8 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "text=\"{file_preview_draft}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "<markdown source=\"{file_preview_body}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "images=\"{file_preview_images}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<markdown source=\"{t.text}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "images=\"{transcript_images}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "details-expanded=\"{file_preview_details_expanded}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "issue-link-base=\"{file_preview_issue_link_base}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-details=\"file_preview_toggle_details\"") != null);

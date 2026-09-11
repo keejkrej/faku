@@ -9,7 +9,8 @@
 //! Canonical source bytes stay the markdown `src` so `images=`
 //! mappings match the renderer. Outside-project / unresolved /
 //! malformed `data:` stay unmapped (alt-text). Composer attach preview
-//! (ids 33–63) is untouched. Transcript markdown `images=` is leftover.
+//! (ids 33–63) is untouched. Transcript assistant markdown `images=`
+//! uses a distinct band (`transcript_images.zig`, 816–831).
 //!
 //! Path rules reuse `open_url.resolveMarkdownFilePath` (strip location
 //! fragment, percent-decode, lexical normalize; relative vs preview abs
@@ -28,7 +29,8 @@ const Model = main.Model;
 const Effects = main.Effects;
 
 /// Recycled ImageId / effect-key band. Distinct from attach preview
-/// 33–63, OS sidecars 25–32, pty 700–703, overlap 64+, git 200+.
+/// 33–63, OS sidecars 25–32, pty 700–703, overlap 64+, git 200+,
+/// transcript markdown images 816–831.
 pub const id_first: u64 = 800;
 pub const id_last: u64 = id_first + canvas.markdown.max_markdown_images - 1;
 pub const max_images: usize = canvas.markdown.max_markdown_images;
@@ -139,7 +141,8 @@ pub fn decodeDataImageSource(source: []const u8, dest: []u8) ?[]const u8 {
 /// Decode + register encoded bytes. Fake executor without a bound
 /// image registry (the usual unit-test seam) synthesizes 1×1 so
 /// tests stay hermetic — mirror of `loadImage` parking under `.fake`.
-fn registerPreviewImageBytes(fx: *Effects, id: u64, bytes: []const u8) ?native_sdk.RegisteredImage {
+/// Transcript markdown `data:` reuses this same helper.
+pub fn registerMarkdownImageBytes(fx: *Effects, id: u64, bytes: []const u8) ?native_sdk.RegisteredImage {
     if (bytes.len == 0 or bytes.len > native_sdk.max_effect_image_bytes) return null;
     const registered = fx.registerImageBytes(id, bytes) catch |err| {
         if (fx.executor == .fake and err == error.UnsupportedService) {
@@ -331,7 +334,7 @@ pub fn refresh(model: *Model, fx: ?*Effects) void {
             continue;
         };
         slot.id = nextId(model);
-        const registered = registerPreviewImageBytes(effects, slot.id, decoded) orelse {
+        const registered = registerMarkdownImageBytes(effects, slot.id, decoded) orelse {
             slot.* = .{};
             continue;
         };
