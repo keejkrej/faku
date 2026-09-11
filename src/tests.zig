@@ -219,12 +219,22 @@ fn expectSessionContextMenu(tree: AppUi.Tree, row: canvas.Widget, session_id: u3
 }
 
 fn expectFolderContextMenu(tree: AppUi.Tree, row: canvas.Widget, folder_id: u32) !void {
+    try expectFolderContextMenuLabels(tree, row, folder_id, "Rename", "Delete");
+}
+
+fn expectFolderContextMenuLabels(
+    tree: AppUi.Tree,
+    row: canvas.Widget,
+    folder_id: u32,
+    rename_label: []const u8,
+    delete_label: []const u8,
+) !void {
     if (!@hasField(canvas.Widget, "context_menu")) return error.ContextMenuUnsupported;
     try testing.expectEqual(@as(usize, 3), row.context_menu.len);
-    try testing.expectEqualStrings("Rename", row.context_menu[0].label);
+    try testing.expectEqualStrings(rename_label, row.context_menu[0].label);
     try testing.expect(!row.context_menu[0].separator);
     try testing.expect(row.context_menu[1].separator);
-    try testing.expectEqualStrings("Delete", row.context_menu[2].label);
+    try testing.expectEqualStrings(delete_label, row.context_menu[2].label);
     try testing.expect(!row.context_menu[2].separator);
     if (@hasDecl(@TypeOf(tree), "msgForContextMenu")) {
         try testing.expectEqual(Msg{ .rename_folder = folder_id }, tree.msgForContextMenu(row.id, 0).?);
@@ -23303,6 +23313,8 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     try testing.expectEqualStrings("New folder", model.new_folder_label());
     try testing.expectEqualStrings("Collapse all folders", model.collapse_all_folders_label());
     try testing.expectEqualStrings("Delete folder", model.delete_folder_label());
+    try testing.expectEqualStrings("Rename", model.rename_folder_label());
+    try testing.expectEqualStrings("Delete", model.delete_label());
 
     var tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "New Task");
@@ -23325,6 +23337,8 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     try testing.expectEqualStrings("新建文件夹", model.new_folder_label());
     try testing.expectEqualStrings("折叠所有文件夹", model.collapse_all_folders_label());
     try testing.expectEqualStrings("删除文件夹", model.delete_folder_label());
+    try testing.expectEqualStrings("重命名", model.rename_folder_label());
+    try testing.expectEqualStrings("删除", model.delete_label());
     try testing.expectEqualStrings("New folder", model.folder_store[0].title());
     tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "新建任务");
@@ -23333,7 +23347,7 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     _ = try expectButton(tree.root, "折叠所有文件夹");
     _ = try expectButton(tree.root, "删除文件夹");
     const zh_folder = try expectByText(tree.root, .list_item, "New folder");
-    try expectFolderContextMenu(tree, zh_folder, model.folder_store[0].id);
+    try expectFolderContextMenuLabels(tree, zh_folder, model.folder_store[0].id, "重命名", "删除");
     try testing.expect(findByText(tree.root, .list_item, "New Task") == null);
     try testing.expect(findPressableContaining(tree.root, "New Task") == null);
     try testing.expect(findPressableContaining(tree.root, "Search") == null);
@@ -23353,6 +23367,8 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     try testing.expectEqualStrings("新しいフォルダ", model.new_folder_label());
     try testing.expectEqualStrings("すべてのフォルダを折りたたむ", model.collapse_all_folders_label());
     try testing.expectEqualStrings("フォルダを削除", model.delete_folder_label());
+    try testing.expectEqualStrings("名前を変更", model.rename_folder_label());
+    try testing.expectEqualStrings("削除", model.delete_label());
     tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "新しいタスク");
     _ = try expectButton(tree.root, "検索");
@@ -23360,7 +23376,7 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     _ = try expectButton(tree.root, "すべてのフォルダを折りたたむ");
     _ = try expectButton(tree.root, "フォルダを削除");
     const ja_folder = try expectByText(tree.root, .list_item, "New folder");
-    try expectFolderContextMenu(tree, ja_folder, model.folder_store[0].id);
+    try expectFolderContextMenuLabels(tree, ja_folder, model.folder_store[0].id, "名前を変更", "削除");
     try testing.expect(findPressableContaining(tree.root, "New Task") == null);
 
     main.update(&model, .{ .rename_folder = model.folder_store[0].id }, &fx);
@@ -23376,12 +23392,15 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     try testing.expectEqualStrings("New folder", model.new_folder_label());
     try testing.expectEqualStrings("Collapse all folders", model.collapse_all_folders_label());
     try testing.expectEqualStrings("Delete folder", model.delete_folder_label());
+    try testing.expectEqualStrings("Rename", model.rename_folder_label());
+    try testing.expectEqualStrings("Delete", model.delete_label());
     tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "New Task");
     _ = try expectButton(tree.root, "Search");
     _ = try expectButton(tree.root, "New folder");
     _ = try expectButton(tree.root, "Collapse all folders");
     _ = try expectButton(tree.root, "Delete folder");
+    try expectFolderContextMenu(tree, try expectByText(tree.root, .list_item, "New folder"), model.folder_store[0].id);
 
     model.language_preference = .system;
     model.setSystemLocaleId("zh_CN.UTF-8");

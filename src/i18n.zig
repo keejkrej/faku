@@ -167,15 +167,18 @@ const dates_ja: Dates = .{
 /// Dates. Search is the sidebar entry and the command-palette overlay
 /// placeholder (same wording). New folder is the button label and the
 /// folder title-field placeholder; stored catalog titles stay English
-/// `New folder` (data, not chrome). Folder context-menu Delete stays
-/// English this cut (Rename is also English). Composer Ask / Full
-/// access stay English.
+/// `New folder` (data, not chrome). Folder context-menu Rename / Delete
+/// are chrome (plain Delete, not `delete_folder`). Session Rename /
+/// Remove, Expand / Collapse folder, and composer Ask / Full access
+/// stay English.
 pub const Sidebar = struct {
     new_task: []const u8,
     search: []const u8,
     new_folder: []const u8,
     collapse_all_folders: []const u8,
     delete_folder: []const u8,
+    rename: []const u8,
+    delete: []const u8,
 };
 
 const sidebar_en: Sidebar = .{
@@ -184,6 +187,8 @@ const sidebar_en: Sidebar = .{
     .new_folder = "New folder",
     .collapse_all_folders = "Collapse all folders",
     .delete_folder = "Delete folder",
+    .rename = "Rename",
+    .delete = "Delete",
 };
 
 const sidebar_zh_cn: Sidebar = .{
@@ -192,6 +197,8 @@ const sidebar_zh_cn: Sidebar = .{
     .new_folder = "新建文件夹",
     .collapse_all_folders = "折叠所有文件夹",
     .delete_folder = "删除文件夹",
+    .rename = "重命名",
+    .delete = "删除",
 };
 
 const sidebar_ja: Sidebar = .{
@@ -200,6 +207,8 @@ const sidebar_ja: Sidebar = .{
     .new_folder = "新しいフォルダ",
     .collapse_all_folders = "すべてのフォルダを折りたたむ",
     .delete_folder = "フォルダを削除",
+    .rename = "名前を変更",
+    .delete = "削除",
 };
 
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
@@ -361,6 +370,8 @@ test "sidebarFor english default; zh and ja chrome; english ignores ja LANG" {
     try testing.expectEqualStrings("New folder", sidebarFor(.english, "").new_folder);
     try testing.expectEqualStrings("Collapse all folders", sidebarFor(.english, "").collapse_all_folders);
     try testing.expectEqualStrings("Delete folder", sidebarFor(.english, "").delete_folder);
+    try testing.expectEqualStrings("Rename", sidebarFor(.english, "").rename);
+    try testing.expectEqualStrings("Delete", sidebarFor(.english, "").delete);
     try testing.expectEqualStrings("New Task", sidebarFor(.system, "").new_task);
 
     try testing.expectEqualStrings("新建任务", sidebarFor(.simplified_chinese, "").new_task);
@@ -368,16 +379,22 @@ test "sidebarFor english default; zh and ja chrome; english ignores ja LANG" {
     try testing.expectEqualStrings("新建文件夹", sidebarFor(.simplified_chinese, "").new_folder);
     try testing.expectEqualStrings("折叠所有文件夹", sidebarFor(.simplified_chinese, "").collapse_all_folders);
     try testing.expectEqualStrings("删除文件夹", sidebarFor(.simplified_chinese, "").delete_folder);
+    try testing.expectEqualStrings("重命名", sidebarFor(.simplified_chinese, "").rename);
+    try testing.expectEqualStrings("删除", sidebarFor(.simplified_chinese, "").delete);
 
     try testing.expectEqualStrings("新しいタスク", sidebarFor(.japanese, "").new_task);
     try testing.expectEqualStrings("検索", sidebarFor(.japanese, "").search);
     try testing.expectEqualStrings("新しいフォルダ", sidebarFor(.japanese, "").new_folder);
     try testing.expectEqualStrings("すべてのフォルダを折りたたむ", sidebarFor(.japanese, "").collapse_all_folders);
     try testing.expectEqualStrings("フォルダを削除", sidebarFor(.japanese, "").delete_folder);
+    try testing.expectEqualStrings("名前を変更", sidebarFor(.japanese, "").rename);
+    try testing.expectEqualStrings("削除", sidebarFor(.japanese, "").delete);
 
     try testing.expectEqualStrings("新建任务", sidebarFor(.system, "zh_CN.UTF-8").new_task);
     try testing.expectEqualStrings("検索", sidebarFor(.system, "ja_JP.UTF-8").search);
     try testing.expectEqualStrings("New Task", sidebarFor(.english, "ja_JP.UTF-8").new_task);
     try testing.expectEqualStrings("Search", sidebarFor(.english, "ja_JP.UTF-8").search);
     try testing.expectEqualStrings("New folder", sidebarFor(.english, "zh_CN.UTF-8").new_folder);
+    try testing.expectEqualStrings("Rename", sidebarFor(.english, "ja_JP.UTF-8").rename);
+    try testing.expectEqualStrings("Delete", sidebarFor(.english, "zh_CN.UTF-8").delete);
 }
