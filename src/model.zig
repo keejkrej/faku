@@ -4237,6 +4237,37 @@ pub const Model = struct {
         return model.sidebarDates().today;
     }
 
+    fn sidebarChrome(model: *const Model) i18n.Sidebar {
+        return i18n.sidebarFor(model.language_preference, model.systemLocaleId());
+    }
+
+    /// Sidebar New Task list-item. Same resolve path as Settings chrome.
+    pub fn new_task_label(model: *const Model) []const u8 {
+        return model.sidebarChrome().new_task;
+    }
+
+    /// Sidebar Search list-item and command-palette overlay placeholder
+    /// (same wording). Not "Search branches".
+    pub fn search_label(model: *const Model) []const u8 {
+        return model.sidebarChrome().search;
+    }
+
+    /// New folder icon-button label and folder title-field placeholder.
+    /// Catalog titles stay English `New folder` (data, not chrome).
+    pub fn new_folder_label(model: *const Model) []const u8 {
+        return model.sidebarChrome().new_folder;
+    }
+
+    /// Collapse-all-folders icon button. Palette command label stays English.
+    pub fn collapse_all_folders_label(model: *const Model) []const u8 {
+        return model.sidebarChrome().collapse_all_folders;
+    }
+
+    /// Delete-folder trash button. Folder context-menu Delete stays English.
+    pub fn delete_folder_label(model: *const Model) []const u8 {
+        return model.sidebarChrome().delete_folder;
+    }
+
     pub fn systemLocaleId(model: *const Model) []const u8 {
         return model.system_locale_id_storage[0..model.system_locale_id_len];
     }

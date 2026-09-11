@@ -2,9 +2,10 @@
 //!
 //! Native has no locale / NSLocale API this cut. System follows process
 //! `LC_ALL`, else `LC_MESSAGES`, else `LANG` (non-macOS Waku path), copied
-//! at boot onto the model. Settings chrome strings and first-cut sidebar
-//! date-bucket titles live here so `main.zig` does not grow. Not rust_i18n,
-//! not YAML catalogs, not full-app translation, not tz-aware grouping.
+//! at boot onto the model. Settings chrome strings, first-cut sidebar
+//! date-bucket titles, and first-cut sidebar New Task / Search / folder
+//! chrome live here so `main.zig` does not grow. Not rust_i18n, not YAML
+//! catalogs, not full-app translation, not tz-aware grouping.
 
 const std = @import("std");
 
@@ -162,6 +163,45 @@ const dates_ja: Dates = .{
     .just_now = "たった今",
 };
 
+/// First-cut high-traffic sidebar chrome. Same resolve path as Chrome /
+/// Dates. Search is the sidebar entry and the command-palette overlay
+/// placeholder (same wording). New folder is the button label and the
+/// folder title-field placeholder; stored catalog titles stay English
+/// `New folder` (data, not chrome). Folder context-menu Delete stays
+/// English this cut (Rename is also English). Composer Ask / Full
+/// access stay English.
+pub const Sidebar = struct {
+    new_task: []const u8,
+    search: []const u8,
+    new_folder: []const u8,
+    collapse_all_folders: []const u8,
+    delete_folder: []const u8,
+};
+
+const sidebar_en: Sidebar = .{
+    .new_task = "New Task",
+    .search = "Search",
+    .new_folder = "New folder",
+    .collapse_all_folders = "Collapse all folders",
+    .delete_folder = "Delete folder",
+};
+
+const sidebar_zh_cn: Sidebar = .{
+    .new_task = "新建任务",
+    .search = "搜索",
+    .new_folder = "新建文件夹",
+    .collapse_all_folders = "折叠所有文件夹",
+    .delete_folder = "删除文件夹",
+};
+
+const sidebar_ja: Sidebar = .{
+    .new_task = "新しいタスク",
+    .search = "検索",
+    .new_folder = "新しいフォルダ",
+    .collapse_all_folders = "すべてのフォルダを折りたたむ",
+    .delete_folder = "フォルダを削除",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -217,6 +257,17 @@ pub fn datesFor(preference: LanguagePreference, system_locale_id: []const u8) Da
         .simplified_chinese => dates_zh_cn,
         .japanese => dates_ja,
         .system, .english => dates_en,
+    };
+}
+
+/// Sidebar New Task / Search / folder chrome for the resolved locale.
+/// Callers pass Model `language_preference` + `system_locale_id`; this
+/// file does not read process env.
+pub fn sidebarFor(preference: LanguagePreference, system_locale_id: []const u8) Sidebar {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => sidebar_zh_cn,
+        .japanese => sidebar_ja,
+        .system, .english => sidebar_en,
     };
 }
 
@@ -301,4 +352,32 @@ test "datesFor english default; zh and ja bucket titles; System follows locale i
     try testing.expectEqualStrings("今日", datesFor(.system, "zh_CN.UTF-8").today);
     try testing.expectEqualStrings("昨日", datesFor(.system, "ja_JP.UTF-8").yesterday);
     try testing.expectEqualStrings("Today", datesFor(.english, "ja_JP.UTF-8").today);
+}
+
+test "sidebarFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("New Task", sidebarFor(.english, "ja").new_task);
+    try testing.expectEqualStrings("Search", sidebarFor(.english, "").search);
+    try testing.expectEqualStrings("New folder", sidebarFor(.english, "").new_folder);
+    try testing.expectEqualStrings("Collapse all folders", sidebarFor(.english, "").collapse_all_folders);
+    try testing.expectEqualStrings("Delete folder", sidebarFor(.english, "").delete_folder);
+    try testing.expectEqualStrings("New Task", sidebarFor(.system, "").new_task);
+
+    try testing.expectEqualStrings("新建任务", sidebarFor(.simplified_chinese, "").new_task);
+    try testing.expectEqualStrings("搜索", sidebarFor(.simplified_chinese, "").search);
+    try testing.expectEqualStrings("新建文件夹", sidebarFor(.simplified_chinese, "").new_folder);
+    try testing.expectEqualStrings("折叠所有文件夹", sidebarFor(.simplified_chinese, "").collapse_all_folders);
+    try testing.expectEqualStrings("删除文件夹", sidebarFor(.simplified_chinese, "").delete_folder);
+
+    try testing.expectEqualStrings("新しいタスク", sidebarFor(.japanese, "").new_task);
+    try testing.expectEqualStrings("検索", sidebarFor(.japanese, "").search);
+    try testing.expectEqualStrings("新しいフォルダ", sidebarFor(.japanese, "").new_folder);
+    try testing.expectEqualStrings("すべてのフォルダを折りたたむ", sidebarFor(.japanese, "").collapse_all_folders);
+    try testing.expectEqualStrings("フォルダを削除", sidebarFor(.japanese, "").delete_folder);
+
+    try testing.expectEqualStrings("新建任务", sidebarFor(.system, "zh_CN.UTF-8").new_task);
+    try testing.expectEqualStrings("検索", sidebarFor(.system, "ja_JP.UTF-8").search);
+    try testing.expectEqualStrings("New Task", sidebarFor(.english, "ja_JP.UTF-8").new_task);
+    try testing.expectEqualStrings("Search", sidebarFor(.english, "ja_JP.UTF-8").search);
+    try testing.expectEqualStrings("New folder", sidebarFor(.english, "zh_CN.UTF-8").new_folder);
 }

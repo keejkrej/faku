@@ -23288,6 +23288,109 @@ test "chrome unassign Today label follows Appearance language" {
     try testing.expectEqualStrings("今日", model.unassign_today_label());
 }
 
+test "sidebar New Task Search folder chrome follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    try testing.expectEqualStrings("New Task", model.new_task_label());
+    try testing.expectEqualStrings("Search", model.search_label());
+    try testing.expectEqualStrings("New folder", model.new_folder_label());
+    try testing.expectEqualStrings("Collapse all folders", model.collapse_all_folders_label());
+    try testing.expectEqualStrings("Delete folder", model.delete_folder_label());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "New Task");
+    _ = try expectButton(tree.root, "Search");
+    _ = try expectButton(tree.root, "New folder");
+    try testing.expect(findPressableContaining(tree.root, "Collapse all folders") == null);
+
+    main.update(&model, .new_folder, &fx);
+    try testing.expectEqualStrings("New folder", model.folder_store[0].title());
+    try testing.expect(model.can_collapse_folders());
+    tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "Collapse all folders");
+    _ = try expectButton(tree.root, "Delete folder");
+    _ = try expectByText(tree.root, .list_item, "New folder");
+    _ = try expectByText(tree.root, .menu_item, "Delete");
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("新建任务", model.new_task_label());
+    try testing.expectEqualStrings("搜索", model.search_label());
+    try testing.expectEqualStrings("新建文件夹", model.new_folder_label());
+    try testing.expectEqualStrings("折叠所有文件夹", model.collapse_all_folders_label());
+    try testing.expectEqualStrings("删除文件夹", model.delete_folder_label());
+    try testing.expectEqualStrings("New folder", model.folder_store[0].title());
+    tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "新建任务");
+    _ = try expectButton(tree.root, "搜索");
+    _ = try expectButton(tree.root, "新建文件夹");
+    _ = try expectButton(tree.root, "折叠所有文件夹");
+    _ = try expectButton(tree.root, "删除文件夹");
+    _ = try expectByText(tree.root, .list_item, "New folder");
+    _ = try expectByText(tree.root, .menu_item, "Delete");
+    try testing.expect(findByText(tree.root, .list_item, "New Task") == null);
+    try testing.expect(findPressableContaining(tree.root, "New Task") == null);
+    try testing.expect(findPressableContaining(tree.root, "Search") == null);
+    try testing.expect(findPressableContaining(tree.root, "Collapse all folders") == null);
+    try testing.expect(findPressableContaining(tree.root, "Delete folder") == null);
+
+    main.update(&model, .start_search, &fx);
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .search_field)) |field| {
+        try testing.expectEqualStrings("搜索", field.placeholder);
+    } else return error.WidgetNotFound;
+    main.update(&model, .palette_cancel, &fx);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("新しいタスク", model.new_task_label());
+    try testing.expectEqualStrings("検索", model.search_label());
+    try testing.expectEqualStrings("新しいフォルダ", model.new_folder_label());
+    try testing.expectEqualStrings("すべてのフォルダを折りたたむ", model.collapse_all_folders_label());
+    try testing.expectEqualStrings("フォルダを削除", model.delete_folder_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "新しいタスク");
+    _ = try expectButton(tree.root, "検索");
+    _ = try expectButton(tree.root, "新しいフォルダ");
+    _ = try expectButton(tree.root, "すべてのフォルダを折りたたむ");
+    _ = try expectButton(tree.root, "フォルダを削除");
+    _ = try expectByText(tree.root, .menu_item, "Delete");
+    try testing.expect(findPressableContaining(tree.root, "New Task") == null);
+
+    main.update(&model, .{ .rename_folder = model.folder_store[0].id }, &fx);
+    tree = try buildTree(arena, &model);
+    if (findByPlaceholder(tree.root, .text_field, "新しいフォルダ")) |_| {} else return error.WidgetNotFound;
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "New folder") == null);
+    model.closeFolderTitleEdit();
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("New Task", model.new_task_label());
+    try testing.expectEqualStrings("Search", model.search_label());
+    try testing.expectEqualStrings("New folder", model.new_folder_label());
+    try testing.expectEqualStrings("Collapse all folders", model.collapse_all_folders_label());
+    try testing.expectEqualStrings("Delete folder", model.delete_folder_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "New Task");
+    _ = try expectButton(tree.root, "Search");
+    _ = try expectButton(tree.root, "New folder");
+    _ = try expectButton(tree.root, "Collapse all folders");
+    _ = try expectButton(tree.root, "Delete folder");
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("新建任务", model.new_task_label());
+    try testing.expectEqualStrings("搜索", model.search_label());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("新しいタスク", model.new_task_label());
+    try testing.expectEqualStrings("検索", model.search_label());
+}
+
 test "DateBucket.title english default; zh and ja follow datesFor" {
     try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
     try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());
