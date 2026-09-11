@@ -2100,6 +2100,7 @@ pub const Model = struct {
         "interactionChrome",
         "paletteChrome",
         "palette_action_label",
+        "show_right_panel_label",
         "sidebarDates",
         "system_locale_id_storage",
         "system_locale_id_len",
