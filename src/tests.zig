@@ -24765,11 +24765,11 @@ test "right panel Browser start page and Open in browser/Terminal follow Appeara
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{browser_start_title}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{browser_address_focus_hint}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{open_in_browser_label}"));
-    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{open_in_terminal_label}"));
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, main.app_markup, "{open_in_terminal_label}"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Browse the web<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Cmd/Ctrl-L focuses the address.<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Open in browser<"));
-    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, ">Open in Terminal</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Open in Terminal</button>"));
 
     var model = main.initialModel();
     model.store_io = testing.io;
@@ -24823,7 +24823,7 @@ test "right panel Browser start page and Open in browser/Terminal follow Appeara
     _ = try expectButtonMsg(tree, "在终端中打开", .open_terminal);
     try testing.expect(findByText(zh_term, .button, "在终端中打开") != null);
     try testing.expect(findByText(zh_term, .button, "Open in Terminal") == null);
-    try testing.expect(findByText(tree.root, .button, "Open in Terminal") != null);
+    try testing.expect(findByText(tree.root, .button, "Open in Terminal") == null);
     try testing.expect((try expectButtonMsg(tree, "终端", .set_right_panel_tab_terminal)).state.selected);
 
     model.language_preference = .japanese;
@@ -24877,6 +24877,150 @@ test "right panel Browser start page and Open in browser/Terminal follow Appeara
     try testing.expectEqualStrings("Cmd/Ctrl-L focuses the address.", model.browser_address_focus_hint());
     try testing.expectEqualStrings("Open in browser", model.open_in_browser_label());
     try testing.expectEqualStrings("Open in Terminal", model.open_in_terminal_label());
+}
+
+test "composer project-row Pick folder / Reveal folder / Open in Terminal / Open in Editor / Copy path follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try absOpenTerminalDir(tmp, "i18n-composer-project", &project_buf);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{pick_folder_label}"));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{reveal_folder_label}"));
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, main.app_markup, "{open_in_terminal_label}"));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{open_in_editor_label}"));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{copy_path_label}"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Pick folder</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Reveal folder</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Open in Terminal</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Open in Editor</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Copy path</button>"));
+
+    var model = main.initialModel();
+    model.store_io = testing.io;
+    model.setSelectedProjectPath(project);
+    try testing.expect(model.can_open_terminal());
+    try testing.expect(model.can_reveal_folder());
+    try testing.expect(model.can_open_editor());
+    try testing.expect(model.can_copy_project_path());
+    try testing.expect(!model.project_edit_active);
+    try testing.expectEqualStrings("Pick folder", model.pick_folder_label());
+    try testing.expectEqualStrings("Reveal folder", model.reveal_folder_label());
+    try testing.expectEqualStrings("Open in Terminal", model.open_in_terminal_label());
+    try testing.expectEqualStrings("Open in Editor", model.open_in_editor_label());
+    try testing.expectEqualStrings("Copy path", model.copy_path_label());
+    try testing.expect(!std.mem.eql(u8, model.open_in_editor_label(), model.palette_action_label(.open_editor)));
+    try testing.expect(!std.mem.eql(u8, model.reveal_folder_label(), model.palette_action_label(.reveal_folder)));
+    try testing.expect(!std.mem.eql(u8, model.copy_path_label(), model.palette_action_label(.copy_project_path)));
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Open in Terminal", .open_terminal);
+    _ = try expectButtonMsg(tree, "Reveal folder", .reveal_folder);
+    _ = try expectButtonMsg(tree, "Open in Editor", .open_editor);
+    _ = try expectButtonMsg(tree, "Copy path", .copy_project_path);
+    try testing.expect(findByText(tree.root, .button, "Pick folder") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("选择文件夹", model.pick_folder_label());
+    try testing.expectEqualStrings("显示文件夹", model.reveal_folder_label());
+    try testing.expectEqualStrings("在终端中打开", model.open_in_terminal_label());
+    try testing.expectEqualStrings("在编辑器中打开", model.open_in_editor_label());
+    try testing.expectEqualStrings("复制路径", model.copy_path_label());
+    try testing.expect(!std.mem.eql(u8, model.open_in_editor_label(), model.palette_action_label(.open_editor)));
+    try testing.expect(!std.mem.eql(u8, model.reveal_folder_label(), model.palette_action_label(.reveal_folder)));
+    try testing.expect(!std.mem.eql(u8, model.copy_path_label(), model.palette_action_label(.copy_project_path)));
+
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "在终端中打开", .open_terminal);
+    _ = try expectButtonMsg(tree, "显示文件夹", .reveal_folder);
+    _ = try expectButtonMsg(tree, "在编辑器中打开", .open_editor);
+    _ = try expectButtonMsg(tree, "复制路径", .copy_project_path);
+    try testing.expect(findByText(tree.root, .button, "Open in Terminal") == null);
+    try testing.expect(findByText(tree.root, .button, "Reveal folder") == null);
+    try testing.expect(findByText(tree.root, .button, "Open in Editor") == null);
+    try testing.expect(findByText(tree.root, .button, "Copy path") == null);
+    try testing.expect(findByText(tree.root, .button, "Pick folder") == null);
+    try testing.expect(findByText(tree.root, .button, "选择文件夹") == null);
+
+    main.update(&model, .start_project_edit, &fx);
+    try testing.expect(model.project_edit_active);
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "选择文件夹", .pick_folder);
+    _ = try expectButtonMsg(tree, "显示文件夹", .reveal_folder);
+    _ = try expectButtonMsg(tree, "在终端中打开", .open_terminal);
+    _ = try expectButtonMsg(tree, "在编辑器中打开", .open_editor);
+    _ = try expectButtonMsg(tree, "复制路径", .copy_project_path);
+    try testing.expect(findByText(tree.root, .button, "Pick folder") == null);
+    try testing.expect(findByText(tree.root, .button, "Open in Terminal") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("フォルダを選択", model.pick_folder_label());
+    try testing.expectEqualStrings("フォルダを表示", model.reveal_folder_label());
+    try testing.expectEqualStrings("ターミナルで開く", model.open_in_terminal_label());
+    try testing.expectEqualStrings("エディターで開く", model.open_in_editor_label());
+    try testing.expectEqualStrings("パスをコピー", model.copy_path_label());
+    try testing.expect(!std.mem.eql(u8, model.open_in_editor_label(), model.palette_action_label(.open_editor)));
+
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "フォルダを選択", .pick_folder);
+    _ = try expectButtonMsg(tree, "フォルダを表示", .reveal_folder);
+    _ = try expectButtonMsg(tree, "ターミナルで開く", .open_terminal);
+    _ = try expectButtonMsg(tree, "エディターで開く", .open_editor);
+    _ = try expectButtonMsg(tree, "パスをコピー", .copy_project_path);
+    try testing.expect(findByText(tree.root, .button, "选择文件夹") == null);
+    try testing.expect(findByText(tree.root, .button, "在终端中打开") == null);
+    try testing.expect(findByText(tree.root, .button, "Pick folder") == null);
+
+    model.closeProjectEdit();
+    try testing.expect(!model.project_edit_active);
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "ターミナルで開く", .open_terminal);
+    _ = try expectButtonMsg(tree, "フォルダを表示", .reveal_folder);
+    _ = try expectButtonMsg(tree, "エディターで開く", .open_editor);
+    _ = try expectButtonMsg(tree, "パスをコピー", .copy_project_path);
+    try testing.expect(findByText(tree.root, .button, "フォルダを選択") == null);
+    try testing.expect(findByText(tree.root, .button, "Open in Terminal") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Pick folder", model.pick_folder_label());
+    try testing.expectEqualStrings("Reveal folder", model.reveal_folder_label());
+    try testing.expectEqualStrings("Open in Terminal", model.open_in_terminal_label());
+    try testing.expectEqualStrings("Open in Editor", model.open_in_editor_label());
+    try testing.expectEqualStrings("Copy path", model.copy_path_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Open in Terminal", .open_terminal);
+    _ = try expectButtonMsg(tree, "Reveal folder", .reveal_folder);
+    try testing.expect(findByText(tree.root, .button, "ターミナルで開く") == null);
+    try testing.expect(findByText(tree.root, .button, "フォルダを表示") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("选择文件夹", model.pick_folder_label());
+    try testing.expectEqualStrings("显示文件夹", model.reveal_folder_label());
+    try testing.expectEqualStrings("在终端中打开", model.open_in_terminal_label());
+    try testing.expectEqualStrings("在编辑器中打开", model.open_in_editor_label());
+    try testing.expectEqualStrings("复制路径", model.copy_path_label());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("フォルダを選択", model.pick_folder_label());
+    try testing.expectEqualStrings("フォルダを表示", model.reveal_folder_label());
+    try testing.expectEqualStrings("ターミナルで開く", model.open_in_terminal_label());
+    try testing.expectEqualStrings("エディターで開く", model.open_in_editor_label());
+    try testing.expectEqualStrings("パスをコピー", model.copy_path_label());
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Pick folder", model.pick_folder_label());
+    try testing.expectEqualStrings("Reveal folder", model.reveal_folder_label());
+    try testing.expectEqualStrings("Open in Terminal", model.open_in_terminal_label());
+    try testing.expectEqualStrings("Open in Editor", model.open_in_editor_label());
+    try testing.expectEqualStrings("Copy path", model.copy_path_label());
 }
 
 test "DateBucket.title english default; zh and ja follow datesFor" {

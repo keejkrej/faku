@@ -1312,18 +1312,18 @@
             <if test="{project_edit_active}">
               <row gap="8" cross="center">
                 <text-field grow="1" placeholder="Workspace path" text="{project_edit}" on-input="project_path_edit" autofocus="true" />
-                <button variant="ghost" size="sm" on-press="pick_folder">Pick folder</button>
+                <button variant="ghost" size="sm" on-press="pick_folder">{pick_folder_label}</button>
                 <if test="{can_reveal_folder}">
-                  <button variant="ghost" size="sm" on-press="reveal_folder">Reveal folder</button>
+                  <button variant="ghost" size="sm" on-press="reveal_folder">{reveal_folder_label}</button>
                 </if>
                 <if test="{can_open_terminal}">
-                  <button variant="ghost" size="sm" on-press="open_terminal">Open in Terminal</button>
+                  <button variant="ghost" size="sm" on-press="open_terminal">{open_in_terminal_label}</button>
                 </if>
                 <if test="{can_open_editor}">
-                  <button variant="ghost" size="sm" on-press="open_editor">Open in Editor</button>
+                  <button variant="ghost" size="sm" on-press="open_editor">{open_in_editor_label}</button>
                 </if>
                 <if test="{can_copy_project_path}">
-                  <button variant="ghost" size="sm" on-press="copy_project_path">Copy path</button>
+                  <button variant="ghost" size="sm" on-press="copy_project_path">{copy_path_label}</button>
                 </if>
                 <spacer grow="1" />
                 <if test="{has_context_usage}">
@@ -1335,16 +1335,16 @@
               <row gap="8" cross="center">
                 <button variant="ghost" size="sm" icon="folder" on-press="start_project_edit">{project_label}</button>
                 <if test="{can_reveal_folder}">
-                  <button variant="ghost" size="sm" on-press="reveal_folder">Reveal folder</button>
+                  <button variant="ghost" size="sm" on-press="reveal_folder">{reveal_folder_label}</button>
                 </if>
                 <if test="{can_open_terminal}">
-                  <button variant="ghost" size="sm" on-press="open_terminal">Open in Terminal</button>
+                  <button variant="ghost" size="sm" on-press="open_terminal">{open_in_terminal_label}</button>
                 </if>
                 <if test="{can_open_editor}">
-                  <button variant="ghost" size="sm" on-press="open_editor">Open in Editor</button>
+                  <button variant="ghost" size="sm" on-press="open_editor">{open_in_editor_label}</button>
                 </if>
                 <if test="{can_copy_project_path}">
-                  <button variant="ghost" size="sm" on-press="copy_project_path">Copy path</button>
+                  <button variant="ghost" size="sm" on-press="copy_project_path">{copy_path_label}</button>
                 </if>
                 <if test="{project_is_local}">
                   <button variant="ghost" size="sm" on-press="start_project_edit">Local</button>
