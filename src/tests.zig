@@ -275,6 +275,19 @@ fn findFilePreviewToggleDetails(tree: AppUi.Tree, widget: canvas.Widget) ?struct
     return null;
 }
 
+fn findTranscriptToggleDetails(tree: AppUi.Tree, widget: canvas.Widget) ?struct { widget: canvas.Widget, index: usize } {
+    if (pointerMsg(tree, widget)) |msg| {
+        switch (msg) {
+            .transcript_toggle_details => |index| return .{ .widget = widget, .index = index },
+            else => {},
+        }
+    }
+    for (widget.children) |child| {
+        if (findTranscriptToggleDetails(tree, child)) |hit| return hit;
+    }
+    return null;
+}
+
 fn findBoldSpanText(widget: canvas.Widget, text: []const u8) ?canvas.Widget {
     if (widget.kind == .text) {
         for (widget.spans) |span| {
@@ -911,7 +924,174 @@ test "user turns wrap as plain text; assistant turns render markdown" {
     _ = assistant_md;
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "<markdown source=\"{t.text}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "images=\"{transcript_images}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "details-expanded=\"{transcript_details_expanded}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-details=\"transcript_toggle_details\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-link=\"transcript_open_url\"") != null);
+}
+
+test "assistant markdown details expand via on-details; default collapsed; no panic" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("tx md details", .fx);
+    model.selected = id;
+    _ = model.appendTurn(id, .user, "ask");
+    _ = model.appendTurn(id, .assistant,
+        \\# Hello
+        \\
+        \\<details>
+        \\<summary>More</summary>
+        \\
+        \\Hidden body
+        \\
+        \\</details>
+        \\
+    );
+    _ = model.appendTurn(id, .tool, "read README.md");
+    _ = model.appendTurn(id, .reasoning, "think");
+
+    try testing.expect(!model.transcript_details_expanded()[0]);
+    try testing.expect(!model.file_preview_details_expanded()[0]);
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Hello");
+    _ = try expectByText(tree.root, .text, "More");
+    try testing.expect(findTextContaining(tree.root, "Hidden body") == null);
+    try testing.expect(findPressableContaining(tree.root, "▸ More") != null);
+    _ = try expectByText(tree.root, .text, "read README.md");
+    _ = try expectByText(tree.root, .text, "think");
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "details-expanded=\"{transcript_details_expanded}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-details=\"transcript_toggle_details\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-details=\"file_preview_toggle_details\"") != null);
+
+    if (findTranscriptToggleDetails(tree, tree.root)) |hit| {
+        try testing.expectEqual(@as(usize, 0), hit.index);
+        main.update(&model, pointerMsg(tree, hit.widget).?, &fx);
+    } else {
+        main.update(&model, .{ .transcript_toggle_details = 0 }, &fx);
+    }
+    try testing.expect(model.transcript_details_expanded()[0]);
+    try testing.expect(!model.file_preview_details_expanded()[0]);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "More");
+    _ = try expectByText(tree.root, .text, "Hidden body");
+    try testing.expect(findPressableContaining(tree.root, "▾ More") != null);
+
+    main.update(&model, .{ .transcript_toggle_details = 0 }, &fx);
+    try testing.expect(!model.transcript_details_expanded()[0]);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findTextContaining(tree.root, "Hidden body") == null);
+    try testing.expect(findPressableContaining(tree.root, "▸ More") != null);
+
+    main.update(&model, .{ .transcript_toggle_details = 99 }, &fx);
+    try testing.expect(!model.transcript_details_expanded()[0]);
+}
+
+test "assistant markdown details share flags across turns; drop on session switch" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const first = model.addSession("tx details share", .fx);
+    const second = model.addSession("tx details other", .fx);
+    model.selected = first;
+    _ = model.appendTurn(first, .assistant,
+        \\<details>
+        \\<summary>Alpha</summary>
+        \\
+        \\Hidden A
+        \\
+        \\</details>
+        \\
+    );
+    _ = model.appendTurn(first, .assistant,
+        \\<details>
+        \\<summary>Beta</summary>
+        \\
+        \\Hidden B
+        \\
+        \\</details>
+        \\
+    );
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findTextContaining(tree.root, "Hidden A") == null);
+    try testing.expect(findTextContaining(tree.root, "Hidden B") == null);
+    try testing.expect(findPressableContaining(tree.root, "▸ Alpha") != null);
+    try testing.expect(findPressableContaining(tree.root, "▸ Beta") != null);
+
+    main.update(&model, .{ .transcript_toggle_details = 0 }, &fx);
+    try testing.expect(model.transcript_details_expanded()[0]);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Hidden A");
+    _ = try expectByText(tree.root, .text, "Hidden B");
+    try testing.expect(findPressableContaining(tree.root, "▾ Alpha") != null);
+    try testing.expect(findPressableContaining(tree.root, "▾ Beta") != null);
+
+    main.update(&model, .{ .select = second }, &fx);
+    try testing.expect(!model.transcript_details_expanded()[0]);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findPressableContaining(tree.root, "▸ Alpha") == null);
+}
+
+test "transcript details flags stay out of sessions.json" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-tx-details-catalog", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    const id = model.addSession("tx details catalog", .fx);
+    model.selected = id;
+    _ = model.appendTurn(id, .assistant,
+        \\<details>
+        \\<summary>More</summary>
+        \\
+        \\Hidden
+        \\
+        \\</details>
+        \\
+    );
+    main.update(&model, .{ .transcript_toggle_details = 0 }, &fx);
+    try testing.expect(model.transcript_details_expanded()[0]);
+
+    try store.saveSession(&model, id, testing.allocator, testing.io);
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = store.catalogPath(dir, &path_buf).?;
+    try testing.expect(std.mem.endsWith(u8, path, store.catalog_name));
+    try testing.expectEqualStrings("sessions.json", store.catalog_name);
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(testing.io, path, testing.allocator, .limited(64 * 1024));
+    defer testing.allocator.free(bytes);
+    try testing.expect(std.mem.indexOf(u8, bytes, "transcript_details") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "details_expanded") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "details-expanded") == null);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    store.hydrateSession(&loaded, id, testing.allocator, testing.io);
+    try testing.expect(!loaded.transcript_details_expanded()[0]);
 }
 
 test "user turns hug the right in a bubble; assistant turns stay left" {
@@ -9443,8 +9623,10 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "images=\"{file_preview_images}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "<markdown source=\"{t.text}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "images=\"{transcript_images}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "details-expanded=\"{transcript_details_expanded}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "details-expanded=\"{file_preview_details_expanded}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "issue-link-base=\"{file_preview_issue_link_base}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-details=\"transcript_toggle_details\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-details=\"file_preview_toggle_details\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-link=\"file_preview_open_url\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"set_file_preview_markdown_preview\"") != null);
@@ -9658,6 +9840,7 @@ test "Files markdown preview details expand via on-details; default collapsed; n
         main.update(&model, .{ .file_preview_toggle_details = 0 }, &fx);
     }
     try testing.expect(model.file_preview_details_expanded()[0]);
+    try testing.expect(!model.transcript_details_expanded()[0]);
 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "More");

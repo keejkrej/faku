@@ -55,6 +55,7 @@ const file_preview_images = @import("file_preview_images.zig");
 const file_preview_details = @import("file_preview_details.zig");
 const file_preview_issue_link = @import("file_preview_issue_link.zig");
 const transcript_images = @import("transcript_images.zig");
+const transcript_details = @import("transcript_details.zig");
 
 const Model = main.Model;
 const Msg = main.Msg;
@@ -539,6 +540,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .file_preview_open_url => |url| right_panel.openFilePreviewMarkdownUrl(model, fx, url),
         .transcript_open_url => |url| transcript_images.openUrl(model, fx, url),
+        .transcript_toggle_details => |index| transcript_details.toggle(model, index),
         .file_preview_toggle_details => |index| file_preview_details.toggle(model, index),
         .toggle_right_panel_dir => |id| right_panel.toggleDir(model, fx, id),
         .set_right_panel_tab_files => {

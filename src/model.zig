@@ -47,6 +47,7 @@ const file_preview_images_mod = @import("file_preview_images.zig");
 const file_preview_details_mod = @import("file_preview_details.zig");
 const file_preview_issue_link_mod = @import("file_preview_issue_link.zig");
 const transcript_images_mod = @import("transcript_images.zig");
+const transcript_details_mod = @import("transcript_details.zig");
 const i18n = @import("i18n.zig");
 const session_workspace = @import("session_workspace.zig");
 const pick_folder = @import("pick_folder.zig");
@@ -834,6 +835,10 @@ pub const Msg = union(enum) {
     /// Native `<markdown on-link>` from assistant turns. Payload is the
     /// pressed URL (`[]const u8`). http(s) reuses `open_url`.
     transcript_open_url: []const u8,
+    /// Native `<markdown on-details>` from assistant turns. Payload is
+    /// the details-block document-order index (`usize`). Runtime-only
+    /// flags shared across visible assistant `<markdown>` documents.
+    transcript_toggle_details: usize,
     tick: native_sdk.EffectTimer,
     fx_line: native_sdk.EffectLine,
     fx_exit: native_sdk.EffectExit,
@@ -1158,6 +1163,12 @@ pub const Model = struct {
     transcript_image_slots: [transcript_images_mod.max_images]transcript_images_mod.Slot =
         [_]transcript_images_mod.Slot{.{}} ** transcript_images_mod.max_images,
     next_transcript_image_id: u64 = transcript_images_mod.id_first,
+    /// Runtime-only transcript assistant markdown `<details>` flags.
+    /// Cap Native `max_markdown_details_per_document`. Default collapsed.
+    /// Shared across visible assistant `<markdown>` documents (Native
+    /// `on-details` is a bare index). Not persisted.
+    transcript_details_expanded_flags: [transcript_details_mod.max_details]bool =
+        [_]bool{false} ** transcript_details_mod.max_details,
     /// Runtime-only Files markdown Preview `<details>` flags. Cap Native
     /// `max_markdown_details_per_document`. Default collapsed. Not persisted.
     file_preview_details_expanded_flags: [file_preview_details_mod.max_details]bool =
@@ -2170,6 +2181,7 @@ pub const Model = struct {
         "next_file_preview_image_id",
         "transcript_image_slots",
         "next_transcript_image_id",
+        "transcript_details_expanded_flags",
         "file_preview_details_expanded_flags",
         "file_preview_issue_link_base_storage",
         "file_preview_issue_link_base_len",
@@ -3257,6 +3269,14 @@ pub const Model = struct {
     /// remote http(s), and first-cut `data:`). Arena fn.
     pub fn transcript_images(model: *const Model, arena: std.mem.Allocator) []const canvas.markdown.ResolvedImage {
         return transcript_images_mod.resolved(model, arena);
+    }
+
+    /// Transcript assistant `<details>` expansion flags for
+    /// `<markdown details-expanded="{transcript_details_expanded}">`.
+    /// Document order; default all false (collapsed). Shared across
+    /// visible assistant `<markdown>` documents this cut.
+    pub fn transcript_details_expanded(model: *const Model) []const bool {
+        return transcript_details_mod.expanded(model);
     }
 
     /// Files Preview `<details>` expansion flags for
