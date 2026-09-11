@@ -275,6 +275,19 @@ fn findFilePreviewToggleDetails(tree: AppUi.Tree, widget: canvas.Widget) ?struct
     return null;
 }
 
+fn findTranscriptOpenUrl(tree: AppUi.Tree, widget: canvas.Widget) ?struct { widget: canvas.Widget, url: []const u8 } {
+    if (pointerMsg(tree, widget)) |msg| {
+        switch (msg) {
+            .transcript_open_url => |url| return .{ .widget = widget, .url = url },
+            else => {},
+        }
+    }
+    for (widget.children) |child| {
+        if (findTranscriptOpenUrl(tree, child)) |hit| return hit;
+    }
+    return null;
+}
+
 fn findTranscriptToggleDetails(tree: AppUi.Tree, widget: canvas.Widget) ?struct { widget: canvas.Widget, index: usize } {
     if (pointerMsg(tree, widget)) |msg| {
         switch (msg) {
@@ -925,6 +938,8 @@ test "user turns wrap as plain text; assistant turns render markdown" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "<markdown source=\"{t.text}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "images=\"{transcript_images}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "details-expanded=\"{transcript_details_expanded}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "issue-link-base=\"{file_preview_issue_link_base}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<markdown source=\"{t.text}\" images=\"{transcript_images}\" details-expanded=\"{transcript_details_expanded}\" issue-link-base=\"{file_preview_issue_link_base}\" on-details=\"transcript_toggle_details\" on-link=\"transcript_open_url\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-details=\"transcript_toggle_details\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-link=\"transcript_open_url\"") != null);
 }
@@ -967,6 +982,7 @@ test "assistant markdown details expand via on-details; default collapsed; no pa
     _ = try expectByText(tree.root, .text, "read README.md");
     _ = try expectByText(tree.root, .text, "think");
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "details-expanded=\"{transcript_details_expanded}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "issue-link-base=\"{file_preview_issue_link_base}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-details=\"transcript_toggle_details\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-details=\"file_preview_toggle_details\"") != null);
 
@@ -1092,6 +1108,68 @@ test "transcript details flags stay out of sessions.json" {
     try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
     store.hydrateSession(&loaded, id, testing.allocator, testing.io);
     try testing.expect(!loaded.transcript_details_expanded()[0]);
+}
+
+test "assistant markdown #N uses issue-link-base; clicks reuse transcript_open_url" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-tx-md-issue-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("tx md issue", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    _ = model.appendTurn(id, .user, "ask");
+    _ = model.appendTurn(id, .assistant, "See #415 and [example](https://example.com).\n");
+    _ = model.appendTurn(id, .tool, "read README.md");
+    try testing.expectEqual(@as(u32, 0), model.right_panel_file_preview_id);
+
+    const file_preview_issue_link = @import("file_preview_issue_link.zig");
+    file_preview_issue_link.refresh(&model, &fx);
+    const list_key = model.file_preview_issue_link_key;
+    try testing.expect(list_key != 0);
+    file_preview_issue_link.applyLine(&model, .{ .key = list_key, .line = "origin\n" });
+    file_preview_issue_link.handleExit(&model, &fx, .{ .key = list_key, .reason = .exited, .code = 0 });
+    const url_key = model.file_preview_issue_link_key;
+    try testing.expect(url_key != 0);
+    file_preview_issue_link.applyLine(&model, .{ .key = url_key, .line = "git@github.com:keejkrej/faku.git\n" });
+    file_preview_issue_link.handleExit(&model, &fx, .{ .key = url_key, .reason = .exited, .code = 0 });
+    try testing.expectEqualStrings("https://github.com/keejkrej/faku/issues/", model.file_preview_issue_link_base());
+
+    const tree = try buildTree(arena, &model);
+    try testing.expect(findTextContaining(tree.root, "See") != null or findTranscriptOpenUrl(tree, tree.root) != null);
+    _ = try expectByText(tree.root, .text, "read README.md");
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "issue-link-base=\"{file_preview_issue_link_base}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-link=\"transcript_open_url\"") != null);
+
+    const issue_url = "https://github.com/keejkrej/faku/issues/415";
+    if (findTranscriptOpenUrl(tree, tree.root)) |link| {
+        if (std.mem.eql(u8, link.url, issue_url) or std.mem.eql(u8, link.url, "https://example.com")) {
+            main.update(&model, pointerMsg(tree, link.widget).?, &fx);
+        } else {
+            main.update(&model, .{ .transcript_open_url = issue_url }, &fx);
+        }
+    } else {
+        main.update(&model, .{ .transcript_open_url = issue_url }, &fx);
+    }
+    if (open_url.hostBin() != null) {
+        const spawn = findOpenUrlSpawn(&fx) orelse return error.MissingOpenUrlSpawn;
+        try testing.expectEqual(main.open_url_key, spawn.key);
+        try testing.expect(open_url.isUrlArgv(spawn.argv));
+        const opened = spawn.argv[spawn.argv.len - 1];
+        try testing.expect(std.mem.eql(u8, opened, issue_url) or std.mem.eql(u8, opened, "https://example.com"));
+    }
 }
 
 test "user turns hug the right in a bubble; assistant turns stay left" {
@@ -9626,6 +9704,7 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "details-expanded=\"{transcript_details_expanded}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "details-expanded=\"{file_preview_details_expanded}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "issue-link-base=\"{file_preview_issue_link_base}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<markdown source=\"{t.text}\" images=\"{transcript_images}\" details-expanded=\"{transcript_details_expanded}\" issue-link-base=\"{file_preview_issue_link_base}\" on-details=\"transcript_toggle_details\" on-link=\"transcript_open_url\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-details=\"transcript_toggle_details\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-details=\"file_preview_toggle_details\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-link=\"file_preview_open_url\"") != null);

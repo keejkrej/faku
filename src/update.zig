@@ -448,7 +448,6 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .hide_right_panel => {
             file_preview_images.drop(model, fx);
             file_preview_details.drop(model);
-            file_preview_issue_link.drop(model, fx);
             model.hideRightPanel();
             store.persistLayoutIfPossible(model);
         },
@@ -457,7 +456,6 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             if (!opening) {
                 file_preview_images.drop(model, fx);
                 file_preview_details.drop(model);
-                file_preview_issue_link.drop(model, fx);
             }
             model.toggleRightPanel();
             if (opening) file_mention.refresh(model, fx);
@@ -479,7 +477,6 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .close_right_panel_file_preview => {
             file_preview_images.drop(model, fx);
             file_preview_details.drop(model);
-            file_preview_issue_link.drop(model, fx);
             right_panel.closeFilePreview(model);
         },
         .open_right_panel_file_editor => right_panel.openPreviewInEditor(model, fx),
@@ -501,13 +498,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 .close_preview => {
                     file_preview_images.drop(model, fx);
                     file_preview_details.drop(model);
-                    file_preview_issue_link.drop(model, fx);
                     right_panel.clearFilePreview(model);
                 },
                 .hide_panel => {
                     file_preview_images.drop(model, fx);
                     file_preview_details.drop(model);
-                    file_preview_issue_link.drop(model, fx);
                     model.hideRightPanel();
                     store.persistLayoutIfPossible(model);
                 },
@@ -652,4 +647,5 @@ pub fn initFx(model: *Model, fx: *Effects) void {
     cli_probe.startCliProbes(model, fx);
     pty_terminal.spawnShell(model, fx);
     transcript_images.refresh(model, fx);
+    file_preview_issue_link.refresh(model, fx);
 }

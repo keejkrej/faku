@@ -1,19 +1,24 @@
-//! Files Preview markdown `issue-link-base` (first-cut).
+//! Files Preview + transcript assistant markdown `issue-link-base`
+//! (first-cut).
 //!
-//! Rendered Files `<markdown>` binds Native `issue-link-base` so
-//! bare `#N` refs become `base ++ number`. The prefix is derived from
-//! the selected session `project_path` via one-shot local
-//! `git remote` then `git remote get-url <name>` (prefer `origin`,
-//! else the first plausible name — same as `git_checkout.pickRemoteName`).
-//! GitHub / GitLab HTTPS and SSH remotes become
+//! Rendered Files `<markdown>` and transcript assistant `<markdown>`
+//! bind the same Native `issue-link-base` so bare `#N` refs become
+//! `base ++ number`. The prefix is derived from the selected session
+//! `project_path` via one-shot local `git remote` then
+//! `git remote get-url <name>` (prefer `origin`, else the first
+//! plausible name — same as `git_checkout.pickRemoteName`). GitHub /
+//! GitLab HTTPS and SSH remotes become
 //! `https://github.com/<owner>/<repo>/issues/` or
 //! `https://<gitlab-host>/<path>/-/issues/` (gitlab.com or a
 //! GitLab-shaped self-hosted host). `.git` is stripped. Empty /
 //! non-forge remotes leave the binding empty so `#N` stays unlinked
 //! (no invented default repo). Runtime-only — not sessions.json.
-//! Clicks still go through existing `on-link` →
-//! `file_preview_open_url` / `open_url` OS spawn. Verified: Native
-//! markdown `issue-link-base` (literal URL prefix or one `{binding}`).
+//! Probe runs on session select / `project_path` change / boot even
+//! when Files Preview is closed, so transcript `#N` does not need
+//! Files open. Clicks still go through existing `on-link` →
+//! `file_preview_open_url` / `transcript_open_url` / `open_url` OS
+//! spawn. Verified: Native markdown `issue-link-base` (literal URL
+//! prefix or one `{binding}`).
 //!
 //! Distinct spawn-key band (540+). Unix uses the same `/bin/sh -c`
 //! chdir workaround `fx ask` uses (`fx_ask_chdir_script`); `remote`,
@@ -33,8 +38,8 @@ const Model = main.Model;
 const Effects = main.Effects;
 const writeFixed = main.writeFixed;
 
-/// Files Preview `git remote` / `git remote get-url`. Distinct from
-/// skills (530+) and git_common_dir (500+). Band is 540+.
+/// Files Preview + transcript `git remote` / `git remote get-url`.
+/// Distinct from skills (530+) and git_common_dir (500+). Band is 540+.
 /// Incremented per spawn so a cancelled probe cannot paint a later
 /// preview / session.
 pub const key_first: u64 = 540;
@@ -127,7 +132,8 @@ pub fn probeSupported() bool {
     return true;
 }
 
-/// Slice binding for `<markdown issue-link-base="{file_preview_issue_link_base}">`.
+/// Slice binding for Files Preview and transcript assistant
+/// `<markdown issue-link-base="{file_preview_issue_link_base}">`.
 /// Empty when missing / in-flight / non-forge so `#N` stays unlinked.
 pub fn base(model: *const Model) []const u8 {
     return model.file_preview_issue_link_base_storage[0..model.file_preview_issue_link_base_len];
@@ -372,9 +378,9 @@ fn clearCache(model: *Model) void {
     model.file_preview_issue_link_probe_path_len = 0;
 }
 
-/// Cancel any in-flight probe and clear the binding. Same close /
-/// session-switch / hide moments as Files Preview teardown (not every
-/// Preview→Source / file switch — those keep a same-project cache).
+/// Cancel any in-flight probe and clear the binding. Session-switch /
+/// New Task / remove / empty `project_path` — not Files Preview close
+/// or hide (transcript `#N` still needs the same-project cache).
 pub fn drop(model: *Model, fx: ?*Effects) void {
     if (fx) |effects| cancelInFlight(model, effects) else {
         model.file_preview_issue_link_key = 0;
@@ -426,22 +432,15 @@ fn spawnGetUrl(model: *Model, fx: *Effects, cwd: []const u8) void {
     });
 }
 
-/// Spawn `git remote` when rendered Files Preview markdown is showing
-/// and this project has not already been probed. Empty / missing
-/// `project_path` clears the binding. Same-project Source / file
-/// switch keeps a ready (possibly empty) cache.
+/// Spawn `git remote` when the selected session has a usable
+/// `project_path` and this project has not already been probed.
+/// Empty / missing `project_path` clears the binding. Same-project
+/// Files Preview Source / file switch / close keeps a ready
+/// (possibly empty) cache so transcript `#N` still linkifies
+/// without opening Files.
 pub fn refresh(model: *Model, fx: ?*Effects) void {
     if (!probeSupported()) {
         drop(model, fx);
-        return;
-    }
-    if (!model.file_preview_shows_rendered_markdown()) {
-        if (model.right_panel_file_preview_id == 0) {
-            drop(model, fx);
-            return;
-        }
-        const cwd = probePath(model);
-        if (cwd.len == 0 or !probeMatches(model, cwd)) drop(model, fx);
         return;
     }
     const cwd = probePath(model);
@@ -638,7 +637,7 @@ test "issueLinkBaseFromRemoteUrl parses github/gitlab https+ssh and rejects junk
     try std.testing.expect(issueLinkBaseFromRemoteUrl("not-a-url", dest[0..]) == null);
 }
 
-test "Files Preview markdown sets and clears issue-link-base from origin get-url" {
+test "Files Preview markdown sets issue-link-base from origin get-url; close keeps cache" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     var project_buf: [256]u8 = undefined;
@@ -732,9 +731,13 @@ test "Files Preview markdown sets and clears issue-link-base from origin get-url
     try std.testing.expectEqualStrings("https://github.com/keejkrej/faku/issues/", base(&model));
 
     main.update(&model, .close_right_panel_file_preview, &fx);
-    try std.testing.expectEqualStrings("", base(&model));
-    try std.testing.expect(!model.file_preview_issue_link_ready);
+    try std.testing.expectEqualStrings("https://github.com/keejkrej/faku/issues/", base(&model));
+    try std.testing.expect(model.file_preview_issue_link_ready);
     try std.testing.expectEqual(@as(u64, 0), model.file_preview_issue_link_key);
+
+    main.update(&model, .hide_right_panel, &fx);
+    try std.testing.expectEqualStrings("https://github.com/keejkrej/faku/issues/", base(&model));
+    try std.testing.expect(model.file_preview_issue_link_ready);
 }
 
 test "Files Preview markdown leaves issue-link-base empty for non-forge remotes" {
@@ -779,4 +782,134 @@ test "Files Preview markdown leaves issue-link-base empty for non-forge remotes"
 
     drop(&model, &fx);
     try std.testing.expectEqualStrings("", base(&model));
+}
+
+fn completeOriginGetUrl(model: *Model, fx: *Effects, url: []const u8) !void {
+    const list_key = model.file_preview_issue_link_key;
+    try std.testing.expect(list_key != 0);
+    applyLine(model, .{ .key = list_key, .line = "origin\n" });
+    handleExit(model, fx, .{ .key = list_key, .reason = .exited, .code = 0 });
+    const url_key = model.file_preview_issue_link_key;
+    try std.testing.expect(url_key != 0);
+    applyLine(model, .{ .key = url_key, .line = url });
+    handleExit(model, fx, .{ .key = url_key, .reason = .exited, .code = 0 });
+}
+
+test "transcript markdown probes issue-link-base without Files Preview" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-tx-issue-link-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("tx issue link", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    _ = model.appendTurn(id, .assistant, "See #415\n");
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_file_preview_id);
+    try std.testing.expect(!model.file_preview_shows_rendered_markdown());
+    try std.testing.expectEqualStrings("", base(&model));
+
+    refresh(&model, &fx);
+    try std.testing.expectEqual(key_first, model.file_preview_issue_link_key);
+    try std.testing.expect(!git_checkout.gitMutationInFlight(&model));
+    try completeOriginGetUrl(&model, &fx, "git@github.com:keejkrej/faku.git\n");
+    try std.testing.expectEqual(@as(u64, 0), model.file_preview_issue_link_key);
+    try std.testing.expect(model.file_preview_issue_link_ready);
+    try std.testing.expectEqualStrings("https://github.com/keejkrej/faku/issues/", base(&model));
+    try std.testing.expectEqualStrings("https://github.com/keejkrej/faku/issues/", model.file_preview_issue_link_base());
+    try std.testing.expect(std.mem.indexOf(u8, main.app_markup, "<markdown source=\"{t.text}\" images=\"{transcript_images}\" details-expanded=\"{transcript_details_expanded}\" issue-link-base=\"{file_preview_issue_link_base}\" on-details=\"transcript_toggle_details\" on-link=\"transcript_open_url\"") != null);
+
+    const before_key = model.next_file_preview_issue_link_key;
+    refresh(&model, &fx);
+    try std.testing.expectEqual(before_key, model.next_file_preview_issue_link_key);
+    try std.testing.expectEqualStrings("https://github.com/keejkrej/faku/issues/", base(&model));
+
+    drop(&model, &fx);
+    try std.testing.expectEqualStrings("", base(&model));
+    try std.testing.expect(!model.file_preview_issue_link_ready);
+    try std.testing.expectEqual(@as(u64, 0), model.file_preview_issue_link_key);
+
+    const other = model.addSession("tx issue other", .fx);
+    if (model.sessionById(other)) |session| session.setProjectPath("");
+    main.update(&model, .{ .select = other }, &fx);
+    try std.testing.expectEqualStrings("", base(&model));
+    try std.testing.expect(!model.file_preview_issue_link_ready);
+    try std.testing.expectEqual(@as(u64, 0), model.file_preview_issue_link_key);
+}
+
+test "transcript markdown leaves issue-link-base empty for non-forge remotes without Files Preview" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-tx-issue-link-junk-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("tx issue junk", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_file_preview_id);
+
+    refresh(&model, &fx);
+    try completeOriginGetUrl(&model, &fx, "https://example.com/owner/repo.git\n");
+    try std.testing.expect(model.file_preview_issue_link_ready);
+    try std.testing.expectEqualStrings("", base(&model));
+}
+
+test "issue-link-base stays out of sessions.json" {
+    const store = @import("store.zig");
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-tx-issue-link-catalog", .{tmp.sub_path[0..]});
+
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-tx-issue-link-catalog-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = std.testing.io;
+    const id = model.addSession("tx issue catalog", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    _ = model.appendTurn(id, .assistant, "See #415\n");
+    refresh(&model, &fx);
+    try completeOriginGetUrl(&model, &fx, "git@github.com:keejkrej/faku.git\n");
+    try std.testing.expectEqualStrings("https://github.com/keejkrej/faku/issues/", base(&model));
+
+    try store.saveSession(&model, id, std.testing.allocator, std.testing.io);
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = store.catalogPath(dir, &path_buf).?;
+    try std.testing.expectEqualStrings("sessions.json", store.catalog_name);
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, path, std.testing.allocator, .limited(64 * 1024));
+    defer std.testing.allocator.free(bytes);
+    try std.testing.expect(std.mem.indexOf(u8, bytes, "issue_link") == null);
+    try std.testing.expect(std.mem.indexOf(u8, bytes, "issue-link-base") == null);
+    try std.testing.expect(std.mem.indexOf(u8, bytes, "file_preview_issue_link") == null);
+    try std.testing.expect(std.mem.indexOf(u8, bytes, "keejkrej/faku") == null);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try std.testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, std.testing.allocator, std.testing.io));
+    store.hydrateSession(&loaded, id, std.testing.allocator, std.testing.io);
+    try std.testing.expectEqualStrings("", loaded.file_preview_issue_link_base());
 }
