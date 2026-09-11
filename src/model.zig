@@ -2101,6 +2101,7 @@ pub const Model = struct {
         "paletteChrome",
         "paletteOverlayChrome",
         "rightPanelTabs",
+        "rightPanelChrome",
         "palette_action_label",
         "show_right_panel_label",
         "sidebarDates",
@@ -3418,6 +3419,27 @@ pub const Model = struct {
         return model.rightPanelTabs().background;
     }
 
+    /// Right-panel Diff file-list search placeholder. Filter text stays
+    /// on `review_diff_filter`; `on-input` stays `review_diff_filter_edit`.
+    pub fn review_diff_filter_placeholder(model: *const Model) []const u8 {
+        return model.rightPanelChrome().filter_files;
+    }
+
+    /// Files tab empty-state when no project is open.
+    pub fn right_panel_no_project_label(model: *const Model) []const u8 {
+        return model.rightPanelChrome().no_project_open;
+    }
+
+    /// Background tab empty-state when no selected row.
+    pub fn background_work_empty_label(model: *const Model) []const u8 {
+        return model.rightPanelChrome().no_background_work;
+    }
+
+    /// Background selected-row empty output line.
+    pub fn background_work_no_output_label(model: *const Model) []const u8 {
+        return model.rightPanelChrome().no_output;
+    }
+
     pub fn switcher_rows(model: *const Model, arena: std.mem.Allocator) []const SessionRow {
         if (!model.switcher_open or model.switcher_count == 0) return &.{};
         const out = arena.alloc(SessionRow, model.switcher_count) catch return &.{};
@@ -4316,6 +4338,10 @@ pub const Model = struct {
 
     fn rightPanelTabs(model: *const Model) i18n.RightPanelTabs {
         return i18n.rightPanelTabsFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn rightPanelChrome(model: *const Model) i18n.RightPanelChrome {
+        return i18n.rightPanelChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Palette row display label for `action`. New Task / Settings /

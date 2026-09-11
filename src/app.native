@@ -1477,7 +1477,7 @@
                 </column>
                 <column grow="1" min-width="140" gap="6">
                   <row>
-                    <search-field grow="1" height="24" placeholder="Filter files" text="{review_diff_filter}" on-input="review_diff_filter_edit" label="right-panel-diff-filter" />
+                    <search-field grow="1" height="24" placeholder="{review_diff_filter_placeholder}" text="{review_diff_filter}" on-input="review_diff_filter_edit" label="right-panel-diff-filter" />
                   </row>
                   <scroll grow="1" label="Review files">
                     <column gap="2">
@@ -1540,7 +1540,7 @@
               <column grow="1" gap="6">
               <if test="{has_review_diff_files}">
                 <row>
-                  <search-field grow="1" height="24" placeholder="Filter files" text="{review_diff_filter}" on-input="review_diff_filter_edit" label="right-panel-diff-filter" />
+                  <search-field grow="1" height="24" placeholder="{review_diff_filter_placeholder}" text="{review_diff_filter}" on-input="review_diff_filter_edit" label="right-panel-diff-filter" />
                 </row>
                 <scroll grow="1" label="Review files">
                   <column gap="2">
@@ -1700,7 +1700,7 @@
         <if test="{right_panel_showing_background}">
           <column grow="1" gap="6" padding="10" label="Background work">
             <if test="{background_work_empty}">
-              <text foreground="text_muted">No background work</text>
+              <text foreground="text_muted">{background_work_empty_label}</text>
             </if>
             <else>
               <text foreground="text_muted">{background_work_kind_label}</text>
@@ -1720,7 +1720,7 @@
                 </scroll>
               </if>
               <else>
-                <text foreground="text_muted">No output</text>
+                <text foreground="text_muted">{background_work_no_output_label}</text>
               </else>
             </else>
           </column>
@@ -1728,7 +1728,7 @@
         <if test="{right_panel_showing_files}">
         <if test="{right_panel_no_project}">
           <column padding="14" gap="6">
-            <text>No project open</text>
+            <text>{right_panel_no_project_label}</text>
             <text foreground="text_muted">Open a project to browse its files</text>
           </column>
         </if>
