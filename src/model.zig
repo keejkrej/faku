@@ -2099,6 +2099,7 @@ pub const Model = struct {
         "effortChrome",
         "interactionChrome",
         "paletteChrome",
+        "paletteOverlayChrome",
         "palette_action_label",
         "show_right_panel_label",
         "sidebarDates",
@@ -4278,6 +4279,13 @@ pub const Model = struct {
 
     fn paletteChrome(model: *const Model) i18n.Palette {
         return i18n.paletteFor(model.language_preference, model.systemLocaleId());
+    }
+
+    /// Palette overlay Suggested / Commands / Tasks headers and
+    /// empty-state lines. Same resolve path as `palette_action_label`.
+    /// Ids / `PaletteAction` / keywords stay English.
+    pub fn paletteOverlayChrome(model: *const Model) i18n.PaletteChrome {
+        return i18n.paletteChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Palette row display label for `action`. New Task / Settings /
