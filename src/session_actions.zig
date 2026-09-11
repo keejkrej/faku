@@ -32,6 +32,11 @@
 //! 4 KiB stdin overflow / sidecar miss fall back to local mkdir.
 //! Ordinary New Task with a real project path still copies
 //! `last_project_path`.
+//! New Task create prefers the selected session's `access_mode`
+//! when that field is non-empty (Waku `new_task_runtime_mode`);
+//! else remembered `last_access_mode`; else `fullAccess`.
+//! Remembered New Task / projectless draft reuse only select the
+//! existing draft and do not rewrite its access mode.
 //! First-cut daemon `WorkspaceOperation::MigrateProjectlessWorkspace`
 //! prefers hello + migrateProjectlessWorkspace on session select /
 //! boot when the selected cwd still needs migration (legacy
@@ -642,6 +647,149 @@ test "handleNewSession reopening remembered draft restores right-panel stash" {
     try std.testing.expectEqual(draft, model.selected);
     try std.testing.expect(model.right_panel_open);
     try std.testing.expectEqual(right_panel.Tab.diff, model.right_panel_tab);
+}
+
+test "handleNewSession copies selected Ask over lastAccessMode FullAccess" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/new-task-selected-ask", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastProjectPath(project);
+    model.setLastAccessMode("fullAccess");
+    const started = model.addSession("started", .fx);
+    if (model.sessionById(started)) |session| {
+        session.has_started = true;
+        session.setAccessMode("ask");
+    }
+    model.selected = started;
+    model.setLastAccessMode("fullAccess");
+    const count = model.session_count;
+
+    handleNewSession(&model, &fx);
+    try std.testing.expectEqual(count + 1, model.session_count);
+    try std.testing.expect(model.selected != started);
+    try std.testing.expectEqualStrings("ask", model.sessionById(model.selected).?.accessMode());
+}
+
+test "handleNewSession copies selected FullAccess over lastAccessMode Ask" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/new-task-selected-full", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastProjectPath(project);
+    model.setLastAccessMode("ask");
+    const started = model.addSession("started", .fx);
+    if (model.sessionById(started)) |session| {
+        session.has_started = true;
+        session.setAccessMode("fullAccess");
+    }
+    model.selected = started;
+    model.setLastAccessMode("ask");
+    const count = model.session_count;
+
+    handleNewSession(&model, &fx);
+    try std.testing.expectEqual(count + 1, model.session_count);
+    try std.testing.expect(model.selected != started);
+    try std.testing.expectEqualStrings("fullAccess", model.sessionById(model.selected).?.accessMode());
+}
+
+test "handleNewSession falls back to lastAccessMode when no usable selected session" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/new-task-fallback-access", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    {
+        var fx = Effects.init(std.testing.allocator);
+        defer fx.deinit();
+        fx.executor = .fake;
+        var model = Model{};
+        model.store_io = std.testing.io;
+        model.setLastProjectPath(project);
+        model.setLastAccessMode("ask");
+        model.selected = 0;
+        handleNewSession(&model, &fx);
+        try std.testing.expectEqualStrings("ask", model.sessionById(model.selected).?.accessMode());
+    }
+
+    {
+        var fx = Effects.init(std.testing.allocator);
+        defer fx.deinit();
+        fx.executor = .fake;
+        var model = Model{};
+        model.store_io = std.testing.io;
+        model.setLastProjectPath(project);
+        model.setLastAccessMode("ask");
+        const started = model.addSession("started", .fx);
+        if (model.sessionById(started)) |session| {
+            session.has_started = true;
+            session.setAccessMode("");
+        }
+        model.selected = started;
+        model.setLastAccessMode("ask");
+        handleNewSession(&model, &fx);
+        try std.testing.expect(model.selected != started);
+        try std.testing.expectEqualStrings("ask", model.sessionById(model.selected).?.accessMode());
+    }
+
+    {
+        var fx = Effects.init(std.testing.allocator);
+        defer fx.deinit();
+        fx.executor = .fake;
+        var model = Model{};
+        model.store_io = std.testing.io;
+        model.setLastProjectPath(project);
+        model.selected = 0;
+        handleNewSession(&model, &fx);
+        try std.testing.expectEqualStrings("fullAccess", model.sessionById(model.selected).?.accessMode());
+    }
+}
+
+test "handleNewSession reopening remembered draft does not overwrite access mode" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/remembered-keep-access", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastProjectPath(project);
+    handleNewSession(&model, &fx);
+    const draft = model.selected;
+    if (model.sessionById(draft)) |session| session.setAccessMode("ask");
+    model.setLastAccessMode("fullAccess");
+    const started = model.addSession("started", .fx);
+    if (model.sessionById(started)) |session| session.has_started = true;
+    handleSelect(&model, &fx, started);
+    try std.testing.expectEqual(draft, model.new_task);
+    const count = model.session_count;
+
+    handleNewSession(&model, &fx);
+    try std.testing.expectEqual(draft, model.selected);
+    try std.testing.expectEqual(count, model.session_count);
+    try std.testing.expectEqualStrings("ask", model.sessionById(draft).?.accessMode());
 }
 
 test "rememberedNewTask returns the current-project draft" {

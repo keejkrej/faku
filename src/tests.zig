@@ -15455,7 +15455,11 @@ test "settings edits persist model access and daemon address and reload" {
 
     const inherited = loaded.addSession("untitled next", .fx);
     try testing.expectEqualStrings("openai/gpt-5.4", loaded.sessionById(inherited).?.model());
-    try testing.expectEqualStrings("auto", loaded.sessionById(inherited).?.accessMode());
+    // Settings Auto writes last_access_mode only; the selected row stays
+    // fullAccess. New Task create prefers that row (Waku
+    // `new_task_runtime_mode`), not the settings extra.
+    try testing.expectEqualStrings("fullAccess", loaded.sessionById(inherited).?.accessMode());
+    try testing.expectEqualStrings("auto", loaded.lastAccessMode());
     try testing.expectEqualStrings("/tmp/faku-settings", loaded.sessionById(inherited).?.projectPath());
 
     loaded.openSettings();
