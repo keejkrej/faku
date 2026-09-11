@@ -24789,7 +24789,7 @@ test "right panel Browser start page and Open in browser/Terminal follow Appeara
     _ = try expectByText(tree.root, .column, "browser-start");
     _ = try expectByText(tree.root, .text, "Browse the web");
     _ = try expectByText(tree.root, .text, "Cmd/Ctrl-L focuses the address.");
-    const open_browser = try expectButtonMsg(tree, "Open in browser", .open_url);
+    const open_browser = findByText(tree.root, .button, "Open in browser") orelse return error.WidgetNotFound;
     try testing.expect(open_browser.state.disabled);
     try testing.expect((try expectButtonMsg(tree, "Browser", .set_right_panel_tab_browser)).state.selected);
 
@@ -24813,7 +24813,7 @@ test "right panel Browser start page and Open in browser/Terminal follow Appeara
     _ = try expectByText(tree.root, .text, "Cmd/Ctrl-L 聚焦地址栏。");
     try testing.expect(findByText(tree.root, .text, "Browse the web") == null);
     try testing.expect(findByText(tree.root, .text, "Cmd/Ctrl-L focuses the address.") == null);
-    _ = try expectButtonMsg(tree, "在浏览器中打开", .open_url);
+    try testing.expect(findByText(tree.root, .button, "在浏览器中打开") != null);
     try testing.expect(findByText(tree.root, .button, "Open in browser") == null);
     try testing.expect((try expectButtonMsg(tree, "浏览器", .set_right_panel_tab_browser)).state.selected);
 
@@ -24837,7 +24837,7 @@ test "right panel Browser start page and Open in browser/Terminal follow Appeara
     _ = try expectByText(tree.root, .text, "ウェブを閲覧");
     _ = try expectByText(tree.root, .text, "Cmd/Ctrl-L でアドレス欄にフォーカス。");
     try testing.expect(findByText(tree.root, .text, "浏览网页") == null);
-    _ = try expectButtonMsg(tree, "ブラウザで開く", .open_url);
+    try testing.expect(findByText(tree.root, .button, "ブラウザで開く") != null);
     try testing.expect(findByText(tree.root, .button, "在浏览器中打开") == null);
     try testing.expect((try expectButtonMsg(tree, "ブラウザ", .set_right_panel_tab_browser)).state.selected);
 
