@@ -75,7 +75,7 @@ const fileMentionQuery = composer.fileMentionQuery;
 const skillQuery = composer.skillQuery;
 const replaceMentionToken = composer.replaceMentionToken;
 const replaceSkillToken = composer.replaceSkillToken;
-const accessLabel = composer.accessLabel;
+const accessChipId = composer.accessChipId;
 const effortLabel = composer.effortLabel;
 const nextAccessMode = composer.nextAccessMode;
 const nextReasoningEffort = composer.nextReasoningEffort;
@@ -2095,6 +2095,7 @@ pub const Model = struct {
         "language_preference",
         "setLanguagePreference",
         "settingsChrome",
+        "accessChrome",
         "sidebarDates",
         "system_locale_id_storage",
         "system_locale_id_len",
@@ -3542,14 +3543,15 @@ pub const Model = struct {
     }
 
     pub fn access_picker_rows(model: *const Model, arena: std.mem.Allocator) []const ChipPickerRow {
-        const current = accessLabel(model.resolvedAccessMode());
+        const current = accessChipId(model.resolvedAccessMode());
+        const labels = model.accessChrome();
         const out = arena.alloc(ChipPickerRow, access_chip_options.len) catch return &.{};
         for (access_chip_options, 0..) |opt, index| {
             out[index] = .{
                 .row_id = @intCast(index + 1),
                 .id = opt.id,
-                .label = opt.label,
-                .selected = std.mem.eql(u8, current, opt.label),
+                .label = labels.labelForId(opt.id),
+                .selected = std.mem.eql(u8, current, opt.id),
             };
         }
         return out;
@@ -4241,6 +4243,10 @@ pub const Model = struct {
         return i18n.sidebarFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn accessChrome(model: *const Model) i18n.Access {
+        return i18n.accessFor(model.language_preference, model.systemLocaleId());
+    }
+
     /// Sidebar New Task list-item. Same resolve path as Settings chrome.
     pub fn new_task_label(model: *const Model) []const u8 {
         return model.sidebarChrome().new_task;
@@ -4606,20 +4612,35 @@ pub const Model = struct {
     }
 
     pub fn access_label(model: *const Model) []const u8 {
-        return accessLabel(model.resolvedAccessMode());
+        return model.accessChrome().labelForId(accessChipId(model.resolvedAccessMode()));
     }
 
-    /// Composer menu checkmark. Uses resolvedAccessMode(), not lastAccessMode().
+    /// Settings General Ask button. Same `i18n.Access.ask` as the composer chip.
+    pub fn access_ask_label(model: *const Model) []const u8 {
+        return model.accessChrome().ask;
+    }
+
+    /// Settings General Auto button. Same `i18n.Access.auto` as the composer chip.
+    pub fn access_auto_label(model: *const Model) []const u8 {
+        return model.accessChrome().auto;
+    }
+
+    /// Settings General Full access button. Same `i18n.Access.full_access`.
+    pub fn access_full_label(model: *const Model) []const u8 {
+        return model.accessChrome().full_access;
+    }
+
+    /// Composer menu checkmark. Uses resolvedAccessMode() chip id, not English labels.
     pub fn access_selected_ask(model: *const Model) bool {
-        return std.mem.eql(u8, accessLabel(model.resolvedAccessMode()), "Ask");
+        return std.mem.eql(u8, accessChipId(model.resolvedAccessMode()), "ask");
     }
 
     pub fn access_selected_auto(model: *const Model) bool {
-        return std.mem.eql(u8, accessLabel(model.resolvedAccessMode()), "Auto");
+        return std.mem.eql(u8, accessChipId(model.resolvedAccessMode()), "auto");
     }
 
     pub fn access_selected_full(model: *const Model) bool {
-        return std.mem.eql(u8, accessLabel(model.resolvedAccessMode()), "Full access");
+        return std.mem.eql(u8, accessChipId(model.resolvedAccessMode()), "fullAccess");
     }
 
     pub fn interaction_label(model: *const Model) []const u8 {

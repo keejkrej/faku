@@ -23567,6 +23567,182 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     try testing.expectEqualStrings("フォルダを折りたたむ", model.collapse_folder_label());
 }
 
+test "composer and Settings General access labels follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("fullAccess", model.resolvedAccessMode());
+    try testing.expectEqualStrings("Full access", model.access_label());
+    try testing.expectEqualStrings("Ask", model.access_ask_label());
+    try testing.expectEqualStrings("Auto", model.access_auto_label());
+    try testing.expectEqualStrings("Full access", model.access_full_label());
+    try testing.expectEqualStrings("Ask", main.accessLabel("ask"));
+    try testing.expect(model.access_selected_full());
+    try testing.expect(!model.access_selected_ask());
+    try testing.expect(!model.access_selected_auto());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectChip(tree.root, "Full access");
+
+    var rows = model.access_picker_rows(arena);
+    try testing.expectEqual(@as(usize, 3), rows.len);
+    try testing.expectEqualStrings("ask", rows[0].id);
+    try testing.expectEqualStrings("Ask", rows[0].label);
+    try testing.expect(!rows[0].selected);
+    try testing.expectEqualStrings("auto", rows[1].id);
+    try testing.expectEqualStrings("Auto", rows[1].label);
+    try testing.expect(!rows[1].selected);
+    try testing.expectEqualStrings("fullAccess", rows[2].id);
+    try testing.expectEqualStrings("Full access", rows[2].label);
+    try testing.expect(rows[2].selected);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("完全访问", model.access_label());
+    try testing.expectEqualStrings("询问", model.access_ask_label());
+    try testing.expectEqualStrings("自动", model.access_auto_label());
+    try testing.expectEqualStrings("完全访问", model.access_full_label());
+    try testing.expectEqualStrings("Ask", main.accessLabel(model.resolvedAccessMode()));
+    try testing.expect(model.access_selected_full());
+    try testing.expect(!model.access_selected_ask());
+    try testing.expect(!model.access_selected_auto());
+    try testing.expect(model.access_full());
+
+    rows = model.access_picker_rows(arena);
+    try testing.expectEqualStrings("ask", rows[0].id);
+    try testing.expectEqualStrings("询问", rows[0].label);
+    try testing.expect(!rows[0].selected);
+    try testing.expectEqualStrings("auto", rows[1].id);
+    try testing.expectEqualStrings("自动", rows[1].label);
+    try testing.expect(!rows[1].selected);
+    try testing.expectEqualStrings("fullAccess", rows[2].id);
+    try testing.expectEqualStrings("完全访问", rows[2].label);
+    try testing.expect(rows[2].selected);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectChip(tree.root, "完全访问");
+    try testing.expect(findByText(tree.root, .button, "Full access") == null);
+
+    main.update(&model, .toggle_access_picker, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .menu_item, "询问");
+    _ = try expectByText(tree.root, .menu_item, "自动");
+    const zh_full = try expectByText(tree.root, .menu_item, "完全访问");
+    try testing.expect(zh_full.state.selected);
+    const zh_ask_row = try expectByText(tree.root, .menu_item, "询问");
+    try testing.expect(!zh_ask_row.state.selected);
+    try testing.expect(findByText(tree.root, .menu_item, "Ask") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Full access") == null);
+    switch (tree.msgForPointer(zh_ask_row.id, .up).?) {
+        .pick_access => |picked| try testing.expectEqualStrings("ask", picked),
+        else => return error.WrongMsg,
+    }
+    main.update(&model, tree.msgForPointer(zh_ask_row.id, .up).?, &fx);
+    try testing.expectEqualStrings("ask", model.resolvedAccessMode());
+    try testing.expectEqualStrings("询问", model.access_label());
+    try testing.expect(model.access_selected_ask());
+    try testing.expect(!model.access_selected_full());
+    try testing.expect(model.access_ask());
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_open);
+    tree = try buildTree(arena, &model);
+    const zh_ask_btn = try expectButtonMsg(tree, "询问", .settings_access_ask);
+    try testing.expect(zh_ask_btn.state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "自动", .settings_access_auto)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "完全访问", .settings_access_full)).state.selected);
+    try testing.expect(findPressableContaining(tree.root, "Ask") == null);
+    try testing.expect(findPressableContaining(tree.root, "Full access") == null);
+
+    main.update(&model, .settings_access_auto, &fx);
+    try testing.expectEqualStrings("auto", model.lastAccessMode());
+    try testing.expectEqualStrings("ask", model.session_store[0].accessMode());
+    try testing.expect(model.access_auto());
+    try testing.expect(!model.access_ask());
+    try testing.expect(model.access_selected_ask());
+    try testing.expect(!model.access_selected_auto());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "自动", .settings_access_auto)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "询问", .settings_access_ask)).state.selected);
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .{ .pick_access = "auto" }, &fx);
+    try testing.expectEqualStrings("auto", model.resolvedAccessMode());
+    try testing.expectEqualStrings("自动", model.access_label());
+    try testing.expect(model.access_selected_auto());
+    try testing.expect(!model.access_selected_ask());
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("自動", model.access_label());
+    try testing.expectEqualStrings("確認", model.access_ask_label());
+    try testing.expectEqualStrings("自動", model.access_auto_label());
+    try testing.expectEqualStrings("フルアクセス", model.access_full_label());
+    try testing.expect(model.access_selected_auto());
+    try testing.expect(!model.access_selected_ask());
+    try testing.expect(!model.access_selected_full());
+
+    rows = model.access_picker_rows(arena);
+    try testing.expectEqualStrings("ask", rows[0].id);
+    try testing.expectEqualStrings("確認", rows[0].label);
+    try testing.expect(!rows[0].selected);
+    try testing.expectEqualStrings("auto", rows[1].id);
+    try testing.expectEqualStrings("自動", rows[1].label);
+    try testing.expect(rows[1].selected);
+    try testing.expectEqualStrings("fullAccess", rows[2].id);
+    try testing.expectEqualStrings("フルアクセス", rows[2].label);
+    try testing.expect(!rows[2].selected);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectChip(tree.root, "自動");
+    try testing.expect(findByText(tree.root, .button, "自动") == null);
+
+    main.update(&model, .toggle_access_picker, &fx);
+    tree = try buildTree(arena, &model);
+    const ja_auto = try expectByText(tree.root, .menu_item, "自動");
+    try testing.expect(ja_auto.state.selected);
+    try testing.expect(!(try expectByText(tree.root, .menu_item, "確認")).state.selected);
+    try testing.expect(!(try expectByText(tree.root, .menu_item, "フルアクセス")).state.selected);
+    try testing.expect(findByText(tree.root, .menu_item, "Ask") == null);
+    main.update(&model, .close_access_picker, &fx);
+
+    main.update(&model, .{ .pick_access = "fullAccess" }, &fx);
+    try testing.expectEqualStrings("fullAccess", model.resolvedAccessMode());
+    try testing.expectEqualStrings("フルアクセス", model.access_label());
+    try testing.expect(model.access_selected_full());
+    try testing.expect(!model.access_selected_auto());
+
+    main.update(&model, .toggle_settings, &fx);
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "フルアクセス", .settings_access_full)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "確認", .settings_access_ask)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "自動", .settings_access_auto)).state.selected);
+    main.update(&model, .toggle_settings, &fx);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Full access", model.access_label());
+    try testing.expectEqualStrings("Ask", model.access_ask_label());
+    try testing.expectEqualStrings("Auto", model.access_auto_label());
+    try testing.expectEqualStrings("Full access", model.access_full_label());
+    try testing.expect(model.access_selected_full());
+    tree = try buildTree(arena, &model);
+    _ = try expectChip(tree.root, "Full access");
+    try testing.expect(findByText(tree.root, .button, "フルアクセス") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("完全访问", model.access_label());
+    try testing.expectEqualStrings("询问", model.access_ask_label());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("フルアクセス", model.access_label());
+    try testing.expectEqualStrings("確認", model.access_ask_label());
+}
+
 test "DateBucket.title english default; zh and ja follow datesFor" {
     try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
     try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());

@@ -4,11 +4,14 @@
 //! `LC_ALL`, else `LC_MESSAGES`, else `LANG` (non-macOS Waku path), copied
 //! at boot onto the model. Settings chrome strings, first-cut sidebar
 //! date-bucket titles, first-cut sidebar New Task / Search / folder
-//! chrome, session context-menu Rename / Remove, and the palette
+//! chrome, session context-menu Rename / Remove, the palette
 //! Collapse all folders command (same `Sidebar.collapse_all_folders`
-//! string as the sidebar button) live here so `main.zig` does not
-//! grow. Composer Ask / Full access stay English. Not rust_i18n, not
-//! YAML catalogs, not full-app translation, not tz-aware grouping.
+//! string as the sidebar button), and composer / Settings General
+//! Ask / Auto / Full access (same `Access` strings) live here so
+//! `main.zig` does not grow. Other palette commands, effort chips,
+//! and Build/Plan stay English. Wire `access_mode` ids stay
+//! `ask` / `auto` / `fullAccess`. Not rust_i18n, not YAML catalogs,
+//! not full-app translation, not tz-aware grouping.
 
 const std = @import("std");
 
@@ -177,7 +180,8 @@ const dates_ja: Dates = .{
 /// `remove_session` ("Remove session"). Folder-header chevron a11y is
 /// `expand_folder` / `collapse_folder` (distinct from
 /// `collapse_all_folders`). Palette Collapse all folders reuses
-/// `collapse_all_folders`. Composer Ask / Full access stay English.
+/// `collapse_all_folders`. Composer Ask / Auto / Full access live in
+/// `Access` (same resolve path). Other palette commands stay English.
 pub const Sidebar = struct {
     new_task: []const u8,
     search: []const u8,
@@ -232,6 +236,43 @@ const sidebar_ja: Sidebar = .{
     .delete = "削除",
     .remove = "取り除く",
     .remove_session = "セッションを取り除く",
+};
+
+/// Composer chip, access picker rows, and Settings General Ask / Auto /
+/// Full access buttons. Same resolve path as Sidebar. Wire `access_mode`
+/// ids stay `ask` / `auto` / `fullAccess` (plus aliases `autoAcceptEdits`
+/// / `yolo`); only the chrome label translates. English matches
+/// `composer.accessLabel` / `access_chip_options`.
+pub const Access = struct {
+    ask: []const u8,
+    auto: []const u8,
+    full_access: []const u8,
+
+    /// `id` is a chip option id (`ask` / `auto` / `fullAccess`), not a
+    /// persisted alias. Unknown ids fall through to Full access.
+    pub fn labelForId(self: Access, id: []const u8) []const u8 {
+        if (std.mem.eql(u8, id, "ask")) return self.ask;
+        if (std.mem.eql(u8, id, "auto")) return self.auto;
+        return self.full_access;
+    }
+};
+
+const access_en: Access = .{
+    .ask = "Ask",
+    .auto = "Auto",
+    .full_access = "Full access",
+};
+
+const access_zh_cn: Access = .{
+    .ask = "询问",
+    .auto = "自动",
+    .full_access = "完全访问",
+};
+
+const access_ja: Access = .{
+    .ask = "確認",
+    .auto = "自動",
+    .full_access = "フルアクセス",
 };
 
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
@@ -300,6 +341,17 @@ pub fn sidebarFor(preference: LanguagePreference, system_locale_id: []const u8) 
         .simplified_chinese => sidebar_zh_cn,
         .japanese => sidebar_ja,
         .system, .english => sidebar_en,
+    };
+}
+
+/// Composer / Settings General Ask / Auto / Full access for the
+/// resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env.
+pub fn accessFor(preference: LanguagePreference, system_locale_id: []const u8) Access {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => access_zh_cn,
+        .japanese => access_ja,
+        .system, .english => access_en,
     };
 }
 
@@ -436,4 +488,33 @@ test "sidebarFor english default; zh and ja chrome; english ignores ja LANG" {
     try testing.expectEqualStrings("Remove session", sidebarFor(.english, "ja_JP.UTF-8").remove_session);
     try testing.expectEqualStrings("Expand folder", sidebarFor(.english, "zh_CN.UTF-8").expand_folder);
     try testing.expectEqualStrings("Collapse folder", sidebarFor(.english, "ja_JP.UTF-8").collapse_folder);
+}
+
+test "accessFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Ask", accessFor(.english, "ja").ask);
+    try testing.expectEqualStrings("Auto", accessFor(.english, "").auto);
+    try testing.expectEqualStrings("Full access", accessFor(.english, "").full_access);
+    try testing.expectEqualStrings("Ask", accessFor(.system, "").ask);
+    try testing.expectEqualStrings("Ask", accessFor(.english, "").labelForId("ask"));
+    try testing.expectEqualStrings("Auto", accessFor(.english, "").labelForId("auto"));
+    try testing.expectEqualStrings("Full access", accessFor(.english, "").labelForId("fullAccess"));
+    try testing.expectEqualStrings("Full access", accessFor(.english, "").labelForId("yolo"));
+
+    try testing.expectEqualStrings("询问", accessFor(.simplified_chinese, "").ask);
+    try testing.expectEqualStrings("自动", accessFor(.simplified_chinese, "").auto);
+    try testing.expectEqualStrings("完全访问", accessFor(.simplified_chinese, "").full_access);
+    try testing.expectEqualStrings("询问", accessFor(.simplified_chinese, "").labelForId("ask"));
+    try testing.expectEqualStrings("自动", accessFor(.simplified_chinese, "").labelForId("auto"));
+    try testing.expectEqualStrings("完全访问", accessFor(.simplified_chinese, "").labelForId("fullAccess"));
+
+    try testing.expectEqualStrings("確認", accessFor(.japanese, "").ask);
+    try testing.expectEqualStrings("自動", accessFor(.japanese, "").auto);
+    try testing.expectEqualStrings("フルアクセス", accessFor(.japanese, "").full_access);
+
+    try testing.expectEqualStrings("询问", accessFor(.system, "zh_CN.UTF-8").ask);
+    try testing.expectEqualStrings("自動", accessFor(.system, "ja_JP.UTF-8").auto);
+    try testing.expectEqualStrings("Ask", accessFor(.english, "ja_JP.UTF-8").ask);
+    try testing.expectEqualStrings("Auto", accessFor(.english, "zh_CN.UTF-8").auto);
+    try testing.expectEqualStrings("Full access", accessFor(.english, "ja_JP.UTF-8").full_access);
 }

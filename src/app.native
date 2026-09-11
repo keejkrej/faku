@@ -799,9 +799,9 @@
               <text-field text="{settings_model}" placeholder="FX_MODEL" on-input="settings_model_edit" />
               <text>Access mode</text>
               <row gap="8">
-                <button variant="ghost" size="sm" selected="{access_ask}" on-press="settings_access_ask">Ask</button>
-                <button variant="ghost" size="sm" selected="{access_auto}" on-press="settings_access_auto">Auto</button>
-                <button variant="ghost" size="sm" selected="{access_full}" on-press="settings_access_full">Full access</button>
+                <button variant="ghost" size="sm" selected="{access_ask}" on-press="settings_access_ask">{access_ask_label}</button>
+                <button variant="ghost" size="sm" selected="{access_auto}" on-press="settings_access_auto">{access_auto_label}</button>
+                <button variant="ghost" size="sm" selected="{access_full}" on-press="settings_access_full">{access_full_label}</button>
               </row>
               <text>Interaction</text>
               <row gap="8">
