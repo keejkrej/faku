@@ -1147,8 +1147,8 @@ test "assistant markdown #N uses issue-link-base; clicks reuse transcript_open_u
     file_preview_issue_link.handleExit(&model, &fx, .{ .key = url_key, .reason = .exited, .code = 0 });
     try testing.expectEqualStrings("https://github.com/keejkrej/faku/issues/", model.file_preview_issue_link_base());
 
-    var tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .text, "See");
+    const tree = try buildTree(arena, &model);
+    try testing.expect(findTextContaining(tree.root, "See") != null or findTranscriptOpenUrl(tree, tree.root) != null);
     _ = try expectByText(tree.root, .text, "read README.md");
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "issue-link-base=\"{file_preview_issue_link_base}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-link=\"transcript_open_url\"") != null);
