@@ -2098,6 +2098,8 @@ pub const Model = struct {
         "accessChrome",
         "effortChrome",
         "interactionChrome",
+        "paletteChrome",
+        "palette_action_label",
         "sidebarDates",
         "system_locale_id_storage",
         "system_locale_id_len",
@@ -3374,7 +3376,18 @@ pub const Model = struct {
     }
 
     pub fn right_panel_toggle_label(model: *const Model) []const u8 {
-        return if (model.right_panel_open) "Hide right panel" else "Show right panel";
+        return if (model.right_panel_open) model.hide_right_panel_label() else model.show_right_panel_label();
+    }
+
+    /// Same `i18n.Palette.show_right_panel` as the palette command.
+    pub fn show_right_panel_label(model: *const Model) []const u8 {
+        return model.paletteChrome().show_right_panel;
+    }
+
+    /// Same `i18n.Palette.hide_right_panel` as the palette command.
+    /// Right-panel header Hide button reuses this string.
+    pub fn hide_right_panel_label(model: *const Model) []const u8 {
+        return model.paletteChrome().hide_right_panel;
     }
 
     pub fn switcher_rows(model: *const Model, arena: std.mem.Allocator) []const SessionRow {
@@ -3864,8 +3877,11 @@ pub const Model = struct {
         return if (model.sidebar_collapsed) sidebar_rail_width else sidebar_min_width;
     }
 
+    /// Chrome a11y Expand / Collapse sidebar. Distinct from the
+    /// palette "Toggle sidebar" command name.
     pub fn sidebar_toggle_label(model: *const Model) []const u8 {
-        return if (model.sidebar_collapsed) "Expand sidebar" else "Collapse sidebar";
+        const labels = model.paletteChrome();
+        return if (model.sidebar_collapsed) labels.expand_sidebar else labels.collapse_sidebar;
     }
 
     pub fn can_go_back(model: *const Model) bool {
@@ -4257,6 +4273,37 @@ pub const Model = struct {
 
     fn interactionChrome(model: *const Model) i18n.Interaction {
         return i18n.interactionFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn paletteChrome(model: *const Model) i18n.Palette {
+        return i18n.paletteFor(model.language_preference, model.systemLocaleId());
+    }
+
+    /// Palette row display label for `action`. New Task / Settings /
+    /// Collapse all folders reuse Sidebar / Chrome strings; remaining
+    /// names come from `i18n.Palette`. Ids / keywords stay English.
+    pub fn palette_action_label(model: *const Model, action: palette.PaletteAction) []const u8 {
+        const labels = model.paletteChrome();
+        return switch (action) {
+            .new_task => model.new_task_label(),
+            .focus_composer => labels.focus_composer,
+            .toggle_sidebar => labels.toggle_sidebar,
+            .collapse_folders => model.collapse_all_folders_label(),
+            .find_in_transcript => labels.find_in_transcript,
+            .settings => model.settings_title(),
+            .minimize => labels.minimize,
+            .maximize => labels.maximize,
+            .copy_session_id => labels.copy_session_id,
+            .copy_fx_session_id => labels.copy_provider_session_id,
+            .reveal_folder => labels.reveal_project_folder,
+            .open_terminal => labels.open_project_in_terminal,
+            .open_editor => labels.open_project_in_editor,
+            .copy_project_path => labels.copy_project_path,
+            .show_right_panel => model.show_right_panel_label(),
+            .hide_right_panel => model.hide_right_panel_label(),
+            .show_browser_tab => labels.show_browser_tab,
+            .show_terminal_tab => labels.show_terminal_tab,
+        };
     }
 
     /// Sidebar New Task list-item. Same resolve path as Settings chrome.
