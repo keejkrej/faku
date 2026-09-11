@@ -1,11 +1,11 @@
-//! Files Preview + transcript assistant markdown `issue-link-base`
+//! Files Preview + transcript markdown `issue-link-base`
 //! (first-cut).
 //!
-//! Rendered Files `<markdown>` and transcript assistant `<markdown>`
-//! bind the same Native `issue-link-base` so bare `#N` refs become
-//! `base ++ number`. The prefix is derived from the selected session
-//! `project_path` via one-shot local `git remote` then
-//! `git remote get-url <name>` (prefer `origin`, else the first
+//! Rendered Files `<markdown>` and transcript user / tool / reasoning /
+//! assistant `<markdown>` bind the same Native `issue-link-base` so
+//! bare `#N` refs become `base ++ number`. The prefix is derived from
+//! the selected session `project_path` via one-shot local `git remote`
+//! then `git remote get-url <name>` (prefer `origin`, else the first
 //! plausible name — same as `git_checkout.pickRemoteName`). GitHub /
 //! GitLab HTTPS and SSH remotes become
 //! `https://github.com/<owner>/<repo>/issues/` or
@@ -132,7 +132,7 @@ pub fn probeSupported() bool {
     return true;
 }
 
-/// Slice binding for Files Preview and transcript assistant
+/// Slice binding for Files Preview and transcript
 /// `<markdown issue-link-base="{file_preview_issue_link_base}">`.
 /// Empty when missing / in-flight / non-forge so `#N` stays unlinked.
 pub fn base(model: *const Model) []const u8 {

@@ -828,16 +828,16 @@ pub const Msg = union(enum) {
     /// Files Preview markdown `fx.loadImage` result. Distinct from composer
     /// `attach_preview_done` so attach ids 33–63 stay on that arm.
     file_preview_image_done: native_sdk.EffectImageResult,
-    /// Transcript assistant markdown `fx.loadImage` result. Distinct from
+    /// Transcript markdown `fx.loadImage` result. Distinct from
     /// Files Preview `file_preview_image_done` so ids 800–815 stay on
     /// that arm. Band is 816–831.
     transcript_image_done: native_sdk.EffectImageResult,
-    /// Native `<markdown on-link>` from assistant turns. Payload is the
+    /// Native `<markdown on-link>` from transcript turns. Payload is the
     /// pressed URL (`[]const u8`). http(s) reuses `open_url`.
     transcript_open_url: []const u8,
-    /// Native `<markdown on-details>` from assistant turns. Payload is
+    /// Native `<markdown on-details>` from transcript turns. Payload is
     /// the details-block document-order index (`usize`). Runtime-only
-    /// flags shared across visible assistant `<markdown>` documents.
+    /// flags shared across all visible transcript `<markdown>` documents.
     transcript_toggle_details: usize,
     tick: native_sdk.EffectTimer,
     fx_line: native_sdk.EffectLine,
@@ -1158,14 +1158,16 @@ pub const Model = struct {
     file_preview_image_slots: [file_preview_images_mod.max_images]file_preview_images_mod.Slot =
         [_]file_preview_images_mod.Slot{.{}} ** file_preview_images_mod.max_images,
     next_file_preview_image_id: u64 = file_preview_images_mod.id_first,
-    /// Runtime-only transcript assistant markdown image slots. Cap Native
-    /// `max_markdown_images`. Distinct band 816–831. Not persisted.
+    /// Runtime-only transcript markdown image slots. Cap Native
+    /// `max_markdown_images`. Distinct band 816–831. Shared across
+    /// visible user / tool / reasoning / assistant `<markdown>`.
+    /// Not persisted.
     transcript_image_slots: [transcript_images_mod.max_images]transcript_images_mod.Slot =
         [_]transcript_images_mod.Slot{.{}} ** transcript_images_mod.max_images,
     next_transcript_image_id: u64 = transcript_images_mod.id_first,
-    /// Runtime-only transcript assistant markdown `<details>` flags.
+    /// Runtime-only transcript markdown `<details>` flags.
     /// Cap Native `max_markdown_details_per_document`. Default collapsed.
-    /// Shared across visible assistant `<markdown>` documents (Native
+    /// Shared across all visible transcript `<markdown>` documents (Native
     /// `on-details` is a bare index). Not persisted.
     transcript_details_expanded_flags: [transcript_details_mod.max_details]bool =
         [_]bool{false} ** transcript_details_mod.max_details,
@@ -1173,7 +1175,7 @@ pub const Model = struct {
     /// `max_markdown_details_per_document`. Default collapsed. Not persisted.
     file_preview_details_expanded_flags: [file_preview_details_mod.max_details]bool =
         [_]bool{false} ** file_preview_details_mod.max_details,
-    /// Runtime-only Files Preview + transcript assistant markdown
+    /// Runtime-only Files Preview + transcript markdown
     /// `issue-link-base`. One-shot `git remote` + `git remote get-url`
     /// for the selected session `project_path`. Empty when missing /
     /// non-forge. Not sessions.json.
@@ -3265,17 +3267,18 @@ pub const Model = struct {
         return file_preview_images_mod.resolved(model, arena);
     }
 
-    /// Successful transcript assistant markdown image mappings for
+    /// Successful transcript markdown image mappings for
     /// `<markdown images="{transcript_images}">` (in-project local,
-    /// remote http(s), and first-cut `data:`). Arena fn.
+    /// remote http(s), and first-cut `data:`). Arena fn. Shared across
+    /// visible user / tool / reasoning / assistant documents.
     pub fn transcript_images(model: *const Model, arena: std.mem.Allocator) []const canvas.markdown.ResolvedImage {
         return transcript_images_mod.resolved(model, arena);
     }
 
-    /// Transcript assistant `<details>` expansion flags for
+    /// Transcript `<details>` expansion flags for
     /// `<markdown details-expanded="{transcript_details_expanded}">`.
     /// Document order; default all false (collapsed). Shared across
-    /// visible assistant `<markdown>` documents this cut.
+    /// all visible transcript `<markdown>` documents this cut.
     pub fn transcript_details_expanded(model: *const Model) []const bool {
         return transcript_details_mod.expanded(model);
     }
@@ -3287,7 +3290,7 @@ pub const Model = struct {
         return file_preview_details_mod.expanded(model);
     }
 
-    /// Files Preview + transcript assistant `#N` prefix for
+    /// Files Preview + transcript `#N` prefix for
     /// `<markdown issue-link-base="{file_preview_issue_link_base}">`.
     /// Empty when missing / non-forge so Native leaves `#N` unlinked.
     pub fn file_preview_issue_link_base(model: *const Model) []const u8 {

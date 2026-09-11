@@ -146,7 +146,7 @@
 //! documented `details-expanded` + `on-details`, runtime-only flags,
 //! default collapsed; bare `#N` via documented `issue-link-base` when
 //! the session project has a usable GitHub/GitLab remote; transcript
-//! assistant `<markdown>` binds the same `{file_preview_issue_link_base}`). Source keeps today's
+//! `<markdown>` binds the same `{file_preview_issue_link_base}`). Source keeps today's
 //! highlighted `<code language="markdown">`. http(s) / bare-host links
 //! reuse `open_url` OS browser spawn; relative / `file:` / absolute
 //! project paths open the Files preview (same as a tree click);

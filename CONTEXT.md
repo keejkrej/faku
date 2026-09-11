@@ -684,17 +684,17 @@ images via `images=` + `fx.loadImage` `.path`, remote http(s) via
 collapsed; bare `#N` via documented `issue-link-base` when the
 session project has a usable GitHub/GitLab remote, empty/missing
 leaves `#N` unlinked); mode resets when the preview
-closes / file switches / session clears). Transcript assistant turns
-first-cut paint Native `<markdown source>` GFM with `images=`
-(in-project local via `fx.loadImage` `.path`, remote http(s) via
-`.url`, `data:` via `fx.registerImageBytes`; id band 816–831,
-distinct from Files Preview 800–815; user / tool / reasoning stay
-`<text>`; http(s) on-link reuses `open_url`; `<details>` via documented
-`details-expanded` + `on-details`, runtime-only flags, default
-collapsed, cap 16; Native `on-details` is a bare document-order index
-so visible assistant `<markdown>` documents share those flags; bare
-`#N` via documented `issue-link-base` when the session project has a
-usable GitHub/GitLab remote, empty/missing leaves `#N` unlinked); first-cut Edit switches a full
+closes / file switches / session clears). Transcript user / tool /
+reasoning / assistant turns first-cut paint Native `<markdown source>`
+GFM with `images=` (in-project local via `fx.loadImage` `.path`, remote
+http(s) via `.url`, `data:` via `fx.registerImageBytes`; id band 816–831,
+distinct from Files Preview 800–815; http(s) on-link reuses `open_url`;
+`<details>` via documented `details-expanded` + `on-details`, runtime-only
+flags, default collapsed, cap 16; Native `on-details` is a bare
+document-order index so all visible transcript `<markdown>` documents
+share those flags; bare `#N` via documented `issue-link-base` when the
+session project has a usable GitHub/GitLab remote, empty/missing leaves
+`#N` unlinked); first-cut Edit switches a full
 text window to `<textarea>`, Save (or Cmd/Ctrl-S when dirty-editing) prefers hello + daemon
 `WorkspaceOperation::WriteTextFile` when a daemon address is set
 (ok Ack adopts the saved buffer; Native 4 KiB stdin overflow /
@@ -1482,17 +1482,16 @@ Honest gaps this cut does not implement:
   `details-expanded` + `on-details`, runtime-only flags, default
   collapsed; bare `#N` via documented `issue-link-base` when the
   session project has a usable GitHub/GitLab remote, empty/missing
-  leaves `#N` unlinked). Transcript assistant turns first-cut: Native
-  `<markdown source>` GFM with `images=` (in-project local /
-  http(s) / `data:` same documented load path as Files Preview; id
-  band 816–831; user / tool / reasoning stay `<text>`; http(s)
-  on-link reuses `open_url`; `<details>` via documented
-  `details-expanded` + `on-details`, runtime-only flags, default
-  collapsed, cap 16; Native `on-details` is a bare document-order
-  index so visible assistant `<markdown>` documents share those flags;
-  bare `#N` via documented `issue-link-base` when the session project
-  has a usable GitHub/GitLab remote, empty/missing leaves `#N`
-  unlinked). First-cut: opening the first Files preview widens the pane
+  leaves `#N` unlinked). Transcript user / tool / reasoning /
+  assistant turns first-cut: Native `<markdown source>` GFM with
+  `images=` (in-project local / http(s) / `data:` same documented load
+  path as Files Preview; id band 816–831; http(s) on-link reuses
+  `open_url`; `<details>` via documented `details-expanded` +
+  `on-details`, runtime-only flags, default collapsed, cap 16; Native
+  `on-details` is a bare document-order index so all visible transcript
+  `<markdown>` documents share those flags; bare `#N` via documented
+  `issue-link-base` when the session project has a usable GitHub/GitLab
+  remote, empty/missing leaves `#N` unlinked). First-cut: opening the first Files preview widens the pane
   with Waku `FILE_EDITOR_INITIAL_WIDTH` 500 (wide clamp 280–1000 while
   that preview is open). First-cut: opening Diff / Review widens the pane
   with Waku `REVIEW_INITIAL_WIDTH` 820 (wide clamp 280–1000; Browser /
@@ -1727,16 +1726,6 @@ Honest gaps this cut does not implement:
   spawn migrate. New Task reuses an unstarted non-legacy
   projectless draft instead of always creating. Amend/force and
   remote `--track` stay local (not daemon WorkspaceOperation variants)
-- User / tool / reasoning markdown (this cut maps assistant turns via documented `images=` +
-  `fx.loadImage` `.path` / `.url` and `fx.registerImageBytes` for
-  `data:`, plus assistant `<details>` via documented `details-expanded`
-  + `on-details`, runtime-only flags, default collapsed, cap 16;
-  Native `on-details` is a bare document-order index so visible
-  assistant `<markdown>` documents share those flags; assistant `#N`
-  via documented `issue-link-base` when the session project has a usable
-  GitHub/GitLab remote, empty/missing leaves `#N` unlinked; Files Preview
-  already maps in-project local / http(s) / `data:` plus Preview
-  `<details>` and `#N` `issue-link-base`)
 - Long-lived ACP or daemon socket in the update loop
 - fx ACP still rejects image blocks (`fx ask --image`). First-cut
   ACP image content blocks (base64 + mimeType, ~256KB raw, size

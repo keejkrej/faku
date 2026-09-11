@@ -370,17 +370,17 @@ pub const no_provider_session_id_status = copy_helpers.no_provider_session_id_st
 /// uses this as the effect key (shared with spawn / clipboard / file).
 /// 0 is the no-image sentinel. Sits in the gap after `copy_turn_key`
 /// and before `fx_spawn_overlap`. Files markdown Preview images use
-/// 800–815; transcript assistant markdown images use 816–831.
+/// 800–815; transcript markdown images use 816–831.
 /// Verified: Native 0.9.3 `LoadImageOptions` + markup
 /// `<image image="{binding}">`.
 pub const attach_preview_id_first = attach_helpers.attach_preview_id_first;
 pub const attach_preview_id_last = attach_helpers.attach_preview_id_last;
 /// Files Preview markdown image ids (`fx.loadImage` / `registerImageBytes`).
 /// Cap Native `max_markdown_images`. Distinct from attach preview 33–63
-/// and transcript assistant markdown images 816–831.
+/// and transcript markdown images 816–831.
 pub const file_preview_image_id_first = file_preview_images.id_first;
 pub const file_preview_image_id_last = file_preview_images.id_last;
-/// Transcript assistant markdown image ids (`fx.loadImage` /
+/// Transcript markdown image ids (`fx.loadImage` /
 /// `registerImageBytes`). Cap Native `max_markdown_images`. Distinct
 /// from Files Preview 800–815 and attach preview 33–63.
 pub const transcript_image_id_first = transcript_images.id_first;

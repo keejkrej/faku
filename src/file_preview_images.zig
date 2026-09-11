@@ -9,8 +9,8 @@
 //! Canonical source bytes stay the markdown `src` so `images=`
 //! mappings match the renderer. Outside-project / unresolved /
 //! malformed `data:` stay unmapped (alt-text). Composer attach preview
-//! (ids 33–63) is untouched. Transcript assistant markdown `images=`
-//! uses a distinct band (`transcript_images.zig`, 816–831).
+//! (ids 33–63) is untouched. Transcript markdown `images=` uses a
+//! distinct band (`transcript_images.zig`, 816–831).
 //!
 //! Path rules reuse `open_url.resolveMarkdownFilePath` (strip location
 //! fragment, percent-decode, lexical normalize; relative vs preview abs
