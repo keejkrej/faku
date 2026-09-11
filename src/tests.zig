@@ -11712,15 +11712,19 @@ test "palette Collapse all folders follows Appearance language when folders exis
     try testing.expectEqualStrings("折叠所有文件夹", model.collapse_all_folders_label());
     try testing.expect(paletteHasLabel(model.palette_rows(arena), "折叠所有文件夹"));
     try testing.expect(!paletteHasLabel(model.palette_rows(arena), "Collapse all folders"));
-    try testing.expect(paletteHasLabel(model.palette_rows(arena), "New Task"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "新建任务"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "New Task"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "设置"));
 
     main.update(&model, .{ .search_edit = .{ .insert_text = "collapse" } }, &fx);
     try testing.expect(paletteHasLabel(model.palette_rows(arena), "折叠所有文件夹"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "新建任务"));
     try testing.expect(!paletteHasLabel(model.palette_rows(arena), "New Task"));
 
     main.update(&model, .{ .search_edit = .clear }, &fx);
     main.update(&model, .{ .search_edit = .{ .insert_text = "折叠" } }, &fx);
     try testing.expect(paletteHasLabel(model.palette_rows(arena), "折叠所有文件夹"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "新建任务"));
     try testing.expect(!paletteHasLabel(model.palette_rows(arena), "New Task"));
 
     main.update(&model, .{ .search_edit = .clear }, &fx);
@@ -11728,7 +11732,9 @@ test "palette Collapse all folders follows Appearance language when folders exis
     try testing.expectEqualStrings("すべてのフォルダを折りたたむ", model.collapse_all_folders_label());
     try testing.expect(paletteHasLabel(model.palette_rows(arena), "すべてのフォルダを折りたたむ"));
     try testing.expect(!paletteHasLabel(model.palette_rows(arena), "折叠所有文件夹"));
-    try testing.expect(paletteHasLabel(model.palette_rows(arena), "New Task"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "新しいタスク"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "New Task"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "設定"));
 
     main.update(&model, .{ .search_edit = .{ .insert_text = "folder" } }, &fx);
     try testing.expect(paletteHasLabel(model.palette_rows(arena), "すべてのフォルダを折りたたむ"));
@@ -11736,6 +11742,7 @@ test "palette Collapse all folders follows Appearance language when folders exis
     main.update(&model, .{ .search_edit = .clear }, &fx);
     main.update(&model, .{ .search_edit = .{ .insert_text = "フォルダ" } }, &fx);
     try testing.expect(paletteHasLabel(model.palette_rows(arena), "すべてのフォルダを折りたたむ"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "新しいタスク"));
     try testing.expect(!paletteHasLabel(model.palette_rows(arena), "New Task"));
 
     main.update(&model, .{ .search_edit = .clear }, &fx);
@@ -11745,12 +11752,14 @@ test "palette Collapse all folders follows Appearance language when folders exis
     try testing.expect(paletteHasLabel(model.palette_rows(arena), "Collapse all folders"));
     try testing.expect(!paletteHasLabel(model.palette_rows(arena), "すべてのフォルダを折りたたむ"));
     try testing.expect(paletteHasLabel(model.palette_rows(arena), "New Task"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "新しいタスク"));
 
     model.language_preference = .system;
     model.setSystemLocaleId("zh_CN.UTF-8");
     try testing.expectEqualStrings("折叠所有文件夹", model.collapse_all_folders_label());
     try testing.expect(paletteHasLabel(model.palette_rows(arena), "折叠所有文件夹"));
-    try testing.expect(paletteHasLabel(model.palette_rows(arena), "New Task"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "新建任务"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "New Task"));
 }
 
 test "palette copies local session id and fx session id; empty fx id skips clipboard" {
@@ -24097,6 +24106,236 @@ test "composer and Settings General Build/Plan labels follow Appearance language
     try testing.expectEqualStrings("ビルド", model.interaction_label());
     try testing.expectEqualStrings("ビルド", model.interaction_build_label());
     try testing.expectEqualStrings("プラン", model.interaction_plan_label());
+}
+
+test "palette action labels follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("New Task", model.palette_action_label(.new_task));
+    try testing.expectEqualStrings(model.new_task_label(), model.palette_action_label(.new_task));
+    try testing.expectEqualStrings("Settings", model.palette_action_label(.settings));
+    try testing.expectEqualStrings(model.settings_title(), model.palette_action_label(.settings));
+    try testing.expectEqualStrings("Focus composer", model.palette_action_label(.focus_composer));
+    try testing.expectEqualStrings("Toggle sidebar", model.palette_action_label(.toggle_sidebar));
+    try testing.expectEqualStrings("Find in transcript", model.palette_action_label(.find_in_transcript));
+    try testing.expectEqualStrings("Minimize", model.palette_action_label(.minimize));
+    try testing.expectEqualStrings("Maximize", model.palette_action_label(.maximize));
+    try testing.expectEqualStrings("Copy session id", model.palette_action_label(.copy_session_id));
+    try testing.expectEqualStrings("Copy provider session id", model.palette_action_label(.copy_fx_session_id));
+    try testing.expectEqualStrings("Reveal project folder", model.palette_action_label(.reveal_folder));
+    try testing.expectEqualStrings("Open project in Terminal", model.palette_action_label(.open_terminal));
+    try testing.expectEqualStrings("Open project in Editor", model.palette_action_label(.open_editor));
+    try testing.expectEqualStrings("Copy project path", model.palette_action_label(.copy_project_path));
+    try testing.expectEqualStrings("Show right panel", model.palette_action_label(.show_right_panel));
+    try testing.expectEqualStrings("Hide right panel", model.palette_action_label(.hide_right_panel));
+    try testing.expectEqualStrings("Show Browser tab", model.palette_action_label(.show_browser_tab));
+    try testing.expectEqualStrings("Show Terminal tab", model.palette_action_label(.show_terminal_tab));
+    try testing.expectEqualStrings(model.show_right_panel_label(), model.palette_action_label(.show_right_panel));
+    try testing.expectEqualStrings(model.hide_right_panel_label(), model.palette_action_label(.hide_right_panel));
+    try testing.expectEqualStrings("Show right panel", model.right_panel_toggle_label());
+    try testing.expectEqualStrings("Collapse sidebar", model.sidebar_toggle_label());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "Show right panel");
+    _ = try expectButton(tree.root, "Collapse sidebar");
+
+    main.update(&model, .start_search, &fx);
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "New Task"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "Settings"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "Focus composer"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "Toggle sidebar"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "Find in transcript"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "Show right panel"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "Show Browser tab"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "Show Terminal tab"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "Hide right panel"));
+    main.update(&model, .palette_cancel, &fx);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("新建任务", model.palette_action_label(.new_task));
+    try testing.expectEqualStrings(model.new_task_label(), model.palette_action_label(.new_task));
+    try testing.expectEqualStrings("设置", model.palette_action_label(.settings));
+    try testing.expectEqualStrings(model.settings_title(), model.palette_action_label(.settings));
+    try testing.expectEqualStrings("聚焦输入框", model.palette_action_label(.focus_composer));
+    try testing.expectEqualStrings("切换侧边栏", model.palette_action_label(.toggle_sidebar));
+    try testing.expectEqualStrings("在记录中查找", model.palette_action_label(.find_in_transcript));
+    try testing.expectEqualStrings("最小化", model.palette_action_label(.minimize));
+    try testing.expectEqualStrings("最大化", model.palette_action_label(.maximize));
+    try testing.expectEqualStrings("复制会话 ID", model.palette_action_label(.copy_session_id));
+    try testing.expectEqualStrings("复制提供商会话 ID", model.palette_action_label(.copy_fx_session_id));
+    try testing.expectEqualStrings("显示项目文件夹", model.palette_action_label(.reveal_folder));
+    try testing.expectEqualStrings("在终端中打开项目", model.palette_action_label(.open_terminal));
+    try testing.expectEqualStrings("在编辑器中打开项目", model.palette_action_label(.open_editor));
+    try testing.expectEqualStrings("复制项目路径", model.palette_action_label(.copy_project_path));
+    try testing.expectEqualStrings("显示右侧面板", model.palette_action_label(.show_right_panel));
+    try testing.expectEqualStrings("隐藏右侧面板", model.palette_action_label(.hide_right_panel));
+    try testing.expectEqualStrings("显示浏览器标签页", model.palette_action_label(.show_browser_tab));
+    try testing.expectEqualStrings("显示终端标签页", model.palette_action_label(.show_terminal_tab));
+    try testing.expectEqualStrings("显示右侧面板", model.right_panel_toggle_label());
+    try testing.expectEqualStrings("折叠侧边栏", model.sidebar_toggle_label());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "显示右侧面板");
+    _ = try expectButton(tree.root, "折叠侧边栏");
+    try testing.expect(findPressableContaining(tree.root, "Show right panel") == null);
+    try testing.expect(findPressableContaining(tree.root, "Collapse sidebar") == null);
+
+    main.update(&model, .start_search, &fx);
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "新建任务"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "设置"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "聚焦输入框"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "切换侧边栏"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "在记录中查找"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "最小化"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "最大化"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "复制会话 ID"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "复制提供商会话 ID"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "显示项目文件夹"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "显示右侧面板"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "显示浏览器标签页"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "显示终端标签页"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "New Task"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "Settings"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "Focus composer"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "Toggle sidebar"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "Hide right panel"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "隐藏右侧面板"));
+    try testing.expectEqual(
+        main.paletteActionId(.focus_composer),
+        paletteRowId(model.palette_rows(arena), "聚焦输入框"),
+    );
+    try testing.expectEqual(
+        main.paletteActionId(.new_task),
+        paletteRowId(model.palette_rows(arena), "新建任务"),
+    );
+    try testing.expectEqual(
+        main.paletteActionId(.settings),
+        paletteRowId(model.palette_rows(arena), "设置"),
+    );
+
+    main.update(&model, .{ .search_edit = .{ .insert_text = "composer" } }, &fx);
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "聚焦输入框"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "新建任务"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "Focus composer"));
+
+    main.update(&model, .{ .search_edit = .clear }, &fx);
+    main.update(&model, .{ .search_edit = .{ .insert_text = "聚焦" } }, &fx);
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "聚焦输入框"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "设置"));
+
+    main.update(&model, .{ .search_edit = .clear }, &fx);
+    main.update(&model, .{ .search_edit = .{ .insert_text = "settings" } }, &fx);
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "设置"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "Settings"));
+
+    main.update(&model, .palette_cancel, &fx);
+    main.update(&model, .toggle_right_panel, &fx);
+    try testing.expect(model.right_panel_open);
+    try testing.expectEqualStrings("隐藏右侧面板", model.right_panel_toggle_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "隐藏右侧面板");
+    try testing.expect(findPressableContaining(tree.root, "Hide right panel") == null);
+    try testing.expect(findPressableContaining(tree.root, "Show right panel") == null);
+
+    main.update(&model, .start_search, &fx);
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "隐藏右侧面板"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "显示右侧面板"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "Hide right panel"));
+    main.update(&model, .palette_cancel, &fx);
+    main.update(&model, .toggle_right_panel, &fx);
+    try testing.expect(!model.right_panel_open);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("新しいタスク", model.palette_action_label(.new_task));
+    try testing.expectEqualStrings(model.new_task_label(), model.palette_action_label(.new_task));
+    try testing.expectEqualStrings("設定", model.palette_action_label(.settings));
+    try testing.expectEqualStrings(model.settings_title(), model.palette_action_label(.settings));
+    try testing.expectEqualStrings("入力欄にフォーカス", model.palette_action_label(.focus_composer));
+    try testing.expectEqualStrings("サイドバーを切り替え", model.palette_action_label(.toggle_sidebar));
+    try testing.expectEqualStrings("記録内を検索", model.palette_action_label(.find_in_transcript));
+    try testing.expectEqualStrings("最小化", model.palette_action_label(.minimize));
+    try testing.expectEqualStrings("最大化", model.palette_action_label(.maximize));
+    try testing.expectEqualStrings("セッション ID をコピー", model.palette_action_label(.copy_session_id));
+    try testing.expectEqualStrings("プロバイダーセッション ID をコピー", model.palette_action_label(.copy_fx_session_id));
+    try testing.expectEqualStrings("プロジェクトフォルダを表示", model.palette_action_label(.reveal_folder));
+    try testing.expectEqualStrings("ターミナルでプロジェクトを開く", model.palette_action_label(.open_terminal));
+    try testing.expectEqualStrings("エディターでプロジェクトを開く", model.palette_action_label(.open_editor));
+    try testing.expectEqualStrings("プロジェクトパスをコピー", model.palette_action_label(.copy_project_path));
+    try testing.expectEqualStrings("右パネルを表示", model.palette_action_label(.show_right_panel));
+    try testing.expectEqualStrings("右パネルを非表示", model.palette_action_label(.hide_right_panel));
+    try testing.expectEqualStrings("ブラウザーのタブを表示", model.palette_action_label(.show_browser_tab));
+    try testing.expectEqualStrings("ターミナルのタブを表示", model.palette_action_label(.show_terminal_tab));
+    try testing.expectEqualStrings("右パネルを表示", model.right_panel_toggle_label());
+    try testing.expectEqualStrings("サイドバーを折りたたむ", model.sidebar_toggle_label());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "右パネルを表示");
+    _ = try expectButton(tree.root, "サイドバーを折りたたむ");
+    try testing.expect(findPressableContaining(tree.root, "Show right panel") == null);
+    try testing.expect(findPressableContaining(tree.root, "显示右侧面板") == null);
+
+    main.update(&model, .start_search, &fx);
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "新しいタスク"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "設定"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "入力欄にフォーカス"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "サイドバーを切り替え"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "記録内を検索"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "右パネルを表示"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "ブラウザーのタブを表示"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "ターミナルのタブを表示"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "New Task"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "聚焦输入框"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "Toggle sidebar"));
+
+    main.update(&model, .{ .search_edit = .{ .insert_text = "sidebar" } }, &fx);
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "サイドバーを切り替え"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "新しいタスク"));
+
+    main.update(&model, .{ .search_edit = .clear }, &fx);
+    main.update(&model, .{ .search_edit = .{ .insert_text = "サイドバー" } }, &fx);
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "サイドバーを切り替え"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "設定"));
+    main.update(&model, .palette_cancel, &fx);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Focus composer", model.palette_action_label(.focus_composer));
+    try testing.expectEqualStrings("Toggle sidebar", model.palette_action_label(.toggle_sidebar));
+    try testing.expectEqualStrings("New Task", model.palette_action_label(.new_task));
+    try testing.expectEqualStrings("Settings", model.palette_action_label(.settings));
+    try testing.expectEqualStrings("Show right panel", model.right_panel_toggle_label());
+    try testing.expectEqualStrings("Collapse sidebar", model.sidebar_toggle_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "Show right panel");
+    _ = try expectButton(tree.root, "Collapse sidebar");
+    try testing.expect(findPressableContaining(tree.root, "右パネルを表示") == null);
+    try testing.expect(findPressableContaining(tree.root, "サイドバーを折りたたむ") == null);
+    main.update(&model, .start_search, &fx);
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "Focus composer"));
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "New Task"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "入力欄にフォーカス"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "新しいタスク"));
+    main.update(&model, .palette_cancel, &fx);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("聚焦输入框", model.palette_action_label(.focus_composer));
+    try testing.expectEqualStrings("新建任务", model.palette_action_label(.new_task));
+    try testing.expectEqualStrings("设置", model.palette_action_label(.settings));
+    try testing.expectEqualStrings("显示右侧面板", model.right_panel_toggle_label());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("入力欄にフォーカス", model.palette_action_label(.focus_composer));
+    try testing.expectEqualStrings("新しいタスク", model.palette_action_label(.new_task));
+    try testing.expectEqualStrings("設定", model.palette_action_label(.settings));
+    try testing.expectEqualStrings("右パネルを表示", model.right_panel_toggle_label());
+    try testing.expectEqualStrings("サイドバーを折りたたむ", model.sidebar_toggle_label());
 }
 
 test "DateBucket.title english default; zh and ja follow datesFor" {

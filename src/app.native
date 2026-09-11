@@ -1428,7 +1428,7 @@
           <button variant="ghost" size="sm" selected="{right_panel_tab_terminal}" on-press="set_right_panel_tab_terminal">Terminal</button>
           <button variant="ghost" size="sm" selected="{right_panel_tab_background}" on-press="set_right_panel_tab_background">Background</button>
           <spacer grow="1" />
-          <button variant="ghost" size="icon" icon="panel-right" label="Hide right panel" on-press="hide_right_panel"></button>
+          <button variant="ghost" size="icon" icon="panel-right" label="{hide_right_panel_label}" on-press="hide_right_panel"></button>
         </row>
         <separator />
         <if test="{right_panel_showing_diff}">

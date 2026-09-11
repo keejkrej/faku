@@ -4,19 +4,20 @@
 //! `LC_ALL`, else `LC_MESSAGES`, else `LANG` (non-macOS Waku path), copied
 //! at boot onto the model. Settings chrome strings, first-cut sidebar
 //! date-bucket titles, first-cut sidebar New Task / Search / folder
-//! chrome, session context-menu Rename / Remove, the palette
-//! Collapse all folders command (same `Sidebar.collapse_all_folders`
-//! string as the sidebar button), composer / Settings General
-//! Ask / Auto / Full access (same `Access` strings), first-cut
-//! composer effort chip / Settings General effort labels (same
-//! `Effort` strings), and first-cut composer interaction chip /
-//! Settings General Build / Plan (same `Interaction` strings) live
-//! here so `main.zig` does not grow. Other palette commands stay
-//! English. Wire `access_mode` ids stay `ask` / `auto` / `fullAccess`.
-//! Wire `reasoning_effort` ids stay `auto` / `none` / `minimal` /
-//! `low` / `medium` / `high` / `xhigh` / `max`. Wire
-//! `interaction_mode` ids stay `build` / `plan`. Not rust_i18n, not
-//! YAML catalogs, not full-app translation, not tz-aware grouping.
+//! chrome, session context-menu Rename / Remove, palette action
+//! display labels (same `Sidebar` / `Chrome` strings for New Task /
+//! Settings / Collapse all folders; remaining command names in
+//! `Palette`), composer / Settings General Ask / Auto / Full access
+//! (same `Access` strings), first-cut composer effort chip /
+//! Settings General effort labels (same `Effort` strings), and
+//! first-cut composer interaction chip / Settings General Build /
+//! Plan (same `Interaction` strings) live here so `main.zig` does
+//! not grow. Palette ids / `PaletteAction` / keywords stay English.
+//! Wire `access_mode` ids stay `ask` / `auto` / `fullAccess`. Wire
+//! `reasoning_effort` ids stay `auto` / `none` / `minimal` / `low` /
+//! `medium` / `high` / `xhigh` / `max`. Wire `interaction_mode` ids
+//! stay `build` / `plan`. Not rust_i18n, not YAML catalogs, not
+//! full-app translation, not tz-aware grouping.
 
 const std = @import("std");
 
@@ -185,11 +186,13 @@ const dates_ja: Dates = .{
 /// `remove_session` ("Remove session"). Folder-header chevron a11y is
 /// `expand_folder` / `collapse_folder` (distinct from
 /// `collapse_all_folders`). Palette Collapse all folders reuses
-/// `collapse_all_folders`. Composer Ask / Auto / Full access live in
-/// `Access` (same resolve path). Composer effort chip / Settings
-/// General effort labels live in `Effort` (same resolve path).
-/// Composer Build / Plan live in `Interaction` (same resolve path).
-/// Other palette commands stay English.
+/// `collapse_all_folders`. Palette New Task / Settings reuse
+/// `new_task` / `Chrome.settings`. Remaining palette action labels
+/// live in `Palette` (same resolve path). Composer Ask / Auto /
+/// Full access live in `Access` (same resolve path). Composer
+/// effort chip / Settings General effort labels live in `Effort`
+/// (same resolve path). Composer Build / Plan live in `Interaction`
+/// (same resolve path).
 pub const Sidebar = struct {
     new_task: []const u8,
     search: []const u8,
@@ -375,6 +378,94 @@ const interaction_ja: Interaction = .{
     .plan = "プラン",
 };
 
+/// Command-palette action display labels for the resolved locale.
+/// Same resolve path as Interaction. New Task / Settings / Collapse
+/// all folders reuse `Sidebar` / `Chrome` (not duplicated here).
+/// Palette ids / `PaletteAction` / keywords stay English; matching
+/// still checks the English spec label, the localized label, and
+/// English keywords. Expand / Collapse sidebar are chrome a11y
+/// (`sidebar_toggle_label`), not the palette "Toggle sidebar"
+/// command name.
+pub const Palette = struct {
+    focus_composer: []const u8,
+    toggle_sidebar: []const u8,
+    find_in_transcript: []const u8,
+    minimize: []const u8,
+    maximize: []const u8,
+    copy_session_id: []const u8,
+    copy_provider_session_id: []const u8,
+    reveal_project_folder: []const u8,
+    open_project_in_terminal: []const u8,
+    open_project_in_editor: []const u8,
+    copy_project_path: []const u8,
+    show_right_panel: []const u8,
+    hide_right_panel: []const u8,
+    show_browser_tab: []const u8,
+    show_terminal_tab: []const u8,
+    expand_sidebar: []const u8,
+    collapse_sidebar: []const u8,
+};
+
+const palette_en: Palette = .{
+    .focus_composer = "Focus composer",
+    .toggle_sidebar = "Toggle sidebar",
+    .find_in_transcript = "Find in transcript",
+    .minimize = "Minimize",
+    .maximize = "Maximize",
+    .copy_session_id = "Copy session id",
+    .copy_provider_session_id = "Copy provider session id",
+    .reveal_project_folder = "Reveal project folder",
+    .open_project_in_terminal = "Open project in Terminal",
+    .open_project_in_editor = "Open project in Editor",
+    .copy_project_path = "Copy project path",
+    .show_right_panel = "Show right panel",
+    .hide_right_panel = "Hide right panel",
+    .show_browser_tab = "Show Browser tab",
+    .show_terminal_tab = "Show Terminal tab",
+    .expand_sidebar = "Expand sidebar",
+    .collapse_sidebar = "Collapse sidebar",
+};
+
+const palette_zh_cn: Palette = .{
+    .focus_composer = "聚焦输入框",
+    .toggle_sidebar = "切换侧边栏",
+    .find_in_transcript = "在记录中查找",
+    .minimize = "最小化",
+    .maximize = "最大化",
+    .copy_session_id = "复制会话 ID",
+    .copy_provider_session_id = "复制提供商会话 ID",
+    .reveal_project_folder = "显示项目文件夹",
+    .open_project_in_terminal = "在终端中打开项目",
+    .open_project_in_editor = "在编辑器中打开项目",
+    .copy_project_path = "复制项目路径",
+    .show_right_panel = "显示右侧面板",
+    .hide_right_panel = "隐藏右侧面板",
+    .show_browser_tab = "显示浏览器标签页",
+    .show_terminal_tab = "显示终端标签页",
+    .expand_sidebar = "展开侧边栏",
+    .collapse_sidebar = "折叠侧边栏",
+};
+
+const palette_ja: Palette = .{
+    .focus_composer = "入力欄にフォーカス",
+    .toggle_sidebar = "サイドバーを切り替え",
+    .find_in_transcript = "記録内を検索",
+    .minimize = "最小化",
+    .maximize = "最大化",
+    .copy_session_id = "セッション ID をコピー",
+    .copy_provider_session_id = "プロバイダーセッション ID をコピー",
+    .reveal_project_folder = "プロジェクトフォルダを表示",
+    .open_project_in_terminal = "ターミナルでプロジェクトを開く",
+    .open_project_in_editor = "エディターでプロジェクトを開く",
+    .copy_project_path = "プロジェクトパスをコピー",
+    .show_right_panel = "右パネルを表示",
+    .hide_right_panel = "右パネルを非表示",
+    .show_browser_tab = "ブラウザーのタブを表示",
+    .show_terminal_tab = "ターミナルのタブを表示",
+    .expand_sidebar = "サイドバーを展開",
+    .collapse_sidebar = "サイドバーを折りたたむ",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -474,6 +565,18 @@ pub fn interactionFor(preference: LanguagePreference, system_locale_id: []const 
         .simplified_chinese => interaction_zh_cn,
         .japanese => interaction_ja,
         .system, .english => interaction_en,
+    };
+}
+
+/// Palette action display labels for the resolved locale. Callers
+/// pass Model `language_preference` + `system_locale_id`; this file
+/// does not read process env. New Task / Settings / Collapse all
+/// folders stay on `sidebarFor` / `chromeFor`.
+pub fn paletteFor(preference: LanguagePreference, system_locale_id: []const u8) Palette {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => palette_zh_cn,
+        .japanese => palette_ja,
+        .system, .english => palette_en,
     };
 }
 
@@ -721,4 +824,71 @@ test "interactionFor english default; zh and ja chrome; english ignores ja LANG"
     try testing.expectEqualStrings("プラン", interactionFor(.system, "ja_JP.UTF-8").plan);
     try testing.expectEqualStrings("Build", interactionFor(.english, "ja_JP.UTF-8").build);
     try testing.expectEqualStrings("Plan", interactionFor(.english, "zh_CN.UTF-8").plan);
+}
+
+test "paletteFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Focus composer", paletteFor(.english, "ja").focus_composer);
+    try testing.expectEqualStrings("Toggle sidebar", paletteFor(.english, "").toggle_sidebar);
+    try testing.expectEqualStrings("Find in transcript", paletteFor(.english, "").find_in_transcript);
+    try testing.expectEqualStrings("Minimize", paletteFor(.english, "").minimize);
+    try testing.expectEqualStrings("Maximize", paletteFor(.english, "").maximize);
+    try testing.expectEqualStrings("Copy session id", paletteFor(.english, "").copy_session_id);
+    try testing.expectEqualStrings("Copy provider session id", paletteFor(.english, "").copy_provider_session_id);
+    try testing.expectEqualStrings("Reveal project folder", paletteFor(.english, "").reveal_project_folder);
+    try testing.expectEqualStrings("Open project in Terminal", paletteFor(.english, "").open_project_in_terminal);
+    try testing.expectEqualStrings("Open project in Editor", paletteFor(.english, "").open_project_in_editor);
+    try testing.expectEqualStrings("Copy project path", paletteFor(.english, "").copy_project_path);
+    try testing.expectEqualStrings("Show right panel", paletteFor(.english, "").show_right_panel);
+    try testing.expectEqualStrings("Hide right panel", paletteFor(.english, "").hide_right_panel);
+    try testing.expectEqualStrings("Show Browser tab", paletteFor(.english, "").show_browser_tab);
+    try testing.expectEqualStrings("Show Terminal tab", paletteFor(.english, "").show_terminal_tab);
+    try testing.expectEqualStrings("Expand sidebar", paletteFor(.english, "").expand_sidebar);
+    try testing.expectEqualStrings("Collapse sidebar", paletteFor(.english, "").collapse_sidebar);
+    try testing.expectEqualStrings("Focus composer", paletteFor(.system, "").focus_composer);
+
+    try testing.expectEqualStrings("聚焦输入框", paletteFor(.simplified_chinese, "").focus_composer);
+    try testing.expectEqualStrings("切换侧边栏", paletteFor(.simplified_chinese, "").toggle_sidebar);
+    try testing.expectEqualStrings("在记录中查找", paletteFor(.simplified_chinese, "").find_in_transcript);
+    try testing.expectEqualStrings("最小化", paletteFor(.simplified_chinese, "").minimize);
+    try testing.expectEqualStrings("最大化", paletteFor(.simplified_chinese, "").maximize);
+    try testing.expectEqualStrings("复制会话 ID", paletteFor(.simplified_chinese, "").copy_session_id);
+    try testing.expectEqualStrings("复制提供商会话 ID", paletteFor(.simplified_chinese, "").copy_provider_session_id);
+    try testing.expectEqualStrings("显示项目文件夹", paletteFor(.simplified_chinese, "").reveal_project_folder);
+    try testing.expectEqualStrings("在终端中打开项目", paletteFor(.simplified_chinese, "").open_project_in_terminal);
+    try testing.expectEqualStrings("在编辑器中打开项目", paletteFor(.simplified_chinese, "").open_project_in_editor);
+    try testing.expectEqualStrings("复制项目路径", paletteFor(.simplified_chinese, "").copy_project_path);
+    try testing.expectEqualStrings("显示右侧面板", paletteFor(.simplified_chinese, "").show_right_panel);
+    try testing.expectEqualStrings("隐藏右侧面板", paletteFor(.simplified_chinese, "").hide_right_panel);
+    try testing.expectEqualStrings("显示浏览器标签页", paletteFor(.simplified_chinese, "").show_browser_tab);
+    try testing.expectEqualStrings("显示终端标签页", paletteFor(.simplified_chinese, "").show_terminal_tab);
+    try testing.expectEqualStrings("展开侧边栏", paletteFor(.simplified_chinese, "").expand_sidebar);
+    try testing.expectEqualStrings("折叠侧边栏", paletteFor(.simplified_chinese, "").collapse_sidebar);
+
+    try testing.expectEqualStrings("入力欄にフォーカス", paletteFor(.japanese, "").focus_composer);
+    try testing.expectEqualStrings("サイドバーを切り替え", paletteFor(.japanese, "").toggle_sidebar);
+    try testing.expectEqualStrings("記録内を検索", paletteFor(.japanese, "").find_in_transcript);
+    try testing.expectEqualStrings("最小化", paletteFor(.japanese, "").minimize);
+    try testing.expectEqualStrings("最大化", paletteFor(.japanese, "").maximize);
+    try testing.expectEqualStrings("セッション ID をコピー", paletteFor(.japanese, "").copy_session_id);
+    try testing.expectEqualStrings("プロバイダーセッション ID をコピー", paletteFor(.japanese, "").copy_provider_session_id);
+    try testing.expectEqualStrings("プロジェクトフォルダを表示", paletteFor(.japanese, "").reveal_project_folder);
+    try testing.expectEqualStrings("ターミナルでプロジェクトを開く", paletteFor(.japanese, "").open_project_in_terminal);
+    try testing.expectEqualStrings("エディターでプロジェクトを開く", paletteFor(.japanese, "").open_project_in_editor);
+    try testing.expectEqualStrings("プロジェクトパスをコピー", paletteFor(.japanese, "").copy_project_path);
+    try testing.expectEqualStrings("右パネルを表示", paletteFor(.japanese, "").show_right_panel);
+    try testing.expectEqualStrings("右パネルを非表示", paletteFor(.japanese, "").hide_right_panel);
+    try testing.expectEqualStrings("ブラウザーのタブを表示", paletteFor(.japanese, "").show_browser_tab);
+    try testing.expectEqualStrings("ターミナルのタブを表示", paletteFor(.japanese, "").show_terminal_tab);
+    try testing.expectEqualStrings("サイドバーを展開", paletteFor(.japanese, "").expand_sidebar);
+    try testing.expectEqualStrings("サイドバーを折りたたむ", paletteFor(.japanese, "").collapse_sidebar);
+
+    try testing.expectEqualStrings("聚焦输入框", paletteFor(.system, "zh_CN.UTF-8").focus_composer);
+    try testing.expectEqualStrings("サイドバーを切り替え", paletteFor(.system, "ja_JP.UTF-8").toggle_sidebar);
+    try testing.expectEqualStrings("Focus composer", paletteFor(.english, "ja_JP.UTF-8").focus_composer);
+    try testing.expectEqualStrings("Toggle sidebar", paletteFor(.english, "zh_CN.UTF-8").toggle_sidebar);
+    try testing.expectEqualStrings("Show right panel", paletteFor(.english, "ja_JP.UTF-8").show_right_panel);
+    try testing.expectEqualStrings("Hide right panel", paletteFor(.english, "zh_CN.UTF-8").hide_right_panel);
+    try testing.expectEqualStrings("Expand sidebar", paletteFor(.english, "ja_JP.UTF-8").expand_sidebar);
+    try testing.expectEqualStrings("Collapse sidebar", paletteFor(.english, "zh_CN.UTF-8").collapse_sidebar);
 }
