@@ -1422,11 +1422,11 @@
     <column min-width="{right_panel_pane_min}" background="surface_subtle">
       <if test="{right_panel_open}">
         <row height="48" padding="10" gap="8" cross="center">
-          <button variant="ghost" size="sm" selected="{right_panel_tab_files}" on-press="set_right_panel_tab_files">Files</button>
-          <button variant="ghost" size="sm" selected="{right_panel_tab_diff}" on-press="set_right_panel_tab_diff">Diff</button>
-          <button variant="ghost" size="sm" selected="{right_panel_tab_browser}" on-press="set_right_panel_tab_browser">Browser</button>
-          <button variant="ghost" size="sm" selected="{right_panel_tab_terminal}" on-press="set_right_panel_tab_terminal">Terminal</button>
-          <button variant="ghost" size="sm" selected="{right_panel_tab_background}" on-press="set_right_panel_tab_background">Background</button>
+          <button variant="ghost" size="sm" selected="{right_panel_tab_files}" on-press="set_right_panel_tab_files">{right_panel_tab_files_label}</button>
+          <button variant="ghost" size="sm" selected="{right_panel_tab_diff}" on-press="set_right_panel_tab_diff">{right_panel_tab_diff_label}</button>
+          <button variant="ghost" size="sm" selected="{right_panel_tab_browser}" on-press="set_right_panel_tab_browser">{right_panel_tab_browser_label}</button>
+          <button variant="ghost" size="sm" selected="{right_panel_tab_terminal}" on-press="set_right_panel_tab_terminal">{right_panel_tab_terminal_label}</button>
+          <button variant="ghost" size="sm" selected="{right_panel_tab_background}" on-press="set_right_panel_tab_background">{right_panel_tab_background_label}</button>
           <spacer grow="1" />
           <button variant="ghost" size="icon" icon="panel-right" label="{hide_right_panel_label}" on-press="hide_right_panel"></button>
         </row>

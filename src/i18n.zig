@@ -10,14 +10,17 @@
 //! `Palette`), palette overlay section headers and empty-state
 //! lines (`PaletteChrome`), composer / Settings General Ask / Auto /
 //! Full access (same `Access` strings), first-cut composer effort chip /
-//! Settings General effort labels (same `Effort` strings), and
+//! Settings General effort labels (same `Effort` strings),
 //! first-cut composer interaction chip / Settings General Build /
-//! Plan (same `Interaction` strings) live here so `main.zig` does
-//! not grow. Palette ids / `PaletteAction` / keywords stay English.
-//! Wire `access_mode` ids stay `ask` / `auto` / `fullAccess`. Wire
-//! `reasoning_effort` ids stay `auto` / `none` / `minimal` / `low` /
-//! `medium` / `high` / `xhigh` / `max`. Wire `interaction_mode` ids
-//! stay `build` / `plan`. Not rust_i18n, not YAML catalogs, not
+//! Plan (same `Interaction` strings), and first-cut right-panel tab
+//! button labels (same `RightPanelTabs` strings; EN Diff tab reads
+//! Review) live here so `main.zig` does not grow. Palette ids /
+//! `PaletteAction` / keywords stay English. Wire `access_mode` ids
+//! stay `ask` / `auto` / `fullAccess`. Wire `reasoning_effort` ids stay
+//! `auto` / `none` / `minimal` / `low` / `medium` / `high` / `xhigh` /
+//! `max`. Wire `interaction_mode` ids stay `build` / `plan`. Wire
+//! `right_panel_tab` ids stay `files` / `diff` / `browser` /
+//! `terminal` / `background`. Not rust_i18n, not YAML catalogs, not
 //! full-app translation, not tz-aware grouping.
 
 const std = @import("std");
@@ -472,8 +475,7 @@ const palette_ja: Palette = .{
 /// Command-palette overlay section headers and empty-state lines.
 /// Same resolve path as Palette. Action names stay in `Palette`;
 /// ids / `PaletteAction` / keywords stay English. Right-panel tab
-/// names (Files / Diff / Browser / Terminal / Background) stay
-/// English this cut.
+/// button labels live in `RightPanelTabs` (not duplicated here).
 pub const PaletteChrome = struct {
     suggested: []const u8,
     commands: []const u8,
@@ -504,6 +506,44 @@ const palette_chrome_ja: PaletteChrome = .{
     .tasks = "タスク",
     .no_matches = "一致するタスクやコマンドはありません",
     .try_query = "タスク名、プロジェクト、プロバイダー、モデル、コマンドを試す",
+};
+
+/// Right-panel tab button labels for the resolved locale. Same resolve
+/// path as PaletteChrome. Wire `right_panel_tab` ids stay `files` /
+/// `diff` / `browser` / `terminal` / `background`; only the visible
+/// label translates. English Diff tab reads Review (Waku
+/// `right_panel.diff`), not Diff. Pane `label=` attributes, Diff
+/// filter placeholders, and Background row chrome stay English.
+pub const RightPanelTabs = struct {
+    files: []const u8,
+    diff: []const u8,
+    browser: []const u8,
+    terminal: []const u8,
+    background: []const u8,
+};
+
+const right_panel_tabs_en: RightPanelTabs = .{
+    .files = "Files",
+    .diff = "Review",
+    .browser = "Browser",
+    .terminal = "Terminal",
+    .background = "Background",
+};
+
+const right_panel_tabs_zh_cn: RightPanelTabs = .{
+    .files = "文件",
+    .diff = "审阅",
+    .browser = "浏览器",
+    .terminal = "终端",
+    .background = "后台工作",
+};
+
+const right_panel_tabs_ja: RightPanelTabs = .{
+    .files = "ファイル",
+    .diff = "レビュー",
+    .browser = "ブラウザ",
+    .terminal = "ターミナル",
+    .background = "バックグラウンド",
 };
 
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
@@ -629,6 +669,17 @@ pub fn paletteChromeFor(preference: LanguagePreference, system_locale_id: []cons
         .simplified_chinese => palette_chrome_zh_cn,
         .japanese => palette_chrome_ja,
         .system, .english => palette_chrome_en,
+    };
+}
+
+/// Right-panel tab button labels for the resolved locale. Callers
+/// pass Model `language_preference` + `system_locale_id`; this file
+/// does not read process env. Wire ids stay on `right_panel.Tab`.
+pub fn rightPanelTabsFor(preference: LanguagePreference, system_locale_id: []const u8) RightPanelTabs {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => right_panel_tabs_zh_cn,
+        .japanese => right_panel_tabs_ja,
+        .system, .english => right_panel_tabs_en,
     };
 }
 
@@ -973,4 +1024,34 @@ test "paletteChromeFor english default; zh and ja chrome; english ignores ja LAN
     try testing.expectEqualStrings("Tasks", paletteChromeFor(.english, "ja_JP.UTF-8").tasks);
     try testing.expectEqualStrings("No matching tasks or commands", paletteChromeFor(.english, "zh_CN.UTF-8").no_matches);
     try testing.expectEqualStrings("Try a task title, project, provider, model, or command", paletteChromeFor(.english, "ja_JP.UTF-8").try_query);
+}
+
+test "rightPanelTabsFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Files", rightPanelTabsFor(.english, "ja").files);
+    try testing.expectEqualStrings("Review", rightPanelTabsFor(.english, "").diff);
+    try testing.expectEqualStrings("Browser", rightPanelTabsFor(.english, "").browser);
+    try testing.expectEqualStrings("Terminal", rightPanelTabsFor(.english, "").terminal);
+    try testing.expectEqualStrings("Background", rightPanelTabsFor(.english, "").background);
+    try testing.expectEqualStrings("Files", rightPanelTabsFor(.system, "").files);
+
+    try testing.expectEqualStrings("文件", rightPanelTabsFor(.simplified_chinese, "").files);
+    try testing.expectEqualStrings("审阅", rightPanelTabsFor(.simplified_chinese, "").diff);
+    try testing.expectEqualStrings("浏览器", rightPanelTabsFor(.simplified_chinese, "").browser);
+    try testing.expectEqualStrings("终端", rightPanelTabsFor(.simplified_chinese, "").terminal);
+    try testing.expectEqualStrings("后台工作", rightPanelTabsFor(.simplified_chinese, "").background);
+
+    try testing.expectEqualStrings("ファイル", rightPanelTabsFor(.japanese, "").files);
+    try testing.expectEqualStrings("レビュー", rightPanelTabsFor(.japanese, "").diff);
+    try testing.expectEqualStrings("ブラウザ", rightPanelTabsFor(.japanese, "").browser);
+    try testing.expectEqualStrings("ターミナル", rightPanelTabsFor(.japanese, "").terminal);
+    try testing.expectEqualStrings("バックグラウンド", rightPanelTabsFor(.japanese, "").background);
+
+    try testing.expectEqualStrings("文件", rightPanelTabsFor(.system, "zh_CN.UTF-8").files);
+    try testing.expectEqualStrings("レビュー", rightPanelTabsFor(.system, "ja_JP.UTF-8").diff);
+    try testing.expectEqualStrings("Files", rightPanelTabsFor(.english, "ja_JP.UTF-8").files);
+    try testing.expectEqualStrings("Review", rightPanelTabsFor(.english, "zh_CN.UTF-8").diff);
+    try testing.expectEqualStrings("Browser", rightPanelTabsFor(.english, "ja_JP.UTF-8").browser);
+    try testing.expectEqualStrings("Terminal", rightPanelTabsFor(.english, "zh_CN.UTF-8").terminal);
+    try testing.expectEqualStrings("Background", rightPanelTabsFor(.english, "ja_JP.UTF-8").background);
 }

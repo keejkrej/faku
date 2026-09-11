@@ -2100,6 +2100,7 @@ pub const Model = struct {
         "interactionChrome",
         "paletteChrome",
         "paletteOverlayChrome",
+        "rightPanelTabs",
         "palette_action_label",
         "show_right_panel_label",
         "sidebarDates",
@@ -3392,6 +3393,31 @@ pub const Model = struct {
         return model.paletteChrome().hide_right_panel;
     }
 
+    /// Right-panel Files tab button. Wire id stays `files`.
+    pub fn right_panel_tab_files_label(model: *const Model) []const u8 {
+        return model.rightPanelTabs().files;
+    }
+
+    /// Right-panel Diff tab button. Wire id stays `diff`; EN reads Review.
+    pub fn right_panel_tab_diff_label(model: *const Model) []const u8 {
+        return model.rightPanelTabs().diff;
+    }
+
+    /// Right-panel Browser tab button. Wire id stays `browser`.
+    pub fn right_panel_tab_browser_label(model: *const Model) []const u8 {
+        return model.rightPanelTabs().browser;
+    }
+
+    /// Right-panel Terminal tab button. Wire id stays `terminal`.
+    pub fn right_panel_tab_terminal_label(model: *const Model) []const u8 {
+        return model.rightPanelTabs().terminal;
+    }
+
+    /// Right-panel Background tab button. Wire id stays `background`.
+    pub fn right_panel_tab_background_label(model: *const Model) []const u8 {
+        return model.rightPanelTabs().background;
+    }
+
     pub fn switcher_rows(model: *const Model, arena: std.mem.Allocator) []const SessionRow {
         if (!model.switcher_open or model.switcher_count == 0) return &.{};
         const out = arena.alloc(SessionRow, model.switcher_count) catch return &.{};
@@ -4286,6 +4312,10 @@ pub const Model = struct {
     /// Ids / `PaletteAction` / keywords stay English.
     pub fn paletteOverlayChrome(model: *const Model) i18n.PaletteChrome {
         return i18n.paletteChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn rightPanelTabs(model: *const Model) i18n.RightPanelTabs {
+        return i18n.rightPanelTabsFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Palette row display label for `action`. New Task / Settings /
