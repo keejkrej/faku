@@ -24748,6 +24748,137 @@ test "right panel Diff filter and Files/Background empty chrome follow Appearanc
     try testing.expectEqualStrings("No output", model.background_work_no_output_label());
 }
 
+test "right panel Browser start page and Open in browser/Terminal follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try absOpenTerminalDir(tmp, "i18n-browser-chrome", &project_buf);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{browser_start_title}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{browser_address_focus_hint}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{open_in_browser_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{open_in_terminal_label}"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Browse the web<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Cmd/Ctrl-L focuses the address.<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Open in browser<"));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, ">Open in Terminal</button>"));
+
+    var model = main.initialModel();
+    model.store_io = testing.io;
+    model.setSelectedProjectPath(project);
+    try testing.expect(model.can_open_terminal());
+    try testing.expectEqualStrings("Browse the web", model.browser_start_title());
+    try testing.expectEqualStrings("Cmd/Ctrl-L focuses the address.", model.browser_address_focus_hint());
+    try testing.expectEqualStrings("Open in browser", model.open_in_browser_label());
+    try testing.expectEqualStrings("Open in Terminal", model.open_in_terminal_label());
+
+    main.update(&model, .show_right_panel, &fx);
+    main.update(&model, .set_right_panel_tab_browser, &fx);
+    try testing.expect(model.right_panel_showing_browser());
+    try testing.expect(model.browser_showing_start_page());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .column, "browser-start");
+    _ = try expectByText(tree.root, .text, "Browse the web");
+    _ = try expectByText(tree.root, .text, "Cmd/Ctrl-L focuses the address.");
+    const open_browser = findByText(tree.root, .button, "Open in browser") orelse return error.WidgetNotFound;
+    try testing.expect(open_browser.state.disabled);
+    try testing.expect((try expectButtonMsg(tree, "Browser", .set_right_panel_tab_browser)).state.selected);
+
+    main.update(&model, .set_right_panel_tab_terminal, &fx);
+    try testing.expect(model.right_panel_showing_terminal());
+    tree = try buildTree(arena, &model);
+    const term_col = try expectByText(tree.root, .column, "Terminal");
+    _ = try expectButtonMsg(tree, "Open in Terminal", .open_terminal);
+    try testing.expect(findByText(term_col, .button, "Open in Terminal") != null);
+    try testing.expect((try expectButtonMsg(tree, "Terminal", .set_right_panel_tab_terminal)).state.selected);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("浏览网页", model.browser_start_title());
+    try testing.expectEqualStrings("Cmd/Ctrl-L 聚焦地址栏。", model.browser_address_focus_hint());
+    try testing.expectEqualStrings("在浏览器中打开", model.open_in_browser_label());
+    try testing.expectEqualStrings("在终端中打开", model.open_in_terminal_label());
+
+    main.update(&model, .set_right_panel_tab_browser, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "浏览网页");
+    _ = try expectByText(tree.root, .text, "Cmd/Ctrl-L 聚焦地址栏。");
+    try testing.expect(findByText(tree.root, .text, "Browse the web") == null);
+    try testing.expect(findByText(tree.root, .text, "Cmd/Ctrl-L focuses the address.") == null);
+    try testing.expect(findByText(tree.root, .button, "在浏览器中打开") != null);
+    try testing.expect(findByText(tree.root, .button, "Open in browser") == null);
+    try testing.expect((try expectButtonMsg(tree, "浏览器", .set_right_panel_tab_browser)).state.selected);
+
+    main.update(&model, .set_right_panel_tab_terminal, &fx);
+    tree = try buildTree(arena, &model);
+    const zh_term = try expectByText(tree.root, .column, "Terminal");
+    _ = try expectButtonMsg(tree, "在终端中打开", .open_terminal);
+    try testing.expect(findByText(zh_term, .button, "在终端中打开") != null);
+    try testing.expect(findByText(zh_term, .button, "Open in Terminal") == null);
+    try testing.expect(findByText(tree.root, .button, "Open in Terminal") != null);
+    try testing.expect((try expectButtonMsg(tree, "终端", .set_right_panel_tab_terminal)).state.selected);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("ウェブを閲覧", model.browser_start_title());
+    try testing.expectEqualStrings("Cmd/Ctrl-L でアドレス欄にフォーカス。", model.browser_address_focus_hint());
+    try testing.expectEqualStrings("ブラウザで開く", model.open_in_browser_label());
+    try testing.expectEqualStrings("ターミナルで開く", model.open_in_terminal_label());
+
+    main.update(&model, .set_right_panel_tab_browser, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "ウェブを閲覧");
+    _ = try expectByText(tree.root, .text, "Cmd/Ctrl-L でアドレス欄にフォーカス。");
+    try testing.expect(findByText(tree.root, .text, "浏览网页") == null);
+    try testing.expect(findByText(tree.root, .button, "ブラウザで開く") != null);
+    try testing.expect(findByText(tree.root, .button, "在浏览器中打开") == null);
+    try testing.expect((try expectButtonMsg(tree, "ブラウザ", .set_right_panel_tab_browser)).state.selected);
+
+    main.update(&model, .set_right_panel_tab_terminal, &fx);
+    tree = try buildTree(arena, &model);
+    const ja_term = try expectByText(tree.root, .column, "Terminal");
+    _ = try expectButtonMsg(tree, "ターミナルで開く", .open_terminal);
+    try testing.expect(findByText(ja_term, .button, "ターミナルで開く") != null);
+    try testing.expect(findByText(ja_term, .button, "在终端中打开") == null);
+    try testing.expect((try expectButtonMsg(tree, "ターミナル", .set_right_panel_tab_terminal)).state.selected);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Browse the web", model.browser_start_title());
+    try testing.expectEqualStrings("Cmd/Ctrl-L focuses the address.", model.browser_address_focus_hint());
+    try testing.expectEqualStrings("Open in browser", model.open_in_browser_label());
+    try testing.expectEqualStrings("Open in Terminal", model.open_in_terminal_label());
+    tree = try buildTree(arena, &model);
+    const en_term = try expectByText(tree.root, .column, "Terminal");
+    try testing.expect(findByText(en_term, .button, "Open in Terminal") != null);
+    try testing.expect(findByText(en_term, .button, "ターミナルで開く") == null);
+    _ = try expectButtonMsg(tree, "Open in Terminal", .open_terminal);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("浏览网页", model.browser_start_title());
+    try testing.expectEqualStrings("Cmd/Ctrl-L 聚焦地址栏。", model.browser_address_focus_hint());
+    try testing.expectEqualStrings("在浏览器中打开", model.open_in_browser_label());
+    try testing.expectEqualStrings("在终端中打开", model.open_in_terminal_label());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("ウェブを閲覧", model.browser_start_title());
+    try testing.expectEqualStrings("Cmd/Ctrl-L でアドレス欄にフォーカス。", model.browser_address_focus_hint());
+    try testing.expectEqualStrings("ブラウザで開く", model.open_in_browser_label());
+    try testing.expectEqualStrings("ターミナルで開く", model.open_in_terminal_label());
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Browse the web", model.browser_start_title());
+    try testing.expectEqualStrings("Cmd/Ctrl-L focuses the address.", model.browser_address_focus_hint());
+    try testing.expectEqualStrings("Open in browser", model.open_in_browser_label());
+    try testing.expectEqualStrings("Open in Terminal", model.open_in_terminal_label());
+}
+
 test "DateBucket.title english default; zh and ja follow datesFor" {
     try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
     try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());

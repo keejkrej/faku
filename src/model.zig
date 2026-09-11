@@ -3440,6 +3440,28 @@ pub const Model = struct {
         return model.rightPanelChrome().no_output;
     }
 
+    /// Browser-tab empty start-page title. Wire chrome stays English.
+    pub fn browser_start_title(model: *const Model) []const u8 {
+        return model.rightPanelChrome().browse_the_web;
+    }
+
+    /// Browser-tab empty start-page address-focus hint.
+    pub fn browser_address_focus_hint(model: *const Model) []const u8 {
+        return model.rightPanelChrome().address_focus_hint;
+    }
+
+    /// Browser-tab OS-fallback ghost button. `on-press` stays `open_url`.
+    pub fn open_in_browser_label(model: *const Model) []const u8 {
+        return model.rightPanelChrome().open_in_browser;
+    }
+
+    /// Right-panel Terminal tab OS-fallback ghost button. `on-press`
+    /// stays `open_terminal`. Composer Open in Terminal stays English
+    /// this cut.
+    pub fn open_in_terminal_label(model: *const Model) []const u8 {
+        return model.rightPanelChrome().open_in_terminal;
+    }
+
     pub fn switcher_rows(model: *const Model, arena: std.mem.Allocator) []const SessionRow {
         if (!model.switcher_open or model.switcher_count == 0) return &.{};
         const out = arena.alloc(SessionRow, model.switcher_count) catch return &.{};

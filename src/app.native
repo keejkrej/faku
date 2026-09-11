@@ -1643,13 +1643,13 @@
               </else>
               <text-field grow="1" placeholder="https://example.com" text="{browser_url}" on-input="browser_url_edit" on-submit="browser_navigate" autofocus="{browser_address_autofocus}" label="Address" />
               <button variant="ghost" size="sm" on-press="browser_navigate">Navigate</button>
-              <button variant="ghost" size="sm" on-press="open_url" disabled="{browser_open_disabled}">Open in browser</button>
+              <button variant="ghost" size="sm" on-press="open_url" disabled="{browser_open_disabled}">{open_in_browser_label}</button>
             </row>
             <if test="{browser_showing_start_page}">
               <column grow="1" gap="8" padding="24" main="center" cross="center" label="browser-start">
                 <icon name="app:globe" width="32" height="32" foreground="text_muted" label="Browse" />
-                <text text-alignment="center">Browse the web</text>
-                <text wrap="true" foreground="text_muted" text-alignment="center">Cmd/Ctrl-L focuses the address.</text>
+                <text text-alignment="center">{browser_start_title}</text>
+                <text wrap="true" foreground="text_muted" text-alignment="center">{browser_address_focus_hint}</text>
               </column>
             </if>
             <else>
@@ -1676,7 +1676,7 @@
                 <button variant="ghost" size="sm" on-press="restart_terminal">Restart</button>
               </if>
               <if test="{can_open_terminal}">
-                <button variant="ghost" size="sm" on-press="open_terminal">Open in Terminal</button>
+                <button variant="ghost" size="sm" on-press="open_terminal">{open_in_terminal_label}</button>
               </if>
               <else>
                 <if test="{show_terminal_no_project}">
