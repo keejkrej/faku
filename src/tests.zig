@@ -23316,8 +23316,8 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "Collapse all folders");
     _ = try expectButton(tree.root, "Delete folder");
-    _ = try expectByText(tree.root, .list_item, "New folder");
-    _ = try expectByText(tree.root, .menu_item, "Delete");
+    const en_folder = try expectByText(tree.root, .list_item, "New folder");
+    try expectFolderContextMenu(tree, en_folder, model.folder_store[0].id);
 
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("新建任务", model.new_task_label());
@@ -23332,8 +23332,8 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     _ = try expectButton(tree.root, "新建文件夹");
     _ = try expectButton(tree.root, "折叠所有文件夹");
     _ = try expectButton(tree.root, "删除文件夹");
-    _ = try expectByText(tree.root, .list_item, "New folder");
-    _ = try expectByText(tree.root, .menu_item, "Delete");
+    const zh_folder = try expectByText(tree.root, .list_item, "New folder");
+    try expectFolderContextMenu(tree, zh_folder, model.folder_store[0].id);
     try testing.expect(findByText(tree.root, .list_item, "New Task") == null);
     try testing.expect(findPressableContaining(tree.root, "New Task") == null);
     try testing.expect(findPressableContaining(tree.root, "Search") == null);
@@ -23359,12 +23359,13 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     _ = try expectButton(tree.root, "新しいフォルダ");
     _ = try expectButton(tree.root, "すべてのフォルダを折りたたむ");
     _ = try expectButton(tree.root, "フォルダを削除");
-    _ = try expectByText(tree.root, .menu_item, "Delete");
+    const ja_folder = try expectByText(tree.root, .list_item, "New folder");
+    try expectFolderContextMenu(tree, ja_folder, model.folder_store[0].id);
     try testing.expect(findPressableContaining(tree.root, "New Task") == null);
 
     main.update(&model, .{ .rename_folder = model.folder_store[0].id }, &fx);
     tree = try buildTree(arena, &model);
-    if (findByPlaceholder(tree.root, .text_field, "新しいフォルダ")) |_| {} else return error.WidgetNotFound;
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "新しいフォルダ") != null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "New folder") == null);
     model.closeFolderTitleEdit();
 
