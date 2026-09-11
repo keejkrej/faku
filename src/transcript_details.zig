@@ -1,8 +1,9 @@
-//! Transcript assistant markdown `<details>` expand/collapse (first-cut).
+//! Transcript markdown `<details>` expand/collapse (first-cut).
 //!
-//! Visible assistant `<markdown>` binds caller-owned expansion flags via
-//! Native `details-expanded` (`[]const bool` in details-block document
-//! order) and `on-details` (bare Msg tag; payload is that index). Cap
+//! Visible user / tool / reasoning / assistant `<markdown>` binds
+//! caller-owned expansion flags via Native `details-expanded`
+//! (`[]const bool` in details-block document order) and `on-details`
+//! (bare Msg tag; payload is that index). Cap
 //! `canvas.markdown.max_markdown_details_per_document`. Missing /
 //! false flags stay collapsed. Runtime-only — not `sessions.json`
 //! (Native `app_dirs` data, app name `faku`). Verified: Native markdown
@@ -10,13 +11,13 @@
 //!
 //! Native `on-details` is a bare `usize` index and `details-expanded`
 //! is one Model-owned iterable (a field, pub decl, or fn — the same
-//! sources `for each` accepts). Multiple assistant `<markdown>`
-//! documents in one `visible_turns` for-each therefore share these
-//! 16 flags: expanding details N in any assistant turn expands that
-//! index in every other visible assistant document. Per-turn
-//! isolation would need a Native payload Native does not document
-//! (`on-details` cannot interpolate `{t.id}`). Files Preview
-//! `file_preview_details` is a separate flag array.
+//! sources `for each` accepts). Every visible transcript `<markdown>`
+//! document in one `visible_turns` for-each therefore shares these
+//! 16 flags: expanding details N in any user / tool / reasoning /
+//! assistant turn expands that index in every other visible transcript
+//! document. Per-turn isolation would need a Native payload Native
+//! does not document (`on-details` cannot interpolate `{t.id}`). Files
+//! Preview `file_preview_details` is a separate flag array.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");

@@ -1,19 +1,19 @@
-//! Transcript assistant markdown images (first-cut).
+//! Transcript markdown images (first-cut).
 //!
-//! Visible assistant turns paint Native `<markdown source="{t.text}"
-//! images="{transcript_images}">`. Discovery uses Native
-//! `canvas.markdown.collectImageSources` (cap `max_markdown_images`)
-//! over the selected-session assistant bodies (same find filter as
-//! `visible_turns`). Then `fx.loadImage`s **in-project local** paths
-//! (`.path`) and **http(s)** URLs (`.url` only; omit path), and
-//! registers a practical `data:image/<subtype>;base64,…` subset via
-//! `fx.registerImageBytes` (sync; same registry as `loadImage`).
-//! Canonical source bytes stay the markdown `src` so `images=`
-//! mappings match the renderer. Outside-project / unresolved /
-//! malformed `data:` stay unmapped (alt-text). User / tool /
-//! reasoning rows stay `<text>` this cut. Files Preview markdown
-//! images (ids 800–815) and composer attach preview (33–63) are
-//! untouched.
+//! Visible user / tool / reasoning / assistant turns paint Native
+//! `<markdown source="{t.text}" images="{transcript_images}">`.
+//! Discovery uses Native `canvas.markdown.collectImageSources`
+//! (cap `max_markdown_images`) over selected-session bodies (same
+//! find filter as `visible_turns`). Then `fx.loadImage`s **in-project
+//! local** paths (`.path`) and **http(s)** URLs (`.url` only; omit
+//! path), and registers a practical `data:image/<subtype>;base64,…`
+//! subset via `fx.registerImageBytes` (sync; same registry as
+//! `loadImage`). Canonical source bytes stay the markdown `src` so
+//! `images=` mappings match the renderer. Outside-project /
+//! unresolved / malformed `data:` stay unmapped (alt-text). One
+//! shared id band (816–831) across every visible transcript
+//! `<markdown>` document. Files Preview markdown images (ids
+//! 800–815) and composer attach preview (33–63) are untouched.
 //!
 //! Path rules reuse `file_preview_images.resolveInProjectImagePath`
 //! (`open_url.resolveMarkdownFilePath` + in-project gate). Relative
@@ -147,10 +147,11 @@ fn findQuery(model: *const Model) []const u8 {
     return std.mem.trim(u8, model.find_query(), " \t\r\n");
 }
 
-/// Reconcile collected assistant-turn sources with model/effect
+/// Reconcile collected transcript-turn sources with model/effect
 /// state. Missing fx drops mappings. Existing successes for still-
 /// wanted sources survive without refetching. Cap Native
-/// `max_markdown_images` across the visible assistant set.
+/// `max_markdown_images` across the visible transcript set (user /
+/// tool / reasoning / assistant).
 pub fn refresh(model: *Model, fx: ?*Effects) void {
     const effects = fx orelse {
         drop(model, null);
@@ -172,7 +173,6 @@ pub fn refresh(model: *Model, fx: ?*Effects) void {
     for (model.turn_store[0..model.turn_count]) |*turn| {
         if (wanted_len >= max_images) break;
         if (turn.session_id != model.selected) continue;
-        if (turn.role != .assistant) continue;
         if (query.len > 0 and !main.asciiContainsIgnoreCase(turn.text(), query)) continue;
 
         var source_storage: [max_images]canvas.markdown.CollectedImageSource = undefined;
@@ -277,7 +277,7 @@ pub fn applyResult(model: *Model, fx: *Effects, result: native_sdk.EffectImageRe
     if (!retained and result.outcome == .loaded) _ = fx.unregisterImage(result.id);
 }
 
-/// Native `<markdown on-link>` from assistant turns: http(s) / bare
+/// Native `<markdown on-link>` from transcript turns: http(s) / bare
 /// hosts reuse `open_url` OS browser spawn. Relative / `file:` / other
 /// targets stay unhandled this cut (no Files Preview routing).
 pub fn openUrl(model: *Model, fx: *Effects, url: []const u8) void {
@@ -316,11 +316,34 @@ fn pendingLoadWithUrl(fx: *Effects) !Effects.ImageLoadRequest {
     return error.MissingImageLoad;
 }
 
+fn slotHasSource(model: *const Model, source: []const u8) bool {
+    for (model.transcript_image_slots) |slot| {
+        if (slot.source_len > 0 and std.mem.eql(u8, slot.source(), source)) return true;
+    }
+    return false;
+}
+
+fn pendingLoadHasUrl(fx: *Effects, url: []const u8) bool {
+    var index: usize = 0;
+    while (index < fx.pendingImageLoadCount()) : (index += 1) {
+        const load = fx.pendingImageLoadAt(index) orelse continue;
+        if (std.mem.eql(u8, load.url, url)) return true;
+    }
+    return false;
+}
+
+fn mappedHasSource(mapped: []const canvas.markdown.ResolvedImage, source: []const u8) bool {
+    for (mapped) |item| {
+        if (std.mem.eql(u8, item.source, source)) return true;
+    }
+    return false;
+}
+
 /// 1×1 PNG (standard 68-byte fixture). Same bytes as Files Preview.
 const tiny_png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 const tiny_png_data_url = "data:image/png;base64," ++ tiny_png_b64;
 
-test "refresh loads in-project local path, http(s) url, and data:; user tool reasoning stay unmapped" {
+test "refresh loads in-project local path, http(s) url, and data: across user tool reasoning assistant" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     var project_buf: [256]u8 = undefined;
@@ -338,15 +361,15 @@ test "refresh loads in-project local path, http(s) url, and data:; user tool rea
     model.setSelectedProjectPath(project);
 
     const body = "![local](./shot.png)\n\n![remote](https://example.com/x.png)\n\n![data](" ++ tiny_png_data_url ++ ")\n\n![out](file:///tmp/outside.png)\n";
-    _ = model.appendTurn(id, .user, "![user](./user.png)\n");
+    _ = model.appendTurn(id, .user, "![user](https://example.com/user.png)\n");
     _ = model.appendTurn(id, .tool, "![tool](https://example.com/tool.png)\n");
-    _ = model.appendTurn(id, .reasoning, "![think](./think.png)\n");
+    _ = model.appendTurn(id, .reasoning, "![think](https://example.com/think.png)\n");
     _ = model.appendTurn(id, .assistant, body);
 
     refresh(&model, &fx);
-    try std.testing.expectEqual(@as(usize, 3), occupiedCount(&model));
+    try std.testing.expectEqual(@as(usize, 6), occupiedCount(&model));
     try std.testing.expectEqual(@as(usize, 1), loadedCount(&model));
-    try std.testing.expectEqual(@as(usize, 2), fx.pendingImageLoadCount());
+    try std.testing.expectEqual(@as(usize, 5), fx.pendingImageLoadCount());
 
     const local_load = try pendingLoadWithPath(&fx);
     try std.testing.expect(std.mem.endsWith(u8, local_load.path, "/shot.png"));
@@ -355,14 +378,15 @@ test "refresh loads in-project local path, http(s) url, and data:; user tool rea
     try std.testing.expect(local_load.id >= id_first);
     try std.testing.expect(local_load.id <= id_last);
     try std.testing.expect(local_load.id > file_preview_images.id_last);
-    try std.testing.expectEqualStrings("./shot.png", model.transcript_image_slots[0].source());
-
-    const remote_load = try pendingLoadWithUrl(&fx);
-    try std.testing.expectEqualStrings("https://example.com/x.png", remote_load.url);
-    try std.testing.expectEqual(@as(usize, 0), remote_load.path.len);
-    try std.testing.expect(remote_load.id >= id_first);
-    try std.testing.expect(remote_load.id <= id_last);
-    try std.testing.expect(remote_load.id != local_load.id);
+    try std.testing.expect(slotHasSource(&model, "./shot.png"));
+    try std.testing.expect(slotHasSource(&model, "https://example.com/user.png"));
+    try std.testing.expect(slotHasSource(&model, "https://example.com/tool.png"));
+    try std.testing.expect(slotHasSource(&model, "https://example.com/think.png"));
+    try std.testing.expect(slotHasSource(&model, "https://example.com/x.png"));
+    try std.testing.expect(pendingLoadHasUrl(&fx, "https://example.com/user.png"));
+    try std.testing.expect(pendingLoadHasUrl(&fx, "https://example.com/tool.png"));
+    try std.testing.expect(pendingLoadHasUrl(&fx, "https://example.com/think.png"));
+    try std.testing.expect(pendingLoadHasUrl(&fx, "https://example.com/x.png"));
 
     var data_id: u64 = 0;
     for (model.transcript_image_slots) |slot| {
@@ -375,24 +399,36 @@ test "refresh loads in-project local path, http(s) url, and data:; user tool rea
     }
     try std.testing.expect(data_id != 0);
     try std.testing.expect(data_id != local_load.id);
-    try std.testing.expect(data_id != remote_load.id);
+
+    var url_ids: [8]u64 = undefined;
+    var url_count: usize = 0;
+    var url_index: usize = 0;
+    while (url_index < fx.pendingImageLoadCount()) : (url_index += 1) {
+        const load = fx.pendingImageLoadAt(url_index) orelse continue;
+        if (load.url.len == 0) continue;
+        url_ids[url_count] = load.id;
+        url_count += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 4), url_count);
 
     try fx.feedImageResult(local_load.id, .loaded, 8, 8, 0, "");
     while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
-    try fx.feedImageResult(remote_load.id, .loaded, 16, 12, 0, "");
-    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
-    try std.testing.expectEqual(@as(usize, 3), loadedCount(&model));
+    for (url_ids[0..url_count]) |load_id| {
+        try fx.feedImageResult(load_id, .loaded, 16, 12, 0, "");
+        while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+    }
+    try std.testing.expectEqual(@as(usize, 6), loadedCount(&model));
 
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const mapped = resolved(&model, arena_state.allocator());
-    try std.testing.expectEqual(@as(usize, 3), mapped.len);
-    try std.testing.expectEqualStrings("./shot.png", mapped[0].source);
-    try std.testing.expectEqual(local_load.id, mapped[0].image);
-    try std.testing.expectEqualStrings("https://example.com/x.png", mapped[1].source);
-    try std.testing.expectEqual(remote_load.id, mapped[1].image);
-    try std.testing.expectEqualStrings(tiny_png_data_url, mapped[2].source);
-    try std.testing.expectEqual(data_id, mapped[2].image);
+    try std.testing.expectEqual(@as(usize, 6), mapped.len);
+    try std.testing.expect(mappedHasSource(mapped, "https://example.com/user.png"));
+    try std.testing.expect(mappedHasSource(mapped, "https://example.com/tool.png"));
+    try std.testing.expect(mappedHasSource(mapped, "https://example.com/think.png"));
+    try std.testing.expect(mappedHasSource(mapped, "./shot.png"));
+    try std.testing.expect(mappedHasSource(mapped, "https://example.com/x.png"));
+    try std.testing.expect(mappedHasSource(mapped, tiny_png_data_url));
 
     drop(&model, &fx);
     try std.testing.expectEqual(@as(usize, 0), occupiedCount(&model));

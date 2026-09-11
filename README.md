@@ -91,9 +91,9 @@ Build from source: clone https://github.com/keejkrej/fx, Zig 0.16.0,
 - Other probed providers when their CLIs are on PATH
 - Demo fallback if fx is missing
 - First-cut Files Preview markdown in-project local images (`images=` + `fx.loadImage` `.path`), remote http(s) images (`.url`), and Preview `data:` images (`fx.registerImageBytes`; outside-project stay alt-text)
-- First-cut transcript assistant markdown (`<markdown>` + `images=`; in-project local / http(s) / `data:` same load path as Files Preview; user/tool/reasoning stay plain text)
-- First-cut transcript assistant markdown `<details>` expand/collapse (`details-expanded` + `on-details`; runtime-only flags, cap 16; shared across visible assistant turns because Native `on-details` is a bare index)
-- First-cut transcript assistant markdown `#N` issue links (`issue-link-base` from a usable GitHub/GitLab remote; empty/missing leaves `#N` unlinked; same probe as Files Preview)
+- First-cut transcript markdown (`<markdown>` + `images=` on user / tool / reasoning / assistant; in-project local / http(s) / `data:` same load path as Files Preview)
+- First-cut transcript markdown `<details>` expand/collapse (`details-expanded` + `on-details`; runtime-only flags, cap 16; shared across all visible transcript markdown docs because Native `on-details` is a bare index)
+- First-cut transcript markdown `#N` issue links (`issue-link-base` from a usable GitHub/GitLab remote; empty/missing leaves `#N` unlinked; same probe as Files Preview)
 - First-cut Files Preview markdown `<details>` expand/collapse (`details-expanded` + `on-details`; runtime-only flags, cap 16)
 - First-cut Files Preview markdown `#N` issue links (`issue-link-base` from a usable GitHub/GitLab remote; empty/missing leaves `#N` unlinked)
 - First-cut embedded Terminal tab (`fx.ptySpawn` + `<terminal>`, up to 4 sessions; occupied slots persist)

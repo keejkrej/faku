@@ -613,10 +613,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
     // Same `now_ms` / update-tick piggyback. Native has no FS
     // watcher / dedicated timer this cut.
     _ = right_panel.pollFilePreviewDisk(model, fx);
-    // First-cut transcript assistant markdown `images=`. Reconciles
-    // visible assistant-turn sources after stream ticks / session
-    // switch / find filter. Existing successes for still-wanted
-    // sources survive without refetching.
+    // First-cut transcript markdown `images=`. Reconciles
+    // visible user / tool / reasoning / assistant sources after stream
+    // ticks / session switch / find filter. Existing successes for
+    // still-wanted sources survive without refetching.
     transcript_images.refresh(model, fx);
 }
 

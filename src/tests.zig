@@ -915,7 +915,7 @@ test "fork at turn 1 copies two turns; source unchanged; empty fx_session_id; he
     try testing.expectEqual(@as(u32, 3), model.turnCount(id));
 }
 
-test "user turns wrap as plain text; assistant turns render markdown" {
+test "user tool reasoning and assistant turns render markdown" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -925,16 +925,35 @@ test "user turns wrap as plain text; assistant turns render markdown" {
     model.selected = id;
     _ = model.appendTurn(id, .user, "**bold**");
     _ = model.appendTurn(id, .assistant, "**also**");
+    _ = model.appendTurn(id, .tool, "**tool**");
+    _ = model.appendTurn(id, .reasoning, "**think**");
 
     const tree = try buildTree(arena, &model);
-    const user_text = try expectByText(tree.root, .text, "**bold**");
-    try testing.expect(!user_text.text_no_wrap);
+    try testing.expect(findTextContaining(tree.root, "**bold**") == null);
     try testing.expect(findTextContaining(tree.root, "**also**") == null);
-    const assistant_md = findBoldSpanText(tree.root, "also") orelse {
+    try testing.expect(findTextContaining(tree.root, "**tool**") == null);
+    try testing.expect(findTextContaining(tree.root, "**think**") == null);
+    _ = findBoldSpanText(tree.root, "bold") orelse {
         dumpTexts(tree.root, 0);
         return error.WidgetNotFound;
     };
-    _ = assistant_md;
+    _ = findBoldSpanText(tree.root, "also") orelse {
+        dumpTexts(tree.root, 0);
+        return error.WidgetNotFound;
+    };
+    _ = findBoldSpanText(tree.root, "tool") orelse {
+        dumpTexts(tree.root, 0);
+        return error.WidgetNotFound;
+    };
+    _ = findBoldSpanText(tree.root, "think") orelse {
+        dumpTexts(tree.root, 0);
+        return error.WidgetNotFound;
+    };
+    const transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const user_row = try expectByText(transcript, .row, "**bold**");
+    try testing.expect(findByKind(user_row, .bubble) != null);
+    _ = try expectByText(transcript, .text, "Tool");
+    _ = try expectByText(transcript, .text, "Reasoning");
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "<markdown source=\"{t.text}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "images=\"{transcript_images}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "details-expanded=\"{transcript_details_expanded}\"") != null);
@@ -1010,7 +1029,7 @@ test "assistant markdown details expand via on-details; default collapsed; no pa
     try testing.expect(!model.transcript_details_expanded()[0]);
 }
 
-test "assistant markdown details share flags across turns; drop on session switch" {
+test "transcript markdown details share flags across user and assistant turns; drop on session switch" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -1023,7 +1042,7 @@ test "assistant markdown details share flags across turns; drop on session switc
     const first = model.addSession("tx details share", .fx);
     const second = model.addSession("tx details other", .fx);
     model.selected = first;
-    _ = model.appendTurn(first, .assistant,
+    _ = model.appendTurn(first, .user,
         \\<details>
         \\<summary>Alpha</summary>
         \\
