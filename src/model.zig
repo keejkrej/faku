@@ -3431,6 +3431,16 @@ pub const Model = struct {
         return model.rightPanelChrome().no_project_open;
     }
 
+    /// Files tab empty-state secondary line when no project is open.
+    pub fn right_panel_files_empty_secondary_label(model: *const Model) []const u8 {
+        return model.rightPanelChrome().open_project_to_browse_files;
+    }
+
+    /// Files tab loading chrome while the project tree is in flight.
+    pub fn right_panel_loading_files_label(model: *const Model) []const u8 {
+        return model.rightPanelChrome().loading_files;
+    }
+
     /// Background tab empty-state when no selected row.
     pub fn background_work_empty_label(model: *const Model) []const u8 {
         return model.rightPanelChrome().no_background_work;
