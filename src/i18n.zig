@@ -7,14 +7,16 @@
 //! chrome, session context-menu Rename / Remove, the palette
 //! Collapse all folders command (same `Sidebar.collapse_all_folders`
 //! string as the sidebar button), composer / Settings General
-//! Ask / Auto / Full access (same `Access` strings), and first-cut
+//! Ask / Auto / Full access (same `Access` strings), first-cut
 //! composer effort chip / Settings General effort labels (same
-//! `Effort` strings) live here so `main.zig` does not grow. Other
-//! palette commands and Build/Plan stay English. Wire `access_mode`
-//! ids stay `ask` / `auto` / `fullAccess`. Wire `reasoning_effort` ids
-//! stay `auto` / `none` / `minimal` / `low` / `medium` / `high` /
-//! `xhigh` / `max`. Not rust_i18n, not YAML catalogs, not full-app
-//! translation, not tz-aware grouping.
+//! `Effort` strings), and first-cut composer interaction chip /
+//! Settings General Build / Plan (same `Interaction` strings) live
+//! here so `main.zig` does not grow. Other palette commands stay
+//! English. Wire `access_mode` ids stay `ask` / `auto` / `fullAccess`.
+//! Wire `reasoning_effort` ids stay `auto` / `none` / `minimal` /
+//! `low` / `medium` / `high` / `xhigh` / `max`. Wire
+//! `interaction_mode` ids stay `build` / `plan`. Not rust_i18n, not
+//! YAML catalogs, not full-app translation, not tz-aware grouping.
 
 const std = @import("std");
 
@@ -185,8 +187,9 @@ const dates_ja: Dates = .{
 /// `collapse_all_folders`). Palette Collapse all folders reuses
 /// `collapse_all_folders`. Composer Ask / Auto / Full access live in
 /// `Access` (same resolve path). Composer effort chip / Settings
-/// General effort labels live in `Effort` (same resolve path). Other
-/// palette commands and Build/Plan stay English.
+/// General effort labels live in `Effort` (same resolve path).
+/// Composer Build / Plan live in `Interaction` (same resolve path).
+/// Other palette commands stay English.
 pub const Sidebar = struct {
     new_task: []const u8,
     search: []const u8,
@@ -342,6 +345,36 @@ const effort_ja: Effort = .{
     .max = "最大",
 };
 
+/// Composer interaction chip and Settings General Build / Plan buttons.
+/// Same resolve path as Effort. Wire `interaction_mode` ids stay
+/// `build` / `plan`; only the chrome label translates. English matches
+/// the former hardcoded composer chip / Settings General buttons.
+pub const Interaction = struct {
+    build: []const u8,
+    plan: []const u8,
+
+    /// `id` is a wire id (`build` / `plan`). Unknown / empty fall through to Build.
+    pub fn labelForId(self: Interaction, id: []const u8) []const u8 {
+        if (std.mem.eql(u8, id, "plan")) return self.plan;
+        return self.build;
+    }
+};
+
+const interaction_en: Interaction = .{
+    .build = "Build",
+    .plan = "Plan",
+};
+
+const interaction_zh_cn: Interaction = .{
+    .build = "构建",
+    .plan = "计划",
+};
+
+const interaction_ja: Interaction = .{
+    .build = "ビルド",
+    .plan = "プラン",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -430,6 +463,17 @@ pub fn effortFor(preference: LanguagePreference, system_locale_id: []const u8) E
         .simplified_chinese => effort_zh_cn,
         .japanese => effort_ja,
         .system, .english => effort_en,
+    };
+}
+
+/// Composer / Settings General Build / Plan for the resolved locale.
+/// Callers pass Model `language_preference` + `system_locale_id`; this
+/// file does not read process env.
+pub fn interactionFor(preference: LanguagePreference, system_locale_id: []const u8) Interaction {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => interaction_zh_cn,
+        .japanese => interaction_ja,
+        .system, .english => interaction_en,
     };
 }
 
@@ -649,4 +693,32 @@ test "effortFor english default; zh and ja chrome; english ignores ja LANG" {
     try testing.expectEqualStrings("None", effortFor(.english, "zh_CN.UTF-8").none);
     try testing.expectEqualStrings("Extra high", effortFor(.english, "ja_JP.UTF-8").extra_high);
     try testing.expectEqualStrings("Max", effortFor(.english, "zh_CN.UTF-8").max);
+}
+
+test "interactionFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Build", interactionFor(.english, "ja").build);
+    try testing.expectEqualStrings("Plan", interactionFor(.english, "").plan);
+    try testing.expectEqualStrings("Build", interactionFor(.system, "").build);
+    try testing.expectEqualStrings("Build", interactionFor(.english, "").labelForId("build"));
+    try testing.expectEqualStrings("Plan", interactionFor(.english, "").labelForId("plan"));
+    try testing.expectEqualStrings("Build", interactionFor(.english, "").labelForId(""));
+    try testing.expectEqualStrings("Build", interactionFor(.english, "").labelForId("nope"));
+
+    try testing.expectEqualStrings("构建", interactionFor(.simplified_chinese, "").build);
+    try testing.expectEqualStrings("计划", interactionFor(.simplified_chinese, "").plan);
+    try testing.expectEqualStrings("构建", interactionFor(.simplified_chinese, "").labelForId("build"));
+    try testing.expectEqualStrings("计划", interactionFor(.simplified_chinese, "").labelForId("plan"));
+    try testing.expectEqualStrings("构建", interactionFor(.simplified_chinese, "").labelForId(""));
+    try testing.expectEqualStrings("构建", interactionFor(.simplified_chinese, "").labelForId("nope"));
+
+    try testing.expectEqualStrings("ビルド", interactionFor(.japanese, "").build);
+    try testing.expectEqualStrings("プラン", interactionFor(.japanese, "").plan);
+    try testing.expectEqualStrings("ビルド", interactionFor(.japanese, "").labelForId("build"));
+    try testing.expectEqualStrings("プラン", interactionFor(.japanese, "").labelForId("plan"));
+
+    try testing.expectEqualStrings("构建", interactionFor(.system, "zh_CN.UTF-8").build);
+    try testing.expectEqualStrings("プラン", interactionFor(.system, "ja_JP.UTF-8").plan);
+    try testing.expectEqualStrings("Build", interactionFor(.english, "ja_JP.UTF-8").build);
+    try testing.expectEqualStrings("Plan", interactionFor(.english, "zh_CN.UTF-8").plan);
 }

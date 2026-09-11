@@ -2097,6 +2097,7 @@ pub const Model = struct {
         "settingsChrome",
         "accessChrome",
         "effortChrome",
+        "interactionChrome",
         "sidebarDates",
         "system_locale_id_storage",
         "system_locale_id_len",
@@ -4254,6 +4255,10 @@ pub const Model = struct {
         return i18n.effortFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn interactionChrome(model: *const Model) i18n.Interaction {
+        return i18n.interactionFor(model.language_preference, model.systemLocaleId());
+    }
+
     /// Sidebar New Task list-item. Same resolve path as Settings chrome.
     pub fn new_task_label(model: *const Model) []const u8 {
         return model.sidebarChrome().new_task;
@@ -4651,7 +4656,17 @@ pub const Model = struct {
     }
 
     pub fn interaction_label(model: *const Model) []const u8 {
-        return if (std.mem.eql(u8, model.resolvedInteractionMode(), "plan")) "Plan" else "Build";
+        return model.interactionChrome().labelForId(model.resolvedInteractionMode());
+    }
+
+    /// Settings General Build button. Same `i18n.Interaction.build` as the composer chip.
+    pub fn interaction_build_label(model: *const Model) []const u8 {
+        return model.interactionChrome().build;
+    }
+
+    /// Settings General Plan button. Same `i18n.Interaction.plan` as the composer chip.
+    pub fn interaction_plan_label(model: *const Model) []const u8 {
+        return model.interactionChrome().plan;
     }
 
     pub fn effort_label(model: *const Model) []const u8 {
