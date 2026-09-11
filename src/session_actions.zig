@@ -2,8 +2,14 @@
 //!
 //! `handleNewSession` / `handleSelect` / folder + title edits /
 //! `handleRemoveSession` / `handleEditQueued` live here.
-//! Msg routing stays in `update.zig`. When New Task would be
-//! projectless, an existing unstarted non-legacy projectless draft
+//! Msg routing stays in `update.zig`. First-cut remembered New Task
+//! (runtime-only Waku SessionNavigation.new_task): selecting an
+//! unstarted session stores its id; later New Task reopens that
+//! draft when it still exists and has not started (same select
+//! path as projectless draft reuse). Visiting started sessions does
+//! not clear the slot. Started / removed / missing drafts are
+//! ignored. When New Task would be projectless and nothing valid is
+//! remembered, an existing unstarted non-legacy projectless draft
 //! is selected (Waku `create_projectless_session`; same select
 //! effects as clicking that session) instead of `addSession`.
 //! First-cut daemon
@@ -61,6 +67,11 @@ pub fn handleNewSession(model: *Model, fx: *Effects) void {
     const prior_n = @min(prior_src.len, prior_buf.len);
     @memcpy(prior_buf[0..prior_n], prior_src[0..prior_n]);
     const prior = prior_buf[0..prior_n];
+    if (model.rememberedNewTask()) |draft_id| {
+        model.pushSelectionHistory(draft_id);
+        palette_run.applySessionSelection(model, fx, draft_id);
+        return;
+    }
     if (projectless.wantsProjectlessWorkspace(model, prior)) {
         if (projectless.reusableUnstartedDraftId(model)) |draft_id| {
             model.pushSelectionHistory(draft_id);
@@ -90,6 +101,7 @@ pub fn handleNewSession(model: *Model, fx: *Effects) void {
     if (model.sessionById(id)) |session| session.untitled = true;
     model.pushSelectionHistory(id);
     model.selected = id;
+    model.rememberNewTask(id);
     // Client-built; persist is a no-op until first real content.
     store.persistIfPossible(model, id, fx);
     store.loadDraftIfPossible(model);
@@ -399,6 +411,147 @@ test "handleNewSession does not reuse a bare ~/.waku legacy draft" {
     try std.testing.expect(model.selected != legacy);
     const sidecar = pendingSpawnKey(&fx, model.daemon_projectless_key) orelse return error.MissingCreateAfterBareLegacy;
     try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"createProjectlessWorkspace\"") != null);
+}
+
+test "handleNewSession reopens a remembered unstarted draft instead of creating" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/remembered-new-task", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastProjectPath(project);
+    handleNewSession(&model, &fx);
+    const draft = model.selected;
+    try std.testing.expect(model.sessionById(draft).?.untitled);
+    try std.testing.expectEqual(draft, model.new_task);
+    const count = model.session_count;
+
+    handleNewSession(&model, &fx);
+    try std.testing.expectEqual(draft, model.selected);
+    try std.testing.expectEqual(count, model.session_count);
+    try std.testing.expect(model.composer_active);
+}
+
+test "handleNewSession keeps remembered draft after visiting a started session" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/remembered-after-history", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastProjectPath(project);
+    const started = model.addSession("started", .fx);
+    if (model.sessionById(started)) |session| session.has_started = true;
+    model.selected = started;
+    const draft = model.addSession("untitled", .fx);
+    if (model.sessionById(draft)) |session| session.untitled = true;
+    handleSelect(&model, &fx, draft);
+    try std.testing.expectEqual(draft, model.new_task);
+    handleSelect(&model, &fx, started);
+    try std.testing.expectEqual(started, model.selected);
+    try std.testing.expectEqual(draft, model.new_task);
+    const count = model.session_count;
+
+    handleNewSession(&model, &fx);
+    try std.testing.expectEqual(draft, model.selected);
+    try std.testing.expectEqual(count, model.session_count);
+}
+
+test "handleNewSession does not reopen a started remembered draft" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/remembered-started", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastProjectPath(project);
+    handleNewSession(&model, &fx);
+    const draft = model.selected;
+    _ = model.appendTurn(draft, .user, "started");
+    try std.testing.expectEqual(@as(u32, 0), model.new_task);
+    const count = model.session_count;
+
+    handleNewSession(&model, &fx);
+    try std.testing.expectEqual(count + 1, model.session_count);
+    try std.testing.expect(model.selected != draft);
+}
+
+test "handleNewSession does not reopen a removed remembered draft" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/remembered-removed", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastProjectPath(project);
+    handleNewSession(&model, &fx);
+    const draft = model.selected;
+    try std.testing.expectEqual(draft, model.new_task);
+    model.dropSession(draft);
+    try std.testing.expectEqual(@as(u32, 0), model.new_task);
+    const count = model.session_count;
+
+    handleNewSession(&model, &fx);
+    try std.testing.expectEqual(count + 1, model.session_count);
+    try std.testing.expect(model.selected != draft);
+}
+
+test "handleNewSession reopening remembered draft restores right-panel stash" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/remembered-stash", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastProjectPath(project);
+    defer right_panel_session.freeStores(&model);
+
+    const started = model.addSession("started", .fx);
+    if (model.sessionById(started)) |session| session.has_started = true;
+    model.selected = started;
+    handleNewSession(&model, &fx);
+    const draft = model.selected;
+    model.showRightPanel();
+    model.right_panel_tab = .diff;
+    handleSelect(&model, &fx, started);
+    try std.testing.expect(!model.right_panel_open);
+    try std.testing.expectEqual(right_panel.Tab.files, model.right_panel_tab);
+
+    handleNewSession(&model, &fx);
+    try std.testing.expectEqual(draft, model.selected);
+    try std.testing.expect(model.right_panel_open);
+    try std.testing.expectEqual(right_panel.Tab.diff, model.right_panel_tab);
 }
 
 test "handleSelect with a daemon address and legacy path issues migrateProjectlessWorkspace" {
