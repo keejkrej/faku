@@ -23975,6 +23975,130 @@ test "composer and Settings General effort labels follow Appearance language" {
     try testing.expectEqualStrings("最大", model.settings_effort_label());
 }
 
+test "composer and Settings General Build/Plan labels follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("build", model.resolvedInteractionMode());
+    try testing.expectEqualStrings("Build", model.interaction_label());
+    try testing.expectEqualStrings("Build", model.interaction_build_label());
+    try testing.expectEqualStrings("Plan", model.interaction_plan_label());
+    try testing.expect(model.interaction_build());
+    try testing.expect(!model.interaction_plan());
+
+    var tree = try buildTree(arena, &model);
+    const en_build = try expectButtonMsg(tree, "Build", .cycle_interaction);
+    try testing.expectEqual(Msg.cycle_interaction, tree.msgForPointer(en_build.id, .up).?);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("构建", model.interaction_label());
+    try testing.expectEqualStrings("构建", model.interaction_build_label());
+    try testing.expectEqualStrings("计划", model.interaction_plan_label());
+    try testing.expect(model.interaction_build());
+    try testing.expect(!model.interaction_plan());
+    try testing.expectEqualStrings("build", model.resolvedInteractionMode());
+
+    tree = try buildTree(arena, &model);
+    const zh_chip = try expectButtonMsg(tree, "构建", .cycle_interaction);
+    try testing.expect(findByText(tree.root, .button, "Build") == null);
+    try testing.expect(findByText(tree.root, .button, "Plan") == null);
+    main.update(&model, tree.msgForPointer(zh_chip.id, .up).?, &fx);
+    try testing.expectEqualStrings("plan", model.resolvedInteractionMode());
+    try testing.expectEqualStrings("plan", model.session_store[0].interactionMode());
+    try testing.expectEqualStrings("plan", model.lastInteractionMode());
+    try testing.expectEqualStrings("计划", model.interaction_label());
+    try testing.expect(model.interaction_plan());
+    try testing.expect(!model.interaction_build());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "计划", .cycle_interaction);
+    try testing.expect(findByText(tree.root, .button, "Build") == null);
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_open);
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "计划", .settings_interaction_plan)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "构建", .settings_interaction_build)).state.selected);
+    try testing.expect(findPressableContaining(tree.root, "Build") == null);
+    try testing.expect(findPressableContaining(tree.root, "Plan") == null);
+
+    main.update(&model, .settings_interaction_build, &fx);
+    try testing.expectEqualStrings("build", model.lastInteractionMode());
+    try testing.expectEqualStrings("plan", model.session_store[0].interactionMode());
+    try testing.expect(model.interaction_build());
+    try testing.expect(!model.interaction_plan());
+    try testing.expectEqualStrings("计划", model.interaction_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "构建", .settings_interaction_build)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "计划", .settings_interaction_plan)).state.selected);
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(!model.settings_open);
+    try testing.expectEqualStrings("计划", model.interaction_label());
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("プラン", model.interaction_label());
+    try testing.expectEqualStrings("ビルド", model.interaction_build_label());
+    try testing.expectEqualStrings("プラン", model.interaction_plan_label());
+    try testing.expect(model.interaction_build());
+    try testing.expect(!model.interaction_plan());
+    try testing.expectEqualStrings("plan", model.resolvedInteractionMode());
+
+    tree = try buildTree(arena, &model);
+    const ja_chip = try expectButtonMsg(tree, "プラン", .cycle_interaction);
+    try testing.expect(findByText(tree.root, .button, "计划") == null);
+    try testing.expect(findByText(tree.root, .button, "Build") == null);
+    main.update(&model, tree.msgForPointer(ja_chip.id, .up).?, &fx);
+    try testing.expectEqualStrings("build", model.resolvedInteractionMode());
+    try testing.expectEqualStrings("ビルド", model.interaction_label());
+    try testing.expect(model.interaction_build());
+    try testing.expect(!model.interaction_plan());
+
+    main.update(&model, .toggle_settings, &fx);
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "ビルド", .settings_interaction_build)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "プラン", .settings_interaction_plan)).state.selected);
+    try testing.expect(findPressableContaining(tree.root, "Build") == null);
+    try testing.expect(findPressableContaining(tree.root, "Plan") == null);
+    main.update(&model, .settings_interaction_plan, &fx);
+    try testing.expectEqualStrings("plan", model.lastInteractionMode());
+    try testing.expectEqualStrings("build", model.session_store[0].interactionMode());
+    try testing.expect(model.interaction_plan());
+    try testing.expect(!model.interaction_build());
+    try testing.expectEqualStrings("ビルド", model.interaction_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "プラン", .settings_interaction_plan)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "ビルド", .settings_interaction_build)).state.selected);
+    main.update(&model, .toggle_settings, &fx);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Build", model.interaction_label());
+    try testing.expectEqualStrings("Build", model.interaction_build_label());
+    try testing.expectEqualStrings("Plan", model.interaction_plan_label());
+    try testing.expect(model.interaction_plan());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Build", .cycle_interaction);
+    try testing.expect(findByText(tree.root, .button, "ビルド") == null);
+    try testing.expect(findByText(tree.root, .button, "プラン") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("构建", model.interaction_label());
+    try testing.expectEqualStrings("构建", model.interaction_build_label());
+    try testing.expectEqualStrings("计划", model.interaction_plan_label());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("ビルド", model.interaction_label());
+    try testing.expectEqualStrings("ビルド", model.interaction_build_label());
+    try testing.expectEqualStrings("プラン", model.interaction_plan_label());
+}
+
 test "DateBucket.title english default; zh and ja follow datesFor" {
     try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
     try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());

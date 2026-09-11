@@ -805,8 +805,8 @@
               </row>
               <text>Interaction</text>
               <row gap="8">
-                <button variant="ghost" size="sm" selected="{interaction_build}" on-press="settings_interaction_build">Build</button>
-                <button variant="ghost" size="sm" selected="{interaction_plan}" on-press="settings_interaction_plan">Plan</button>
+                <button variant="ghost" size="sm" selected="{interaction_build}" on-press="settings_interaction_build">{interaction_build_label}</button>
+                <button variant="ghost" size="sm" selected="{interaction_plan}" on-press="settings_interaction_plan">{interaction_plan_label}</button>
               </row>
               <text>Effort</text>
               <stack>

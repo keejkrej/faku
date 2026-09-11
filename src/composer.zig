@@ -5,9 +5,11 @@
 //! and image-drop path checks live here. `accessLabel` / `access_chip_options`
 //! stay English; composer chip and Settings General chrome use `i18n.Access`.
 //! `effortLabel` / `effort_chip_options` stay English; composer chip and
-//! Settings General effort chrome use `i18n.Effort`. Selection uses
-//! `accessChipId` / `effortChipId`, not English label text. Model chip
-//! cycling and persist stay in `main.zig`.
+//! Settings General effort chrome use `i18n.Effort`. Composer interaction
+//! chip and Settings General Build / Plan use `i18n.Interaction`; wire
+//! ids stay `build` / `plan`. Selection uses `accessChipId` /
+//! `effortChipId` and interaction `build` / `plan` ids, not English
+//! label text. Model chip cycling and persist stay in `main.zig`.
 
 const std = @import("std");
 
