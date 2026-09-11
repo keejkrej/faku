@@ -4,8 +4,10 @@
 //! caret-at-end `@` mention parse/insert, mention path score / labels,
 //! and image-drop path checks live here. `accessLabel` / `access_chip_options`
 //! stay English; composer chip and Settings General chrome use `i18n.Access`.
-//! Selection uses `accessChipId`, not English label text. Model chip cycling
-//! and persist stay in `main.zig`.
+//! `effortLabel` / `effort_chip_options` stay English; composer chip and
+//! Settings General effort chrome use `i18n.Effort`. Selection uses
+//! `accessChipId` / `effortChipId`, not English label text. Model chip
+//! cycling and persist stay in `main.zig`.
 
 const std = @import("std");
 
@@ -75,6 +77,21 @@ pub fn nextReasoningEffort(effort: []const u8) []const u8 {
     return "auto";
 }
 
+/// Canonical chip id for selection. Empty / unknown count as auto.
+/// Display labels go through `i18n.Effort`; do not compare English chrome text.
+pub fn effortChipId(effort: []const u8) []const u8 {
+    if (std.mem.eql(u8, effort, "none")) return "none";
+    if (std.mem.eql(u8, effort, "minimal")) return "minimal";
+    if (std.mem.eql(u8, effort, "low")) return "low";
+    if (std.mem.eql(u8, effort, "medium")) return "medium";
+    if (std.mem.eql(u8, effort, "high")) return "high";
+    if (std.mem.eql(u8, effort, "xhigh")) return "xhigh";
+    if (std.mem.eql(u8, effort, "max")) return "max";
+    return "auto";
+}
+
+/// English chrome fallback. Localized composer / Settings General
+/// labels use `i18n.effortFor` + `effortChipId`.
 pub fn effortLabel(effort: []const u8) []const u8 {
     if (std.mem.eql(u8, effort, "none")) return "None";
     if (std.mem.eql(u8, effort, "minimal")) return "Minimal";
@@ -402,4 +419,27 @@ test "accessChipId classifies aliases; accessLabel stays English" {
     try std.testing.expectEqualStrings("Full access", accessLabel("fullAccess"));
     try std.testing.expectEqualStrings("Full access", accessLabel("yolo"));
     try std.testing.expectEqualStrings("Full access", accessLabel(""));
+}
+
+test "effortChipId classifies empty unknown as auto; effortLabel stays English" {
+    try std.testing.expectEqualStrings("auto", effortChipId("auto"));
+    try std.testing.expectEqualStrings("none", effortChipId("none"));
+    try std.testing.expectEqualStrings("minimal", effortChipId("minimal"));
+    try std.testing.expectEqualStrings("low", effortChipId("low"));
+    try std.testing.expectEqualStrings("medium", effortChipId("medium"));
+    try std.testing.expectEqualStrings("high", effortChipId("high"));
+    try std.testing.expectEqualStrings("xhigh", effortChipId("xhigh"));
+    try std.testing.expectEqualStrings("max", effortChipId("max"));
+    try std.testing.expectEqualStrings("auto", effortChipId(""));
+    try std.testing.expectEqualStrings("auto", effortChipId("nope"));
+    try std.testing.expectEqualStrings("Auto", effortLabel("auto"));
+    try std.testing.expectEqualStrings("None", effortLabel("none"));
+    try std.testing.expectEqualStrings("Minimal", effortLabel("minimal"));
+    try std.testing.expectEqualStrings("Low", effortLabel("low"));
+    try std.testing.expectEqualStrings("Medium", effortLabel("medium"));
+    try std.testing.expectEqualStrings("High", effortLabel("high"));
+    try std.testing.expectEqualStrings("Extra high", effortLabel("xhigh"));
+    try std.testing.expectEqualStrings("Max", effortLabel("max"));
+    try std.testing.expectEqualStrings("Auto", effortLabel(""));
+    try std.testing.expectEqualStrings("Auto", effortLabel("nope"));
 }

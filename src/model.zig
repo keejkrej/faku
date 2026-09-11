@@ -76,7 +76,7 @@ const skillQuery = composer.skillQuery;
 const replaceMentionToken = composer.replaceMentionToken;
 const replaceSkillToken = composer.replaceSkillToken;
 const accessChipId = composer.accessChipId;
-const effortLabel = composer.effortLabel;
+const effortChipId = composer.effortChipId;
 const nextAccessMode = composer.nextAccessMode;
 const nextReasoningEffort = composer.nextReasoningEffort;
 const isDocumentedReasoningEffort = composer.isDocumentedReasoningEffort;
@@ -2096,6 +2096,7 @@ pub const Model = struct {
         "setLanguagePreference",
         "settingsChrome",
         "accessChrome",
+        "effortChrome",
         "sidebarDates",
         "system_locale_id_storage",
         "system_locale_id_len",
@@ -3558,14 +3559,15 @@ pub const Model = struct {
     }
 
     pub fn effort_picker_rows(model: *const Model, arena: std.mem.Allocator) []const ChipPickerRow {
-        const current = effortLabel(model.resolvedReasoningEffort());
+        const current = effortChipId(model.resolvedReasoningEffort());
+        const labels = model.effortChrome();
         const out = arena.alloc(ChipPickerRow, effort_chip_options.len) catch return &.{};
         for (effort_chip_options, 0..) |opt, index| {
             out[index] = .{
                 .row_id = @intCast(index + 1),
                 .id = opt.id,
-                .label = opt.label,
-                .selected = std.mem.eql(u8, current, opt.label),
+                .label = labels.labelForId(opt.id),
+                .selected = std.mem.eql(u8, current, opt.id),
             };
         }
         return out;
@@ -3593,14 +3595,15 @@ pub const Model = struct {
 
     /// Settings menu checkmark. Uses lastReasoningEffort(), not resolvedReasoningEffort().
     pub fn settings_effort_picker_rows(model: *const Model, arena: std.mem.Allocator) []const ChipPickerRow {
-        const current = effortLabel(model.lastReasoningEffort());
+        const current = effortChipId(model.lastReasoningEffort());
+        const labels = model.effortChrome();
         const out = arena.alloc(ChipPickerRow, effort_chip_options.len) catch return &.{};
         for (effort_chip_options, 0..) |opt, index| {
             out[index] = .{
                 .row_id = @intCast(index + 1),
                 .id = opt.id,
-                .label = opt.label,
-                .selected = std.mem.eql(u8, current, opt.label),
+                .label = labels.labelForId(opt.id),
+                .selected = std.mem.eql(u8, current, opt.id),
             };
         }
         return out;
@@ -4138,7 +4141,7 @@ pub const Model = struct {
 
     /// Settings select label. Uses lastReasoningEffort(), not resolvedReasoningEffort().
     pub fn settings_effort_label(model: *const Model) []const u8 {
-        return effortLabel(model.lastReasoningEffort());
+        return model.effortChrome().labelForId(effortChipId(model.lastReasoningEffort()));
     }
 
     pub fn settings_page_general(model: *const Model) bool {
@@ -4245,6 +4248,10 @@ pub const Model = struct {
 
     fn accessChrome(model: *const Model) i18n.Access {
         return i18n.accessFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn effortChrome(model: *const Model) i18n.Effort {
+        return i18n.effortFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Sidebar New Task list-item. Same resolve path as Settings chrome.
@@ -4648,40 +4655,40 @@ pub const Model = struct {
     }
 
     pub fn effort_label(model: *const Model) []const u8 {
-        return effortLabel(model.resolvedReasoningEffort());
+        return model.effortChrome().labelForId(effortChipId(model.resolvedReasoningEffort()));
     }
 
-    /// Composer menu checkmark. Uses resolvedReasoningEffort(), not lastReasoningEffort().
+    /// Composer menu checkmark. Uses resolvedReasoningEffort() chip id, not English labels.
     pub fn effort_selected_auto(model: *const Model) bool {
-        return std.mem.eql(u8, effortLabel(model.resolvedReasoningEffort()), "Auto");
+        return std.mem.eql(u8, effortChipId(model.resolvedReasoningEffort()), "auto");
     }
 
     pub fn effort_selected_none(model: *const Model) bool {
-        return std.mem.eql(u8, effortLabel(model.resolvedReasoningEffort()), "None");
+        return std.mem.eql(u8, effortChipId(model.resolvedReasoningEffort()), "none");
     }
 
     pub fn effort_selected_minimal(model: *const Model) bool {
-        return std.mem.eql(u8, effortLabel(model.resolvedReasoningEffort()), "Minimal");
+        return std.mem.eql(u8, effortChipId(model.resolvedReasoningEffort()), "minimal");
     }
 
     pub fn effort_selected_low(model: *const Model) bool {
-        return std.mem.eql(u8, effortLabel(model.resolvedReasoningEffort()), "Low");
+        return std.mem.eql(u8, effortChipId(model.resolvedReasoningEffort()), "low");
     }
 
     pub fn effort_selected_medium(model: *const Model) bool {
-        return std.mem.eql(u8, effortLabel(model.resolvedReasoningEffort()), "Medium");
+        return std.mem.eql(u8, effortChipId(model.resolvedReasoningEffort()), "medium");
     }
 
     pub fn effort_selected_high(model: *const Model) bool {
-        return std.mem.eql(u8, effortLabel(model.resolvedReasoningEffort()), "High");
+        return std.mem.eql(u8, effortChipId(model.resolvedReasoningEffort()), "high");
     }
 
     pub fn effort_selected_xhigh(model: *const Model) bool {
-        return std.mem.eql(u8, effortLabel(model.resolvedReasoningEffort()), "Extra high");
+        return std.mem.eql(u8, effortChipId(model.resolvedReasoningEffort()), "xhigh");
     }
 
     pub fn effort_selected_max(model: *const Model) bool {
-        return std.mem.eql(u8, effortLabel(model.resolvedReasoningEffort()), "Max");
+        return std.mem.eql(u8, effortChipId(model.resolvedReasoningEffort()), "max");
     }
 
     pub fn model_label(model: *const Model) []const u8 {

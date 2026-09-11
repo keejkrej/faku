@@ -6,12 +6,15 @@
 //! date-bucket titles, first-cut sidebar New Task / Search / folder
 //! chrome, session context-menu Rename / Remove, the palette
 //! Collapse all folders command (same `Sidebar.collapse_all_folders`
-//! string as the sidebar button), and composer / Settings General
-//! Ask / Auto / Full access (same `Access` strings) live here so
-//! `main.zig` does not grow. Other palette commands, effort chips,
-//! and Build/Plan stay English. Wire `access_mode` ids stay
-//! `ask` / `auto` / `fullAccess`. Not rust_i18n, not YAML catalogs,
-//! not full-app translation, not tz-aware grouping.
+//! string as the sidebar button), composer / Settings General
+//! Ask / Auto / Full access (same `Access` strings), and first-cut
+//! composer effort chip / Settings General effort labels (same
+//! `Effort` strings) live here so `main.zig` does not grow. Other
+//! palette commands and Build/Plan stay English. Wire `access_mode`
+//! ids stay `ask` / `auto` / `fullAccess`. Wire `reasoning_effort` ids
+//! stay `auto` / `none` / `minimal` / `low` / `medium` / `high` /
+//! `xhigh` / `max`. Not rust_i18n, not YAML catalogs, not full-app
+//! translation, not tz-aware grouping.
 
 const std = @import("std");
 
@@ -181,7 +184,9 @@ const dates_ja: Dates = .{
 /// `expand_folder` / `collapse_folder` (distinct from
 /// `collapse_all_folders`). Palette Collapse all folders reuses
 /// `collapse_all_folders`. Composer Ask / Auto / Full access live in
-/// `Access` (same resolve path). Other palette commands stay English.
+/// `Access` (same resolve path). Composer effort chip / Settings
+/// General effort labels live in `Effort` (same resolve path). Other
+/// palette commands and Build/Plan stay English.
 pub const Sidebar = struct {
     new_task: []const u8,
     search: []const u8,
@@ -275,6 +280,68 @@ const access_ja: Access = .{
     .full_access = "フルアクセス",
 };
 
+/// Composer effort chip, effort picker rows, and Settings General effort
+/// select. Same resolve path as Access. Wire `reasoning_effort` ids stay
+/// `auto` / `none` / `minimal` / `low` / `medium` / `high` / `xhigh` /
+/// `max`; only the chrome label translates. English matches
+/// `composer.effortLabel` / `effort_chip_options`.
+pub const Effort = struct {
+    auto: []const u8,
+    none: []const u8,
+    minimal: []const u8,
+    low: []const u8,
+    medium: []const u8,
+    high: []const u8,
+    extra_high: []const u8,
+    max: []const u8,
+
+    /// `id` is a chip option id (`auto` / `none` / `minimal` / `low` /
+    /// `medium` / `high` / `xhigh` / `max`). Unknown ids fall through to Auto.
+    pub fn labelForId(self: Effort, id: []const u8) []const u8 {
+        if (std.mem.eql(u8, id, "none")) return self.none;
+        if (std.mem.eql(u8, id, "minimal")) return self.minimal;
+        if (std.mem.eql(u8, id, "low")) return self.low;
+        if (std.mem.eql(u8, id, "medium")) return self.medium;
+        if (std.mem.eql(u8, id, "high")) return self.high;
+        if (std.mem.eql(u8, id, "xhigh")) return self.extra_high;
+        if (std.mem.eql(u8, id, "max")) return self.max;
+        return self.auto;
+    }
+};
+
+const effort_en: Effort = .{
+    .auto = "Auto",
+    .none = "None",
+    .minimal = "Minimal",
+    .low = "Low",
+    .medium = "Medium",
+    .high = "High",
+    .extra_high = "Extra high",
+    .max = "Max",
+};
+
+const effort_zh_cn: Effort = .{
+    .auto = "自动",
+    .none = "无",
+    .minimal = "最低",
+    .low = "低",
+    .medium = "中",
+    .high = "高",
+    .extra_high = "极高",
+    .max = "最大",
+};
+
+const effort_ja: Effort = .{
+    .auto = "自動",
+    .none = "なし",
+    .minimal = "最小",
+    .low = "低",
+    .medium = "中",
+    .high = "高",
+    .extra_high = "非常に高い",
+    .max = "最大",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -352,6 +419,17 @@ pub fn accessFor(preference: LanguagePreference, system_locale_id: []const u8) A
         .simplified_chinese => access_zh_cn,
         .japanese => access_ja,
         .system, .english => access_en,
+    };
+}
+
+/// Composer / Settings General effort chrome for the resolved locale.
+/// Callers pass Model `language_preference` + `system_locale_id`; this
+/// file does not read process env.
+pub fn effortFor(preference: LanguagePreference, system_locale_id: []const u8) Effort {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => effort_zh_cn,
+        .japanese => effort_ja,
+        .system, .english => effort_en,
     };
 }
 
@@ -517,4 +595,58 @@ test "accessFor english default; zh and ja chrome; english ignores ja LANG" {
     try testing.expectEqualStrings("Ask", accessFor(.english, "ja_JP.UTF-8").ask);
     try testing.expectEqualStrings("Auto", accessFor(.english, "zh_CN.UTF-8").auto);
     try testing.expectEqualStrings("Full access", accessFor(.english, "ja_JP.UTF-8").full_access);
+}
+
+test "effortFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Auto", effortFor(.english, "ja").auto);
+    try testing.expectEqualStrings("None", effortFor(.english, "").none);
+    try testing.expectEqualStrings("Minimal", effortFor(.english, "").minimal);
+    try testing.expectEqualStrings("Low", effortFor(.english, "").low);
+    try testing.expectEqualStrings("Medium", effortFor(.english, "").medium);
+    try testing.expectEqualStrings("High", effortFor(.english, "").high);
+    try testing.expectEqualStrings("Extra high", effortFor(.english, "").extra_high);
+    try testing.expectEqualStrings("Max", effortFor(.english, "").max);
+    try testing.expectEqualStrings("Auto", effortFor(.system, "").auto);
+    try testing.expectEqualStrings("Auto", effortFor(.english, "").labelForId("auto"));
+    try testing.expectEqualStrings("None", effortFor(.english, "").labelForId("none"));
+    try testing.expectEqualStrings("Minimal", effortFor(.english, "").labelForId("minimal"));
+    try testing.expectEqualStrings("Low", effortFor(.english, "").labelForId("low"));
+    try testing.expectEqualStrings("Medium", effortFor(.english, "").labelForId("medium"));
+    try testing.expectEqualStrings("High", effortFor(.english, "").labelForId("high"));
+    try testing.expectEqualStrings("Extra high", effortFor(.english, "").labelForId("xhigh"));
+    try testing.expectEqualStrings("Max", effortFor(.english, "").labelForId("max"));
+    try testing.expectEqualStrings("Auto", effortFor(.english, "").labelForId(""));
+    try testing.expectEqualStrings("Auto", effortFor(.english, "").labelForId("nope"));
+
+    try testing.expectEqualStrings("自动", effortFor(.simplified_chinese, "").auto);
+    try testing.expectEqualStrings("无", effortFor(.simplified_chinese, "").none);
+    try testing.expectEqualStrings("最低", effortFor(.simplified_chinese, "").minimal);
+    try testing.expectEqualStrings("低", effortFor(.simplified_chinese, "").low);
+    try testing.expectEqualStrings("中", effortFor(.simplified_chinese, "").medium);
+    try testing.expectEqualStrings("高", effortFor(.simplified_chinese, "").high);
+    try testing.expectEqualStrings("极高", effortFor(.simplified_chinese, "").extra_high);
+    try testing.expectEqualStrings("最大", effortFor(.simplified_chinese, "").max);
+    try testing.expectEqualStrings("自动", effortFor(.simplified_chinese, "").labelForId("auto"));
+    try testing.expectEqualStrings("无", effortFor(.simplified_chinese, "").labelForId("none"));
+    try testing.expectEqualStrings("极高", effortFor(.simplified_chinese, "").labelForId("xhigh"));
+    try testing.expectEqualStrings("最大", effortFor(.simplified_chinese, "").labelForId("max"));
+
+    try testing.expectEqualStrings("自動", effortFor(.japanese, "").auto);
+    try testing.expectEqualStrings("なし", effortFor(.japanese, "").none);
+    try testing.expectEqualStrings("最小", effortFor(.japanese, "").minimal);
+    try testing.expectEqualStrings("低", effortFor(.japanese, "").low);
+    try testing.expectEqualStrings("中", effortFor(.japanese, "").medium);
+    try testing.expectEqualStrings("高", effortFor(.japanese, "").high);
+    try testing.expectEqualStrings("非常に高い", effortFor(.japanese, "").extra_high);
+    try testing.expectEqualStrings("最大", effortFor(.japanese, "").max);
+    try testing.expectEqualStrings("自動", effortFor(.japanese, "").labelForId("auto"));
+    try testing.expectEqualStrings("非常に高い", effortFor(.japanese, "").labelForId("xhigh"));
+
+    try testing.expectEqualStrings("自动", effortFor(.system, "zh_CN.UTF-8").auto);
+    try testing.expectEqualStrings("なし", effortFor(.system, "ja_JP.UTF-8").none);
+    try testing.expectEqualStrings("Auto", effortFor(.english, "ja_JP.UTF-8").auto);
+    try testing.expectEqualStrings("None", effortFor(.english, "zh_CN.UTF-8").none);
+    try testing.expectEqualStrings("Extra high", effortFor(.english, "ja_JP.UTF-8").extra_high);
+    try testing.expectEqualStrings("Max", effortFor(.english, "zh_CN.UTF-8").max);
 }
