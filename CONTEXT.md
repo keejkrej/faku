@@ -64,7 +64,15 @@ demo rows and no transcripts. Selecting a session hydrates its turns
 and `queued_messages` from the same file. Missing or corrupt
 `sessions.json` keeps the two first-run demo sessions and is not
 overwritten until a successful load (`task_state_loaded`). Save is
-merge-only; `RemoveSession` is the only delete.
+merge-only; `RemoveSession` is the only delete. First-cut remove
+destination matches Waku `taskRemovalDestination` on `project_path`
+(Faku has no Project UUID catalog): when the removed row was
+selected, remaining same-path newest (`updated_at` desc, higher id
+on a tie) is selected; else projectless New Task (reuse an unstarted
+non-legacy projectless draft or create like New Task); else an
+ordinary New Task draft with that path; else `selected = 0`.
+Non-selected remove leaves `selected`. `sessions.json` `selected`
+follows that choice after the drop (not catalog `[0]`).
 
 Composer drafts are a sibling `drafts.json`. Keys match Waku:
 `newSession` or `newSession{project_path}` for untitled drafts,
@@ -1369,7 +1377,11 @@ Honest gaps this cut does not implement:
   visiting started sessions does not clear it; started, removed, or
   missing drafts are ignored, then projectless reuse or create as
   today). Not persisted on `sessions.json`. Selection history Back /
-  Forward stays a separate stack. Not Waku Uuid.
+  Forward stays a separate stack. Not Waku Uuid. First-cut remove
+  destination ships (same-path newest remaining, else projectless New
+  Task, else ordinary New Task for that `project_path`, else 0;
+  non-selected remove unchanged). Not Waku Project UUID.
+
 - Real Computer Use: Native Screen Recording / Accessibility APIs,
   macOS helper, permission probe, always-allowed app picker (Settings
   Computer Use first-cut is nav + Unavailable / Off / empty apps)
@@ -1748,7 +1760,10 @@ Honest gaps this cut does not implement:
   remembered unstarted draft when that id is still valid (runtime-only
   `new_task`; visiting started sessions does not clear it). Else New
   Task reuses an unstarted non-legacy projectless draft instead of
-  always creating. Amend/force and
+  always creating. First-cut remove destination on the selected
+  session follows same-path newest remaining, else that same
+  projectless New Task path, else an ordinary New Task draft for
+  that `project_path`, else `selected = 0`. Amend/force and
   remote `--track` stay local (not daemon WorkspaceOperation variants)
 - Long-lived ACP or daemon socket in the update loop
 - fx ACP still rejects image blocks (`fx ask --image`). First-cut

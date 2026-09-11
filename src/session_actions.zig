@@ -12,6 +12,13 @@
 //! remembered, an existing unstarted non-legacy projectless draft
 //! is selected (Waku `create_projectless_session`; same select
 //! effects as clicking that session) instead of `addSession`.
+//! First-cut remove destination (Waku `taskRemovalDestination` on
+//! `project_path`): when the removed row was selected, remaining
+//! same-path newest (`updated_at` desc, higher id on a tie) is
+//! selected via `pushSelectionHistory` + equivalent refresh; else
+//! projectless New Task (reuse `reusableUnstartedDraftId` or create
+//! like `handleNewSession`); else ordinary New Task draft with that
+//! path; else `selected = 0`. Non-selected remove leaves `selected`.
 //! First-cut daemon
 //! `WorkspaceOperation::CreateProjectlessWorkspace` prefers hello +
 //! createProjectlessWorkspace on actual create when there is no
@@ -52,6 +59,7 @@ const transcript_images = @import("transcript_images.zig");
 const transcript_details = @import("transcript_details.zig");
 const session_fork = @import("fork.zig");
 const pick_folder = @import("pick_folder.zig");
+const usage_meter = @import("usage_meter.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -215,7 +223,21 @@ pub fn handleRemoveSession(model: *Model, fx: *Effects, id: u32) void {
     right_panel.clearFilePreview(model);
     environment_summary.clearSettledIfSession(model, id);
     store.cancelDaemonDeleteSessionRefs(model, fx);
+    const was_selected = model.selected == id;
+    var path_buf: [max_project_path]u8 = undefined;
+    var path_len: usize = 0;
+    if (was_selected) {
+        if (model.sessionByIdConst(id)) |session| {
+            const path = session.projectPath();
+            path_len = @min(path.len, path_buf.len);
+            @memcpy(path_buf[0..path_len], path[0..path_len]);
+        }
+    }
     store.removeIfPossible(model, id, fx);
+    if (was_selected and model.sessionById(id) == null) {
+        applyRemovalDestination(model, fx, path_buf[0..path_len]);
+        store.persistSelectedIfPossible(model);
+    }
     store.loadDraftIfPossible(model);
     attach_helpers.refreshAttachPreview(model, fx);
     git_branch.refresh(model, fx);
@@ -240,6 +262,59 @@ pub fn handleRemoveSession(model: *Model, fx: *Effects, id: u32) void {
     if (model.daemon_projectless_session == id) projectless.cancel(model, fx);
     if (model.daemon_migrate_projectless_session == id) projectless.cancelMigrate(model, fx);
     model.maybeEnsureSkillsScanned(fx);
+}
+
+/// After dropping the selected session: remaining same-path newest
+/// is already `selected` from `dropSession` — push history + hydrate.
+/// Else projectless New Task (reuse draft or create). Else ordinary
+/// New Task with `project_path`. Else leave `selected = 0`.
+fn applyRemovalDestination(model: *Model, fx: *Effects, project_path: []const u8) void {
+    if (model.selected != 0) {
+        refreshRemainingDestination(model, fx, model.selected);
+        return;
+    }
+    if (projectless.isProjectlessPath(model.homeDir(), project_path)) {
+        if (projectless.reusableUnstartedDraftId(model)) |draft_id| {
+            model.pushSelectionHistory(draft_id);
+            palette_run.applySessionSelection(model, fx, draft_id);
+            return;
+        }
+        createUntitledDraft(model, fx, "");
+        projectless.beginForNewSession(model, fx, project_path);
+        return;
+    }
+    if (project_path.len > 0) {
+        createUntitledDraft(model, fx, project_path);
+    }
+}
+
+fn refreshRemainingDestination(model: *Model, fx: *Effects, id: u32) void {
+    model.pushSelectionHistory(id);
+    model.rememberNewTask(id);
+    store.hydrateIfPossible(model, id);
+    store.maybeHydrateDaemonSession(model, fx, id);
+    usage_meter.onSessionChange(model, fx);
+    projectless.beginMigrateForSelected(model, fx);
+    model.pinTranscriptToLatest();
+    model.composer_active = true;
+}
+
+fn createUntitledDraft(model: *Model, fx: *Effects, project_path: []const u8) void {
+    const id = model.addSession("untitled", .fx);
+    if (id == 0) return;
+    if (model.sessionById(id)) |session| {
+        session.untitled = true;
+        if (project_path.len > 0) {
+            session.setProjectPath(project_path);
+            model.setLastProjectPath(project_path);
+        }
+    }
+    model.pushSelectionHistory(id);
+    model.selected = id;
+    model.rememberNewTask(id);
+    store.persistIfPossible(model, id, fx);
+    store.loadDraftIfPossible(model);
+    projectless.cancelMigrate(model, fx);
 }
 
 pub fn handleEditQueued(model: *Model, fx: *Effects, id: u32) void {
@@ -574,4 +649,242 @@ test "handleSelect with a daemon address and legacy path issues migrateProjectle
     try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"migrateProjectlessWorkspace\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"path\":\"/home/me/.waku/2026-09-06/legacy-chat\"") != null);
     try std.testing.expectEqual(legacy, model.selected);
+}
+
+fn bindRemoveStore(model: *Model, tmp: *const std.testing.TmpDir, dir_buf: []u8, name: []const u8) !void {
+    const dir = try std.fmt.bufPrint(dir_buf, ".zig-cache/tmp/{s}/{s}", .{ tmp.sub_path[0..], name });
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = std.testing.io;
+}
+
+test "dropSession same-project newest wins over catalog order" {
+    var model = Model{};
+    const other = model.addSession("other project", .fx);
+    const older = model.addSession("older same", .fx);
+    const newer = model.addSession("newer same", .fx);
+    if (model.sessionById(other)) |session| {
+        session.setProjectPath("/tmp/other");
+        session.updated_at = 30;
+    }
+    if (model.sessionById(older)) |session| {
+        session.setProjectPath("/tmp/same");
+        session.updated_at = 10;
+    }
+    if (model.sessionById(newer)) |session| {
+        session.setProjectPath("/tmp/same");
+        session.updated_at = 20;
+    }
+    model.selected = older;
+    model.dropSession(older);
+    try std.testing.expectEqual(newer, model.selected);
+    try std.testing.expect(model.sessionById(older) == null);
+    try std.testing.expect(model.sessionById(other) != null);
+}
+
+test "dropSession same-project tie-break prefers higher id" {
+    var model = Model{};
+    const first = model.addSession("first", .fx);
+    const second = model.addSession("second", .fx);
+    if (model.sessionById(first)) |session| {
+        session.setProjectPath("/tmp/same");
+        session.updated_at = 5;
+    }
+    if (model.sessionById(second)) |session| {
+        session.setProjectPath("/tmp/same");
+        session.updated_at = 5;
+    }
+    model.selected = first;
+    model.dropSession(first);
+    try std.testing.expectEqual(second, model.selected);
+}
+
+test "dropSession empty catalog selects 0" {
+    var model = Model{};
+    const only = model.addSession("only", .fx);
+    model.selected = only;
+    model.dropSession(only);
+    try std.testing.expectEqual(@as(u32, 0), model.session_count);
+    try std.testing.expectEqual(@as(u32, 0), model.selected);
+}
+
+test "handleRemoveSession same-project newest wins over catalog order" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    var model = Model{};
+    try bindRemoveStore(&model, &tmp, &dir_buf, "remove-same-project");
+
+    const other = model.addSession("other project", .fx);
+    const older = model.addSession("older same", .fx);
+    const newer = model.addSession("newer same", .fx);
+    if (model.sessionById(other)) |session| {
+        session.setProjectPath("/tmp/other");
+        session.updated_at = 30;
+        session.has_started = true;
+    }
+    if (model.sessionById(older)) |session| {
+        session.setProjectPath("/tmp/same");
+        session.updated_at = 10;
+        session.has_started = true;
+    }
+    if (model.sessionById(newer)) |session| {
+        session.setProjectPath("/tmp/same");
+        session.updated_at = 20;
+        session.has_started = true;
+    }
+    model.selected = older;
+    handleRemoveSession(&model, &fx, older);
+    try std.testing.expectEqual(newer, model.selected);
+    try std.testing.expect(model.sessionById(older) == null);
+    try std.testing.expect(model.sessionById(other) != null);
+    try std.testing.expect(model.composer_active);
+    try std.testing.expectEqual(newer, model.history_store[model.history_index]);
+}
+
+test "handleRemoveSession ordinary project with no siblings opens New Task draft" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    var model = Model{};
+    try bindRemoveStore(&model, &tmp, &dir_buf, "remove-ordinary-new-task");
+
+    const other = model.addSession("other project", .fx);
+    const gone = model.addSession("last in project", .fx);
+    if (model.sessionById(other)) |session| {
+        session.setProjectPath("/tmp/other");
+        session.has_started = true;
+    }
+    if (model.sessionById(gone)) |session| {
+        session.setProjectPath("/tmp/proj");
+        session.has_started = true;
+    }
+    model.selected = gone;
+    const count = model.session_count;
+    handleRemoveSession(&model, &fx, gone);
+    try std.testing.expect(model.sessionById(gone) == null);
+    try std.testing.expectEqual(count, model.session_count);
+    try std.testing.expect(model.selected != other);
+    const draft = model.sessionById(model.selected) orelse return error.MissingNewTaskDraft;
+    try std.testing.expect(draft.untitled);
+    try std.testing.expect(!draft.hasStarted());
+    try std.testing.expectEqualStrings("/tmp/proj", draft.projectPath());
+    try std.testing.expectEqual(model.selected, model.new_task);
+}
+
+test "handleRemoveSession projectless goes projectless not catalog first" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    var home_buf: [256]u8 = undefined;
+    var model = Model{};
+    try bindRemoveStore(&model, &tmp, &dir_buf, "remove-projectless");
+    const home = try std.fmt.bufPrint(&home_buf, ".zig-cache/tmp/{s}/home", .{tmp.sub_path[0..]});
+    model.setHome(home);
+    model.now_ms = 1_750_000_000_000;
+
+    var path_buf: [256]u8 = undefined;
+    const projectless_path = try std.fmt.bufPrint(&path_buf, "{s}/.waku/projects/2026-09-06/new-chat", .{home});
+    const ordinary = model.addSession("ordinary", .fx);
+    const gone = model.addSession("projectless", .fx);
+    if (model.sessionById(ordinary)) |session| {
+        session.setProjectPath("/tmp/ordinary");
+        session.has_started = true;
+    }
+    if (model.sessionById(gone)) |session| {
+        session.setProjectPath(projectless_path);
+        session.has_started = true;
+    }
+    model.setLastProjectPath(projectless_path);
+    model.selected = gone;
+    handleRemoveSession(&model, &fx, gone);
+    try std.testing.expect(model.sessionById(gone) == null);
+    try std.testing.expect(model.selected != ordinary);
+    const dest = model.sessionById(model.selected) orelse return error.MissingProjectlessDestination;
+    try std.testing.expect(dest.untitled);
+    try std.testing.expect(!dest.hasStarted());
+    try std.testing.expect(projectless.isProjectlessPath(home, dest.projectPath()));
+}
+
+test "handleRemoveSession reuses an unstarted projectless draft" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    var model = Model{};
+    try bindRemoveStore(&model, &tmp, &dir_buf, "remove-projectless-reuse");
+    model.setHome("/home/me");
+
+    const ordinary = model.addSession("ordinary", .fx);
+    const draft = model.addSession("untitled", .fx);
+    const gone = model.addSession("started projectless", .fx);
+    if (model.sessionById(ordinary)) |session| session.setProjectPath("/tmp/ordinary");
+    if (model.sessionById(draft)) |session| {
+        session.untitled = true;
+        session.setProjectPath("/home/me/.waku/projects/2026-09-06/kept-draft");
+    }
+    if (model.sessionById(gone)) |session| {
+        session.setProjectPath("/home/me/.waku/projects/2026-09-06/gone");
+        session.has_started = true;
+    }
+    model.selected = gone;
+    const count = model.session_count;
+    handleRemoveSession(&model, &fx, gone);
+    try std.testing.expectEqual(draft, model.selected);
+    try std.testing.expectEqual(count - 1, model.session_count);
+    try std.testing.expect(model.sessionById(ordinary) != null);
+}
+
+test "handleRemoveSession non-selected leaves selection" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    var model = Model{};
+    try bindRemoveStore(&model, &tmp, &dir_buf, "remove-non-selected");
+
+    const kept = model.addSession("kept", .fx);
+    const gone = model.addSession("gone", .fx);
+    if (model.sessionById(kept)) |session| session.setProjectPath("/tmp/a");
+    if (model.sessionById(gone)) |session| session.setProjectPath("/tmp/b");
+    model.selected = kept;
+    handleRemoveSession(&model, &fx, gone);
+    try std.testing.expectEqual(kept, model.selected);
+    try std.testing.expect(model.sessionById(gone) == null);
+}
+
+test "handleRemoveSession last session selects 0" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    var model = Model{};
+    try bindRemoveStore(&model, &tmp, &dir_buf, "remove-empty-catalog");
+
+    const only = model.addSession("only", .fx);
+    model.selected = only;
+    handleRemoveSession(&model, &fx, only);
+    try std.testing.expectEqual(@as(u32, 0), model.session_count);
+    try std.testing.expectEqual(@as(u32, 0), model.selected);
 }
