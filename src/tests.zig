@@ -25126,7 +25126,10 @@ test "Review Diff header title / Cancel / source chips follow Appearance languag
     try testing.expectEqualStrings(model.right_panel_tab_diff_label(), model.review_diff_title_label());
 
     main.update(&model, .show_right_panel, &fx);
-    main.update(&model, .set_right_panel_tab_diff, &fx);
+    try testing.expect(model.right_panel_open);
+    // Stuff Diff chrome without `set_right_panel_tab_diff` / `ensureDiff`
+    // (that path starts a git probe and forces Uncommitted).
+    model.right_panel_tab = .diff;
     model.review_diff_active = true;
     try testing.expect(model.right_panel_showing_diff());
     try testing.expect(model.review_diff_source_branch());
