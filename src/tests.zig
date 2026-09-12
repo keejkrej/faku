@@ -4701,6 +4701,58 @@ test "pick_folder missing tools surfaces window status; typed path stays" {
     try testing.expectEqualStrings(project, model.selectedProjectPath());
 }
 
+test "pick_folder OS dialog prompt and missing status follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    const ja = i18n.osFolderDialogChromeFor(.japanese, "");
+    const en = i18n.osFolderDialogChromeFor(.english, "");
+    const zh = i18n.osFolderDialogChromeFor(.simplified_chinese, "");
+
+    var model = Model{};
+    model.language_preference = .japanese;
+    main.update(&model, .pick_folder, &fx);
+    if (pick_folder.hostArgv(.first) == null) {
+        try testing.expectEqualStrings(pick_folder.hostMissingStatusFor(.japanese, ""), model.window_status());
+        const tree = try buildTree(arena, &model);
+        _ = try expectByText(tree.root, .text, pick_folder.hostMissingStatusFor(.japanese, ""));
+        try testing.expect(findByText(tree.root, .text, pick_folder.hostMissingStatus()) == null);
+        return;
+    }
+    const spawn = findFolderPickerSpawn(&fx) orelse return error.MissingJaFolderPickerSpawn;
+    try testing.expect(pick_folder.isPickerArgv(spawn.argv));
+    try testing.expect(argvContainsNeedle(spawn.argv, ja.prompt));
+    try testing.expect(!argvContainsNeedle(spawn.argv, en.prompt));
+    try testing.expect(!argvContainsNeedle(spawn.argv, zh.prompt));
+
+    try fx.feedExit(spawn.key, 127);
+    drainEffects(&model, &fx);
+    if (pick_folder.hostArgv(.fallback) != null) {
+        const second = findFolderPickerSpawnNamed(&fx, pick_folder.kdialog_bin) orelse return error.MissingJaFolderFallback;
+        try testing.expect(pick_folder.isPickerArgv(second.argv));
+        try testing.expect(argvContainsNeedle(second.argv, ja.prompt));
+        try fx.feedExit(second.key, 127);
+        drainEffects(&model, &fx);
+    }
+    try testing.expectEqualStrings(pick_folder.hostMissingStatusFor(.japanese, ""), model.window_status());
+    try testing.expect(!std.mem.eql(u8, pick_folder.hostMissingStatus(), model.window_status()));
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, pick_folder.hostMissingStatusFor(.japanese, ""));
+    try testing.expect(findByText(tree.root, .text, pick_folder.hostMissingStatus()) == null);
+}
+
+fn argvContainsNeedle(argv: []const []const u8, needle: []const u8) bool {
+    for (argv) |arg| {
+        if (std.mem.eql(u8, arg, needle) or std.mem.indexOf(u8, arg, needle) != null) return true;
+    }
+    return false;
+}
+
 test "in-flight second Pick folder is a no-op" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
