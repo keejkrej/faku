@@ -3747,6 +3747,12 @@ pub const Model = struct {
         return model.environmentChrome().dismiss_all_settled;
     }
 
+    /// Environment dropdown Background section header. Distinct from
+    /// the right-panel Background tab binding; EN copy matches.
+    pub fn environment_background_section_label(model: *const Model) []const u8 {
+        return model.environmentChrome().background_section;
+    }
+
     pub fn switcher_rows(model: *const Model, arena: std.mem.Allocator) []const SessionRow {
         if (!model.switcher_open or model.switcher_count == 0) return &.{};
         const out = arena.alloc(SessionRow, model.switcher_count) catch return &.{};
@@ -5885,6 +5891,13 @@ pub const Model = struct {
     /// project rows. Distinct from no matching projects.
     pub fn no_project_usage_label(model: *const Model) []const u8 {
         return model.filterChrome().no_project_usage;
+    }
+
+    /// Settings Usage Projects empty-state when a filter matches no
+    /// project rows. Distinct from no project usage. Filter text stays
+    /// English (user-typed).
+    pub fn no_matching_projects_label(model: *const Model) []const u8 {
+        return model.filterChrome().no_matching_projects;
     }
 
     pub fn applyUsageProjectFilter(model: *Model, edit: canvas.TextInputEvent) void {

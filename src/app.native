@@ -683,7 +683,7 @@
                           <text wrap="true" foreground="text_muted">{no_project_usage_label}</text>
                         </if>
                         <if test="{usage_projects_no_match}">
-                          <text wrap="true" foreground="text_muted">No matching projects</text>
+                          <text wrap="true" foreground="text_muted">{no_matching_projects_label}</text>
                         </if>
                         <if test="{has_usage_projects_chart}">
                           <if test="{usage_projects_chart_claude_on_top}">
@@ -867,7 +867,7 @@
                   <menu-item on-press="environment_copy_agent_thread_id">{environment_copy_agent_thread_id_label}</menu-item>
                 </if>
                 <if test="{has_background_section}">
-                  <text foreground="text_muted">Background</text>
+                  <text foreground="text_muted">{environment_background_section_label}</text>
                   <for each="background_rows" key="id" as="b">
                     <text foreground="text_muted">{b.kind_label}</text>
                     <menu-item on-press="open_background_work:{b.id}">{b.title}</menu-item>

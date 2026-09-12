@@ -25533,6 +25533,10 @@ test "Environment menu chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{environment_copy_task_id_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{environment_copy_agent_thread_id_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{environment_dismiss_all_settled_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{environment_background_section_label}"));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{right_panel_tab_background_label}") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Background work\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Background output\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"toggle_environment_summary\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-dismiss=\"close_environment_summary\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"environment_commit_or_push\"") != null);
@@ -25547,6 +25551,7 @@ test "Environment menu chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Copy task ID</menu-item>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Copy agent CLI thread ID</menu-item>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Dismiss all settled</menu-item>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Background</text>"));
 
     var model = main.initialModel();
     const selected = model.selected;
@@ -25557,6 +25562,7 @@ test "Environment menu chrome follows Appearance language" {
     environment_summary.settle(&model, selected, .completed);
     try testing.expect(model.has_provider_session_id());
     try testing.expect(model.has_dismissable_settled_background());
+    try testing.expect(model.has_background_section());
 
     try testing.expectEqualStrings("Environment", model.environment_label());
     try testing.expectEqualStrings("Commit or Push", model.environment_commit_or_push_label());
@@ -25564,6 +25570,7 @@ test "Environment menu chrome follows Appearance language" {
     try testing.expectEqualStrings("Copy task ID", model.environment_copy_task_id_label());
     try testing.expectEqualStrings("Copy agent CLI thread ID", model.environment_copy_agent_thread_id_label());
     try testing.expectEqualStrings("Dismiss all settled", model.environment_dismiss_all_settled_label());
+    try testing.expectEqualStrings("Background", model.environment_background_section_label());
 
     main.update(&model, .toggle_environment_summary, &fx);
     try testing.expect(model.environment_summary_open);
@@ -25581,6 +25588,7 @@ test "Environment menu chrome follows Appearance language" {
     try testing.expectEqual(Msg.environment_copy_agent_thread_id, tree.msgForPointer(copy_thread.id, .up).?);
     const dismiss_all = try expectByText(tree.root, .menu_item, "Dismiss all settled");
     try testing.expectEqual(Msg.environment_dismiss_settled_background, tree.msgForPointer(dismiss_all.id, .up).?);
+    _ = try expectByText(tree.root, .text, "Background");
 
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("环境", model.environment_label());
@@ -25589,6 +25597,7 @@ test "Environment menu chrome follows Appearance language" {
     try testing.expectEqualStrings("复制任务 ID", model.environment_copy_task_id_label());
     try testing.expectEqualStrings("复制代理 CLI 线程 ID", model.environment_copy_agent_thread_id_label());
     try testing.expectEqualStrings("关闭全部已结束项", model.environment_dismiss_all_settled_label());
+    try testing.expectEqualStrings("后台工作", model.environment_background_section_label());
     tree = try buildTree(arena, &model);
     const zh_trigger = try expectByText(try expectByText(tree.root, .row, "Toolbar"), .button, "环境");
     try testing.expectEqual(Msg.toggle_environment_summary, tree.msgForPointer(zh_trigger.id, .up).?);
@@ -25603,12 +25612,14 @@ test "Environment menu chrome follows Appearance language" {
     try testing.expectEqual(Msg.environment_copy_agent_thread_id, tree.msgForPointer(zh_copy_thread.id, .up).?);
     const zh_dismiss = try expectByText(tree.root, .menu_item, "关闭全部已结束项");
     try testing.expectEqual(Msg.environment_dismiss_settled_background, tree.msgForPointer(zh_dismiss.id, .up).?);
+    _ = try expectByText(tree.root, .text, "后台工作");
     try testing.expect(findByText(tree.root, .button, "Environment") == null);
     try testing.expect(findByText(tree.root, .menu_item, "Commit or Push") == null);
     try testing.expect(findByText(tree.root, .menu_item, "Compare") == null);
     try testing.expect(findByText(tree.root, .menu_item, "Copy task ID") == null);
     try testing.expect(findByText(tree.root, .menu_item, "Copy agent CLI thread ID") == null);
     try testing.expect(findByText(tree.root, .menu_item, "Dismiss all settled") == null);
+    try testing.expect(findByText(tree.root, .text, "Background") == null);
 
     model.language_preference = .japanese;
     try testing.expectEqualStrings("環境", model.environment_label());
@@ -25617,6 +25628,7 @@ test "Environment menu chrome follows Appearance language" {
     try testing.expectEqualStrings("タスク ID をコピー", model.environment_copy_task_id_label());
     try testing.expectEqualStrings("エージェント CLI スレッド ID をコピー", model.environment_copy_agent_thread_id_label());
     try testing.expectEqualStrings("終了した項目をすべて閉じる", model.environment_dismiss_all_settled_label());
+    try testing.expectEqualStrings("バックグラウンド", model.environment_background_section_label());
     tree = try buildTree(arena, &model);
     const ja_trigger = try expectByText(try expectByText(tree.root, .row, "Toolbar"), .button, "環境");
     try testing.expectEqual(Msg.toggle_environment_summary, tree.msgForPointer(ja_trigger.id, .up).?);
@@ -25631,9 +25643,11 @@ test "Environment menu chrome follows Appearance language" {
     try testing.expectEqual(Msg.environment_copy_agent_thread_id, tree.msgForPointer(ja_copy_thread.id, .up).?);
     const ja_dismiss = try expectByText(tree.root, .menu_item, "終了した項目をすべて閉じる");
     try testing.expectEqual(Msg.environment_dismiss_settled_background, tree.msgForPointer(ja_dismiss.id, .up).?);
+    _ = try expectByText(tree.root, .text, "バックグラウンド");
     try testing.expect(findByText(tree.root, .button, "环境") == null);
     try testing.expect(findByText(tree.root, .menu_item, "提交或推送") == null);
     try testing.expect(findByText(tree.root, .menu_item, "关闭全部已结束项") == null);
+    try testing.expect(findByText(tree.root, .text, "后台工作") == null);
 
     model.language_preference = .english;
     model.setSystemLocaleId("ja_JP.UTF-8");
@@ -25643,14 +25657,17 @@ test "Environment menu chrome follows Appearance language" {
     try testing.expectEqualStrings("Copy task ID", model.environment_copy_task_id_label());
     try testing.expectEqualStrings("Copy agent CLI thread ID", model.environment_copy_agent_thread_id_label());
     try testing.expectEqualStrings("Dismiss all settled", model.environment_dismiss_all_settled_label());
+    try testing.expectEqualStrings("Background", model.environment_background_section_label());
     tree = try buildTree(arena, &model);
     _ = try expectByText(try expectByText(tree.root, .row, "Toolbar"), .button, "Environment");
     _ = try expectByText(tree.root, .text, "Environment");
     const en_commit = try expectByText(tree.root, .menu_item, "Commit or Push");
     try testing.expectEqual(Msg.environment_commit_or_push, tree.msgForPointer(en_commit.id, .up).?);
+    _ = try expectByText(tree.root, .text, "Background");
     try testing.expect(findByText(tree.root, .button, "環境") == null);
     try testing.expect(findByText(tree.root, .menu_item, "コミットまたはプッシュ") == null);
     try testing.expect(findByText(tree.root, .menu_item, "終了した項目をすべて閉じる") == null);
+    try testing.expect(findByText(tree.root, .text, "バックグラウンド") == null);
 
     model.language_preference = .system;
     model.setSystemLocaleId("zh_CN.UTF-8");
@@ -25660,6 +25677,7 @@ test "Environment menu chrome follows Appearance language" {
     try testing.expectEqualStrings("复制任务 ID", model.environment_copy_task_id_label());
     try testing.expectEqualStrings("复制代理 CLI 线程 ID", model.environment_copy_agent_thread_id_label());
     try testing.expectEqualStrings("关闭全部已结束项", model.environment_dismiss_all_settled_label());
+    try testing.expectEqualStrings("后台工作", model.environment_background_section_label());
     model.setSystemLocaleId("ja_JP.UTF-8");
     try testing.expectEqualStrings("環境", model.environment_label());
     try testing.expectEqualStrings("コミットまたはプッシュ", model.environment_commit_or_push_label());
@@ -25667,6 +25685,7 @@ test "Environment menu chrome follows Appearance language" {
     try testing.expectEqualStrings("タスク ID をコピー", model.environment_copy_task_id_label());
     try testing.expectEqualStrings("エージェント CLI スレッド ID をコピー", model.environment_copy_agent_thread_id_label());
     try testing.expectEqualStrings("終了した項目をすべて閉じる", model.environment_dismiss_all_settled_label());
+    try testing.expectEqualStrings("バックグラウンド", model.environment_background_section_label());
     model.setSystemLocaleId("");
     try testing.expectEqualStrings("Environment", model.environment_label());
     try testing.expectEqualStrings("Commit or Push", model.environment_commit_or_push_label());
@@ -25674,6 +25693,7 @@ test "Environment menu chrome follows Appearance language" {
     try testing.expectEqualStrings("Copy task ID", model.environment_copy_task_id_label());
     try testing.expectEqualStrings("Copy agent CLI thread ID", model.environment_copy_agent_thread_id_label());
     try testing.expectEqualStrings("Dismiss all settled", model.environment_dismiss_all_settled_label());
+    try testing.expectEqualStrings("Background", model.environment_background_section_label());
 }
 
 test "Settings Skills filter and Usage Projects filter chrome follow Appearance language" {
@@ -25689,18 +25709,21 @@ test "Settings Skills filter and Usage Projects filter chrome follow Appearance 
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"{usage_project_filter_placeholder}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{usage_project_filter_label}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{no_project_usage_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{no_matching_projects_label}"));
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-input=\"skills_filter_edit\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-input=\"usage_project_filter_edit\"") != null);
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Filter skills\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Filter projects\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Filter projects\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No project usage<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No matching projects<"));
 
     var model = main.initialModel();
     try testing.expectEqualStrings("Filter skills", model.skills_filter_placeholder());
     try testing.expectEqualStrings("Filter projects", model.usage_project_filter_placeholder());
     try testing.expectEqualStrings("Filter projects", model.usage_project_filter_label());
     try testing.expectEqualStrings("No project usage", model.no_project_usage_label());
+    try testing.expectEqualStrings("No matching projects", model.no_matching_projects_label());
 
     main.update(&model, .toggle_settings, &fx);
     main.update(&model, .set_settings_page_skills, &fx);
@@ -25719,6 +25742,7 @@ test "Settings Skills filter and Usage Projects filter chrome follow Appearance 
     try testing.expectEqualStrings("筛选项目", model.usage_project_filter_placeholder());
     try testing.expectEqualStrings("筛选项目", model.usage_project_filter_label());
     try testing.expectEqualStrings("没有项目用量", model.no_project_usage_label());
+    try testing.expectEqualStrings("没有匹配的项目", model.no_matching_projects_label());
     tree = try buildTree(arena, &model);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "筛选技能") != null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
@@ -25728,6 +25752,7 @@ test "Settings Skills filter and Usage Projects filter chrome follow Appearance 
     try testing.expectEqualStrings("プロジェクトを絞り込む", model.usage_project_filter_placeholder());
     try testing.expectEqualStrings("プロジェクトを絞り込む", model.usage_project_filter_label());
     try testing.expectEqualStrings("プロジェクトの使用量はありません", model.no_project_usage_label());
+    try testing.expectEqualStrings("一致するプロジェクトはありません", model.no_matching_projects_label());
     tree = try buildTree(arena, &model);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "スキルを絞り込む") != null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "筛选技能") == null);
@@ -25738,6 +25763,7 @@ test "Settings Skills filter and Usage Projects filter chrome follow Appearance 
     try testing.expectEqualStrings("Filter projects", model.usage_project_filter_placeholder());
     try testing.expectEqualStrings("Filter projects", model.usage_project_filter_label());
     try testing.expectEqualStrings("No project usage", model.no_project_usage_label());
+    try testing.expectEqualStrings("No matching projects", model.no_matching_projects_label());
     tree = try buildTree(arena, &model);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") != null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "スキルを絞り込む") == null);
@@ -25748,16 +25774,19 @@ test "Settings Skills filter and Usage Projects filter chrome follow Appearance 
     try testing.expectEqualStrings("筛选项目", model.usage_project_filter_placeholder());
     try testing.expectEqualStrings("筛选项目", model.usage_project_filter_label());
     try testing.expectEqualStrings("没有项目用量", model.no_project_usage_label());
+    try testing.expectEqualStrings("没有匹配的项目", model.no_matching_projects_label());
     model.setSystemLocaleId("ja_JP.UTF-8");
     try testing.expectEqualStrings("スキルを絞り込む", model.skills_filter_placeholder());
     try testing.expectEqualStrings("プロジェクトを絞り込む", model.usage_project_filter_placeholder());
     try testing.expectEqualStrings("プロジェクトを絞り込む", model.usage_project_filter_label());
     try testing.expectEqualStrings("プロジェクトの使用量はありません", model.no_project_usage_label());
+    try testing.expectEqualStrings("一致するプロジェクトはありません", model.no_matching_projects_label());
     model.setSystemLocaleId("");
     try testing.expectEqualStrings("Filter skills", model.skills_filter_placeholder());
     try testing.expectEqualStrings("Filter projects", model.usage_project_filter_placeholder());
     try testing.expectEqualStrings("Filter projects", model.usage_project_filter_label());
     try testing.expectEqualStrings("No project usage", model.no_project_usage_label());
+    try testing.expectEqualStrings("No matching projects", model.no_matching_projects_label());
 
     main.update(&model, .set_settings_page_usage, &fx);
     main.update(&model, .set_usage_view_projects, &fx);
@@ -25786,6 +25815,7 @@ test "Settings Skills filter and Usage Projects filter chrome follow Appearance 
     try testing.expectEqualStrings("筛选项目", model.usage_project_filter_placeholder());
     try testing.expectEqualStrings("筛选项目", model.usage_project_filter_label());
     try testing.expectEqualStrings("没有项目用量", model.no_project_usage_label());
+    try testing.expectEqualStrings("没有匹配的项目", model.no_matching_projects_label());
     tree = try buildTree(arena, &model);
     const zh_projects = findByPlaceholder(tree.root, .search_field, "筛选项目") orelse return error.WidgetNotFound;
     try testing.expectEqualStrings("筛选项目", zh_projects.semantics.label);
@@ -25793,11 +25823,13 @@ test "Settings Skills filter and Usage Projects filter chrome follow Appearance 
     _ = try expectByText(tree.root, .text, "没有项目用量");
     try testing.expect(findByPlaceholder(tree.root, .search_field, "Filter projects") == null);
     try testing.expect(findByText(tree.root, .text, "No project usage") == null);
+    try testing.expect(findByText(tree.root, .text, "No matching projects") == null);
 
     model.language_preference = .japanese;
     try testing.expectEqualStrings("プロジェクトを絞り込む", model.usage_project_filter_placeholder());
     try testing.expectEqualStrings("プロジェクトを絞り込む", model.usage_project_filter_label());
     try testing.expectEqualStrings("プロジェクトの使用量はありません", model.no_project_usage_label());
+    try testing.expectEqualStrings("一致するプロジェクトはありません", model.no_matching_projects_label());
     tree = try buildTree(arena, &model);
     const ja_projects = findByPlaceholder(tree.root, .search_field, "プロジェクトを絞り込む") orelse return error.WidgetNotFound;
     try testing.expectEqualStrings("プロジェクトを絞り込む", ja_projects.semantics.label);
@@ -25805,16 +25837,61 @@ test "Settings Skills filter and Usage Projects filter chrome follow Appearance 
     _ = try expectByText(tree.root, .text, "プロジェクトの使用量はありません");
     try testing.expect(findByPlaceholder(tree.root, .search_field, "筛选项目") == null);
     try testing.expect(findByText(tree.root, .text, "没有项目用量") == null);
+    try testing.expect(findByText(tree.root, .text, "没有匹配的项目") == null);
 
     model.language_preference = .english;
     model.setSystemLocaleId("zh_CN.UTF-8");
     try testing.expectEqualStrings("Filter projects", model.usage_project_filter_placeholder());
     try testing.expectEqualStrings("Filter projects", model.usage_project_filter_label());
     try testing.expectEqualStrings("No project usage", model.no_project_usage_label());
+    try testing.expectEqualStrings("No matching projects", model.no_matching_projects_label());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "No project usage");
     try testing.expect(findByPlaceholder(tree.root, .search_field, "Filter projects") != null);
     try testing.expect(findByText(tree.root, .text, "プロジェクトの使用量はありません") == null);
+
+    model.usage_history.project_count = 1;
+    main.writeFixed(&model.usage_history.projects[0].path_storage, &model.usage_history.projects[0].path_len, "/tmp/faku");
+    model.usage_history.projects[0].total_tokens = 100;
+    model.usage_history.projects[0].cost_usd = 1.0;
+    model.usage_history.projects[0].sessions = 2;
+    main.update(&model, .{ .usage_project_filter_edit = .{ .insert_text = "zzzz" } }, &fx);
+    try testing.expectEqualStrings("zzzz", model.usage_project_filter());
+    try testing.expect(model.usage_projects_no_match());
+    try testing.expect(!model.usage_projects_empty());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "No matching projects");
+    try testing.expect(findByText(tree.root, .text, "No project usage") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("没有匹配的项目", model.no_matching_projects_label());
+    try testing.expectEqualStrings("没有项目用量", model.no_project_usage_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "没有匹配的项目");
+    try testing.expect(findByText(tree.root, .text, "No matching projects") == null);
+    try testing.expect(findByText(tree.root, .text, "没有项目用量") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("一致するプロジェクトはありません", model.no_matching_projects_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "一致するプロジェクトはありません");
+    try testing.expect(findByText(tree.root, .text, "没有匹配的项目") == null);
+    try testing.expect(findByText(tree.root, .text, "プロジェクトの使用量はありません") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("No matching projects", model.no_matching_projects_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "No matching projects");
+    try testing.expect(findByText(tree.root, .text, "一致するプロジェクトはありません") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("没有匹配的项目", model.no_matching_projects_label());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("一致するプロジェクトはありません", model.no_matching_projects_label());
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("No matching projects", model.no_matching_projects_label());
 }
 
 test "Files preview toolbar chrome follows Appearance language" {
