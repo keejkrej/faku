@@ -25088,6 +25088,168 @@ test "composer project-row Pick folder / Reveal folder / Open in Terminal / Open
     try testing.expectEqualStrings("Copy path", model.copy_path_label());
 }
 
+test "Review Diff header title / Cancel / source chips follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{review_diff_title_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{review_diff_cancel_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{review_diff_source_branch_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{review_diff_source_uncommitted_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{review_diff_source_staged_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{review_diff_source_unstaged_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{review_diff_source_committed_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{review_diff_source_last_turn_label}"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Review</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"close_review_diff\">Cancel</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Branch</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Uncommitted</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Staged</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Unstaged</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Committed</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Last turn</button>"));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Review", model.review_diff_title_label());
+    try testing.expectEqualStrings("Cancel", model.review_diff_cancel_label());
+    try testing.expectEqualStrings("Branch", model.review_diff_source_branch_label());
+    try testing.expectEqualStrings("Uncommitted", model.review_diff_source_uncommitted_label());
+    try testing.expectEqualStrings("Staged", model.review_diff_source_staged_label());
+    try testing.expectEqualStrings("Unstaged", model.review_diff_source_unstaged_label());
+    try testing.expectEqualStrings("Committed", model.review_diff_source_committed_label());
+    try testing.expectEqualStrings("Last turn", model.review_diff_source_last_turn_label());
+    try testing.expectEqualStrings(model.right_panel_tab_diff_label(), model.review_diff_title_label());
+
+    main.update(&model, .show_right_panel, &fx);
+    try testing.expect(model.right_panel_open);
+    // Stuff Diff chrome without `set_right_panel_tab_diff` / `ensureDiff`
+    // (that path starts a git probe and forces Uncommitted).
+    model.right_panel_tab = .diff;
+    model.review_diff_active = true;
+    try testing.expect(model.right_panel_showing_diff());
+    try testing.expect(model.review_diff_source_branch());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Review");
+    _ = try expectButtonMsg(tree, "Cancel", .close_review_diff);
+    try testing.expect((try expectButtonMsg(tree, "Branch", .set_review_diff_source_branch)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Uncommitted", .set_review_diff_source_uncommitted)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Staged", .set_review_diff_source_staged)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Unstaged", .set_review_diff_source_unstaged)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Committed", .set_review_diff_source_committed)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Last turn", .set_review_diff_source_last_turn)).state.selected);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("审阅", model.review_diff_title_label());
+    try testing.expectEqualStrings("取消", model.review_diff_cancel_label());
+    try testing.expectEqualStrings("分支", model.review_diff_source_branch_label());
+    try testing.expectEqualStrings("未提交", model.review_diff_source_uncommitted_label());
+    try testing.expectEqualStrings("已暂存", model.review_diff_source_staged_label());
+    try testing.expectEqualStrings("未暂存", model.review_diff_source_unstaged_label());
+    try testing.expectEqualStrings("已提交", model.review_diff_source_committed_label());
+    try testing.expectEqualStrings("上一轮", model.review_diff_source_last_turn_label());
+    try testing.expectEqualStrings(model.right_panel_tab_diff_label(), model.review_diff_title_label());
+    try testing.expect(model.review_diff_source_branch());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "审阅");
+    _ = try expectButtonMsg(tree, "取消", .close_review_diff);
+    try testing.expect((try expectButtonMsg(tree, "分支", .set_review_diff_source_branch)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "未提交", .set_review_diff_source_uncommitted)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "已暂存", .set_review_diff_source_staged)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "未暂存", .set_review_diff_source_unstaged)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "已提交", .set_review_diff_source_committed)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "上一轮", .set_review_diff_source_last_turn)).state.selected);
+    try testing.expect(findByText(tree.root, .text, "Review") == null);
+    try testing.expect(findByText(tree.root, .button, "Cancel") == null);
+    try testing.expect(findByText(tree.root, .button, "Branch") == null);
+    try testing.expect(findByText(tree.root, .button, "Uncommitted") == null);
+    try testing.expect(findByText(tree.root, .button, "Staged") == null);
+    try testing.expect(findByText(tree.root, .button, "Unstaged") == null);
+    try testing.expect(findByText(tree.root, .button, "Committed") == null);
+    try testing.expect(findByText(tree.root, .button, "Last turn") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("レビュー", model.review_diff_title_label());
+    try testing.expectEqualStrings("キャンセル", model.review_diff_cancel_label());
+    try testing.expectEqualStrings("ブランチ", model.review_diff_source_branch_label());
+    try testing.expectEqualStrings("未コミット", model.review_diff_source_uncommitted_label());
+    try testing.expectEqualStrings("ステージ済み", model.review_diff_source_staged_label());
+    try testing.expectEqualStrings("未ステージ", model.review_diff_source_unstaged_label());
+    try testing.expectEqualStrings("コミット済み", model.review_diff_source_committed_label());
+    try testing.expectEqualStrings("直前のターン", model.review_diff_source_last_turn_label());
+    try testing.expectEqualStrings(model.right_panel_tab_diff_label(), model.review_diff_title_label());
+    try testing.expect(model.review_diff_source_branch());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "レビュー");
+    _ = try expectButtonMsg(tree, "キャンセル", .close_review_diff);
+    try testing.expect((try expectButtonMsg(tree, "ブランチ", .set_review_diff_source_branch)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "未コミット", .set_review_diff_source_uncommitted)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "ステージ済み", .set_review_diff_source_staged)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "未ステージ", .set_review_diff_source_unstaged)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "コミット済み", .set_review_diff_source_committed)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "直前のターン", .set_review_diff_source_last_turn)).state.selected);
+    try testing.expect(findByText(tree.root, .text, "审阅") == null);
+    try testing.expect(findByText(tree.root, .button, "取消") == null);
+    try testing.expect(findByText(tree.root, .button, "分支") == null);
+    try testing.expect(findByText(tree.root, .button, "上一轮") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Review", model.review_diff_title_label());
+    try testing.expectEqualStrings("Cancel", model.review_diff_cancel_label());
+    try testing.expectEqualStrings("Branch", model.review_diff_source_branch_label());
+    try testing.expectEqualStrings("Uncommitted", model.review_diff_source_uncommitted_label());
+    try testing.expectEqualStrings("Staged", model.review_diff_source_staged_label());
+    try testing.expectEqualStrings("Unstaged", model.review_diff_source_unstaged_label());
+    try testing.expectEqualStrings("Committed", model.review_diff_source_committed_label());
+    try testing.expectEqualStrings("Last turn", model.review_diff_source_last_turn_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Review");
+    _ = try expectButtonMsg(tree, "Cancel", .close_review_diff);
+    try testing.expect((try expectButtonMsg(tree, "Branch", .set_review_diff_source_branch)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Last turn", .set_review_diff_source_last_turn)).state.selected);
+    try testing.expect(findByText(tree.root, .text, "レビュー") == null);
+    try testing.expect(findByText(tree.root, .button, "キャンセル") == null);
+    try testing.expect(findByText(tree.root, .button, "ブランチ") == null);
+    try testing.expect(findByText(tree.root, .button, "直前のターン") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("审阅", model.review_diff_title_label());
+    try testing.expectEqualStrings("取消", model.review_diff_cancel_label());
+    try testing.expectEqualStrings("分支", model.review_diff_source_branch_label());
+    try testing.expectEqualStrings("未提交", model.review_diff_source_uncommitted_label());
+    try testing.expectEqualStrings("已暂存", model.review_diff_source_staged_label());
+    try testing.expectEqualStrings("未暂存", model.review_diff_source_unstaged_label());
+    try testing.expectEqualStrings("已提交", model.review_diff_source_committed_label());
+    try testing.expectEqualStrings("上一轮", model.review_diff_source_last_turn_label());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("レビュー", model.review_diff_title_label());
+    try testing.expectEqualStrings("キャンセル", model.review_diff_cancel_label());
+    try testing.expectEqualStrings("ブランチ", model.review_diff_source_branch_label());
+    try testing.expectEqualStrings("未コミット", model.review_diff_source_uncommitted_label());
+    try testing.expectEqualStrings("ステージ済み", model.review_diff_source_staged_label());
+    try testing.expectEqualStrings("未ステージ", model.review_diff_source_unstaged_label());
+    try testing.expectEqualStrings("コミット済み", model.review_diff_source_committed_label());
+    try testing.expectEqualStrings("直前のターン", model.review_diff_source_last_turn_label());
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Review", model.review_diff_title_label());
+    try testing.expectEqualStrings("Cancel", model.review_diff_cancel_label());
+    try testing.expectEqualStrings("Branch", model.review_diff_source_branch_label());
+    try testing.expectEqualStrings("Uncommitted", model.review_diff_source_uncommitted_label());
+    try testing.expectEqualStrings("Staged", model.review_diff_source_staged_label());
+    try testing.expectEqualStrings("Unstaged", model.review_diff_source_unstaged_label());
+    try testing.expectEqualStrings("Committed", model.review_diff_source_committed_label());
+    try testing.expectEqualStrings("Last turn", model.review_diff_source_last_turn_label());
+}
+
 test "DateBucket.title english default; zh and ja follow datesFor" {
     try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
     try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());

@@ -1435,17 +1435,17 @@
           <if test="{review_diff_active}">
             <column grow="1" gap="6" padding="10">
               <row gap="8" cross="center">
-                <text>Review</text>
+                <text>{review_diff_title_label}</text>
                 <spacer grow="1" />
-                <button variant="ghost" size="sm" on-press="close_review_diff">Cancel</button>
+                <button variant="ghost" size="sm" on-press="close_review_diff">{review_diff_cancel_label}</button>
               </row>
               <row gap="8" cross="center">
-                <button variant="ghost" size="sm" selected="{review_diff_source_branch}" on-press="set_review_diff_source_branch">Branch</button>
-                <button variant="ghost" size="sm" selected="{review_diff_source_uncommitted}" on-press="set_review_diff_source_uncommitted">Uncommitted</button>
-                <button variant="ghost" size="sm" selected="{review_diff_source_staged}" on-press="set_review_diff_source_staged">Staged</button>
-                <button variant="ghost" size="sm" selected="{review_diff_source_unstaged}" on-press="set_review_diff_source_unstaged">Unstaged</button>
-                <button variant="ghost" size="sm" selected="{review_diff_source_committed}" on-press="set_review_diff_source_committed">Committed</button>
-                <button variant="ghost" size="sm" selected="{review_diff_source_last_turn}" on-press="set_review_diff_source_last_turn">Last turn</button>
+                <button variant="ghost" size="sm" selected="{review_diff_source_branch}" on-press="set_review_diff_source_branch">{review_diff_source_branch_label}</button>
+                <button variant="ghost" size="sm" selected="{review_diff_source_uncommitted}" on-press="set_review_diff_source_uncommitted">{review_diff_source_uncommitted_label}</button>
+                <button variant="ghost" size="sm" selected="{review_diff_source_staged}" on-press="set_review_diff_source_staged">{review_diff_source_staged_label}</button>
+                <button variant="ghost" size="sm" selected="{review_diff_source_unstaged}" on-press="set_review_diff_source_unstaged">{review_diff_source_unstaged_label}</button>
+                <button variant="ghost" size="sm" selected="{review_diff_source_committed}" on-press="set_review_diff_source_committed">{review_diff_source_committed_label}</button>
+                <button variant="ghost" size="sm" selected="{review_diff_source_last_turn}" on-press="set_review_diff_source_last_turn">{review_diff_source_last_turn_label}</button>
               </row>
               <if test="{has_review_diff_status}">
                 <text wrap="true" foreground="text_muted">{review_diff_status}</text>
