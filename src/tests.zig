@@ -4746,6 +4746,51 @@ test "pick_folder OS dialog prompt and missing status follow Appearance language
     try testing.expect(findByText(tree.root, .text, pick_folder.hostMissingStatus()) == null);
 }
 
+test "pick_image OS dialog prompt and missing status follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    const ja = i18n.osImageDialogChromeFor(.japanese, "");
+    const en = i18n.osImageDialogChromeFor(.english, "");
+    const zh = i18n.osImageDialogChromeFor(.simplified_chinese, "");
+
+    var model = Model{};
+    model.language_preference = .japanese;
+    main.update(&model, .pick_image, &fx);
+    if (pick_image.hostArgv(.first) == null) {
+        try testing.expectEqualStrings(pick_image.hostMissingStatusFor(.japanese, ""), model.attach_status());
+        const tree = try buildTree(arena, &model);
+        _ = try expectByText(tree.root, .text, pick_image.hostMissingStatusFor(.japanese, ""));
+        try testing.expect(findByText(tree.root, .text, pick_image.hostMissingStatus()) == null);
+        return;
+    }
+    const spawn = findPickerSpawn(&fx) orelse return error.MissingJaImagePickerSpawn;
+    try testing.expect(pick_image.isPickerArgv(spawn.argv));
+    try testing.expect(argvContainsNeedle(spawn.argv, ja.prompt));
+    try testing.expect(!argvContainsNeedle(spawn.argv, en.prompt));
+    try testing.expect(!argvContainsNeedle(spawn.argv, zh.prompt));
+
+    try fx.feedExit(spawn.key, 127);
+    drainEffects(&model, &fx);
+    if (pick_image.hostArgv(.fallback) != null) {
+        const second = findPickerSpawnNamed(&fx, pick_image.kdialog_bin) orelse return error.MissingJaImageFallback;
+        try testing.expect(pick_image.isPickerArgv(second.argv));
+        try testing.expect(argvContainsNeedle(second.argv, ja.prompt));
+        try fx.feedExit(second.key, 127);
+        drainEffects(&model, &fx);
+    }
+    try testing.expectEqualStrings(pick_image.hostMissingStatusFor(.japanese, ""), model.attach_status());
+    try testing.expect(!std.mem.eql(u8, pick_image.hostMissingStatus(), model.attach_status()));
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, pick_image.hostMissingStatusFor(.japanese, ""));
+    try testing.expect(findByText(tree.root, .text, pick_image.hostMissingStatus()) == null);
+}
+
 fn argvContainsNeedle(argv: []const []const u8, needle: []const u8) bool {
     for (argv) |arg| {
         if (std.mem.eql(u8, arg, needle) or std.mem.indexOf(u8, arg, needle) != null) return true;

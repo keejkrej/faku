@@ -57,8 +57,11 @@
 //! placeholder (same `DaemonAddressChrome` strings; Latin `host:port`
 //! in every locale) plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
-//! PowerShell / zenity `--title` / kdialog `--title` at spawn) live
-//! here so `main.zig` does not grow. Palette ids / `PaletteAction` /
+//! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
+//! OS image-dialog prompts / missing-picker status (same
+//! `OsImageDialogChrome` strings; osascript / PowerShell / zenity
+//! `--title` / kdialog `--title` at spawn) live here so `main.zig`
+//! does not grow. Palette ids / `PaletteAction` /
 //! keywords stay English.
 //! Wire `access_mode` ids stay `ask` / `auto` / `fullAccess`. Wire
 //! `reasoning_effort` ids stay `auto` / `none` / `minimal` / `low` /
@@ -116,8 +119,11 @@
 //! (`settings_daemon_edit`). OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript / PowerShell
 //! / zenity `--title` / kdialog `--title` at spawn) follow the
-//! resolved locale this cut. OS image-dialog prompts stay leftover
-//! English. Aa / Ab / .* glyphs stay. Path text and body content stay data.
+//! resolved locale this cut. OS image-dialog prompts / missing-picker
+//! status (same `OsImageDialogChrome` strings; osascript / PowerShell
+//! / zenity `--title` / kdialog `--title` at spawn) follow the
+//! resolved locale this cut. Aa / Ab / .* glyphs stay. Path text and
+//! body content stay data.
 //! Not rust_i18n, not YAML catalogs, not full-app translation, not
 //! tz-aware grouping.
 
@@ -1443,7 +1449,7 @@ const daemon_address_chrome_ja: DaemonAddressChrome = .{
 /// the former hardcoded `pick_folder` osascript / PowerShell /
 /// zenity-or-kdialog copy. Binary names stay Latin (`zenity` /
 /// `kdialog` / `osascript` / `powershell.exe`). OS image-dialog
-/// prompts (`Choose an image`) stay leftover English.
+/// prompts live in `OsImageDialogChrome`.
 pub const OsFolderDialogChrome = struct {
     prompt: []const u8,
     linux_missing: []const u8,
@@ -1470,6 +1476,40 @@ const os_folder_dialog_chrome_ja: OsFolderDialogChrome = .{
     .linux_missing = "OS のフォルダ選択がありません（zenity または kdialog をインストールしてください）。パスを入力してください。",
     .macos_missing = "OS のフォルダ選択がありません（osascript がありません）。パスを入力してください。",
     .windows_missing = "OS のフォルダ選択がありません（powershell.exe がありません）。パスを入力してください。",
+};
+
+/// OS image-dialog prompt and missing-picker status for the resolved
+/// locale. Same resolve path as OsFolderDialogChrome. English matches
+/// the former hardcoded `pick_image` osascript / PowerShell /
+/// zenity-or-kdialog copy. Binary names stay Latin (`zenity` /
+/// `kdialog` / `osascript` / `powershell.exe`). Filter extensions
+/// stay Latin.
+pub const OsImageDialogChrome = struct {
+    prompt: []const u8,
+    linux_missing: []const u8,
+    macos_missing: []const u8,
+    windows_missing: []const u8,
+};
+
+const os_image_dialog_chrome_en: OsImageDialogChrome = .{
+    .prompt = "Choose an image",
+    .linux_missing = "No OS image picker (install zenity or kdialog). Type a path or drop a file.",
+    .macos_missing = "No OS image picker (osascript missing). Type a path or drop a file.",
+    .windows_missing = "No OS image picker (powershell.exe missing). Type a path or drop a file.",
+};
+
+const os_image_dialog_chrome_zh_cn: OsImageDialogChrome = .{
+    .prompt = "选择一张图片",
+    .linux_missing = "没有 OS 图片选择器（请安装 zenity 或 kdialog）。请输入路径或拖放文件。",
+    .macos_missing = "没有 OS 图片选择器（缺少 osascript）。请输入路径或拖放文件。",
+    .windows_missing = "没有 OS 图片选择器（缺少 powershell.exe）。请输入路径或拖放文件。",
+};
+
+const os_image_dialog_chrome_ja: OsImageDialogChrome = .{
+    .prompt = "画像を選択",
+    .linux_missing = "OS の画像選択がありません（zenity または kdialog をインストールしてください）。パスを入力するかファイルをドロップしてください。",
+    .macos_missing = "OS の画像選択がありません（osascript がありません）。パスを入力するかファイルをドロップしてください。",
+    .windows_missing = "OS の画像選択がありません（powershell.exe がありません）。パスを入力するかファイルをドロップしてください。",
 };
 
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
@@ -1809,6 +1849,19 @@ pub fn osFolderDialogChromeFor(preference: LanguagePreference, system_locale_id:
         .simplified_chinese => os_folder_dialog_chrome_zh_cn,
         .japanese => os_folder_dialog_chrome_ja,
         .system, .english => os_folder_dialog_chrome_en,
+    };
+}
+
+/// OS image-dialog prompt and missing-picker status for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Wire ids /
+/// on-press stay English. Binary names stay Latin. Filter extensions
+/// stay Latin.
+pub fn osImageDialogChromeFor(preference: LanguagePreference, system_locale_id: []const u8) OsImageDialogChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => os_image_dialog_chrome_zh_cn,
+        .japanese => os_image_dialog_chrome_ja,
+        .system, .english => os_image_dialog_chrome_en,
     };
 }
 
@@ -2938,5 +2991,32 @@ test "osFolderDialogChromeFor english default; zh and ja chrome; english ignores
     try testing.expectEqualStrings("Choose a project", osFolderDialogChromeFor(.english, "zh_CN.UTF-8").prompt);
     try testing.expectEqualStrings("没有 OS 文件夹选择器（请安装 zenity 或 kdialog）。请输入路径。", osFolderDialogChromeFor(.system, "zh_CN.UTF-8").linux_missing);
     try testing.expectEqualStrings("OS のフォルダ選択がありません（osascript がありません）。パスを入力してください。", osFolderDialogChromeFor(.system, "ja_JP.UTF-8").macos_missing);
+}
+
+test "osImageDialogChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Choose an image", osImageDialogChromeFor(.english, "ja").prompt);
+    try testing.expectEqualStrings("Choose an image", osImageDialogChromeFor(.english, "").prompt);
+    try testing.expectEqualStrings("Choose an image", osImageDialogChromeFor(.system, "").prompt);
+    try testing.expectEqualStrings("No OS image picker (install zenity or kdialog). Type a path or drop a file.", osImageDialogChromeFor(.english, "").linux_missing);
+    try testing.expectEqualStrings("No OS image picker (osascript missing). Type a path or drop a file.", osImageDialogChromeFor(.english, "").macos_missing);
+    try testing.expectEqualStrings("No OS image picker (powershell.exe missing). Type a path or drop a file.", osImageDialogChromeFor(.english, "").windows_missing);
+
+    try testing.expectEqualStrings("选择一张图片", osImageDialogChromeFor(.simplified_chinese, "").prompt);
+    try testing.expectEqualStrings("没有 OS 图片选择器（请安装 zenity 或 kdialog）。请输入路径或拖放文件。", osImageDialogChromeFor(.simplified_chinese, "").linux_missing);
+    try testing.expectEqualStrings("没有 OS 图片选择器（缺少 osascript）。请输入路径或拖放文件。", osImageDialogChromeFor(.simplified_chinese, "").macos_missing);
+    try testing.expectEqualStrings("没有 OS 图片选择器（缺少 powershell.exe）。请输入路径或拖放文件。", osImageDialogChromeFor(.simplified_chinese, "").windows_missing);
+
+    try testing.expectEqualStrings("画像を選択", osImageDialogChromeFor(.japanese, "").prompt);
+    try testing.expectEqualStrings("OS の画像選択がありません（zenity または kdialog をインストールしてください）。パスを入力するかファイルをドロップしてください。", osImageDialogChromeFor(.japanese, "").linux_missing);
+    try testing.expectEqualStrings("OS の画像選択がありません（osascript がありません）。パスを入力するかファイルをドロップしてください。", osImageDialogChromeFor(.japanese, "").macos_missing);
+    try testing.expectEqualStrings("OS の画像選択がありません（powershell.exe がありません）。パスを入力するかファイルをドロップしてください。", osImageDialogChromeFor(.japanese, "").windows_missing);
+
+    try testing.expectEqualStrings("选择一张图片", osImageDialogChromeFor(.system, "zh_CN.UTF-8").prompt);
+    try testing.expectEqualStrings("画像を選択", osImageDialogChromeFor(.system, "ja_JP.UTF-8").prompt);
+    try testing.expectEqualStrings("Choose an image", osImageDialogChromeFor(.english, "ja_JP.UTF-8").prompt);
+    try testing.expectEqualStrings("Choose an image", osImageDialogChromeFor(.english, "zh_CN.UTF-8").prompt);
+    try testing.expectEqualStrings("没有 OS 图片选择器（请安装 zenity 或 kdialog）。请输入路径或拖放文件。", osImageDialogChromeFor(.system, "zh_CN.UTF-8").linux_missing);
+    try testing.expectEqualStrings("OS の画像選択がありません（osascript がありません）。パスを入力するかファイルをドロップしてください。", osImageDialogChromeFor(.system, "ja_JP.UTF-8").macos_missing);
 }
 

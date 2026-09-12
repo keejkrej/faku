@@ -109,8 +109,8 @@ pub fn applyFileDrop(model: *Model, fx: *Effects, path: []const u8) void {
 
 pub fn startPickImage(model: *Model, fx: *Effects) void {
     if (model.pick_image_live) return;
-    const argv = pick_image.hostArgv(.first) orelse {
-        model.setAttachStatus(pick_image.hostMissingStatus());
+    const argv = pick_image.hostArgvFor(.first, model.language_preference, model.systemLocaleId()) orelse {
+        model.setAttachStatus(pick_image.hostMissingStatusFor(model.language_preference, model.systemLocaleId()));
         model.startImageAttach();
         return;
     };
@@ -149,7 +149,7 @@ pub fn handlePickImageExit(model: *Model, fx: *Effects, exit: native_sdk.EffectE
     }
     if (isMissingPickerExit(exit)) {
         if (!model.pick_image_tried_fallback) {
-            if (pick_image.hostArgv(.fallback)) |argv| {
+            if (pick_image.hostArgvFor(.fallback, model.language_preference, model.systemLocaleId())) |argv| {
                 model.pick_image_tried_fallback = true;
                 fx.spawn(.{
                     .key = pick_image_key,
@@ -162,7 +162,7 @@ pub fn handlePickImageExit(model: *Model, fx: *Effects, exit: native_sdk.EffectE
         }
         model.pick_image_live = false;
         if (!model.has_attach_status()) {
-            model.setAttachStatus(pick_image.hostMissingStatus());
+            model.setAttachStatus(pick_image.hostMissingStatusFor(model.language_preference, model.systemLocaleId()));
         }
         model.startImageAttach();
         return;
