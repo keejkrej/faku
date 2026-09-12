@@ -2,8 +2,11 @@
 //!
 //! Snapshot, highlight, cycle, commit, and close live here.
 //! Msg routing stays in `main.zig`. Model fields and `switcher_rows`
-//! live in `model.zig`.
-//! Behavior is unchanged from the former `main` switcher helpers.
+//! live in `model.zig`. Dialog title / Switch follow Appearance via
+//! `Model.switcher_title()` / `switcher_confirm_label()`
+//! (`i18n.SwitcherChrome`); Cancel reuses `CommitChrome.cancel`.
+//! Behavior is otherwise unchanged from the former `main` switcher
+//! helpers.
 
 const main = @import("main.zig");
 

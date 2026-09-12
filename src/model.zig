@@ -4642,9 +4642,10 @@ pub const Model = struct {
         return i18n.paletteFor(model.language_preference, model.systemLocaleId());
     }
 
-    /// Palette overlay Suggested / Commands / Tasks headers and
-    /// empty-state lines. Same resolve path as `palette_action_label`.
-    /// Ids / `PaletteAction` / keywords stay English.
+    /// Palette overlay Suggested / Commands / Tasks headers,
+    /// empty-state lines, and footer Confirm. Same resolve path as
+    /// `palette_action_label`. Ids / `PaletteAction` / keywords stay
+    /// English. Footer Cancel reuses `CommitChrome.cancel`.
     pub fn paletteOverlayChrome(model: *const Model) i18n.PaletteChrome {
         return i18n.paletteChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -4691,6 +4692,10 @@ pub const Model = struct {
 
     fn daemonDirChrome(model: *const Model) i18n.DaemonDirChrome {
         return i18n.daemonDirChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn switcherChrome(model: *const Model) i18n.SwitcherChrome {
+        return i18n.switcherChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Palette row display label for `action`. New Task / Settings /
@@ -5682,9 +5687,10 @@ pub const Model = struct {
         return model.branchChrome().new_worktree_name;
     }
 
-    /// New worktree… card Base. Distinct from leftover Work-in Base
-    /// and from `git_worktree_base_label` (the effective base name).
-    /// `on-press` stays `toggle_git_worktree_base_picker`.
+    /// New worktree… card Base and Work-in Base picker. Same
+    /// `BranchChrome.base`. Distinct from `git_worktree_base_label`
+    /// (the effective base name). `on-press` stays
+    /// `toggle_git_worktree_base_picker`.
     pub fn git_worktree_base_button_label(model: *const Model) []const u8 {
         return model.branchChrome().base;
     }
@@ -5717,9 +5723,8 @@ pub const Model = struct {
     }
 
     /// New branch / worktree / delete / push-confirm Cancel. Reuses
-    /// `CommitChrome.cancel`. Distinct from daemon-dir Cancel
-    /// (`daemon_dir_browser_cancel_label`, same `CommitChrome.cancel`)
-    /// and leftover palette / switcher Cancel. `on-press` stays
+    /// `CommitChrome.cancel`. Distinct from daemon-dir / palette /
+    /// switcher Cancel (same `CommitChrome.cancel`). `on-press` stays
     /// `cancel_git_branch_create` / `cancel_git_worktree_create` /
     /// `cancel_git_branch_delete` / `cancel_git_push`.
     pub fn git_branch_cancel_label(model: *const Model) []const u8 {
@@ -5732,10 +5737,18 @@ pub const Model = struct {
         return model.workspaceChrome().work_in;
     }
 
-    /// Workspace picker Local menu row. Distinct from leftover
-    /// project-row Local (`project_is_local`). `on-press` stays
-    /// `pick_workspace_local`.
+    /// Workspace picker Local menu row. Distinct from project-row
+    /// Local (`project_local_label`, same `WorkspaceChrome.local`).
+    /// `on-press` stays `pick_workspace_local`.
     pub fn workspace_local_label(model: *const Model) []const u8 {
+        return model.workspaceChrome().local;
+    }
+
+    /// Project-row Local when `project_is_local`. Reuses
+    /// `WorkspaceChrome.local`. Distinct from `workspace_local_label`
+    /// (workspace picker menu) even though the string source is the
+    /// same struct field. `on-press` stays `start_project_edit`.
+    pub fn project_local_label(model: *const Model) []const u8 {
         return model.workspaceChrome().local;
     }
 
@@ -5765,9 +5778,45 @@ pub const Model = struct {
     }
 
     /// Daemon-dir browser Cancel. Reuses `CommitChrome.cancel`.
-    /// Distinct from leftover palette / switcher Cancel.
-    /// `on-press` stays `cancel_daemon_dir_browser`.
+    /// Distinct from palette / switcher Cancel (same
+    /// `CommitChrome.cancel`). `on-press` stays
+    /// `cancel_daemon_dir_browser`.
     pub fn daemon_dir_browser_cancel_label(model: *const Model) []const u8 {
+        return model.commitChrome().cancel;
+    }
+
+    /// Daemon-dir browser muted Loading…. Distinct from Files
+    /// `right_panel_loading_files_label`.
+    pub fn daemon_dir_browser_loading_label(model: *const Model) []const u8 {
+        return model.daemonDirChrome().loading;
+    }
+
+    /// Palette footer Confirm. `on-press` stays `palette_confirm`.
+    pub fn palette_confirm_label(model: *const Model) []const u8 {
+        return model.paletteOverlayChrome().confirm;
+    }
+
+    /// Palette footer Cancel. Reuses `CommitChrome.cancel`. Distinct
+    /// from leftover Command palette dialog title. `on-press` /
+    /// on-dismiss stay `palette_cancel`.
+    pub fn palette_cancel_label(model: *const Model) []const u8 {
+        return model.commitChrome().cancel;
+    }
+
+    /// Session switcher dialog title. `on-dismiss` stays
+    /// `switcher_cancel`.
+    pub fn switcher_title(model: *const Model) []const u8 {
+        return model.switcherChrome().title;
+    }
+
+    /// Session switcher Switch. `on-press` stays `switcher_confirm`.
+    pub fn switcher_confirm_label(model: *const Model) []const u8 {
+        return model.switcherChrome().switch_label;
+    }
+
+    /// Session switcher Cancel. Reuses `CommitChrome.cancel`.
+    /// `on-press` / on-dismiss stay `switcher_cancel`.
+    pub fn switcher_cancel_label(model: *const Model) []const u8 {
         return model.commitChrome().cancel;
     }
 
