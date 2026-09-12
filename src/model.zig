@@ -3126,6 +3126,19 @@ pub const Model = struct {
         return browser_pane.can_close_browser(model);
     }
 
+    /// Browser / Terminal multi-session New chip. Same wording on
+    /// both tabs. `on-press` stays `new_browser` / `new_terminal`.
+    pub fn session_chip_new_label(model: *const Model) []const u8 {
+        return model.sessionChipsChrome().new;
+    }
+
+    /// Browser / Terminal multi-session Close chip. Same wording on
+    /// both tabs. Distinct from Files preview Close. `on-press`
+    /// stays `close_browser` / `close_terminal`.
+    pub fn session_chip_close_label(model: *const Model) []const u8 {
+        return model.sessionChipsChrome().close;
+    }
+
     pub fn browser_session_rows(model: *const Model, arena: std.mem.Allocator) []const browser_pane.BrowserSessionRow {
         return browser_pane.sessionRows(model, arena);
     }
@@ -3467,8 +3480,9 @@ pub const Model = struct {
         return model.filePreviewChrome().open_in_editor;
     }
 
-    /// Files preview Close. Distinct from Browser / Terminal Close
-    /// leftovers. `on-press` stays `close_right_panel_file_preview`.
+    /// Files preview Close. Distinct from Browser / Terminal session
+    /// Close chips (`session_chip_close_label`). `on-press` stays
+    /// `close_right_panel_file_preview`.
     pub fn file_preview_close_label(model: *const Model) []const u8 {
         return model.filePreviewChrome().close;
     }
@@ -4800,6 +4814,10 @@ pub const Model = struct {
 
     fn sidebarHistoryChrome(model: *const Model) i18n.SidebarHistoryChrome {
         return i18n.sidebarHistoryChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn sessionChipsChrome(model: *const Model) i18n.SessionChipsChrome {
+        return i18n.sessionChipsChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Palette row display label for `action`. New Task / Settings /
