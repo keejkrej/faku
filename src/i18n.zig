@@ -61,6 +61,9 @@
 //! `SettingsGeneralChrome` strings; Latin `FX_MODEL` in every locale)
 //! plus composer Image path placeholder and Goal Status picker
 //! placeholder / empty label (same `ComposerChrome` strings)
+//! plus Browser address-field Address label and
+//! `https://example.com` placeholder (same `BrowserAddressChrome`
+//! strings; Latin `https://example.com` in every locale)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -130,7 +133,10 @@
 //! (`toggle_settings_effort_picker`). Composer Image path `on-input`
 //! stays English (`image_path_edit`); Goal Status picker `on-press`
 //! stays English (`toggle_goal_status_picker`). Typed path text stays
-//! English (data). ThreadGoalStatus wire names stay English. OS
+//! English (data). ThreadGoalStatus wire names stay English. Browser
+//! address `on-input` / on-submit stay English (`browser_url_edit` /
+//! `browser_navigate`). Typed URL text stays data. Parked `home_url`
+//! / scene URLs stay data. OS
 //! folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript / PowerShell
 //! / zenity `--title` / kdialog `--title` at spawn) follow the
@@ -1604,6 +1610,33 @@ const composer_chrome_ja: ComposerChrome = .{
     .status = "ステータス",
 };
 
+/// Browser address-field a11y label and placeholder for the resolved
+/// locale. Same resolve path as ComposerChrome. English matches the
+/// former hardcoded copy. Wire ids / on-input / on-submit stay
+/// English (`browser_url_edit` / `browser_navigate`). Latin
+/// `https://example.com` in every locale (same rule as `host:port` /
+/// `FX_MODEL`). Typed URL text stays data. Parked `home_url` / shell
+/// webview scene URLs stay data (protocol/home, not chrome).
+pub const BrowserAddressChrome = struct {
+    address: []const u8,
+    placeholder: []const u8,
+};
+
+const browser_address_chrome_en: BrowserAddressChrome = .{
+    .address = "Address",
+    .placeholder = "https://example.com",
+};
+
+const browser_address_chrome_zh_cn: BrowserAddressChrome = .{
+    .address = "地址",
+    .placeholder = "https://example.com",
+};
+
+const browser_address_chrome_ja: BrowserAddressChrome = .{
+    .address = "アドレス",
+    .placeholder = "https://example.com",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -1984,6 +2017,20 @@ pub fn composerChromeFor(preference: LanguagePreference, system_locale_id: []con
         .simplified_chinese => composer_chrome_zh_cn,
         .japanese => composer_chrome_ja,
         .system, .english => composer_chrome_en,
+    };
+}
+
+/// Browser address-field a11y label and placeholder for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Wire ids /
+/// on-input / on-submit stay English. Latin `https://example.com` in
+/// every locale. Typed URL text stays data. Parked `home_url` /
+/// scene URLs stay data.
+pub fn browserAddressChromeFor(preference: LanguagePreference, system_locale_id: []const u8) BrowserAddressChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => browser_address_chrome_zh_cn,
+        .japanese => browser_address_chrome_ja,
+        .system, .english => browser_address_chrome_en,
     };
 }
 
@@ -3202,5 +3249,31 @@ test "composerChromeFor english default; zh and ja chrome; english ignores ja LA
     try testing.expectEqualStrings("Status", composerChromeFor(.english, "zh_CN.UTF-8").status);
     try testing.expectEqualStrings("Image path", composerChromeFor(.english, "zh_CN.UTF-8").image_path);
     try testing.expectEqualStrings("Status", composerChromeFor(.english, "ja_JP.UTF-8").status);
+}
+
+test "browserAddressChromeFor english default; zh and ja chrome; latin placeholder; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Address", browserAddressChromeFor(.english, "ja").address);
+    try testing.expectEqualStrings("Address", browserAddressChromeFor(.english, "").address);
+    try testing.expectEqualStrings("Address", browserAddressChromeFor(.system, "").address);
+    try testing.expectEqualStrings("https://example.com", browserAddressChromeFor(.english, "").placeholder);
+    try testing.expectEqualStrings("https://example.com", browserAddressChromeFor(.system, "").placeholder);
+
+    try testing.expectEqualStrings("地址", browserAddressChromeFor(.simplified_chinese, "").address);
+    try testing.expectEqualStrings("https://example.com", browserAddressChromeFor(.simplified_chinese, "").placeholder);
+
+    try testing.expectEqualStrings("アドレス", browserAddressChromeFor(.japanese, "").address);
+    try testing.expectEqualStrings("https://example.com", browserAddressChromeFor(.japanese, "").placeholder);
+
+    try testing.expectEqualStrings("地址", browserAddressChromeFor(.system, "zh_CN.UTF-8").address);
+    try testing.expectEqualStrings("https://example.com", browserAddressChromeFor(.system, "zh_CN.UTF-8").placeholder);
+    try testing.expectEqualStrings("アドレス", browserAddressChromeFor(.system, "ja_JP.UTF-8").address);
+    try testing.expectEqualStrings("https://example.com", browserAddressChromeFor(.system, "ja_JP.UTF-8").placeholder);
+    try testing.expectEqualStrings("Address", browserAddressChromeFor(.english, "ja_JP.UTF-8").address);
+    try testing.expectEqualStrings("Address", browserAddressChromeFor(.english, "zh_CN.UTF-8").address);
+    try testing.expectEqualStrings("https://example.com", browserAddressChromeFor(.english, "ja_JP.UTF-8").placeholder);
+    try testing.expectEqualStrings("https://example.com", browserAddressChromeFor(.english, "zh_CN.UTF-8").placeholder);
+    try testing.expectEqualStrings("https://example.com", browserAddressChromeFor(.simplified_chinese, "ja_JP.UTF-8").placeholder);
+    try testing.expectEqualStrings("https://example.com", browserAddressChromeFor(.japanese, "zh_CN.UTF-8").placeholder);
 }
 
