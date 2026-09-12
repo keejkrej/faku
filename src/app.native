@@ -6,16 +6,16 @@
       <row gap="6" cross="center">
         <text wrap="true" foreground="text_muted">{h.text}</text>
         <if test="{h.can_expand_start}">
-          <button variant="ghost" size="sm" on-press="expand_review_diff_gap_start:{h.id}">Start</button>
+          <button variant="ghost" size="sm" on-press="expand_review_diff_gap_start:{h.id}">{review_diff_gap_expand_start_label}</button>
         </if>
         <if test="{h.can_expand_end}">
-          <button variant="ghost" size="sm" on-press="expand_review_diff_gap_end:{h.id}">End</button>
+          <button variant="ghost" size="sm" on-press="expand_review_diff_gap_end:{h.id}">{review_diff_gap_expand_end_label}</button>
         </if>
         <if test="{h.can_expand_both}">
-          <button variant="ghost" size="sm" on-press="expand_review_diff_gap_both:{h.id}">Both</button>
+          <button variant="ghost" size="sm" on-press="expand_review_diff_gap_both:{h.id}">{review_diff_gap_expand_both_label}</button>
         </if>
         <if test="{h.can_expand_all}">
-          <button variant="ghost" size="sm" on-press="expand_review_diff_gap_all:{h.id}">All</button>
+          <button variant="ghost" size="sm" on-press="expand_review_diff_gap_all:{h.id}">{review_diff_gap_expand_all_label}</button>
         </if>
       </row>
     </if>
