@@ -23,7 +23,9 @@
 //! Copy path (same `ComposerProjectChrome` strings; Open in Terminal
 //! reuses `RightPanelChrome.open_in_terminal`), and first-cut Review
 //! Diff header title / Cancel / source chips (same
-//! `ReviewDiffChrome` strings) live here so
+//! `ReviewDiffChrome` strings), and first-cut Background row kind /
+//! status / stop·dismiss chrome (same `BackgroundChrome` strings;
+//! Environment Summary + right-panel Background body) live here so
 //! `main.zig` does not grow. Palette ids / `PaletteAction` / keywords
 //! stay English. Wire `access_mode` ids stay `ask` / `auto` /
 //! `fullAccess`. Wire `reasoning_effort` ids stay `auto` / `none` /
@@ -36,8 +38,10 @@
 //! Open in Editor / Copy path `on-press` stay `pick_folder` /
 //! `reveal_folder` / `open_editor` / `copy_project_path`. Review Diff
 //! Cancel / source chips `on-press` stay `close_review_diff` /
-//! `set_review_diff_source_*`. Not rust_i18n, not YAML catalogs, not
-//! full-app translation, not tz-aware grouping.
+//! `set_review_diff_source_*`. Background Stop / Dismiss `on-press`
+//! stay `environment_stop_background:*` / `open_background_work:*`.
+//! Not rust_i18n, not YAML catalogs, not full-app translation, not
+//! tz-aware grouping.
 
 const std = @import("std");
 
@@ -532,8 +536,9 @@ const palette_chrome_ja: PaletteChrome = .{
 /// (including empty secondary Open a project to browse its files /
 /// Loading files…) / Background empty / Browser start page /
 /// Open in browser / Open in Terminal chrome live in
-/// `RightPanelChrome`. Pane `label=` attributes and remaining
-/// Background row chrome stay English.
+/// `RightPanelChrome`. Background row kind / status / stop·dismiss
+/// chrome live in `BackgroundChrome`. Pane `label=` attributes stay
+/// English.
 pub const RightPanelTabs = struct {
     files: []const u8,
     diff: []const u8,
@@ -573,8 +578,9 @@ const right_panel_tabs_ja: RightPanelTabs = .{
 /// resolve path as RightPanelTabs. Wire ids / on-press / filter text
 /// stay English; only these visible strings translate. English Diff
 /// filter reads "Filter files", not Filter. Composer Open in Terminal
-/// reuses `open_in_terminal`. Remaining Background row chrome stays
-/// English.
+/// reuses `open_in_terminal`. Background empty-state reuses
+/// `no_background_work` / `no_output`; row kind / status /
+/// stop·dismiss chrome live in `BackgroundChrome`.
 pub const RightPanelChrome = struct {
     filter_files: []const u8,
     no_project_open: []const u8,
@@ -711,6 +717,94 @@ const review_diff_chrome_ja: ReviewDiffChrome = .{
     .unstaged = "未ステージ",
     .committed = "コミット済み",
     .last_turn = "直前のターン",
+};
+
+/// Background row kind / status / stop·dismiss chrome for the
+/// resolved locale. Same resolve path as ReviewDiffChrome. Paints
+/// Environment Summary `background_rows` and right-panel
+/// `background_work_*` fields. Wire ids / on-press stay English
+/// (`environment_stop_background:*` / `open_background_work:*`).
+/// Empty-state No background work / No output stay on
+/// `RightPanelChrome`. English matches the former hardcoded
+/// constants. Custom daemon titles are data, not chrome.
+pub const BackgroundChrome = struct {
+    kind_process: []const u8,
+    kind_monitor: []const u8,
+    kind_subagent: []const u8,
+    process_row: []const u8,
+    settled_completed: []const u8,
+    settled_stopped: []const u8,
+    settled_failed: []const u8,
+    live_running: []const u8,
+    live_monitoring: []const u8,
+    live_stopping: []const u8,
+    process_stop: []const u8,
+    monitor_stop: []const u8,
+    monitor_dismiss: []const u8,
+    subagent_stop: []const u8,
+    subagent_dismiss: []const u8,
+    daemon_stop: []const u8,
+    daemon_dismiss: []const u8,
+};
+
+pub const background_chrome_en: BackgroundChrome = .{
+    .kind_process = "Process",
+    .kind_monitor = "Monitor",
+    .kind_subagent = "Subagent",
+    .process_row = "Agent turn",
+    .settled_completed = "Completed",
+    .settled_stopped = "Stopped",
+    .settled_failed = "Failed",
+    .live_running = "Running",
+    .live_monitoring = "Monitoring",
+    .live_stopping = "Stopping",
+    .process_stop = "Stop agent",
+    .monitor_stop = "Stop monitor",
+    .monitor_dismiss = "Dismiss monitor",
+    .subagent_stop = "Stop subagent",
+    .subagent_dismiss = "Dismiss subagent",
+    .daemon_stop = "Stop",
+    .daemon_dismiss = "Dismiss",
+};
+
+const background_chrome_zh_cn: BackgroundChrome = .{
+    .kind_process = "进程",
+    .kind_monitor = "监视器",
+    .kind_subagent = "子代理",
+    .process_row = "代理轮次",
+    .settled_completed = "已完成",
+    .settled_stopped = "已停止",
+    .settled_failed = "失败",
+    .live_running = "运行中",
+    .live_monitoring = "监视中",
+    .live_stopping = "正在停止",
+    .process_stop = "停止代理",
+    .monitor_stop = "停止监视器",
+    .monitor_dismiss = "关闭监视器",
+    .subagent_stop = "停止子代理",
+    .subagent_dismiss = "关闭子代理",
+    .daemon_stop = "停止",
+    .daemon_dismiss = "关闭",
+};
+
+const background_chrome_ja: BackgroundChrome = .{
+    .kind_process = "プロセス",
+    .kind_monitor = "モニター",
+    .kind_subagent = "サブエージェント",
+    .process_row = "エージェントのターン",
+    .settled_completed = "完了",
+    .settled_stopped = "停止済み",
+    .settled_failed = "失敗",
+    .live_running = "実行中",
+    .live_monitoring = "監視中",
+    .live_stopping = "停止中",
+    .process_stop = "エージェントを停止",
+    .monitor_stop = "モニターを停止",
+    .monitor_dismiss = "モニターを閉じる",
+    .subagent_stop = "サブエージェントを停止",
+    .subagent_dismiss = "サブエージェントを閉じる",
+    .daemon_stop = "停止",
+    .daemon_dismiss = "閉じる",
 };
 
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
@@ -885,6 +979,19 @@ pub fn reviewDiffChromeFor(preference: LanguagePreference, system_locale_id: []c
         .simplified_chinese => review_diff_chrome_zh_cn,
         .japanese => review_diff_chrome_ja,
         .system, .english => review_diff_chrome_en,
+    };
+}
+
+/// Background row kind / status / stop·dismiss chrome for the
+/// resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Wire
+/// ids / on-press stay English. Empty-state strings stay on
+/// `rightPanelChromeFor`.
+pub fn backgroundChromeFor(preference: LanguagePreference, system_locale_id: []const u8) BackgroundChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => background_chrome_zh_cn,
+        .japanese => background_chrome_ja,
+        .system, .english => background_chrome_en,
     };
 }
 
@@ -1400,4 +1507,89 @@ test "reviewDiffChromeFor english default; zh and ja chrome; english ignores ja 
     try testing.expectEqualStrings("Unstaged", reviewDiffChromeFor(.english, "zh_CN.UTF-8").unstaged);
     try testing.expectEqualStrings("Committed", reviewDiffChromeFor(.english, "ja_JP.UTF-8").committed);
     try testing.expectEqualStrings("Last turn", reviewDiffChromeFor(.english, "zh_CN.UTF-8").last_turn);
+}
+
+test "backgroundChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Process", backgroundChromeFor(.english, "ja").kind_process);
+    try testing.expectEqualStrings("Monitor", backgroundChromeFor(.english, "").kind_monitor);
+    try testing.expectEqualStrings("Subagent", backgroundChromeFor(.english, "").kind_subagent);
+    try testing.expectEqualStrings("Agent turn", backgroundChromeFor(.english, "").process_row);
+    try testing.expectEqualStrings("Completed", backgroundChromeFor(.english, "").settled_completed);
+    try testing.expectEqualStrings("Stopped", backgroundChromeFor(.english, "").settled_stopped);
+    try testing.expectEqualStrings("Failed", backgroundChromeFor(.english, "").settled_failed);
+    try testing.expectEqualStrings("Running", backgroundChromeFor(.english, "").live_running);
+    try testing.expectEqualStrings("Monitoring", backgroundChromeFor(.english, "").live_monitoring);
+    try testing.expectEqualStrings("Stopping", backgroundChromeFor(.english, "").live_stopping);
+    try testing.expectEqualStrings("Stop agent", backgroundChromeFor(.english, "").process_stop);
+    try testing.expectEqualStrings("Stop monitor", backgroundChromeFor(.english, "").monitor_stop);
+    try testing.expectEqualStrings("Dismiss monitor", backgroundChromeFor(.english, "").monitor_dismiss);
+    try testing.expectEqualStrings("Stop subagent", backgroundChromeFor(.english, "").subagent_stop);
+    try testing.expectEqualStrings("Dismiss subagent", backgroundChromeFor(.english, "").subagent_dismiss);
+    try testing.expectEqualStrings("Stop", backgroundChromeFor(.english, "").daemon_stop);
+    try testing.expectEqualStrings("Dismiss", backgroundChromeFor(.english, "").daemon_dismiss);
+    try testing.expectEqualStrings("Process", backgroundChromeFor(.system, "").kind_process);
+
+    try testing.expectEqualStrings("进程", backgroundChromeFor(.simplified_chinese, "").kind_process);
+    try testing.expectEqualStrings("监视器", backgroundChromeFor(.simplified_chinese, "").kind_monitor);
+    try testing.expectEqualStrings("子代理", backgroundChromeFor(.simplified_chinese, "").kind_subagent);
+    try testing.expectEqualStrings("代理轮次", backgroundChromeFor(.simplified_chinese, "").process_row);
+    try testing.expectEqualStrings("已完成", backgroundChromeFor(.simplified_chinese, "").settled_completed);
+    try testing.expectEqualStrings("已停止", backgroundChromeFor(.simplified_chinese, "").settled_stopped);
+    try testing.expectEqualStrings("失败", backgroundChromeFor(.simplified_chinese, "").settled_failed);
+    try testing.expectEqualStrings("运行中", backgroundChromeFor(.simplified_chinese, "").live_running);
+    try testing.expectEqualStrings("监视中", backgroundChromeFor(.simplified_chinese, "").live_monitoring);
+    try testing.expectEqualStrings("正在停止", backgroundChromeFor(.simplified_chinese, "").live_stopping);
+    try testing.expectEqualStrings("停止代理", backgroundChromeFor(.simplified_chinese, "").process_stop);
+    try testing.expectEqualStrings("停止监视器", backgroundChromeFor(.simplified_chinese, "").monitor_stop);
+    try testing.expectEqualStrings("关闭监视器", backgroundChromeFor(.simplified_chinese, "").monitor_dismiss);
+    try testing.expectEqualStrings("停止子代理", backgroundChromeFor(.simplified_chinese, "").subagent_stop);
+    try testing.expectEqualStrings("关闭子代理", backgroundChromeFor(.simplified_chinese, "").subagent_dismiss);
+    try testing.expectEqualStrings("停止", backgroundChromeFor(.simplified_chinese, "").daemon_stop);
+    try testing.expectEqualStrings("关闭", backgroundChromeFor(.simplified_chinese, "").daemon_dismiss);
+
+    try testing.expectEqualStrings("プロセス", backgroundChromeFor(.japanese, "").kind_process);
+    try testing.expectEqualStrings("モニター", backgroundChromeFor(.japanese, "").kind_monitor);
+    try testing.expectEqualStrings("サブエージェント", backgroundChromeFor(.japanese, "").kind_subagent);
+    try testing.expectEqualStrings("エージェントのターン", backgroundChromeFor(.japanese, "").process_row);
+    try testing.expectEqualStrings("完了", backgroundChromeFor(.japanese, "").settled_completed);
+    try testing.expectEqualStrings("停止済み", backgroundChromeFor(.japanese, "").settled_stopped);
+    try testing.expectEqualStrings("失敗", backgroundChromeFor(.japanese, "").settled_failed);
+    try testing.expectEqualStrings("実行中", backgroundChromeFor(.japanese, "").live_running);
+    try testing.expectEqualStrings("監視中", backgroundChromeFor(.japanese, "").live_monitoring);
+    try testing.expectEqualStrings("停止中", backgroundChromeFor(.japanese, "").live_stopping);
+    try testing.expectEqualStrings("エージェントを停止", backgroundChromeFor(.japanese, "").process_stop);
+    try testing.expectEqualStrings("モニターを停止", backgroundChromeFor(.japanese, "").monitor_stop);
+    try testing.expectEqualStrings("モニターを閉じる", backgroundChromeFor(.japanese, "").monitor_dismiss);
+    try testing.expectEqualStrings("サブエージェントを停止", backgroundChromeFor(.japanese, "").subagent_stop);
+    try testing.expectEqualStrings("サブエージェントを閉じる", backgroundChromeFor(.japanese, "").subagent_dismiss);
+    try testing.expectEqualStrings("停止", backgroundChromeFor(.japanese, "").daemon_stop);
+    try testing.expectEqualStrings("閉じる", backgroundChromeFor(.japanese, "").daemon_dismiss);
+
+    try testing.expectEqualStrings("进程", backgroundChromeFor(.system, "zh_CN.UTF-8").kind_process);
+    try testing.expectEqualStrings("关闭监视器", backgroundChromeFor(.system, "zh_CN.UTF-8").monitor_dismiss);
+    try testing.expectEqualStrings("代理轮次", backgroundChromeFor(.system, "zh_CN.UTF-8").process_row);
+    try testing.expectEqualStrings("プロセス", backgroundChromeFor(.system, "ja_JP.UTF-8").kind_process);
+    try testing.expectEqualStrings("モニターを閉じる", backgroundChromeFor(.system, "ja_JP.UTF-8").monitor_dismiss);
+    try testing.expectEqualStrings("エージェントのターン", backgroundChromeFor(.system, "ja_JP.UTF-8").process_row);
+    try testing.expectEqualStrings("Process", backgroundChromeFor(.english, "ja_JP.UTF-8").kind_process);
+    try testing.expectEqualStrings("Monitor", backgroundChromeFor(.english, "zh_CN.UTF-8").kind_monitor);
+    try testing.expectEqualStrings("Subagent", backgroundChromeFor(.english, "ja_JP.UTF-8").kind_subagent);
+    try testing.expectEqualStrings("Agent turn", backgroundChromeFor(.english, "zh_CN.UTF-8").process_row);
+    try testing.expectEqualStrings("Completed", backgroundChromeFor(.english, "ja_JP.UTF-8").settled_completed);
+    try testing.expectEqualStrings("Stopped", backgroundChromeFor(.english, "zh_CN.UTF-8").settled_stopped);
+    try testing.expectEqualStrings("Failed", backgroundChromeFor(.english, "ja_JP.UTF-8").settled_failed);
+    try testing.expectEqualStrings("Running", backgroundChromeFor(.english, "zh_CN.UTF-8").live_running);
+    try testing.expectEqualStrings("Monitoring", backgroundChromeFor(.english, "ja_JP.UTF-8").live_monitoring);
+    try testing.expectEqualStrings("Stopping", backgroundChromeFor(.english, "zh_CN.UTF-8").live_stopping);
+    try testing.expectEqualStrings("Stop agent", backgroundChromeFor(.english, "ja_JP.UTF-8").process_stop);
+    try testing.expectEqualStrings("Stop monitor", backgroundChromeFor(.english, "zh_CN.UTF-8").monitor_stop);
+    try testing.expectEqualStrings("Dismiss monitor", backgroundChromeFor(.english, "ja_JP.UTF-8").monitor_dismiss);
+    try testing.expectEqualStrings("Stop subagent", backgroundChromeFor(.english, "zh_CN.UTF-8").subagent_stop);
+    try testing.expectEqualStrings("Dismiss subagent", backgroundChromeFor(.english, "ja_JP.UTF-8").subagent_dismiss);
+    try testing.expectEqualStrings("Stop", backgroundChromeFor(.english, "zh_CN.UTF-8").daemon_stop);
+    try testing.expectEqualStrings("Dismiss", backgroundChromeFor(.english, "ja_JP.UTF-8").daemon_dismiss);
+
+    try testing.expectEqualStrings(rightPanelChromeFor(.english, "").no_background_work, "No background work");
+    try testing.expectEqualStrings(rightPanelChromeFor(.english, "").no_output, "No output");
 }

@@ -25250,6 +25250,152 @@ test "Review Diff header title / Cancel / source chips follow Appearance languag
     try testing.expectEqualStrings("Last turn", model.review_diff_source_last_turn_label());
 }
 
+test "Background row kind / status / stop chrome follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{b.kind_label}") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{b.title}") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{b.stop_label}") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{b.settled_status}") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{background_work_kind_label}") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{background_work_title}") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{background_work_status}") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{background_work_stop_label}") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "open_background_work:{b.id}") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_stop_background:{b.id}") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_stop_background:{background_work_row_id}") != null);
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Stop agent<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Agent turn<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Stop monitor<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Dismiss monitor<"));
+
+    var model = Model{};
+    defer environment_summary.clearLiveMonitors(&model);
+    defer environment_summary.clearLiveSubagents(&model);
+    const sid = model.addSession("env background chrome i18n", .claude);
+    model.selected = sid;
+    model.phase = .streaming;
+    model.streaming_session = sid;
+    environment_summary.noteLiveMonitor(&model, "toolu_mon_i18n");
+    environment_summary.noteLiveSubagent(&model, "toolu_agent_i18n");
+    main.update(&model, .toggle_environment_summary, &fx);
+    try testing.expect(model.environment_summary_open);
+
+    try testing.expectEqualStrings("Process", environment_summary.backgroundKindLabel(.process));
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Process");
+    const process_row = try expectByText(tree.root, .menu_item, "Agent turn");
+    try testing.expectEqual(Msg{ .open_background_work = 1 }, tree.msgForPointer(process_row.id, .up).?);
+    const stop_agent = try expectByText(tree.root, .menu_item, "Stop agent");
+    try testing.expectEqual(Msg{ .environment_stop_background = 1 }, tree.msgForPointer(stop_agent.id, .up).?);
+    const monitor_row = try expectByText(tree.root, .menu_item, "Monitor");
+    try testing.expectEqual(Msg{ .open_background_work = 100 }, tree.msgForPointer(monitor_row.id, .up).?);
+    const stop_monitor = try expectByText(tree.root, .menu_item, "Stop monitor");
+    try testing.expectEqual(Msg{ .environment_stop_background = 100 }, tree.msgForPointer(stop_monitor.id, .up).?);
+    const stop_subagent = try expectByText(tree.root, .menu_item, "Stop subagent");
+    try testing.expectEqual(Msg{ .environment_stop_background = 2 }, tree.msgForPointer(stop_subagent.id, .up).?);
+
+    main.update(&model, .{ .open_background_work = 1 }, &fx);
+    try testing.expect(model.right_panel_tab_background());
+    try testing.expectEqualStrings("Process", model.background_work_kind_label());
+    try testing.expectEqualStrings("Agent turn", model.background_work_title());
+    try testing.expectEqualStrings("Running", model.background_work_status());
+    try testing.expectEqualStrings("Stop agent", model.background_work_stop_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Process");
+    _ = try expectByText(tree.root, .text, "Agent turn");
+    _ = try expectByText(tree.root, .text, "Running");
+    _ = try expectButtonMsg(tree, "Stop agent", .{ .environment_stop_background = 1 });
+
+    main.update(&model, .{ .open_background_work = 100 }, &fx);
+    try testing.expectEqualStrings("Monitor", model.background_work_kind_label());
+    try testing.expectEqualStrings("Monitoring", model.background_work_status());
+    try testing.expectEqualStrings("Stop monitor", model.background_work_stop_label());
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("进程", model.background_work_kind_label());
+    try testing.expectEqualStrings("监视器", model.background_work_title());
+    try testing.expectEqualStrings("监视中", model.background_work_status());
+    try testing.expectEqualStrings("停止监视器", model.background_work_stop_label());
+    main.update(&model, .toggle_environment_summary, &fx);
+    try testing.expect(model.environment_summary_open);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "进程");
+    const zh_process = try expectByText(tree.root, .menu_item, "代理轮次");
+    try testing.expectEqual(Msg{ .open_background_work = 1 }, tree.msgForPointer(zh_process.id, .up).?);
+    const zh_stop_agent = try expectByText(tree.root, .menu_item, "停止代理");
+    try testing.expectEqual(Msg{ .environment_stop_background = 1 }, tree.msgForPointer(zh_stop_agent.id, .up).?);
+    _ = try expectByText(tree.root, .text, "监视器");
+    const zh_stop_monitor = try expectByText(tree.root, .menu_item, "停止监视器");
+    try testing.expectEqual(Msg{ .environment_stop_background = 100 }, tree.msgForPointer(zh_stop_monitor.id, .up).?);
+    const zh_stop_subagent = try expectByText(tree.root, .menu_item, "停止子代理");
+    try testing.expectEqual(Msg{ .environment_stop_background = 2 }, tree.msgForPointer(zh_stop_subagent.id, .up).?);
+    try testing.expect(findByText(tree.root, .text, "Process") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Agent turn") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Stop agent") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Stop monitor") == null);
+
+    main.update(&model, .close_environment_summary, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "监视器");
+    _ = try expectByText(tree.root, .text, "监视中");
+    _ = try expectButtonMsg(tree, "停止监视器", .{ .environment_stop_background = 100 });
+    try testing.expect(findByText(tree.root, .text, "Monitoring") == null);
+    try testing.expect(findByText(tree.root, .button, "Stop monitor") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("モニター", model.background_work_kind_label());
+    try testing.expectEqualStrings("監視中", model.background_work_status());
+    try testing.expectEqualStrings("モニターを停止", model.background_work_stop_label());
+    main.update(&model, .toggle_environment_summary, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "プロセス");
+    const ja_process = try expectByText(tree.root, .menu_item, "エージェントのターン");
+    try testing.expectEqual(Msg{ .open_background_work = 1 }, tree.msgForPointer(ja_process.id, .up).?);
+    const ja_stop_agent = try expectByText(tree.root, .menu_item, "エージェントを停止");
+    try testing.expectEqual(Msg{ .environment_stop_background = 1 }, tree.msgForPointer(ja_stop_agent.id, .up).?);
+    _ = try expectByText(tree.root, .menu_item, "モニターを停止");
+    _ = try expectByText(tree.root, .menu_item, "サブエージェントを停止");
+    try testing.expect(findByText(tree.root, .text, "进程") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "停止代理") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Monitor", model.background_work_kind_label());
+    try testing.expectEqualStrings("Monitoring", model.background_work_status());
+    try testing.expectEqualStrings("Stop monitor", model.background_work_stop_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .menu_item, "Agent turn");
+    _ = try expectByText(tree.root, .menu_item, "Stop agent");
+    try testing.expect(findByText(tree.root, .menu_item, "エージェントのターン") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("监视器", model.background_work_kind_label());
+    try testing.expectEqualStrings("停止监视器", model.background_work_stop_label());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("モニター", model.background_work_kind_label());
+    try testing.expectEqualStrings("モニターを停止", model.background_work_stop_label());
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Monitor", model.background_work_kind_label());
+    try testing.expectEqualStrings("Stop monitor", model.background_work_stop_label());
+
+    model.language_preference = .simplified_chinese;
+    model.phase = .idle;
+    model.streaming_session = 0;
+    environment_summary.settle(&model, sid, .completed);
+    environment_summary.settleLiveBackgroundSignals(&model, sid, .completed);
+    try testing.expectEqualStrings("已完成", model.background_work_status());
+    try testing.expectEqualStrings("关闭监视器", model.background_work_stop_label());
+    try testing.expectEqualStrings("已完成", model.background_settled_status());
+}
+
 test "DateBucket.title english default; zh and ja follow datesFor" {
     try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
     try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());
