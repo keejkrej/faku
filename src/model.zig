@@ -2106,6 +2106,7 @@ pub const Model = struct {
         "workspacePathChrome",
         "untitledChrome",
         "daemonAddressChrome",
+        "settingsGeneralChrome",
         "palette_action_label",
         "show_right_panel_label",
         "sidebarDates",
@@ -4714,6 +4715,10 @@ pub const Model = struct {
         return i18n.daemonAddressChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn settingsGeneralChrome(model: *const Model) i18n.SettingsGeneralChrome {
+        return i18n.settingsGeneralChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     /// Palette row display label for `action`. New Task / Settings /
     /// Collapse all folders reuse Sidebar / Chrome strings; remaining
     /// names come from `i18n.Palette`. Ids / keywords stay English.
@@ -5879,6 +5884,51 @@ pub const Model = struct {
     /// address text stays data.
     pub fn daemon_address_placeholder(model: *const Model) []const u8 {
         return model.daemonAddressChrome().placeholder;
+    }
+
+    /// Settings General Default model field label. Distinct from
+    /// the composer model chip. `on-input` stays `settings_model_edit`.
+    pub fn settings_default_model_label(model: *const Model) []const u8 {
+        return model.settingsGeneralChrome().default_model;
+    }
+
+    /// Settings General Default model placeholder. Latin `FX_MODEL`
+    /// in every locale. Distinct from `daemon_address_placeholder`.
+    /// `on-input` stays `settings_model_edit`. Typed model id stays data.
+    pub fn settings_model_placeholder(model: *const Model) []const u8 {
+        return model.settingsGeneralChrome().default_model_placeholder;
+    }
+
+    /// Settings General Access mode field label. Distinct from
+    /// Ask / Auto / Full access chip values (`access_ask_label`).
+    pub fn settings_access_mode_label(model: *const Model) []const u8 {
+        return model.settingsGeneralChrome().access_mode;
+    }
+
+    /// Settings General Interaction field label. Distinct from
+    /// Build / Plan chip values (`interaction_build_label`).
+    pub fn settings_interaction_field_label(model: *const Model) []const u8 {
+        return model.settingsGeneralChrome().interaction;
+    }
+
+    /// Settings General Effort field label and select placeholder
+    /// (same wording). Distinct from `settings_effort_label` (the
+    /// selected Auto / None / … chip). `on-press` stays
+    /// `toggle_settings_effort_picker`.
+    pub fn settings_effort_field_label(model: *const Model) []const u8 {
+        return model.settingsGeneralChrome().effort;
+    }
+
+    /// Settings General Last project path field label. Distinct
+    /// from `workspace_path_placeholder`.
+    pub fn settings_last_project_path_label(model: *const Model) []const u8 {
+        return model.settingsGeneralChrome().last_project_path;
+    }
+
+    /// Settings General Daemon address field label. Distinct from
+    /// `daemon_address_placeholder`.
+    pub fn settings_daemon_address_label(model: *const Model) []const u8 {
+        return model.settingsGeneralChrome().daemon_address;
     }
 
     /// Runtime-only muted status on the Review card (Comparing… /
