@@ -2104,6 +2104,8 @@ pub const Model = struct {
         "rightPanelChrome",
         "composerProjectChrome",
         "workspacePathChrome",
+        "untitledChrome",
+        "daemonAddressChrome",
         "palette_action_label",
         "show_right_panel_label",
         "sidebarDates",
@@ -3427,7 +3429,8 @@ pub const Model = struct {
         return model.filePreviewChrome().show_replace;
     }
 
-    /// Files preview Find placeholder. Distinct from transcript Find.
+    /// Files preview Find placeholder. Reuses `FilePreviewChrome.find`.
+    /// Transcript Find uses the same string via `find_placeholder`.
     /// Query text stays on `file_preview_find_query`; `on-input` stays
     /// `file_preview_find_edit`.
     pub fn file_preview_find_placeholder(model: *const Model) []const u8 {
@@ -4703,6 +4706,14 @@ pub const Model = struct {
         return i18n.workspacePathChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn untitledChrome(model: *const Model) i18n.UntitledChrome {
+        return i18n.untitledChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn daemonAddressChrome(model: *const Model) i18n.DaemonAddressChrome {
+        return i18n.daemonAddressChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     /// Palette row display label for `action`. New Task / Settings /
     /// Collapse all folders reuse Sidebar / Chrome strings; remaining
     /// names come from `i18n.Palette`. Ids / keywords stay English.
@@ -5837,6 +5848,37 @@ pub const Model = struct {
     /// path text stays data.
     pub fn workspace_path_placeholder(model: *const Model) []const u8 {
         return model.workspacePathChrome().placeholder;
+    }
+
+    /// Transcript Find placeholder. Reuses `FilePreviewChrome.find`
+    /// (same wording as file-preview Find). Distinct from
+    /// `file_preview_find_placeholder`. `on-input` / on-submit stay
+    /// `find_edit` / `find_next`. Typed query stays data.
+    pub fn find_placeholder(model: *const Model) []const u8 {
+        return model.filePreviewChrome().find;
+    }
+
+    /// Transcript Find a11y label. Reuses `Palette.find_in_transcript`
+    /// (same wording as the palette command). Distinct from
+    /// `palette_action_label` (palette command wiring stays English
+    /// ids / keywords). `on-input` / on-submit stay `find_edit` /
+    /// `find_next`.
+    pub fn find_in_transcript_label(model: *const Model) []const u8 {
+        return model.paletteChrome().find_in_transcript;
+    }
+
+    /// Session title rename placeholders (sidebar + header).
+    /// Catalog titles stay English `untitled` (data). `on-input`
+    /// stays `session_title_edit`.
+    pub fn untitled_placeholder(model: *const Model) []const u8 {
+        return model.untitledChrome().placeholder;
+    }
+
+    /// Settings General daemon address placeholder. Latin `host:port`
+    /// in every locale. `on-input` stays `settings_daemon_edit`. Typed
+    /// address text stays data.
+    pub fn daemon_address_placeholder(model: *const Model) []const u8 {
+        return model.daemonAddressChrome().placeholder;
     }
 
     /// Runtime-only muted status on the Review card (Comparing… /

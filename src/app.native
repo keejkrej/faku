@@ -243,7 +243,7 @@
                         <column gap="4" grow="1">
                           <row gap="6" cross="center">
                             <if test="{s.editing}">
-                              <text-field grow="1" height="24" placeholder="untitled" text="{session_title_draft}" on-input="session_title_edit" autofocus="true" />
+                              <text-field grow="1" height="24" placeholder="{untitled_placeholder}" text="{session_title_draft}" on-input="session_title_edit" autofocus="true" />
                             </if>
                             <else>
                               <text grow="1" wrap="false" overflow="ellipsis">{s.title}</text>
@@ -274,7 +274,7 @@
                       <column gap="4" grow="1">
                         <row gap="6" cross="center">
                           <if test="{s.editing}">
-                            <text-field grow="1" height="24" placeholder="untitled" text="{session_title_draft}" on-input="session_title_edit" autofocus="true" />
+                            <text-field grow="1" height="24" placeholder="{untitled_placeholder}" text="{session_title_draft}" on-input="session_title_edit" autofocus="true" />
                           </if>
                           <else>
                             <text grow="1" wrap="false" overflow="ellipsis">{s.title}</text>
@@ -822,7 +822,7 @@
               <text>Last project path</text>
               <text-field text="{settings_project}" placeholder="{workspace_path_placeholder}" on-input="settings_project_edit" />
               <text>Daemon address</text>
-              <text-field text="{settings_daemon}" placeholder="host:port" on-input="settings_daemon_edit" />
+              <text-field text="{settings_daemon}" placeholder="{daemon_address_placeholder}" on-input="settings_daemon_edit" />
             </column>
           </row>
           </if>
@@ -836,7 +836,7 @@
       <else>
       <row height="48" padding="14" gap="10" cross="center" window-drag="true" label="Toolbar">
         <if test="{session_title_editing}">
-          <text-field grow="1" height="24" placeholder="untitled" text="{session_title_draft}" on-input="session_title_edit" autofocus="true" />
+          <text-field grow="1" height="24" placeholder="{untitled_placeholder}" text="{session_title_draft}" on-input="session_title_edit" autofocus="true" />
         </if>
         <else>
           <text grow="1" wrap="false" overflow="ellipsis" on-press="edit_session_title">{header_title}</text>
@@ -897,7 +897,7 @@
       <separator />
       <if test="{find_active}">
         <row height="32" padding="8" gap="6" cross="center">
-          <search-field grow="1" height="32" placeholder="Find" text="{find_query}" on-input="find_edit" on-submit="find_next" autofocus="true" label="Find in transcript" />
+          <search-field grow="1" height="32" placeholder="{find_placeholder}" text="{find_query}" on-input="find_edit" on-submit="find_next" autofocus="true" label="{find_in_transcript_label}" />
           <if test="{has_find_match_label}">
             <text wrap="false" overflow="ellipsis" foreground="text_muted">{find_match_label}</text>
           </if>

@@ -26017,7 +26017,7 @@ test "Files preview toolbar chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Keep editing</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Truncated — showing first 256 KB<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Binary file — not shown<"));
-    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"Find\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Find\""));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, ">Close</button>"));
 
     var model = Model{};
@@ -27224,6 +27224,207 @@ test "Workspace path placeholders follow Appearance language" {
     try testing.expectEqualStrings("ワークスペースのパス", model.workspace_path_placeholder());
     tree = try buildTree(arena, &model);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "ワークスペースのパス") != null);
+}
+
+test "transcript Find bar follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"{find_placeholder}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{find_in_transcript_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-input=\"find_edit\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-input=\"find_edit\" on-submit=\"find_next\"") != null);
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Find\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Find in transcript\""));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Find", model.find_placeholder());
+    try testing.expectEqualStrings(model.file_preview_find_placeholder(), model.find_placeholder());
+    try testing.expectEqualStrings(i18n.filePreviewChromeFor(.english, "").find, model.find_placeholder());
+    try testing.expectEqualStrings("Find in transcript", model.find_in_transcript_label());
+    try testing.expectEqualStrings(i18n.paletteFor(.english, "").find_in_transcript, model.find_in_transcript_label());
+    try testing.expectEqualStrings(model.palette_action_label(.find_in_transcript), model.find_in_transcript_label());
+
+    main.update(&model, .open_find, &fx);
+    try testing.expect(model.find_active);
+    var tree = try buildTree(arena, &model);
+    const find_field = try expectByText(tree.root, .search_field, "Find in transcript");
+    try testing.expectEqualStrings("Find", find_field.placeholder);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("查找", model.find_placeholder());
+    try testing.expectEqualStrings("在记录中查找", model.find_in_transcript_label());
+    try testing.expectEqualStrings(model.file_preview_find_placeholder(), model.find_placeholder());
+    try testing.expectEqualStrings(model.palette_action_label(.find_in_transcript), model.find_in_transcript_label());
+    tree = try buildTree(arena, &model);
+    const zh_field = try expectByText(tree.root, .search_field, "在记录中查找");
+    try testing.expectEqualStrings("查找", zh_field.placeholder);
+    try testing.expect(findByText(tree.root, .search_field, "Find in transcript") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("検索", model.find_placeholder());
+    try testing.expectEqualStrings("記録内を検索", model.find_in_transcript_label());
+    tree = try buildTree(arena, &model);
+    const ja_field = try expectByText(tree.root, .search_field, "記録内を検索");
+    try testing.expectEqualStrings("検索", ja_field.placeholder);
+    try testing.expect(findByText(tree.root, .search_field, "在记录中查找") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Find", model.find_placeholder());
+    try testing.expectEqualStrings("Find in transcript", model.find_in_transcript_label());
+    tree = try buildTree(arena, &model);
+    const en_ignore = try expectByText(tree.root, .search_field, "Find in transcript");
+    try testing.expectEqualStrings("Find", en_ignore.placeholder);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("查找", model.find_placeholder());
+    try testing.expectEqualStrings("在记录中查找", model.find_in_transcript_label());
+    tree = try buildTree(arena, &model);
+    const sys_zh = try expectByText(tree.root, .search_field, "在记录中查找");
+    try testing.expectEqualStrings("查找", sys_zh.placeholder);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("検索", model.find_placeholder());
+    try testing.expectEqualStrings("記録内を検索", model.find_in_transcript_label());
+    tree = try buildTree(arena, &model);
+    const sys_ja = try expectByText(tree.root, .search_field, "記録内を検索");
+    try testing.expectEqualStrings("検索", sys_ja.placeholder);
+}
+
+test "session title untitled placeholders follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, main.app_markup, "placeholder=\"{untitled_placeholder}\""));
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, main.app_markup, "on-input=\"session_title_edit\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"untitled\""));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("untitled", model.untitled_placeholder());
+    try testing.expectEqualStrings(i18n.untitledChromeFor(.english, "").placeholder, model.untitled_placeholder());
+
+    main.update(&model, .edit_session_title, &fx);
+    try testing.expect(model.editing_session_id != 0);
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "untitled") != null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("未命名", model.untitled_placeholder());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "未命名") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "untitled") == null);
+
+    main.update(&model, .{ .session_title_edit = .clear }, &fx);
+    try testing.expectEqualStrings("untitled", model.selected_title());
+    try testing.expectEqualStrings("未命名", model.untitled_placeholder());
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("無題", model.untitled_placeholder());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "無題") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "未命名") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("untitled", model.untitled_placeholder());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "untitled") != null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("未命名", model.untitled_placeholder());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "未命名") != null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("無題", model.untitled_placeholder());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "無題") != null);
+
+    model.language_preference = .english;
+    model.closeSessionTitleEdit();
+    try testing.expectEqual(@as(u32, 0), model.editing_session_id);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "untitled") == null);
+
+    const auth_id = model.session_store[1].id;
+    main.update(&model, .{ .rename_session = auth_id }, &fx);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "untitled") != null);
+
+    model.language_preference = .simplified_chinese;
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "未命名") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "untitled") == null);
+
+    model.language_preference = .japanese;
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "無題") != null);
+}
+
+test "Settings General daemon address placeholder follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"{daemon_address_placeholder}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-input=\"settings_daemon_edit\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"host:port\""));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("host:port", model.daemon_address_placeholder());
+    try testing.expectEqualStrings(i18n.daemonAddressChromeFor(.english, "").placeholder, model.daemon_address_placeholder());
+    try testing.expectEqualStrings(i18n.daemonAddressChromeFor(.simplified_chinese, "").placeholder, model.daemon_address_placeholder());
+    try testing.expectEqualStrings(i18n.daemonAddressChromeFor(.japanese, "").placeholder, model.daemon_address_placeholder());
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_open);
+    try testing.expect(model.settings_page_general());
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "host:port") != null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("host:port", model.daemon_address_placeholder());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "host:port") != null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("host:port", model.daemon_address_placeholder());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "host:port") != null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("host:port", model.daemon_address_placeholder());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "host:port") != null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("host:port", model.daemon_address_placeholder());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "host:port") != null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("host:port", model.daemon_address_placeholder());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "host:port") != null);
 }
 
 test "DateBucket.title english default; zh and ja follow datesFor" {
