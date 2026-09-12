@@ -1103,7 +1103,7 @@
                   <text wrap="false" overflow="ellipsis" foreground="text_muted">{goal_usage_label}</text>
                 </if>
                 <stack>
-                  <select placeholder="Status" on-press="toggle_goal_status_picker">{goal_status_label}</select>
+                  <select placeholder="{goal_status_placeholder}" on-press="toggle_goal_status_picker">{goal_status_label}</select>
                   <if test="{goal_status_picker_open}">
                     <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_goal_status_picker">
                       <for each="goal_status_picker_rows" key="row_id" as="g">
@@ -1119,7 +1119,7 @@
             </if>
             <if test="{image_attach_active}">
               <row gap="8" cross="center">
-                <text-field grow="1" placeholder="Image path" text="{image_edit}" on-input="image_path_edit" autofocus="true" />
+                <text-field grow="1" placeholder="{image_path_placeholder}" text="{image_edit}" on-input="image_path_edit" autofocus="true" />
                 <button variant="ghost" size="sm" on-press="pick_image">Pick image</button>
               </row>
             </if>
