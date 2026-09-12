@@ -3136,7 +3136,7 @@ pub const Model = struct {
 
     pub fn background_work_status(model: *const Model) []const u8 {
         const row = environment_summary.selectedBackgroundRow(model) orelse return "";
-        return environment_summary.backgroundWorkStatus(row);
+        return environment_summary.paintedBackgroundWorkStatus(model, row);
     }
 
     pub fn has_background_work_status(model: *const Model) bool {

@@ -245,6 +245,7 @@
 
 const std = @import("std");
 const main = @import("main.zig");
+const i18n = @import("i18n.zig");
 const protocol = @import("protocol.zig");
 const git_commit = @import("git_commit.zig");
 const git_numstat = @import("git_numstat.zig");
@@ -281,9 +282,9 @@ pub const BackgroundKind = enum {
     subagent,
 };
 
-pub const kind_process_label = "Process";
-pub const kind_monitor_label = "Monitor";
-pub const kind_subagent_label = "Subagent";
+pub const kind_process_label = i18n.background_chrome_en.kind_process;
+pub const kind_monitor_label = i18n.background_chrome_en.kind_monitor;
+pub const kind_subagent_label = i18n.background_chrome_en.kind_subagent;
 
 /// Bounded visible registry. Process takes one slot; remaining
 /// slots are Monitor (live first, then settled) then Subagent
@@ -554,40 +555,42 @@ pub const DaemonBackground = struct {
 
 /// Process-kind row title. Honest about Faku-side stream state
 /// (not an OS process watch).
-pub const process_row_label = "Agent turn";
-pub const settled_completed_label = "Completed";
-pub const settled_stopped_label = "Stopped";
-pub const settled_failed_label = "Failed";
+pub const process_row_label = i18n.background_chrome_en.process_row;
+pub const settled_completed_label = i18n.background_chrome_en.settled_completed;
+pub const settled_stopped_label = i18n.background_chrome_en.settled_stopped;
+pub const settled_failed_label = i18n.background_chrome_en.settled_failed;
 /// Live Process / Subagent status on the right-panel Background
 /// surface. Not a new registry — derived from `BackgroundRow.live`.
-pub const live_running_label = "Running";
+pub const live_running_label = i18n.background_chrome_en.live_running;
 /// Live Monitor status. Same derivation as `live_running_label`.
-pub const live_monitoring_label = "Monitoring";
+pub const live_monitoring_label = i18n.background_chrome_en.live_monitoring;
 /// Daemon-sourced live row after local StopRequested / a daemon
 /// `stopping` status. Still live until a later refresh settles.
-pub const live_stopping_label = "Stopping";
+pub const live_stopping_label = i18n.background_chrome_en.live_stopping;
+/// Empty-state chrome paints via `i18n.RightPanelChrome` (#437).
+/// Keep EN aliases so older tests that name these constants still match.
 pub const empty_background_work_label = "No background work";
 pub const no_output_label = "No output";
 /// Process Stop. Same composer Stop / `stopStream` path.
-pub const process_stop_label = "Stop agent";
+pub const process_stop_label = i18n.background_chrome_en.process_stop;
 /// Monitor Stop. Faku-side dismiss of that live row; not Claude
 /// TaskStop on one-shot `claude -p`. Distinct from composer Stop.
-pub const monitor_stop_label = "Stop monitor";
+pub const monitor_stop_label = i18n.background_chrome_en.monitor_stop;
 /// Settled Monitor dismiss. Faku-side clear of that leftover row;
 /// not live Stop and not Claude TaskStop.
-pub const monitor_dismiss_label = "Dismiss monitor";
+pub const monitor_dismiss_label = i18n.background_chrome_en.monitor_dismiss;
 /// Subagent Stop. Faku-side dismiss of that live row; not Claude
 /// TaskStop on one-shot `claude -p`. Distinct from Process / Monitor.
-pub const subagent_stop_label = "Stop subagent";
+pub const subagent_stop_label = i18n.background_chrome_en.subagent_stop;
 /// Settled Subagent dismiss. Faku-side clear of that leftover row;
 /// not live Stop and not Claude TaskStop.
-pub const subagent_dismiss_label = "Dismiss subagent";
+pub const subagent_dismiss_label = i18n.background_chrome_en.subagent_dismiss;
 /// Daemon-sourced live Stop. hello + `stopBackgroundWork` when a
 /// daemon address, usable runtimeId, and controlId are present.
-pub const daemon_stop_label = "Stop";
+pub const daemon_stop_label = i18n.background_chrome_en.daemon_stop;
 /// Daemon-sourced settled dismiss. Faku-side clear of that leftover
 /// row; not `StopBackgroundWork`.
-pub const daemon_dismiss_label = "Dismiss";
+pub const daemon_dismiss_label = i18n.background_chrome_en.daemon_dismiss;
 
 /// Visible Background registry row. Native `background_rows`
 /// iterates this. Not persisted to sessions.json / drafts.json.
@@ -622,11 +625,42 @@ pub const BackgroundRow = struct {
     detail: []const u8,
 };
 
-pub fn backgroundKindLabel(kind: BackgroundKind) []const u8 {
+fn resolvedBackgroundChrome(model: *const Model) i18n.BackgroundChrome {
+    return i18n.backgroundChromeFor(model.language_preference, model.systemLocaleId());
+}
+
+fn paintedKindLabel(kind: BackgroundKind, chrome: i18n.BackgroundChrome) []const u8 {
     return switch (kind) {
-        .process => kind_process_label,
-        .monitor => kind_monitor_label,
-        .subagent => kind_subagent_label,
+        .process => chrome.kind_process,
+        .monitor => chrome.kind_monitor,
+        .subagent => chrome.kind_subagent,
+    };
+}
+
+/// English kind chrome. Fill uses `paintedKindLabel` with the
+/// resolved Appearance locale so tests that call this without a
+/// Model stay on EN defaults.
+pub fn backgroundKindLabel(kind: BackgroundKind) []const u8 {
+    return paintedKindLabel(kind, i18n.background_chrome_en);
+}
+
+/// Fallback titles stored as the English kind label (or empty)
+/// re-label with Appearance language. Custom daemon titles stay data.
+fn paintedTitle(kind: BackgroundKind, stored: []const u8, chrome: i18n.BackgroundChrome) []const u8 {
+    if (stored.len == 0) return paintedKindLabel(kind, chrome);
+    if (std.mem.eql(u8, stored, kind_process_label) or
+        std.mem.eql(u8, stored, kind_monitor_label) or
+        std.mem.eql(u8, stored, kind_subagent_label))
+        return paintedKindLabel(kind, chrome);
+    return stored;
+}
+
+fn paintedStatus(status: SettledStatus, chrome: i18n.BackgroundChrome) []const u8 {
+    return switch (status) {
+        .none => "",
+        .completed => chrome.settled_completed,
+        .stopped => chrome.settled_stopped,
+        .failed => chrome.settled_failed,
     };
 }
 
@@ -979,15 +1013,6 @@ fn replaceLog(log: *LastWindow, text: []const u8) void {
     appendBounded(storage, &log.output_len, text);
     rebuildPreview(log);
     log.dirty_output = true;
-}
-
-fn statusLabel(status: SettledStatus) []const u8 {
-    return switch (status) {
-        .none => "",
-        .completed => settled_completed_label,
-        .stopped => settled_stopped_label,
-        .failed => settled_failed_label,
-    };
 }
 
 fn settledSessionVisible(model: *const Model, session_id: u32) bool {
@@ -1622,22 +1647,22 @@ pub fn hasBackgroundSection(model: *const Model) bool {
 
 pub fn settledStatusLabel(model: *const Model) []const u8 {
     if (!hasSettledBackground(model)) return "";
-    return statusLabel(model.background_settled);
+    return paintedStatus(model.background_settled, resolvedBackgroundChrome(model));
 }
 
-fn fillMonitorRow(slot: *const LiveMonitor, index: u32) BackgroundRow {
+fn fillMonitorRow(slot: *const LiveMonitor, index: u32, chrome: i18n.BackgroundChrome) BackgroundRow {
     const live = slot.settled == .none;
-    const status = if (live) "" else statusLabel(slot.settled);
+    const status = if (live) "" else paintedStatus(slot.settled, chrome);
     const detail = slot.preview();
     const elapsed = liveElapsedSlice(live, slot.elapsed());
     return .{
         .id = monitor_row_id_first + index,
         .kind = .monitor,
-        .kind_label = backgroundKindLabel(.monitor),
-        .title = slot.title(),
+        .kind_label = paintedKindLabel(.monitor, chrome),
+        .title = paintedTitle(.monitor, slot.title(), chrome),
         .live = live,
         .can_stop = true,
-        .stop_label = if (live) monitor_stop_label else monitor_dismiss_label,
+        .stop_label = if (live) chrome.monitor_stop else chrome.monitor_dismiss,
         .has_status = status.len > 0,
         .settled_status = status,
         .has_elapsed = elapsed.len > 0,
@@ -1647,19 +1672,19 @@ fn fillMonitorRow(slot: *const LiveMonitor, index: u32) BackgroundRow {
     };
 }
 
-fn fillSubagentRow(slot: *const LiveSubagent, index: u32) BackgroundRow {
+fn fillSubagentRow(slot: *const LiveSubagent, index: u32, chrome: i18n.BackgroundChrome) BackgroundRow {
     const live = slot.settled == .none;
-    const status = if (live) "" else statusLabel(slot.settled);
+    const status = if (live) "" else paintedStatus(slot.settled, chrome);
     const detail = slot.preview();
     const elapsed = liveElapsedSlice(live, slot.elapsed());
     return .{
         .id = subagent_row_id_first + index,
         .kind = .subagent,
-        .kind_label = backgroundKindLabel(.subagent),
-        .title = slot.title(),
+        .kind_label = paintedKindLabel(.subagent, chrome),
+        .title = paintedTitle(.subagent, slot.title(), chrome),
         .live = live,
         .can_stop = true,
-        .stop_label = if (live) subagent_stop_label else subagent_dismiss_label,
+        .stop_label = if (live) chrome.subagent_stop else chrome.subagent_dismiss,
         .has_status = status.len > 0,
         .settled_status = status,
         .has_elapsed = elapsed.len > 0,
@@ -1669,21 +1694,21 @@ fn fillSubagentRow(slot: *const LiveSubagent, index: u32) BackgroundRow {
     };
 }
 
-fn fillDaemonRow(slot: *const DaemonBackground, index: u32) BackgroundRow {
+fn fillDaemonRow(slot: *const DaemonBackground, index: u32, chrome: i18n.BackgroundChrome) BackgroundRow {
     const live = slot.settled == .none;
     const stopping = live and slot.stop_requested;
-    const status = if (stopping) live_stopping_label else if (live) "" else statusLabel(slot.settled);
+    const status = if (stopping) chrome.live_stopping else if (live) "" else paintedStatus(slot.settled, chrome);
     const detail = slot.preview();
     const live_stop = live and !stopping and slot.can_stop and slot.controlId().len > 0;
     const elapsed = liveElapsedSlice(live, slot.elapsed());
     return .{
         .id = daemon_row_id_first + index,
         .kind = slot.kind,
-        .kind_label = backgroundKindLabel(slot.kind),
-        .title = slot.title(),
+        .kind_label = paintedKindLabel(slot.kind, chrome),
+        .title = paintedTitle(slot.kind, slot.title(), chrome),
         .live = live,
         .can_stop = if (live) live_stop else true,
-        .stop_label = if (live) (if (live_stop) daemon_stop_label else "") else daemon_dismiss_label,
+        .stop_label = if (live) (if (live_stop) chrome.daemon_stop else "") else chrome.daemon_dismiss,
         .has_status = status.len > 0,
         .settled_status = status,
         .has_elapsed = elapsed.len > 0,
@@ -1703,6 +1728,7 @@ fn fillDaemonRow(slot: *const DaemonBackground, index: u32) BackgroundRow {
 pub fn fillBackgroundRows(model: *const Model, out: *[max_background_rows]BackgroundRow) []const BackgroundRow {
     if (!hasBackgroundSection(model)) return out[0..0];
     var n: usize = 0;
+    const chrome = resolvedBackgroundChrome(model);
     const live = model.is_streaming();
     if (live or hasSettledBackground(model)) {
         const status = if (live) "" else settledStatusLabel(model);
@@ -1710,11 +1736,11 @@ pub fn fillBackgroundRows(model: *const Model, out: *[max_background_rows]Backgr
         out[0] = .{
             .id = process_row_id,
             .kind = .process,
-            .kind_label = backgroundKindLabel(.process),
-            .title = process_row_label,
+            .kind_label = paintedKindLabel(.process, chrome),
+            .title = chrome.process_row,
             .live = live,
             .can_stop = live,
-            .stop_label = if (live) process_stop_label else "",
+            .stop_label = if (live) chrome.process_stop else "",
             .has_status = status.len > 0,
             .settled_status = status,
             .has_elapsed = elapsed.len > 0,
@@ -1727,39 +1753,39 @@ pub fn fillBackgroundRows(model: *const Model, out: *[max_background_rows]Backgr
     var mi: u32 = 0;
     while (mi < model.background_monitor_count and n < max_background_rows) : (mi += 1) {
         if (!visibleLiveMonitor(model, mi)) continue;
-        out[n] = fillMonitorRow(&model.background_monitors[mi], mi);
+        out[n] = fillMonitorRow(&model.background_monitors[mi], mi, chrome);
         n += 1;
     }
     mi = 0;
     while (mi < model.background_monitor_count and n < max_background_rows) : (mi += 1) {
         if (!visibleSettledMonitor(model, mi)) continue;
-        out[n] = fillMonitorRow(&model.background_monitors[mi], mi);
+        out[n] = fillMonitorRow(&model.background_monitors[mi], mi, chrome);
         n += 1;
     }
     var i: u32 = 0;
     while (i < model.background_subagent_count and n < max_background_rows) : (i += 1) {
         if (!visibleLiveSubagent(model, i)) continue;
-        out[n] = fillSubagentRow(&model.background_subagents[i], i);
+        out[n] = fillSubagentRow(&model.background_subagents[i], i, chrome);
         n += 1;
     }
     i = 0;
     while (i < model.background_subagent_count and n < max_background_rows) : (i += 1) {
         if (!visibleSettledSubagent(model, i)) continue;
-        out[n] = fillSubagentRow(&model.background_subagents[i], i);
+        out[n] = fillSubagentRow(&model.background_subagents[i], i, chrome);
         n += 1;
     }
     var di: u32 = 0;
     while (di < model.background_daemon_count and n < max_background_rows) : (di += 1) {
         if (!visibleDaemon(model, di)) continue;
         if (model.background_daemon[di].settled != .none) continue;
-        out[n] = fillDaemonRow(&model.background_daemon[di], di);
+        out[n] = fillDaemonRow(&model.background_daemon[di], di, chrome);
         n += 1;
     }
     di = 0;
     while (di < model.background_daemon_count and n < max_background_rows) : (di += 1) {
         if (!visibleDaemon(model, di)) continue;
         if (model.background_daemon[di].settled == .none) continue;
-        out[n] = fillDaemonRow(&model.background_daemon[di], di);
+        out[n] = fillDaemonRow(&model.background_daemon[di], di, chrome);
         n += 1;
     }
     return out[0..n];
@@ -2174,13 +2200,24 @@ pub fn selectedBackgroundRow(model: *const Model) ?BackgroundRow {
 }
 
 /// Live Running / Monitoring, or settled Completed / Stopped / Failed.
-/// Empty when there is no selected visible row.
+/// Empty when there is no selected visible row. English-default for
+/// tests that pass a row without a Model locale.
 pub fn backgroundWorkStatus(row: BackgroundRow) []const u8 {
+    return backgroundWorkStatusWith(row, i18n.background_chrome_en);
+}
+
+/// Same as `backgroundWorkStatus` using the Model Appearance locale
+/// so live Running / Monitoring follow language chips.
+pub fn paintedBackgroundWorkStatus(model: *const Model, row: BackgroundRow) []const u8 {
+    return backgroundWorkStatusWith(row, resolvedBackgroundChrome(model));
+}
+
+fn backgroundWorkStatusWith(row: BackgroundRow, chrome: i18n.BackgroundChrome) []const u8 {
     if (row.has_status) return row.settled_status;
     if (!row.live) return "";
     return switch (row.kind) {
-        .monitor => live_monitoring_label,
-        .process, .subagent => live_running_label,
+        .monitor => chrome.live_monitoring,
+        .process, .subagent => chrome.live_running,
     };
 }
 
@@ -2864,6 +2901,102 @@ test "backgroundKindLabel is stable for Process Monitor Subagent" {
     try std.testing.expectEqualStrings("Process", backgroundKindLabel(.process));
     try std.testing.expectEqualStrings("Monitor", backgroundKindLabel(.monitor));
     try std.testing.expectEqualStrings("Subagent", backgroundKindLabel(.subagent));
+}
+
+test "fillBackgroundRows kind status stop chrome follow Appearance language" {
+    var model = Model{};
+    defer clearLiveMonitors(&model);
+    defer clearLiveSubagents(&model);
+    defer clearDaemonBackground(&model);
+    const id = model.addSession("env background chrome i18n", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    noteLiveMonitor(&model, "toolu_mon_zh");
+    noteLiveSubagent(&model, "toolu_agent_zh");
+    applyDaemonEventLine(&model, id, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"upsert\",\"key\":{\"kind\":\"process\",\"providerId\":\"proc-zh\"},\"title\":\"npm run dev\",\"status\":\"running\",\"output\":\"ready\\n\",\"canStop\":true,\"controlId\":\"c-zh\"}}}");
+
+    var buf: [max_background_rows]BackgroundRow = undefined;
+    var rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 4), rows.len);
+    try std.testing.expectEqualStrings("Process", rows[0].kind_label);
+    try std.testing.expectEqualStrings("Agent turn", rows[0].title);
+    try std.testing.expectEqualStrings("Stop agent", rows[0].stop_label);
+    try std.testing.expectEqualStrings("Running", paintedBackgroundWorkStatus(&model, rows[0]));
+    try std.testing.expectEqualStrings("Monitor", rows[1].kind_label);
+    try std.testing.expectEqualStrings("Monitor", rows[1].title);
+    try std.testing.expectEqualStrings("Stop monitor", rows[1].stop_label);
+    try std.testing.expectEqualStrings("Monitoring", paintedBackgroundWorkStatus(&model, rows[1]));
+    try std.testing.expectEqualStrings("Subagent", rows[2].kind_label);
+    try std.testing.expectEqualStrings("Stop subagent", rows[2].stop_label);
+    try std.testing.expectEqualStrings("Process", rows[3].kind_label);
+    try std.testing.expectEqualStrings("npm run dev", rows[3].title);
+    try std.testing.expectEqualStrings("Stop", rows[3].stop_label);
+    try std.testing.expectEqual(process_row_id, rows[0].id);
+    try std.testing.expectEqual(monitor_row_id_first, rows[1].id);
+    try std.testing.expectEqual(subagent_row_id_first, rows[2].id);
+    try std.testing.expectEqual(daemon_row_id_first, rows[3].id);
+
+    model.language_preference = .simplified_chinese;
+    rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqualStrings("进程", rows[0].kind_label);
+    try std.testing.expectEqualStrings("代理轮次", rows[0].title);
+    try std.testing.expectEqualStrings("停止代理", rows[0].stop_label);
+    try std.testing.expectEqualStrings("运行中", paintedBackgroundWorkStatus(&model, rows[0]));
+    try std.testing.expectEqualStrings("监视器", rows[1].kind_label);
+    try std.testing.expectEqualStrings("监视器", rows[1].title);
+    try std.testing.expectEqualStrings("停止监视器", rows[1].stop_label);
+    try std.testing.expectEqualStrings("监视中", paintedBackgroundWorkStatus(&model, rows[1]));
+    try std.testing.expectEqualStrings("子代理", rows[2].kind_label);
+    try std.testing.expectEqualStrings("停止子代理", rows[2].stop_label);
+    try std.testing.expectEqualStrings("进程", rows[3].kind_label);
+    try std.testing.expectEqualStrings("npm run dev", rows[3].title);
+    try std.testing.expectEqualStrings("停止", rows[3].stop_label);
+    try std.testing.expectEqual(process_row_id, rows[0].id);
+    try std.testing.expectEqual(monitor_row_id_first, rows[1].id);
+
+    model.language_preference = .japanese;
+    rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqualStrings("プロセス", rows[0].kind_label);
+    try std.testing.expectEqualStrings("エージェントのターン", rows[0].title);
+    try std.testing.expectEqualStrings("エージェントを停止", rows[0].stop_label);
+    try std.testing.expectEqualStrings("実行中", paintedBackgroundWorkStatus(&model, rows[0]));
+    try std.testing.expectEqualStrings("モニター", rows[1].kind_label);
+    try std.testing.expectEqualStrings("モニターを停止", rows[1].stop_label);
+    try std.testing.expectEqualStrings("サブエージェント", rows[2].kind_label);
+    try std.testing.expectEqualStrings("サブエージェントを停止", rows[2].stop_label);
+    try std.testing.expectEqualStrings("プロセス", rows[3].kind_label);
+    try std.testing.expectEqualStrings("npm run dev", rows[3].title);
+    try std.testing.expectEqualStrings("停止", rows[3].stop_label);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqualStrings("Process", rows[0].kind_label);
+    try std.testing.expectEqualStrings("Agent turn", rows[0].title);
+    try std.testing.expectEqualStrings("Stop agent", rows[0].stop_label);
+    try std.testing.expectEqualStrings("Monitor", rows[1].kind_label);
+    try std.testing.expectEqualStrings("Stop monitor", rows[1].stop_label);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqualStrings("进程", rows[0].kind_label);
+    try std.testing.expectEqualStrings("停止监视器", rows[1].stop_label);
+
+    model.phase = .idle;
+    model.streaming_session = 0;
+    settle(&model, id, .completed);
+    settleLiveBackgroundSignals(&model, id, .completed);
+    applyDaemonEventLine(&model, id, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"upsert\",\"key\":{\"kind\":\"process\",\"providerId\":\"proc-zh\"},\"title\":\"npm run dev\",\"status\":\"completed\",\"canStop\":false,\"controlId\":\"c-zh\"}}}");
+    rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqualStrings("已完成", rows[0].settled_status);
+    try std.testing.expectEqualStrings("关闭监视器", rows[1].stop_label);
+    try std.testing.expectEqualStrings("已完成", rows[1].settled_status);
+    try std.testing.expectEqualStrings("关闭子代理", rows[2].stop_label);
+    try std.testing.expectEqualStrings("关闭", rows[3].stop_label);
+    try std.testing.expectEqualStrings("已完成", settledStatusLabel(&model));
+    try std.testing.expectEqualStrings("Process", backgroundKindLabel(.process));
 }
 
 test "background registry never emits Monitor or Subagent from stream or settle without signals" {
