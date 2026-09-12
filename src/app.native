@@ -1281,13 +1281,13 @@
                   <row gap="8" cross="center">
                     <text wrap="false" overflow="ellipsis" grow="1">{daemon_dir_browser_path}</text>
                     <if test="{daemon_dir_browser_can_up}">
-                      <button variant="ghost" size="sm" on-press="daemon_dir_browser_up">Up</button>
+                      <button variant="ghost" size="sm" on-press="daemon_dir_browser_up">{daemon_dir_browser_up_label}</button>
                     </if>
-                    <button variant="ghost" size="sm" on-press="daemon_dir_browser_home">Home</button>
+                    <button variant="ghost" size="sm" on-press="daemon_dir_browser_home">{daemon_dir_browser_home_label}</button>
                     <if test="{daemon_dir_browser_ready}">
-                      <button variant="ghost" size="sm" on-press="confirm_daemon_dir_browser">Choose</button>
+                      <button variant="ghost" size="sm" on-press="confirm_daemon_dir_browser">{daemon_dir_browser_choose_label}</button>
                     </if>
-                    <button variant="ghost" size="sm" on-press="cancel_daemon_dir_browser">Cancel</button>
+                    <button variant="ghost" size="sm" on-press="cancel_daemon_dir_browser">{daemon_dir_browser_cancel_label}</button>
                   </row>
                   <if test="{daemon_dir_browser_loading}">
                     <text foreground="text_muted">Loading…</text>
@@ -1376,11 +1376,11 @@
                 </if>
                 <if test="{can_pick_workspace}">
                   <stack>
-                    <select size="sm" placeholder="Work in" on-press="toggle_workspace_picker">{workspace_label}</select>
+                    <select size="sm" placeholder="{workspace_work_in_placeholder}" on-press="toggle_workspace_picker">{workspace_label}</select>
                     <if test="{workspace_picker_open}">
                       <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_workspace_picker">
-                        <menu-item selected="{workspace_is_local}" on-press="pick_workspace_local">Local</menu-item>
-                        <menu-item selected="{workspace_is_new_worktree}" on-press="pick_workspace_new_worktree">New worktree</menu-item>
+                        <menu-item selected="{workspace_is_local}" on-press="pick_workspace_local">{workspace_local_label}</menu-item>
+                        <menu-item selected="{workspace_is_new_worktree}" on-press="pick_workspace_new_worktree">{workspace_new_worktree_label}</menu-item>
                       </dropdown-menu>
                     </if>
                   </stack>

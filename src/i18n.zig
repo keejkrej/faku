@@ -39,7 +39,11 @@
 //! strings), and first-cut composer branch-picker dropdown plus
 //! New branch / New worktree / Delete branch / Push-confirm
 //! composer-row chrome (same `BranchChrome` strings; Force / Push /
-//! Cancel reuse `CommitChrome`) live
+//! Cancel reuse `CommitChrome`), and first-cut composer workspace
+//! picker Work in / Local / New worktree (same `WorkspaceChrome`
+//! strings; worktree stays Latin in zh-CN / ja) plus daemon-dir
+//! in-app browser Up / Home / Choose (same `DaemonDirChrome` strings;
+//! Cancel reuses `CommitChrome`) live
 //! here so `main.zig` does not grow. Palette ids / `PaletteAction` /
 //! keywords stay English.
 //! Wire `access_mode` ids stay `ask` / `auto` / `fullAccess`. Wire
@@ -81,8 +85,12 @@
 //! `toggle_git_branch_delete_force` / `confirm_git_branch_delete` /
 //! `cancel_git_branch_delete` / `confirm_git_push` /
 //! `cancel_git_push`). Branch names and search typed text stay
-//! English (data). Workspace picker Work in / Local / New worktree
-//! and daemon-dir browser chrome stay leftover English.
+//! English (data). Workspace picker `on-press` stays English
+//! (`toggle_workspace_picker` / `close_workspace_picker` /
+//! `pick_workspace_local` / `pick_workspace_new_worktree`).
+//! Daemon-dir browser `on-press` stays English
+//! (`daemon_dir_browser_up` / `daemon_dir_browser_home` /
+//! `confirm_daemon_dir_browser` / `cancel_daemon_dir_browser`).
 //! Aa / Ab / .* glyphs stay. Path text and body content stay data.
 //! Not rust_i18n, not YAML catalogs, not full-app translation, not
 //! tz-aware grouping.
@@ -1166,7 +1174,7 @@ const commit_chrome_ja: CommitChrome = .{
 /// typed text stay English (data). English matches the former
 /// hardcoded copy. Force / Push (no ellipsis) / Cancel reuse
 /// `CommitChrome`. Workspace picker Work in / Local / New worktree
-/// (no ellipsis) stay leftover English. Worktree is git jargon and
+/// (no ellipsis) live in `WorkspaceChrome`. Worktree is git jargon and
 /// stays Latin in zh-CN / ja.
 pub const BranchChrome = struct {
     branch_placeholder: []const u8,
@@ -1230,6 +1238,68 @@ const branch_chrome_ja: BranchChrome = .{
     .base = "ベース",
     .create = "作成",
     .delete = "削除",
+};
+
+/// Composer workspace picker chrome for the resolved locale. Same
+/// resolve path as BranchChrome. Wire ids / on-press stay English
+/// (`toggle_workspace_picker` / `close_workspace_picker` /
+/// `pick_workspace_local` / `pick_workspace_new_worktree`). English
+/// matches the former hardcoded copy. Distinct from branch-menu
+/// `New worktree…` (`BranchChrome.new_worktree_menu`). Worktree is
+/// git jargon and stays Latin in zh-CN / ja. Work-in Base stays
+/// leftover English.
+pub const WorkspaceChrome = struct {
+    work_in: []const u8,
+    local: []const u8,
+    new_worktree: []const u8,
+};
+
+const workspace_chrome_en: WorkspaceChrome = .{
+    .work_in = "Work in",
+    .local = "Local",
+    .new_worktree = "New worktree",
+};
+
+const workspace_chrome_zh_cn: WorkspaceChrome = .{
+    .work_in = "工作于",
+    .local = "本地",
+    .new_worktree = "新建 worktree",
+};
+
+const workspace_chrome_ja: WorkspaceChrome = .{
+    .work_in = "作業場所",
+    .local = "ローカル",
+    .new_worktree = "新しい worktree",
+};
+
+/// Daemon-dir in-app BrowseDirectory browser chrome for the resolved
+/// locale. Same resolve path as WorkspaceChrome. Wire ids / on-press
+/// stay English (`daemon_dir_browser_up` / `daemon_dir_browser_home` /
+/// `confirm_daemon_dir_browser` / `cancel_daemon_dir_browser`).
+/// English matches the former hardcoded copy. Cancel reuses
+/// `CommitChrome.cancel`. OS folder-dialog prompts stay English.
+pub const DaemonDirChrome = struct {
+    up: []const u8,
+    home: []const u8,
+    choose: []const u8,
+};
+
+const daemon_dir_chrome_en: DaemonDirChrome = .{
+    .up = "Up",
+    .home = "Home",
+    .choose = "Choose",
+};
+
+const daemon_dir_chrome_zh_cn: DaemonDirChrome = .{
+    .up = "上级",
+    .home = "主目录",
+    .choose = "选择",
+};
+
+const daemon_dir_chrome_ja: DaemonDirChrome = .{
+    .up = "上へ",
+    .home = "ホーム",
+    .choose = "選択",
 };
 
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
@@ -1476,12 +1546,37 @@ pub fn commitChromeFor(preference: LanguagePreference, system_locale_id: []const
 /// locale. Callers pass Model `language_preference` +
 /// `system_locale_id`; this file does not read process env. Wire ids /
 /// on-press / on-input stay English. Force / Push (no ellipsis) /
-/// Cancel stay on `commitChromeFor`.
+/// Cancel stay on `commitChromeFor`. Workspace picker chrome lives
+/// on `workspaceChromeFor`.
 pub fn branchChromeFor(preference: LanguagePreference, system_locale_id: []const u8) BranchChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => branch_chrome_zh_cn,
         .japanese => branch_chrome_ja,
         .system, .english => branch_chrome_en,
+    };
+}
+
+/// Composer workspace picker chrome for the resolved locale. Callers
+/// pass Model `language_preference` + `system_locale_id`; this file
+/// does not read process env. Wire ids / on-press stay English.
+/// Worktree stays Latin in zh-CN / ja.
+pub fn workspaceChromeFor(preference: LanguagePreference, system_locale_id: []const u8) WorkspaceChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => workspace_chrome_zh_cn,
+        .japanese => workspace_chrome_ja,
+        .system, .english => workspace_chrome_en,
+    };
+}
+
+/// Daemon-dir in-app browser chrome for the resolved locale. Callers
+/// pass Model `language_preference` + `system_locale_id`; this file
+/// does not read process env. Wire ids / on-press stay English.
+/// Cancel stays on `commitChromeFor`.
+pub fn daemonDirChromeFor(preference: LanguagePreference, system_locale_id: []const u8) DaemonDirChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => daemon_dir_chrome_zh_cn,
+        .japanese => daemon_dir_chrome_ja,
+        .system, .english => daemon_dir_chrome_en,
     };
 }
 
@@ -2428,5 +2523,66 @@ test "branchChromeFor english default; zh and ja chrome; english ignores ja LANG
     try testing.expectEqualStrings("Base", branchChromeFor(.english, "ja_JP.UTF-8").base);
     try testing.expectEqualStrings("Create", branchChromeFor(.english, "zh_CN.UTF-8").create);
     try testing.expectEqualStrings("Delete", branchChromeFor(.english, "ja_JP.UTF-8").delete);
+}
+
+test "workspaceChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Work in", workspaceChromeFor(.english, "ja").work_in);
+    try testing.expectEqualStrings("Local", workspaceChromeFor(.english, "").local);
+    try testing.expectEqualStrings("New worktree", workspaceChromeFor(.english, "").new_worktree);
+    try testing.expectEqualStrings("Work in", workspaceChromeFor(.system, "").work_in);
+    try testing.expectEqualStrings("Local", workspaceChromeFor(.system, "").local);
+    try testing.expectEqualStrings("New worktree", workspaceChromeFor(.system, "").new_worktree);
+    try testing.expect(std.mem.startsWith(u8, branchChromeFor(.english, "").new_worktree_menu, workspaceChromeFor(.english, "").new_worktree));
+    try testing.expect(std.mem.startsWith(u8, branchChromeFor(.simplified_chinese, "").new_worktree_menu, workspaceChromeFor(.simplified_chinese, "").new_worktree));
+    try testing.expect(std.mem.startsWith(u8, branchChromeFor(.japanese, "").new_worktree_menu, workspaceChromeFor(.japanese, "").new_worktree));
+
+    try testing.expectEqualStrings("工作于", workspaceChromeFor(.simplified_chinese, "").work_in);
+    try testing.expectEqualStrings("本地", workspaceChromeFor(.simplified_chinese, "").local);
+    try testing.expectEqualStrings("新建 worktree", workspaceChromeFor(.simplified_chinese, "").new_worktree);
+
+    try testing.expectEqualStrings("作業場所", workspaceChromeFor(.japanese, "").work_in);
+    try testing.expectEqualStrings("ローカル", workspaceChromeFor(.japanese, "").local);
+    try testing.expectEqualStrings("新しい worktree", workspaceChromeFor(.japanese, "").new_worktree);
+
+    try testing.expectEqualStrings("工作于", workspaceChromeFor(.system, "zh_CN.UTF-8").work_in);
+    try testing.expectEqualStrings("本地", workspaceChromeFor(.system, "zh_CN.UTF-8").local);
+    try testing.expectEqualStrings("新建 worktree", workspaceChromeFor(.system, "zh_CN.UTF-8").new_worktree);
+    try testing.expectEqualStrings("作業場所", workspaceChromeFor(.system, "ja_JP.UTF-8").work_in);
+    try testing.expectEqualStrings("ローカル", workspaceChromeFor(.system, "ja_JP.UTF-8").local);
+    try testing.expectEqualStrings("新しい worktree", workspaceChromeFor(.system, "ja_JP.UTF-8").new_worktree);
+    try testing.expectEqualStrings("Work in", workspaceChromeFor(.english, "ja_JP.UTF-8").work_in);
+    try testing.expectEqualStrings("Local", workspaceChromeFor(.english, "zh_CN.UTF-8").local);
+    try testing.expectEqualStrings("New worktree", workspaceChromeFor(.english, "ja_JP.UTF-8").new_worktree);
+}
+
+test "daemonDirChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Up", daemonDirChromeFor(.english, "ja").up);
+    try testing.expectEqualStrings("Home", daemonDirChromeFor(.english, "").home);
+    try testing.expectEqualStrings("Choose", daemonDirChromeFor(.english, "").choose);
+    try testing.expectEqualStrings("Up", daemonDirChromeFor(.system, "").up);
+    try testing.expectEqualStrings("Home", daemonDirChromeFor(.system, "").home);
+    try testing.expectEqualStrings("Choose", daemonDirChromeFor(.system, "").choose);
+
+    try testing.expectEqualStrings("上级", daemonDirChromeFor(.simplified_chinese, "").up);
+    try testing.expectEqualStrings("主目录", daemonDirChromeFor(.simplified_chinese, "").home);
+    try testing.expectEqualStrings("选择", daemonDirChromeFor(.simplified_chinese, "").choose);
+    try testing.expectEqualStrings("取消", commitChromeFor(.simplified_chinese, "").cancel);
+
+    try testing.expectEqualStrings("上へ", daemonDirChromeFor(.japanese, "").up);
+    try testing.expectEqualStrings("ホーム", daemonDirChromeFor(.japanese, "").home);
+    try testing.expectEqualStrings("選択", daemonDirChromeFor(.japanese, "").choose);
+    try testing.expectEqualStrings("キャンセル", commitChromeFor(.japanese, "").cancel);
+
+    try testing.expectEqualStrings("上级", daemonDirChromeFor(.system, "zh_CN.UTF-8").up);
+    try testing.expectEqualStrings("主目录", daemonDirChromeFor(.system, "zh_CN.UTF-8").home);
+    try testing.expectEqualStrings("选择", daemonDirChromeFor(.system, "zh_CN.UTF-8").choose);
+    try testing.expectEqualStrings("上へ", daemonDirChromeFor(.system, "ja_JP.UTF-8").up);
+    try testing.expectEqualStrings("ホーム", daemonDirChromeFor(.system, "ja_JP.UTF-8").home);
+    try testing.expectEqualStrings("選択", daemonDirChromeFor(.system, "ja_JP.UTF-8").choose);
+    try testing.expectEqualStrings("Up", daemonDirChromeFor(.english, "ja_JP.UTF-8").up);
+    try testing.expectEqualStrings("Home", daemonDirChromeFor(.english, "zh_CN.UTF-8").home);
+    try testing.expectEqualStrings("Choose", daemonDirChromeFor(.english, "ja_JP.UTF-8").choose);
 }
 

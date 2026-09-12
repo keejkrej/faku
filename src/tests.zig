@@ -26455,10 +26455,10 @@ test "Branch picker chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Force</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Delete</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Push</button>"));
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "placeholder=\"Work in\"") != null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">New worktree</menu-item>") != null);
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Work in\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">New worktree</menu-item>"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, ">Base</button>"));
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"cancel_daemon_dir_browser\">Cancel</button>") != null);
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"cancel_daemon_dir_browser\">Cancel</button>"));
 
     var model = Model{};
     const id = model.addSession("branch chrome", .fx);
@@ -26722,6 +26722,212 @@ test "Branch picker chrome follows Appearance language" {
     try testing.expect(findByPlaceholder(tree.root, .search_field, "ブランチを検索") != null);
     _ = try expectByText(tree.root, .menu_item, "新しいブランチ…");
     _ = try expectByText(tree.root, .menu_item, "プッシュ…");
+}
+
+test "Workspace picker chrome follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"{workspace_work_in_placeholder}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{workspace_local_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{workspace_new_worktree_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"toggle_workspace_picker\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"pick_workspace_local\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"pick_workspace_new_worktree\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Work in\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Local</menu-item>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">New worktree</menu-item>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, ">Base</button>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, ">Local</button>"));
+
+    var model = Model{};
+    const id = model.addSession("workspace chrome", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath("/tmp/proj");
+    try testing.expect(model.can_pick_workspace());
+
+    try testing.expectEqualStrings("Work in", model.workspace_work_in_placeholder());
+    try testing.expectEqualStrings("Local", model.workspace_local_label());
+    try testing.expectEqualStrings("New worktree", model.workspace_new_worktree_label());
+    try testing.expectEqualStrings("Local", model.workspace_label());
+    try testing.expectEqualStrings(i18n.workspaceChromeFor(.english, "").local, model.workspace_local_label());
+    try testing.expectEqualStrings(i18n.workspaceChromeFor(.english, "").new_worktree, model.workspace_new_worktree_label());
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .select, "Work in") != null);
+    const chip = try expectByText(tree.root, .select, "Local");
+    try testing.expectEqual(Msg.toggle_workspace_picker, tree.msgForPointer(chip.id, .up).?);
+
+    model.workspace_picker_open = true;
+    tree = try buildTree(arena, &model);
+    const local_item = try expectByText(tree.root, .menu_item, "Local");
+    try testing.expectEqual(Msg.pick_workspace_local, tree.msgForPointer(local_item.id, .up).?);
+    const new_item = try expectByText(tree.root, .menu_item, "New worktree");
+    try testing.expectEqual(Msg.pick_workspace_new_worktree, tree.msgForPointer(new_item.id, .up).?);
+    try testing.expect(findByText(tree.root, .menu_item, "New worktree…") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("工作于", model.workspace_work_in_placeholder());
+    try testing.expectEqualStrings("本地", model.workspace_local_label());
+    try testing.expectEqualStrings("新建 worktree", model.workspace_new_worktree_label());
+    try testing.expectEqualStrings("本地", model.workspace_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .select, "工作于") != null);
+    const zh_local = try expectByText(tree.root, .menu_item, "本地");
+    try testing.expectEqual(Msg.pick_workspace_local, tree.msgForPointer(zh_local.id, .up).?);
+    const zh_new = try expectByText(tree.root, .menu_item, "新建 worktree");
+    try testing.expectEqual(Msg.pick_workspace_new_worktree, tree.msgForPointer(zh_new.id, .up).?);
+    try testing.expect(findByText(tree.root, .menu_item, "Local") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "New worktree") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "新建 worktree…") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("作業場所", model.workspace_work_in_placeholder());
+    try testing.expectEqualStrings("ローカル", model.workspace_local_label());
+    try testing.expectEqualStrings("新しい worktree", model.workspace_new_worktree_label());
+    try testing.expectEqualStrings("ローカル", model.workspace_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .select, "作業場所") != null);
+    const ja_local = try expectByText(tree.root, .menu_item, "ローカル");
+    try testing.expectEqual(Msg.pick_workspace_local, tree.msgForPointer(ja_local.id, .up).?);
+    const ja_new = try expectByText(tree.root, .menu_item, "新しい worktree");
+    try testing.expectEqual(Msg.pick_workspace_new_worktree, tree.msgForPointer(ja_new.id, .up).?);
+    try testing.expect(findByText(tree.root, .menu_item, "本地") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Work in", model.workspace_work_in_placeholder());
+    try testing.expectEqualStrings("Local", model.workspace_local_label());
+    try testing.expectEqualStrings("New worktree", model.workspace_new_worktree_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .select, "Work in") != null);
+    _ = try expectByText(tree.root, .menu_item, "Local");
+    _ = try expectByText(tree.root, .menu_item, "New worktree");
+    try testing.expect(findByText(tree.root, .menu_item, "新しい worktree") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("工作于", model.workspace_work_in_placeholder());
+    try testing.expectEqualStrings("本地", model.workspace_local_label());
+    try testing.expectEqualStrings("新建 worktree", model.workspace_new_worktree_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .select, "工作于") != null);
+    _ = try expectByText(tree.root, .menu_item, "本地");
+    _ = try expectByText(tree.root, .menu_item, "新建 worktree");
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("作業場所", model.workspace_work_in_placeholder());
+    try testing.expectEqualStrings("ローカル", model.workspace_local_label());
+    try testing.expectEqualStrings("新しい worktree", model.workspace_new_worktree_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .select, "作業場所") != null);
+    _ = try expectByText(tree.root, .menu_item, "ローカル");
+    _ = try expectByText(tree.root, .menu_item, "新しい worktree");
+}
+
+test "Daemon-dir browser chrome follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{daemon_dir_browser_up_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{daemon_dir_browser_home_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{daemon_dir_browser_choose_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{daemon_dir_browser_cancel_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"daemon_dir_browser_up\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"daemon_dir_browser_home\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"confirm_daemon_dir_browser\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"cancel_daemon_dir_browser\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"daemon_dir_browser_up\">Up</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"daemon_dir_browser_home\">Home</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"confirm_daemon_dir_browser\">Choose</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"cancel_daemon_dir_browser\">Cancel</button>"));
+
+    var model = Model{};
+    model.daemon_dir_browser_open = true;
+    model.daemon_dir_browser_ok = true;
+    main.writeFixed(&model.daemon_dir_browser_path_storage, &model.daemon_dir_browser_path_len, "/home/me/src");
+    main.writeFixed(&model.daemon_dir_browser_parent_storage, &model.daemon_dir_browser_parent_len, "/home/me");
+    try testing.expect(model.daemon_dir_browser_can_up());
+    try testing.expect(model.daemon_dir_browser_ready());
+
+    try testing.expectEqualStrings("Up", model.daemon_dir_browser_up_label());
+    try testing.expectEqualStrings("Home", model.daemon_dir_browser_home_label());
+    try testing.expectEqualStrings("Choose", model.daemon_dir_browser_choose_label());
+    try testing.expectEqualStrings(model.git_commit_cancel_label(), model.daemon_dir_browser_cancel_label());
+    try testing.expectEqualStrings("Cancel", model.daemon_dir_browser_cancel_label());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Up", .daemon_dir_browser_up);
+    _ = try expectButtonMsg(tree, "Home", .daemon_dir_browser_home);
+    _ = try expectButtonMsg(tree, "Choose", .confirm_daemon_dir_browser);
+    _ = try expectButtonMsg(tree, "Cancel", .cancel_daemon_dir_browser);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("上级", model.daemon_dir_browser_up_label());
+    try testing.expectEqualStrings("主目录", model.daemon_dir_browser_home_label());
+    try testing.expectEqualStrings("选择", model.daemon_dir_browser_choose_label());
+    try testing.expectEqualStrings(model.git_commit_cancel_label(), model.daemon_dir_browser_cancel_label());
+    try testing.expectEqualStrings("取消", model.daemon_dir_browser_cancel_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "上级", .daemon_dir_browser_up);
+    _ = try expectButtonMsg(tree, "主目录", .daemon_dir_browser_home);
+    _ = try expectButtonMsg(tree, "选择", .confirm_daemon_dir_browser);
+    _ = try expectButtonMsg(tree, "取消", .cancel_daemon_dir_browser);
+    try testing.expect(findByText(tree.root, .button, "Up") == null);
+    try testing.expect(findByText(tree.root, .button, "Home") == null);
+    try testing.expect(findByText(tree.root, .button, "Choose") == null);
+    try testing.expect(findByText(tree.root, .button, "Cancel") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("上へ", model.daemon_dir_browser_up_label());
+    try testing.expectEqualStrings("ホーム", model.daemon_dir_browser_home_label());
+    try testing.expectEqualStrings("選択", model.daemon_dir_browser_choose_label());
+    try testing.expectEqualStrings(model.git_commit_cancel_label(), model.daemon_dir_browser_cancel_label());
+    try testing.expectEqualStrings("キャンセル", model.daemon_dir_browser_cancel_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "上へ", .daemon_dir_browser_up);
+    _ = try expectButtonMsg(tree, "ホーム", .daemon_dir_browser_home);
+    _ = try expectButtonMsg(tree, "選択", .confirm_daemon_dir_browser);
+    _ = try expectButtonMsg(tree, "キャンセル", .cancel_daemon_dir_browser);
+    try testing.expect(findByText(tree.root, .button, "上级") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Up", model.daemon_dir_browser_up_label());
+    try testing.expectEqualStrings("Home", model.daemon_dir_browser_home_label());
+    try testing.expectEqualStrings("Choose", model.daemon_dir_browser_choose_label());
+    try testing.expectEqualStrings("Cancel", model.daemon_dir_browser_cancel_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Up", .daemon_dir_browser_up);
+    _ = try expectButtonMsg(tree, "Home", .daemon_dir_browser_home);
+    _ = try expectButtonMsg(tree, "Choose", .confirm_daemon_dir_browser);
+    _ = try expectButtonMsg(tree, "Cancel", .cancel_daemon_dir_browser);
+    try testing.expect(findByText(tree.root, .button, "上へ") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("上级", model.daemon_dir_browser_up_label());
+    try testing.expectEqualStrings("主目录", model.daemon_dir_browser_home_label());
+    try testing.expectEqualStrings("选择", model.daemon_dir_browser_choose_label());
+    try testing.expectEqualStrings("取消", model.daemon_dir_browser_cancel_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "上级", .daemon_dir_browser_up);
+    _ = try expectButtonMsg(tree, "主目录", .daemon_dir_browser_home);
+    _ = try expectButtonMsg(tree, "选择", .confirm_daemon_dir_browser);
+    _ = try expectButtonMsg(tree, "取消", .cancel_daemon_dir_browser);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("上へ", model.daemon_dir_browser_up_label());
+    try testing.expectEqualStrings("ホーム", model.daemon_dir_browser_home_label());
+    try testing.expectEqualStrings("選択", model.daemon_dir_browser_choose_label());
+    try testing.expectEqualStrings("キャンセル", model.daemon_dir_browser_cancel_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "上へ", .daemon_dir_browser_up);
+    _ = try expectButtonMsg(tree, "ホーム", .daemon_dir_browser_home);
+    _ = try expectButtonMsg(tree, "選択", .confirm_daemon_dir_browser);
+    _ = try expectButtonMsg(tree, "キャンセル", .cancel_daemon_dir_browser);
 }
 
 test "DateBucket.title english default; zh and ja follow datesFor" {

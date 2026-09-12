@@ -4685,6 +4685,14 @@ pub const Model = struct {
         return i18n.branchChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn workspaceChrome(model: *const Model) i18n.WorkspaceChrome {
+        return i18n.workspaceChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn daemonDirChrome(model: *const Model) i18n.DaemonDirChrome {
+        return i18n.daemonDirChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     /// Palette row display label for `action`. New Task / Settings /
     /// Collapse all folders reuse Sidebar / Chrome strings; remaining
     /// names come from `i18n.Palette`. Ids / keywords stay English.
@@ -5630,9 +5638,9 @@ pub const Model = struct {
         return model.branchChrome().new_branch_menu;
     }
 
-    /// Branch picker New worktree…. Distinct from leftover workspace
-    /// picker New worktree (no ellipsis). `on-press` stays
-    /// `start_git_worktree_create`.
+    /// Branch picker New worktree…. Distinct from workspace picker
+    /// New worktree (`workspace_new_worktree_label`, no ellipsis).
+    /// `on-press` stays `start_git_worktree_create`.
     pub fn git_worktree_new_menu_label(model: *const Model) []const u8 {
         return model.branchChrome().new_worktree_menu;
     }
@@ -5709,11 +5717,57 @@ pub const Model = struct {
     }
 
     /// New branch / worktree / delete / push-confirm Cancel. Reuses
-    /// `CommitChrome.cancel`. Distinct from leftover daemon-dir /
-    /// palette / switcher Cancel. `on-press` stays
+    /// `CommitChrome.cancel`. Distinct from daemon-dir Cancel
+    /// (`daemon_dir_browser_cancel_label`, same `CommitChrome.cancel`)
+    /// and leftover palette / switcher Cancel. `on-press` stays
     /// `cancel_git_branch_create` / `cancel_git_worktree_create` /
     /// `cancel_git_branch_delete` / `cancel_git_push`.
     pub fn git_branch_cancel_label(model: *const Model) []const u8 {
+        return model.commitChrome().cancel;
+    }
+
+    /// Workspace picker Work in placeholder. `on-press` stays
+    /// `toggle_workspace_picker`.
+    pub fn workspace_work_in_placeholder(model: *const Model) []const u8 {
+        return model.workspaceChrome().work_in;
+    }
+
+    /// Workspace picker Local menu row. Distinct from leftover
+    /// project-row Local (`project_is_local`). `on-press` stays
+    /// `pick_workspace_local`.
+    pub fn workspace_local_label(model: *const Model) []const u8 {
+        return model.workspaceChrome().local;
+    }
+
+    /// Workspace picker New worktree (no ellipsis). Distinct from
+    /// branch-menu `New worktree…` (`git_worktree_new_menu_label`).
+    /// Worktree stays Latin in zh-CN / ja. `on-press` stays
+    /// `pick_workspace_new_worktree`.
+    pub fn workspace_new_worktree_label(model: *const Model) []const u8 {
+        return model.workspaceChrome().new_worktree;
+    }
+
+    /// Daemon-dir browser Up. `on-press` stays `daemon_dir_browser_up`.
+    pub fn daemon_dir_browser_up_label(model: *const Model) []const u8 {
+        return model.daemonDirChrome().up;
+    }
+
+    /// Daemon-dir browser Home. `on-press` stays
+    /// `daemon_dir_browser_home`.
+    pub fn daemon_dir_browser_home_label(model: *const Model) []const u8 {
+        return model.daemonDirChrome().home;
+    }
+
+    /// Daemon-dir browser Choose. `on-press` stays
+    /// `confirm_daemon_dir_browser`.
+    pub fn daemon_dir_browser_choose_label(model: *const Model) []const u8 {
+        return model.daemonDirChrome().choose;
+    }
+
+    /// Daemon-dir browser Cancel. Reuses `CommitChrome.cancel`.
+    /// Distinct from leftover palette / switcher Cancel.
+    /// `on-press` stays `cancel_daemon_dir_browser`.
+    pub fn daemon_dir_browser_cancel_label(model: *const Model) []const u8 {
         return model.commitChrome().cancel;
     }
 
