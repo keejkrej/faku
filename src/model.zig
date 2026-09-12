@@ -2103,6 +2103,7 @@ pub const Model = struct {
         "rightPanelTabs",
         "rightPanelChrome",
         "composerProjectChrome",
+        "workspacePathChrome",
         "palette_action_label",
         "show_right_panel_label",
         "sidebarDates",
@@ -4643,9 +4644,9 @@ pub const Model = struct {
     }
 
     /// Palette overlay Suggested / Commands / Tasks headers,
-    /// empty-state lines, and footer Confirm. Same resolve path as
-    /// `palette_action_label`. Ids / `PaletteAction` / keywords stay
-    /// English. Footer Cancel reuses `CommitChrome.cancel`.
+    /// empty-state lines, footer Confirm, and dialog title. Same
+    /// resolve path as `palette_action_label`. Ids / `PaletteAction` /
+    /// keywords stay English. Footer Cancel reuses `CommitChrome.cancel`.
     pub fn paletteOverlayChrome(model: *const Model) i18n.PaletteChrome {
         return i18n.paletteChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -4696,6 +4697,10 @@ pub const Model = struct {
 
     fn switcherChrome(model: *const Model) i18n.SwitcherChrome {
         return i18n.switcherChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn workspacePathChrome(model: *const Model) i18n.WorkspacePathChrome {
+        return i18n.workspacePathChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Palette row display label for `action`. New Task / Settings /
@@ -5796,9 +5801,15 @@ pub const Model = struct {
         return model.paletteOverlayChrome().confirm;
     }
 
+    /// Command palette dialog title. `on-dismiss` stays
+    /// `palette_cancel`.
+    pub fn palette_dialog_title(model: *const Model) []const u8 {
+        return model.paletteOverlayChrome().dialog_title;
+    }
+
     /// Palette footer Cancel. Reuses `CommitChrome.cancel`. Distinct
-    /// from leftover Command palette dialog title. `on-press` /
-    /// on-dismiss stay `palette_cancel`.
+    /// from `palette_dialog_title`. `on-press` / on-dismiss stay
+    /// `palette_cancel`.
     pub fn palette_cancel_label(model: *const Model) []const u8 {
         return model.commitChrome().cancel;
     }
@@ -5818,6 +5829,14 @@ pub const Model = struct {
     /// `on-press` / on-dismiss stay `switcher_cancel`.
     pub fn switcher_cancel_label(model: *const Model) []const u8 {
         return model.commitChrome().cancel;
+    }
+
+    /// Settings General Last project path and project-edit
+    /// Workspace path placeholders (same wording). `on-input`
+    /// stays `settings_project_edit` / `project_path_edit`. Typed
+    /// path text stays data.
+    pub fn workspace_path_placeholder(model: *const Model) []const u8 {
+        return model.workspacePathChrome().placeholder;
     }
 
     /// Runtime-only muted status on the Review card (Comparing… /

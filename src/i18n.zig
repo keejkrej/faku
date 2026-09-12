@@ -7,9 +7,9 @@
 //! chrome, session context-menu Rename / Remove, palette action
 //! display labels (same `Sidebar` / `Chrome` strings for New Task /
 //! Settings / Collapse all folders; remaining command names in
-//! `Palette`), palette overlay section headers and empty-state
-//! lines plus footer Confirm (`PaletteChrome`; Cancel reuses
-//! `CommitChrome`), composer / Settings General Ask / Auto /
+//! `Palette`), palette overlay section headers, empty-state
+//! lines, footer Confirm, and dialog title (`PaletteChrome`; Cancel
+//! reuses `CommitChrome`), composer / Settings General Ask / Auto /
 //! Full access (same `Access` strings), first-cut composer effort chip /
 //! Settings General effort labels (same `Effort` strings),
 //! first-cut composer interaction chip / Settings General Build /
@@ -48,7 +48,8 @@
 //! in-app browser Up / Home / Choose / Loading… (same `DaemonDirChrome`
 //! strings; Cancel reuses `CommitChrome`) plus session-switcher
 //! title / Switch (same `SwitcherChrome` strings; Cancel reuses
-//! `CommitChrome`) live
+//! `CommitChrome`) plus Settings General / project-edit Workspace path
+//! placeholders (same `WorkspacePathChrome` strings) live
 //! here so `main.zig` does not grow. Palette ids / `PaletteAction` /
 //! keywords stay English.
 //! Wire `access_mode` ids stay `ask` / `auto` / `fullAccess`. Wire
@@ -98,9 +99,10 @@
 //! `confirm_daemon_dir_browser` / `cancel_daemon_dir_browser`).
 //! Palette footer / switcher `on-press` / on-dismiss stay English
 //! (`palette_cancel` / `palette_confirm` / `switcher_cancel` /
-//! `switcher_confirm`). Workspace path placeholders stay leftover
-//! English. Command palette dialog title stays leftover English.
-//! Aa / Ab / .* glyphs stay. Path text and body content stay data.
+//! `switcher_confirm`). Workspace path `on-input` stays English
+//! (`settings_project_edit` / `project_path_edit`); typed path text
+//! stays English (data). OS folder-dialog prompts stay leftover
+//! English. Aa / Ab / .* glyphs stay. Path text and body content stay data.
 //! Not rust_i18n, not YAML catalogs, not full-app translation, not
 //! tz-aware grouping.
 
@@ -553,12 +555,13 @@ const palette_ja: Palette = .{
     .collapse_sidebar = "サイドバーを折りたたむ",
 };
 
-/// Command-palette overlay section headers, empty-state lines, and
-/// footer Confirm. Same resolve path as Palette. Action names stay
-/// in `Palette`; ids / `PaletteAction` / keywords stay English.
-/// Footer Cancel reuses `CommitChrome.cancel`. Dialog title
-/// `Command palette` stays leftover English. Right-panel tab
-/// button labels live in `RightPanelTabs` (not duplicated here).
+/// Command-palette overlay section headers, empty-state lines,
+/// footer Confirm, and dialog title. Same resolve path as Palette.
+/// Action names stay in `Palette`; ids / `PaletteAction` / keywords
+/// stay English. Footer Cancel reuses `CommitChrome.cancel`.
+/// English dialog title matches the former hardcoded copy.
+/// Right-panel tab button labels live in `RightPanelTabs` (not
+/// duplicated here).
 pub const PaletteChrome = struct {
     suggested: []const u8,
     commands: []const u8,
@@ -566,6 +569,7 @@ pub const PaletteChrome = struct {
     no_matches: []const u8,
     try_query: []const u8,
     confirm: []const u8,
+    dialog_title: []const u8,
 };
 
 const palette_chrome_en: PaletteChrome = .{
@@ -575,6 +579,7 @@ const palette_chrome_en: PaletteChrome = .{
     .no_matches = "No matching tasks or commands",
     .try_query = "Try a task title, project, provider, model, or command",
     .confirm = "Confirm",
+    .dialog_title = "Command palette",
 };
 
 const palette_chrome_zh_cn: PaletteChrome = .{
@@ -584,6 +589,7 @@ const palette_chrome_zh_cn: PaletteChrome = .{
     .no_matches = "没有匹配的任务或命令",
     .try_query = "试试任务标题、项目、提供商、模型或命令",
     .confirm = "确认",
+    .dialog_title = "命令面板",
 };
 
 const palette_chrome_ja: PaletteChrome = .{
@@ -593,6 +599,7 @@ const palette_chrome_ja: PaletteChrome = .{
     .no_matches = "一致するタスクやコマンドはありません",
     .try_query = "タスク名、プロジェクト、プロバイダー、モデル、コマンドを試す",
     .confirm = "確認",
+    .dialog_title = "コマンドパレット",
 };
 
 /// Right-panel tab button labels for the resolved locale. Same resolve
@@ -1350,6 +1357,28 @@ const switcher_chrome_ja: SwitcherChrome = .{
     .switch_label = "切り替え",
 };
 
+/// Settings General / project-edit Workspace path placeholders for
+/// the resolved locale. Same resolve path as SwitcherChrome. Wire
+/// ids / on-input stay English (`settings_project_edit` /
+/// `project_path_edit`). English matches the former hardcoded copy.
+/// Typed path text stays data. Distinct from leftover OS
+/// folder-dialog prompts (`Choose a project` in pick_folder).
+pub const WorkspacePathChrome = struct {
+    placeholder: []const u8,
+};
+
+const workspace_path_chrome_en: WorkspacePathChrome = .{
+    .placeholder = "Workspace path",
+};
+
+const workspace_path_chrome_zh_cn: WorkspacePathChrome = .{
+    .placeholder = "工作区路径",
+};
+
+const workspace_path_chrome_ja: WorkspacePathChrome = .{
+    .placeholder = "ワークスペースのパス",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -1464,10 +1493,10 @@ pub fn paletteFor(preference: LanguagePreference, system_locale_id: []const u8) 
     };
 }
 
-/// Palette overlay section headers, empty-state lines, and footer
-/// Confirm for the resolved locale. Callers pass Model
-/// `language_preference` + `system_locale_id`; this file does not
-/// read process env. Action names stay on `paletteFor`. Footer
+/// Palette overlay section headers, empty-state lines, footer
+/// Confirm, and dialog title for the resolved locale. Callers pass
+/// Model `language_preference` + `system_locale_id`; this file does
+/// not read process env. Action names stay on `paletteFor`. Footer
 /// Cancel stays on `commitChromeFor`.
 pub fn paletteChromeFor(preference: LanguagePreference, system_locale_id: []const u8) PaletteChrome {
     return switch (resolve(preference, system_locale_id)) {
@@ -1638,6 +1667,18 @@ pub fn switcherChromeFor(preference: LanguagePreference, system_locale_id: []con
         .simplified_chinese => switcher_chrome_zh_cn,
         .japanese => switcher_chrome_ja,
         .system, .english => switcher_chrome_en,
+    };
+}
+
+/// Settings General / project-edit Workspace path placeholders for
+/// the resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Wire
+/// ids / on-input stay English. Typed path text stays data.
+pub fn workspacePathChromeFor(preference: LanguagePreference, system_locale_id: []const u8) WorkspacePathChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => workspace_path_chrome_zh_cn,
+        .japanese => workspace_path_chrome_ja,
+        .system, .english => workspace_path_chrome_en,
     };
 }
 
@@ -1962,8 +2003,10 @@ test "paletteChromeFor english default; zh and ja chrome; english ignores ja LAN
     try testing.expectEqualStrings("No matching tasks or commands", paletteChromeFor(.english, "").no_matches);
     try testing.expectEqualStrings("Try a task title, project, provider, model, or command", paletteChromeFor(.english, "").try_query);
     try testing.expectEqualStrings("Confirm", paletteChromeFor(.english, "").confirm);
+    try testing.expectEqualStrings("Command palette", paletteChromeFor(.english, "").dialog_title);
     try testing.expectEqualStrings("Suggested", paletteChromeFor(.system, "").suggested);
     try testing.expectEqualStrings("Confirm", paletteChromeFor(.system, "").confirm);
+    try testing.expectEqualStrings("Command palette", paletteChromeFor(.system, "").dialog_title);
     try testing.expectEqualStrings(commitChromeFor(.english, "").cancel, "Cancel");
 
     try testing.expectEqualStrings("建议", paletteChromeFor(.simplified_chinese, "").suggested);
@@ -1972,6 +2015,7 @@ test "paletteChromeFor english default; zh and ja chrome; english ignores ja LAN
     try testing.expectEqualStrings("没有匹配的任务或命令", paletteChromeFor(.simplified_chinese, "").no_matches);
     try testing.expectEqualStrings("试试任务标题、项目、提供商、模型或命令", paletteChromeFor(.simplified_chinese, "").try_query);
     try testing.expectEqualStrings("确认", paletteChromeFor(.simplified_chinese, "").confirm);
+    try testing.expectEqualStrings("命令面板", paletteChromeFor(.simplified_chinese, "").dialog_title);
     try testing.expectEqualStrings("取消", commitChromeFor(.simplified_chinese, "").cancel);
 
     try testing.expectEqualStrings("おすすめ", paletteChromeFor(.japanese, "").suggested);
@@ -1980,12 +2024,15 @@ test "paletteChromeFor english default; zh and ja chrome; english ignores ja LAN
     try testing.expectEqualStrings("一致するタスクやコマンドはありません", paletteChromeFor(.japanese, "").no_matches);
     try testing.expectEqualStrings("タスク名、プロジェクト、プロバイダー、モデル、コマンドを試す", paletteChromeFor(.japanese, "").try_query);
     try testing.expectEqualStrings("確認", paletteChromeFor(.japanese, "").confirm);
+    try testing.expectEqualStrings("コマンドパレット", paletteChromeFor(.japanese, "").dialog_title);
     try testing.expectEqualStrings("キャンセル", commitChromeFor(.japanese, "").cancel);
 
     try testing.expectEqualStrings("建议", paletteChromeFor(.system, "zh_CN.UTF-8").suggested);
     try testing.expectEqualStrings("确认", paletteChromeFor(.system, "zh_CN.UTF-8").confirm);
+    try testing.expectEqualStrings("命令面板", paletteChromeFor(.system, "zh_CN.UTF-8").dialog_title);
     try testing.expectEqualStrings("コマンド", paletteChromeFor(.system, "ja_JP.UTF-8").commands);
     try testing.expectEqualStrings("確認", paletteChromeFor(.system, "ja_JP.UTF-8").confirm);
+    try testing.expectEqualStrings("コマンドパレット", paletteChromeFor(.system, "ja_JP.UTF-8").dialog_title);
     try testing.expectEqualStrings("Suggested", paletteChromeFor(.english, "ja_JP.UTF-8").suggested);
     try testing.expectEqualStrings("Commands", paletteChromeFor(.english, "zh_CN.UTF-8").commands);
     try testing.expectEqualStrings("Tasks", paletteChromeFor(.english, "ja_JP.UTF-8").tasks);
@@ -1993,6 +2040,8 @@ test "paletteChromeFor english default; zh and ja chrome; english ignores ja LAN
     try testing.expectEqualStrings("Try a task title, project, provider, model, or command", paletteChromeFor(.english, "ja_JP.UTF-8").try_query);
     try testing.expectEqualStrings("Confirm", paletteChromeFor(.english, "ja_JP.UTF-8").confirm);
     try testing.expectEqualStrings("Confirm", paletteChromeFor(.english, "zh_CN.UTF-8").confirm);
+    try testing.expectEqualStrings("Command palette", paletteChromeFor(.english, "ja_JP.UTF-8").dialog_title);
+    try testing.expectEqualStrings("Command palette", paletteChromeFor(.english, "zh_CN.UTF-8").dialog_title);
 }
 
 test "rightPanelTabsFor english default; zh and ja chrome; english ignores ja LANG" {
@@ -2689,5 +2738,20 @@ test "switcherChromeFor english default; zh and ja chrome; english ignores ja LA
     try testing.expectEqualStrings("Switch session", switcherChromeFor(.english, "ja_JP.UTF-8").title);
     try testing.expectEqualStrings("Switch", switcherChromeFor(.english, "zh_CN.UTF-8").switch_label);
     try testing.expectEqualStrings("Switch", switcherChromeFor(.english, "ja_JP.UTF-8").switch_label);
+}
+
+test "workspacePathChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Workspace path", workspacePathChromeFor(.english, "ja").placeholder);
+    try testing.expectEqualStrings("Workspace path", workspacePathChromeFor(.english, "").placeholder);
+    try testing.expectEqualStrings("Workspace path", workspacePathChromeFor(.system, "").placeholder);
+
+    try testing.expectEqualStrings("工作区路径", workspacePathChromeFor(.simplified_chinese, "").placeholder);
+    try testing.expectEqualStrings("ワークスペースのパス", workspacePathChromeFor(.japanese, "").placeholder);
+
+    try testing.expectEqualStrings("工作区路径", workspacePathChromeFor(.system, "zh_CN.UTF-8").placeholder);
+    try testing.expectEqualStrings("ワークスペースのパス", workspacePathChromeFor(.system, "ja_JP.UTF-8").placeholder);
+    try testing.expectEqualStrings("Workspace path", workspacePathChromeFor(.english, "ja_JP.UTF-8").placeholder);
+    try testing.expectEqualStrings("Workspace path", workspacePathChromeFor(.english, "zh_CN.UTF-8").placeholder);
 }
 
