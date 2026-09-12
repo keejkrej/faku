@@ -55,7 +55,9 @@
 //! title untitled placeholders (same `UntitledChrome` strings; catalog
 //! titles stay English `untitled`) plus Settings General daemon address
 //! placeholder (same `DaemonAddressChrome` strings; Latin `host:port`
-//! in every locale) live
+//! in every locale) plus OS folder-dialog prompts / missing-picker
+//! status (same `OsFolderDialogChrome` strings; osascript /
+//! PowerShell / zenity `--title` / kdialog `--title` at spawn) live
 //! here so `main.zig` does not grow. Palette ids / `PaletteAction` /
 //! keywords stay English.
 //! Wire `access_mode` ids stay `ask` / `auto` / `fullAccess`. Wire
@@ -111,7 +113,10 @@
 //! English (`find_edit` / `find_next`); typed query stays English
 //! (data). Session title `on-input` stays English
 //! (`session_title_edit`). Daemon address `on-input` stays English
-//! (`settings_daemon_edit`). OS folder-dialog prompts stay leftover
+//! (`settings_daemon_edit`). OS folder-dialog prompts / missing-picker
+//! status (same `OsFolderDialogChrome` strings; osascript / PowerShell
+//! / zenity `--title` / kdialog `--title` at spawn) follow the
+//! resolved locale this cut. OS image-dialog prompts stay leftover
 //! English. Aa / Ab / .* glyphs stay. Path text and body content stay data.
 //! Not rust_i18n, not YAML catalogs, not full-app translation, not
 //! tz-aware grouping.
@@ -1316,7 +1321,7 @@ const workspace_chrome_ja: WorkspaceChrome = .{
 /// English matches the former hardcoded copy. Cancel reuses
 /// `CommitChrome.cancel`. Loading… uses the ellipsis character
 /// (same style as `RightPanelChrome.loading_files`). OS folder-dialog
-/// prompts stay English.
+/// prompts live in `OsFolderDialogChrome`.
 pub const DaemonDirChrome = struct {
     up: []const u8,
     home: []const u8,
@@ -1373,8 +1378,8 @@ const switcher_chrome_ja: SwitcherChrome = .{
 /// the resolved locale. Same resolve path as SwitcherChrome. Wire
 /// ids / on-input stay English (`settings_project_edit` /
 /// `project_path_edit`). English matches the former hardcoded copy.
-/// Typed path text stays data. Distinct from leftover OS
-/// folder-dialog prompts (`Choose a project` in pick_folder).
+/// Typed path text stays data. Distinct from OS folder-dialog
+/// prompts (`OsFolderDialogChrome` in pick_folder).
 pub const WorkspacePathChrome = struct {
     placeholder: []const u8,
 };
@@ -1431,6 +1436,40 @@ const daemon_address_chrome_zh_cn: DaemonAddressChrome = .{
 
 const daemon_address_chrome_ja: DaemonAddressChrome = .{
     .placeholder = "host:port",
+};
+
+/// OS folder-dialog prompt and missing-picker status for the resolved
+/// locale. Same resolve path as DaemonAddressChrome. English matches
+/// the former hardcoded `pick_folder` osascript / PowerShell /
+/// zenity-or-kdialog copy. Binary names stay Latin (`zenity` /
+/// `kdialog` / `osascript` / `powershell.exe`). OS image-dialog
+/// prompts (`Choose an image`) stay leftover English.
+pub const OsFolderDialogChrome = struct {
+    prompt: []const u8,
+    linux_missing: []const u8,
+    macos_missing: []const u8,
+    windows_missing: []const u8,
+};
+
+const os_folder_dialog_chrome_en: OsFolderDialogChrome = .{
+    .prompt = "Choose a project",
+    .linux_missing = "No OS folder picker (install zenity or kdialog). Type a path.",
+    .macos_missing = "No OS folder picker (osascript missing). Type a path.",
+    .windows_missing = "No OS folder picker (powershell.exe missing). Type a path.",
+};
+
+const os_folder_dialog_chrome_zh_cn: OsFolderDialogChrome = .{
+    .prompt = "选择一个项目",
+    .linux_missing = "没有 OS 文件夹选择器（请安装 zenity 或 kdialog）。请输入路径。",
+    .macos_missing = "没有 OS 文件夹选择器（缺少 osascript）。请输入路径。",
+    .windows_missing = "没有 OS 文件夹选择器（缺少 powershell.exe）。请输入路径。",
+};
+
+const os_folder_dialog_chrome_ja: OsFolderDialogChrome = .{
+    .prompt = "プロジェクトを選択",
+    .linux_missing = "OS のフォルダ選択がありません（zenity または kdialog をインストールしてください）。パスを入力してください。",
+    .macos_missing = "OS のフォルダ選択がありません（osascript がありません）。パスを入力してください。",
+    .windows_missing = "OS のフォルダ選択がありません（powershell.exe がありません）。パスを入力してください。",
 };
 
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
@@ -1758,6 +1797,18 @@ pub fn daemonAddressChromeFor(preference: LanguagePreference, system_locale_id: 
         .simplified_chinese => daemon_address_chrome_zh_cn,
         .japanese => daemon_address_chrome_ja,
         .system, .english => daemon_address_chrome_en,
+    };
+}
+
+/// OS folder-dialog prompt and missing-picker status for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Wire ids /
+/// on-press stay English. Binary names stay Latin.
+pub fn osFolderDialogChromeFor(preference: LanguagePreference, system_locale_id: []const u8) OsFolderDialogChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => os_folder_dialog_chrome_zh_cn,
+        .japanese => os_folder_dialog_chrome_ja,
+        .system, .english => os_folder_dialog_chrome_en,
     };
 }
 
@@ -2860,5 +2911,32 @@ test "daemonAddressChromeFor latin host:port in every locale; english ignores ja
     try testing.expectEqualStrings("host:port", daemonAddressChromeFor(.system, "ja_JP.UTF-8").placeholder);
     try testing.expectEqualStrings("host:port", daemonAddressChromeFor(.english, "ja_JP.UTF-8").placeholder);
     try testing.expectEqualStrings("host:port", daemonAddressChromeFor(.english, "zh_CN.UTF-8").placeholder);
+}
+
+test "osFolderDialogChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Choose a project", osFolderDialogChromeFor(.english, "ja").prompt);
+    try testing.expectEqualStrings("Choose a project", osFolderDialogChromeFor(.english, "").prompt);
+    try testing.expectEqualStrings("Choose a project", osFolderDialogChromeFor(.system, "").prompt);
+    try testing.expectEqualStrings("No OS folder picker (install zenity or kdialog). Type a path.", osFolderDialogChromeFor(.english, "").linux_missing);
+    try testing.expectEqualStrings("No OS folder picker (osascript missing). Type a path.", osFolderDialogChromeFor(.english, "").macos_missing);
+    try testing.expectEqualStrings("No OS folder picker (powershell.exe missing). Type a path.", osFolderDialogChromeFor(.english, "").windows_missing);
+
+    try testing.expectEqualStrings("选择一个项目", osFolderDialogChromeFor(.simplified_chinese, "").prompt);
+    try testing.expectEqualStrings("没有 OS 文件夹选择器（请安装 zenity 或 kdialog）。请输入路径。", osFolderDialogChromeFor(.simplified_chinese, "").linux_missing);
+    try testing.expectEqualStrings("没有 OS 文件夹选择器（缺少 osascript）。请输入路径。", osFolderDialogChromeFor(.simplified_chinese, "").macos_missing);
+    try testing.expectEqualStrings("没有 OS 文件夹选择器（缺少 powershell.exe）。请输入路径。", osFolderDialogChromeFor(.simplified_chinese, "").windows_missing);
+
+    try testing.expectEqualStrings("プロジェクトを選択", osFolderDialogChromeFor(.japanese, "").prompt);
+    try testing.expectEqualStrings("OS のフォルダ選択がありません（zenity または kdialog をインストールしてください）。パスを入力してください。", osFolderDialogChromeFor(.japanese, "").linux_missing);
+    try testing.expectEqualStrings("OS のフォルダ選択がありません（osascript がありません）。パスを入力してください。", osFolderDialogChromeFor(.japanese, "").macos_missing);
+    try testing.expectEqualStrings("OS のフォルダ選択がありません（powershell.exe がありません）。パスを入力してください。", osFolderDialogChromeFor(.japanese, "").windows_missing);
+
+    try testing.expectEqualStrings("选择一个项目", osFolderDialogChromeFor(.system, "zh_CN.UTF-8").prompt);
+    try testing.expectEqualStrings("プロジェクトを選択", osFolderDialogChromeFor(.system, "ja_JP.UTF-8").prompt);
+    try testing.expectEqualStrings("Choose a project", osFolderDialogChromeFor(.english, "ja_JP.UTF-8").prompt);
+    try testing.expectEqualStrings("Choose a project", osFolderDialogChromeFor(.english, "zh_CN.UTF-8").prompt);
+    try testing.expectEqualStrings("没有 OS 文件夹选择器（请安装 zenity 或 kdialog）。请输入路径。", osFolderDialogChromeFor(.system, "zh_CN.UTF-8").linux_missing);
+    try testing.expectEqualStrings("OS のフォルダ選択がありません（osascript がありません）。パスを入力してください。", osFolderDialogChromeFor(.system, "ja_JP.UTF-8").macos_missing);
 }
 

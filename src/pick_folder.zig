@@ -31,6 +31,7 @@ const persist = @import("persist.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const protocol = @import("protocol.zig");
 const store = @import("store.zig");
+const i18n = @import("i18n.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -70,39 +71,88 @@ pub const cancel_exit: u8 = 1;
 pub const missing_exit: u8 = 2;
 pub const error_prefix = "error:";
 
-pub const linux_missing_status = "No OS folder picker (install zenity or kdialog). Type a path.";
-pub const macos_missing_status = "No OS folder picker (osascript missing). Type a path.";
-pub const windows_missing_status = "No OS folder picker (powershell.exe missing). Type a path.";
+pub const linux_missing_status = i18n.osFolderDialogChromeFor(.english, "").linux_missing;
+pub const macos_missing_status = i18n.osFolderDialogChromeFor(.english, "").macos_missing;
+pub const windows_missing_status = i18n.osFolderDialogChromeFor(.english, "").windows_missing;
 
 pub const osascript_bin = "osascript";
-pub const osascript_script = "POSIX path of (choose folder with prompt \"Choose a project\")";
 pub const zenity_bin = "zenity";
 pub const kdialog_bin = "kdialog";
+pub const title_flag = "--title";
 /// PATH-resolved Windows PowerShell (desktop WinForms). Explicit `.exe`
 /// suffix like sibling `explorer.exe` / `wt.exe` / `cmd.exe`.
 pub const powershell_bin = "powershell.exe";
 pub const powershell_noprofile = "-NoProfile";
 pub const powershell_sta = "-STA";
 pub const powershell_command = "-Command";
+
+fn osascriptScript(comptime prompt: []const u8) []const u8 {
+    return "POSIX path of (choose folder with prompt \"" ++ prompt ++ "\")";
+}
+
 /// STA FolderBrowserDialog: OK prints one absolute path; Cancel exits 1
 /// with no path; Add-Type / dialog failure exits missing_exit (2).
-pub const powershell_script =
-    "$ErrorActionPreference = 'Stop'; try { Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Choose a project'; if ($d.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { exit 1 }; Write-Output $d.SelectedPath } catch { exit 2 }";
+fn powershellScript(comptime prompt: []const u8) []const u8 {
+    return "$ErrorActionPreference = 'Stop'; try { Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = '" ++ prompt ++ "'; if ($d.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { exit 1 }; Write-Output $d.SelectedPath } catch { exit 2 }";
+}
+
+const prompt_en = i18n.osFolderDialogChromeFor(.english, "").prompt;
+const prompt_zh_cn = i18n.osFolderDialogChromeFor(.simplified_chinese, "").prompt;
+const prompt_ja = i18n.osFolderDialogChromeFor(.japanese, "").prompt;
+
+/// English osascript `choose folder` script. Localized spawn uses
+/// `argvForLang`.
+pub const osascript_script = osascriptScript(prompt_en);
+/// English STA FolderBrowserDialog. Localized spawn uses `argvForLang`.
+pub const powershell_script = powershellScript(prompt_en);
 
 pub const Picker = enum { osascript, zenity, kdialog, powershell };
 pub const Stage = enum { first, fallback };
 
-const osascript_argv = [_][]const u8{ osascript_bin, "-e", osascript_script };
-const zenity_argv = [_][]const u8{ zenity_bin, "--file-selection", "--directory" };
-const kdialog_argv = [_][]const u8{ kdialog_bin, "--getexistingdirectory", "." };
-const powershell_argv = [_][]const u8{ powershell_bin, powershell_noprofile, powershell_sta, powershell_command, powershell_script };
+const osascript_argv_en = [_][]const u8{ osascript_bin, "-e", osascriptScript(prompt_en) };
+const osascript_argv_zh_cn = [_][]const u8{ osascript_bin, "-e", osascriptScript(prompt_zh_cn) };
+const osascript_argv_ja = [_][]const u8{ osascript_bin, "-e", osascriptScript(prompt_ja) };
 
+const zenity_argv_en = [_][]const u8{ zenity_bin, "--file-selection", "--directory", title_flag, prompt_en };
+const zenity_argv_zh_cn = [_][]const u8{ zenity_bin, "--file-selection", "--directory", title_flag, prompt_zh_cn };
+const zenity_argv_ja = [_][]const u8{ zenity_bin, "--file-selection", "--directory", title_flag, prompt_ja };
+
+const kdialog_argv_en = [_][]const u8{ kdialog_bin, title_flag, prompt_en, "--getexistingdirectory", "." };
+const kdialog_argv_zh_cn = [_][]const u8{ kdialog_bin, title_flag, prompt_zh_cn, "--getexistingdirectory", "." };
+const kdialog_argv_ja = [_][]const u8{ kdialog_bin, title_flag, prompt_ja, "--getexistingdirectory", "." };
+
+const powershell_argv_en = [_][]const u8{ powershell_bin, powershell_noprofile, powershell_sta, powershell_command, powershellScript(prompt_en) };
+const powershell_argv_zh_cn = [_][]const u8{ powershell_bin, powershell_noprofile, powershell_sta, powershell_command, powershellScript(prompt_zh_cn) };
+const powershell_argv_ja = [_][]const u8{ powershell_bin, powershell_noprofile, powershell_sta, powershell_command, powershellScript(prompt_ja) };
+
+/// English argv (identification tests / callers that do not pass locale).
 pub fn argvFor(picker: Picker) []const []const u8 {
+    return argvForLang(picker, .english);
+}
+
+/// Folder-dialog argv for a resolved chrome locale (never `.system`).
+pub fn argvForLang(picker: Picker, resolved: i18n.LanguagePreference) []const []const u8 {
     return switch (picker) {
-        .osascript => &osascript_argv,
-        .zenity => &zenity_argv,
-        .kdialog => &kdialog_argv,
-        .powershell => &powershell_argv,
+        .osascript => switch (resolved) {
+            .simplified_chinese => &osascript_argv_zh_cn,
+            .japanese => &osascript_argv_ja,
+            .system, .english => &osascript_argv_en,
+        },
+        .zenity => switch (resolved) {
+            .simplified_chinese => &zenity_argv_zh_cn,
+            .japanese => &zenity_argv_ja,
+            .system, .english => &zenity_argv_en,
+        },
+        .kdialog => switch (resolved) {
+            .simplified_chinese => &kdialog_argv_zh_cn,
+            .japanese => &kdialog_argv_ja,
+            .system, .english => &kdialog_argv_en,
+        },
+        .powershell => switch (resolved) {
+            .simplified_chinese => &powershell_argv_zh_cn,
+            .japanese => &powershell_argv_ja,
+            .system, .english => &powershell_argv_en,
+        },
     };
 }
 
@@ -119,14 +169,23 @@ pub fn hostPicker(stage: Stage) ?Picker {
 }
 
 pub fn hostArgv(stage: Stage) ?[]const []const u8 {
-    return argvFor(hostPicker(stage) orelse return null);
+    return hostArgvFor(stage, .english, "");
+}
+
+pub fn hostArgvFor(stage: Stage, preference: i18n.LanguagePreference, system_locale_id: []const u8) ?[]const []const u8 {
+    return argvForLang(hostPicker(stage) orelse return null, i18n.resolve(preference, system_locale_id));
 }
 
 pub fn hostMissingStatus() []const u8 {
+    return hostMissingStatusFor(.english, "");
+}
+
+pub fn hostMissingStatusFor(preference: i18n.LanguagePreference, system_locale_id: []const u8) []const u8 {
+    const chrome = i18n.osFolderDialogChromeFor(preference, system_locale_id);
     return switch (builtin.os.tag) {
-        .macos => macos_missing_status,
-        .windows => windows_missing_status,
-        else => linux_missing_status,
+        .macos => chrome.macos_missing,
+        .windows => chrome.windows_missing,
+        else => chrome.linux_missing,
     };
 }
 
@@ -169,8 +228,8 @@ pub fn startPickFolder(model: *Model, fx: *Effects) void {
 
 fn startOsPickFolder(model: *Model, fx: *Effects) void {
     if (model.pick_folder_live) return;
-    const argv = hostArgv(.first) orelse {
-        model.setWindowStatus(hostMissingStatus());
+    const argv = hostArgvFor(.first, model.language_preference, model.systemLocaleId()) orelse {
+        model.setWindowStatus(hostMissingStatusFor(model.language_preference, model.systemLocaleId()));
         model.startProjectEdit();
         return;
     };
@@ -351,7 +410,7 @@ pub fn handlePickFolderExit(model: *Model, fx: *Effects, exit: native_sdk.Effect
     }
     if (isMissingPickerExit(exit)) {
         if (!model.pick_folder_tried_fallback) {
-            if (hostArgv(.fallback)) |argv| {
+            if (hostArgvFor(.fallback, model.language_preference, model.systemLocaleId())) |argv| {
                 model.pick_folder_tried_fallback = true;
                 fx.spawn(.{
                     .key = pick_folder_key,
@@ -364,7 +423,7 @@ pub fn handlePickFolderExit(model: *Model, fx: *Effects, exit: native_sdk.Effect
         }
         model.pick_folder_live = false;
         if (!model.has_window_status()) {
-            model.setWindowStatus(hostMissingStatus());
+            model.setWindowStatus(hostMissingStatusFor(model.language_preference, model.systemLocaleId()));
         }
         model.startProjectEdit();
         return;
@@ -385,6 +444,7 @@ test "macos picker argv is osascript choose folder POSIX path" {
     try std.testing.expect(argvHas(argv, "-e"));
     try std.testing.expect(argvHas(argv, "choose folder"));
     try std.testing.expect(argvHas(argv, "POSIX path"));
+    try std.testing.expect(argvHas(argv, prompt_en));
     try std.testing.expect(isPickerArgv(argv));
 }
 
@@ -393,6 +453,8 @@ test "linux zenity argv is file-selection directory" {
     try std.testing.expectEqualStrings(zenity_bin, argv[0]);
     try std.testing.expect(argvHas(argv, "--file-selection"));
     try std.testing.expect(argvHas(argv, "--directory"));
+    try std.testing.expect(argvHas(argv, title_flag));
+    try std.testing.expect(argvHas(argv, prompt_en));
     try std.testing.expect(isPickerArgv(argv));
 }
 
@@ -400,6 +462,8 @@ test "linux kdialog argv is getexistingdirectory" {
     const argv = argvFor(.kdialog);
     try std.testing.expectEqualStrings(kdialog_bin, argv[0]);
     try std.testing.expect(argvHas(argv, "--getexistingdirectory"));
+    try std.testing.expect(argvHas(argv, title_flag));
+    try std.testing.expect(argvHas(argv, prompt_en));
     try std.testing.expect(isPickerArgv(argv));
 }
 
@@ -411,9 +475,68 @@ test "windows picker argv is powershell STA FolderBrowserDialog" {
     try std.testing.expect(argvHas(argv, powershell_command));
     try std.testing.expect(argvHas(argv, "FolderBrowserDialog"));
     try std.testing.expect(argvHas(argv, "System.Windows.Forms"));
+    try std.testing.expect(argvHas(argv, prompt_en));
     try std.testing.expect(isPickerArgv(argv));
     try std.testing.expectEqual(@as(usize, 5), argv.len);
     try std.testing.expect(!isPickerArgv(&.{ powershell_bin, powershell_noprofile, powershell_sta, powershell_command, "Get-Date" }));
+}
+
+test "folder picker argv and missing status follow resolved locale" {
+    const pick_image = @import("pick_image.zig");
+    const zh = i18n.osFolderDialogChromeFor(.simplified_chinese, "");
+    const ja = i18n.osFolderDialogChromeFor(.japanese, "");
+    const en = i18n.osFolderDialogChromeFor(.english, "");
+
+    try std.testing.expectEqualStrings(en.linux_missing, linux_missing_status);
+    try std.testing.expectEqualStrings(en.macos_missing, macos_missing_status);
+    try std.testing.expectEqualStrings(en.windows_missing, windows_missing_status);
+    try std.testing.expectEqualStrings(hostMissingStatusFor(.english, ""), hostMissingStatus());
+    try std.testing.expectEqualStrings(hostMissingStatusFor(.english, ""), hostMissingStatusFor(.english, "ja_JP.UTF-8"));
+    try std.testing.expectEqualStrings(hostMissingStatusFor(.simplified_chinese, ""), hostMissingStatusFor(.system, "zh_CN.UTF-8"));
+    try std.testing.expectEqualStrings(hostMissingStatusFor(.japanese, ""), hostMissingStatusFor(.system, "ja_JP.UTF-8"));
+    switch (builtin.os.tag) {
+        .macos => {
+            try std.testing.expectEqualStrings(en.macos_missing, hostMissingStatus());
+            try std.testing.expectEqualStrings(zh.macos_missing, hostMissingStatusFor(.simplified_chinese, ""));
+            try std.testing.expectEqualStrings(ja.macos_missing, hostMissingStatusFor(.japanese, ""));
+        },
+        .windows => {
+            try std.testing.expectEqualStrings(en.windows_missing, hostMissingStatus());
+            try std.testing.expectEqualStrings(zh.windows_missing, hostMissingStatusFor(.simplified_chinese, ""));
+            try std.testing.expectEqualStrings(ja.windows_missing, hostMissingStatusFor(.japanese, ""));
+        },
+        else => {
+            try std.testing.expectEqualStrings(en.linux_missing, hostMissingStatus());
+            try std.testing.expectEqualStrings(zh.linux_missing, hostMissingStatusFor(.simplified_chinese, ""));
+            try std.testing.expectEqualStrings(ja.linux_missing, hostMissingStatusFor(.japanese, ""));
+        },
+    }
+
+    const pickers = [_]Picker{ .osascript, .zenity, .kdialog, .powershell };
+    for (pickers) |picker| {
+        const en_argv = argvForLang(picker, .english);
+        const zh_argv = argvForLang(picker, .simplified_chinese);
+        const ja_argv = argvForLang(picker, .japanese);
+        try std.testing.expect(isPickerArgv(en_argv));
+        try std.testing.expect(isPickerArgv(zh_argv));
+        try std.testing.expect(isPickerArgv(ja_argv));
+        try std.testing.expect(!pick_image.isPickerArgv(zh_argv));
+        try std.testing.expect(!pick_image.isPickerArgv(ja_argv));
+        try std.testing.expect(argvHas(en_argv, en.prompt));
+        try std.testing.expect(argvHas(zh_argv, zh.prompt));
+        try std.testing.expect(argvHas(ja_argv, ja.prompt));
+        try std.testing.expect(!argvHas(zh_argv, en.prompt));
+        try std.testing.expect(!argvHas(ja_argv, en.prompt));
+        try std.testing.expect(!argvHas(en_argv, zh.prompt));
+        try std.testing.expect(!argvHas(en_argv, ja.prompt));
+    }
+
+    try std.testing.expect(argvHas(argvForLang(.osascript, .japanese), "choose folder"));
+    try std.testing.expect(argvHas(argvForLang(.osascript, .simplified_chinese), "POSIX path"));
+    try std.testing.expect(argvHas(argvForLang(.powershell, .japanese), "FolderBrowserDialog"));
+    try std.testing.expect(argvHas(argvForLang(.zenity, .japanese), title_flag));
+    try std.testing.expect(argvHas(argvForLang(.kdialog, .simplified_chinese), "--getexistingdirectory"));
+    try std.testing.expectEqualStrings(argvFor(.osascript)[0], argvForLang(.osascript, .english)[0]);
 }
 
 test "host first argv is the platform folder dialog" {
@@ -545,6 +668,68 @@ test "pick folder without a daemon address still uses OS argv helpers" {
     try std.testing.expect(!daemon_proxy.isSidecarArgv(spawn.argv));
     try std.testing.expectEqualStrings("", spawn.stdin);
     try std.testing.expectEqual(pick_folder_key, spawn.key);
+}
+
+test "OS folder picker spawn prompt and missing status follow Appearance language" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    const zh = i18n.osFolderDialogChromeFor(.simplified_chinese, "");
+    const ja = i18n.osFolderDialogChromeFor(.japanese, "");
+    const en = i18n.osFolderDialogChromeFor(.english, "");
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    model.language_preference = .simplified_chinese;
+    startPickFolder(&model, &fx);
+    if (hostArgv(.first) == null) {
+        try std.testing.expectEqualStrings(hostMissingStatusFor(.simplified_chinese, ""), model.window_status());
+        try std.testing.expect(!std.mem.eql(u8, hostMissingStatus(), model.window_status()));
+        return;
+    }
+    const spawn = pendingSpawnKey(&fx, pick_folder_key) orelse return error.MissingZhOsFolderPicker;
+    try std.testing.expect(isPickerArgv(spawn.argv));
+    try std.testing.expect(argvHas(spawn.argv, zh.prompt));
+    try std.testing.expect(!argvHas(spawn.argv, en.prompt));
+    try std.testing.expect(!argvHas(spawn.argv, ja.prompt));
+
+    handlePickFolderExit(&model, &fx, .{ .key = pick_folder_key, .reason = .exited, .code = 127 });
+    if (hostArgvFor(.fallback, .simplified_chinese, "")) |fallback| {
+        try std.testing.expect(model.pick_folder_live);
+        try std.testing.expect(model.pick_folder_tried_fallback);
+        try std.testing.expect(isPickerArgv(fallback));
+        try std.testing.expect(argvHas(fallback, zh.prompt));
+        handlePickFolderExit(&model, &fx, .{ .key = pick_folder_key, .reason = .exited, .code = 127 });
+    }
+    try std.testing.expect(!model.pick_folder_live);
+    try std.testing.expectEqualStrings(hostMissingStatusFor(.simplified_chinese, ""), model.window_status());
+    try std.testing.expect(!std.mem.eql(u8, hostMissingStatus(), model.window_status()));
+
+    var ja_fx = Effects.init(std.testing.allocator);
+    defer ja_fx.deinit();
+    ja_fx.executor = .fake;
+    var ja_model = Model{};
+    ja_model.setSidecarPath("faku");
+    ja_model.language_preference = .japanese;
+    startPickFolder(&ja_model, &ja_fx);
+    const ja_spawn = pendingSpawnKey(&ja_fx, pick_folder_key) orelse return error.MissingJaOsFolderPicker;
+    try std.testing.expect(isPickerArgv(ja_spawn.argv));
+    try std.testing.expect(argvHas(ja_spawn.argv, ja.prompt));
+    try std.testing.expect(!argvHas(ja_spawn.argv, zh.prompt));
+    try std.testing.expect(!argvHas(ja_spawn.argv, en.prompt));
+
+    var en_fx = Effects.init(std.testing.allocator);
+    defer en_fx.deinit();
+    en_fx.executor = .fake;
+    var en_model = Model{};
+    en_model.setSidecarPath("faku");
+    en_model.language_preference = .english;
+    en_model.setSystemLocaleId("ja_JP.UTF-8");
+    startPickFolder(&en_model, &en_fx);
+    const en_spawn = pendingSpawnKey(&en_fx, pick_folder_key) orelse return error.MissingEnOsFolderPicker;
+    try std.testing.expect(argvHas(en_spawn.argv, en.prompt));
+    try std.testing.expect(!argvHas(en_spawn.argv, ja.prompt));
 }
 
 test "BrowseDirectory sidecar paints the in-app browser and Choose sets project_path" {
