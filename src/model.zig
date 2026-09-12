@@ -2108,6 +2108,7 @@ pub const Model = struct {
         "daemonAddressChrome",
         "settingsGeneralChrome",
         "composerChrome",
+        "browserAddressChrome",
         "palette_action_label",
         "show_right_panel_label",
         "sidebarDates",
@@ -3022,6 +3023,21 @@ pub const Model = struct {
 
     pub fn browser_url(model: *const Model) []const u8 {
         return browser_pane.draft(model);
+    }
+
+    /// Browser address-field a11y label. Distinct from the typed URL
+    /// (`browser_url`) and from `browser_address_placeholder`.
+    /// `on-input` / on-submit stay `browser_url_edit` / `browser_navigate`.
+    pub fn browser_address_label(model: *const Model) []const u8 {
+        return model.browserAddressChrome().address;
+    }
+
+    /// Browser address-field placeholder. Latin `https://example.com`
+    /// in every locale. Distinct from parked `browser_pane.home_url`
+    /// (protocol/home URL, not chrome). `on-input` / on-submit stay
+    /// `browser_url_edit` / `browser_navigate`. Typed URL text stays data.
+    pub fn browser_address_placeholder(model: *const Model) []const u8 {
+        return model.browserAddressChrome().placeholder;
     }
 
     /// Committed pane URL security for the address-bar lock/globe.
@@ -4722,6 +4738,10 @@ pub const Model = struct {
 
     fn composerChrome(model: *const Model) i18n.ComposerChrome {
         return i18n.composerChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn browserAddressChrome(model: *const Model) i18n.BrowserAddressChrome {
+        return i18n.browserAddressChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Palette row display label for `action`. New Task / Settings /

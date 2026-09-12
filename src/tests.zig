@@ -27750,6 +27750,81 @@ test "Composer Image path and Status chrome follow Appearance language" {
     try testing.expect(findByPlaceholder(tree.root, .select, "ステータス") != null);
 }
 
+test "Browser Address field chrome follows Appearance language; placeholder stays Latin" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"{browser_address_placeholder}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{browser_address_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-input=\"browser_url_edit\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-submit=\"browser_navigate\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"https://example.com\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Address\""));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Address", model.browser_address_label());
+    try testing.expectEqualStrings("https://example.com", model.browser_address_placeholder());
+    try testing.expectEqualStrings(i18n.browserAddressChromeFor(.english, "").address, model.browser_address_label());
+    try testing.expectEqualStrings(i18n.browserAddressChromeFor(.english, "").placeholder, model.browser_address_placeholder());
+    try testing.expectEqualStrings(i18n.browserAddressChromeFor(.simplified_chinese, "").placeholder, model.browser_address_placeholder());
+    try testing.expectEqualStrings(i18n.browserAddressChromeFor(.japanese, "").placeholder, model.browser_address_placeholder());
+    try testing.expectEqualStrings("https://example.com", browser_pane.home_url);
+
+    main.update(&model, .show_right_panel, &fx);
+    main.update(&model, .set_right_panel_tab_browser, &fx);
+    try testing.expect(model.right_panel_showing_browser());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text_field, "Address");
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "https://example.com") != null);
+    _ = try expectButtonMsg(tree, "Navigate", .browser_navigate);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("地址", model.browser_address_label());
+    try testing.expectEqualStrings("https://example.com", model.browser_address_placeholder());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text_field, "地址");
+    try testing.expect(findByText(tree.root, .text_field, "Address") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "https://example.com") != null);
+    _ = try expectButtonMsg(tree, "Navigate", .browser_navigate);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("アドレス", model.browser_address_label());
+    try testing.expectEqualStrings("https://example.com", model.browser_address_placeholder());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text_field, "アドレス");
+    try testing.expect(findByText(tree.root, .text_field, "地址") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "https://example.com") != null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Address", model.browser_address_label());
+    try testing.expectEqualStrings("https://example.com", model.browser_address_placeholder());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text_field, "Address");
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "https://example.com") != null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("地址", model.browser_address_label());
+    try testing.expectEqualStrings("https://example.com", model.browser_address_placeholder());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text_field, "地址");
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "https://example.com") != null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("アドレス", model.browser_address_label());
+    try testing.expectEqualStrings("https://example.com", model.browser_address_placeholder());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text_field, "アドレス");
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "https://example.com") != null);
+}
+
 test "DateBucket.title english default; zh and ja follow datesFor" {
     try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
     try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());
