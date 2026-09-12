@@ -25,7 +25,9 @@
 //! Diff header title / Cancel / source chips (same
 //! `ReviewDiffChrome` strings), and first-cut Background row kind /
 //! status / stop·dismiss chrome (same `BackgroundChrome` strings;
-//! Environment Summary + right-panel Background body) live here so
+//! Environment Summary + right-panel Background body), and
+//! first-cut Environment info-button a11y + dropdown-menu header /
+//! menu-item chrome (same `EnvironmentChrome` strings) live here so
 //! `main.zig` does not grow. Palette ids / `PaletteAction` / keywords
 //! stay English. Wire `access_mode` ids stay `ask` / `auto` /
 //! `fullAccess`. Wire `reasoning_effort` ids stay `auto` / `none` /
@@ -40,6 +42,11 @@
 //! Cancel / source chips `on-press` stay `close_review_diff` /
 //! `set_review_diff_source_*`. Background Stop / Dismiss `on-press`
 //! stay `environment_stop_background:*` / `open_background_work:*`.
+//! Environment info / menu `on-press` stay `toggle_environment_summary` /
+//! `close_environment_summary` / `environment_commit_or_push` /
+//! `environment_compare` / `environment_copy_task_id` /
+//! `environment_copy_agent_thread_id` /
+//! `environment_dismiss_settled_background`.
 //! Not rust_i18n, not YAML catalogs, not full-app translation, not
 //! tz-aware grouping.
 
@@ -725,8 +732,10 @@ const review_diff_chrome_ja: ReviewDiffChrome = .{
 /// `background_work_*` fields. Wire ids / on-press stay English
 /// (`environment_stop_background:*` / `open_background_work:*`).
 /// Empty-state No background work / No output stay on
-/// `RightPanelChrome`. English matches the former hardcoded
-/// constants. Custom daemon titles are data, not chrome.
+/// `RightPanelChrome`. Environment info-button a11y + dropdown
+/// header / menu-item chrome live in `EnvironmentChrome`. English
+/// matches the former hardcoded constants. Custom daemon titles
+/// are data, not chrome.
 pub const BackgroundChrome = struct {
     kind_process: []const u8,
     kind_monitor: []const u8,
@@ -805,6 +814,52 @@ const background_chrome_ja: BackgroundChrome = .{
     .subagent_dismiss = "サブエージェントを閉じる",
     .daemon_stop = "停止",
     .daemon_dismiss = "閉じる",
+};
+
+/// Environment info-button a11y label and dropdown-menu header +
+/// menu-item chrome for the resolved locale. Same resolve path as
+/// BackgroundChrome. Wire ids / on-press stay English
+/// (`toggle_environment_summary` / `close_environment_summary` /
+/// `environment_commit_or_push` / `environment_compare` /
+/// `environment_copy_task_id` / `environment_copy_agent_thread_id` /
+/// `environment_dismiss_settled_background`). English matches the
+/// former hardcoded copy. Title EN Environment is also the a11y
+/// label. Dropdown Background section header stays leftover English;
+/// row chrome lives in `BackgroundChrome`.
+pub const EnvironmentChrome = struct {
+    environment: []const u8,
+    commit_or_push: []const u8,
+    compare: []const u8,
+    copy_task_id: []const u8,
+    copy_agent_thread_id: []const u8,
+    dismiss_all_settled: []const u8,
+};
+
+const environment_chrome_en: EnvironmentChrome = .{
+    .environment = "Environment",
+    .commit_or_push = "Commit or Push",
+    .compare = "Compare",
+    .copy_task_id = "Copy task ID",
+    .copy_agent_thread_id = "Copy agent CLI thread ID",
+    .dismiss_all_settled = "Dismiss all settled",
+};
+
+const environment_chrome_zh_cn: EnvironmentChrome = .{
+    .environment = "环境",
+    .commit_or_push = "提交或推送",
+    .compare = "比较",
+    .copy_task_id = "复制任务 ID",
+    .copy_agent_thread_id = "复制代理 CLI 线程 ID",
+    .dismiss_all_settled = "关闭全部已结束项",
+};
+
+const environment_chrome_ja: EnvironmentChrome = .{
+    .environment = "環境",
+    .commit_or_push = "コミットまたはプッシュ",
+    .compare = "比較",
+    .copy_task_id = "タスク ID をコピー",
+    .copy_agent_thread_id = "エージェント CLI スレッド ID をコピー",
+    .dismiss_all_settled = "終了した項目をすべて閉じる",
 };
 
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
@@ -992,6 +1047,18 @@ pub fn backgroundChromeFor(preference: LanguagePreference, system_locale_id: []c
         .simplified_chinese => background_chrome_zh_cn,
         .japanese => background_chrome_ja,
         .system, .english => background_chrome_en,
+    };
+}
+
+/// Environment info-button a11y + dropdown-menu header / menu-item
+/// chrome for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does not
+/// read process env. Wire ids / on-press stay English.
+pub fn environmentChromeFor(preference: LanguagePreference, system_locale_id: []const u8) EnvironmentChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => environment_chrome_zh_cn,
+        .japanese => environment_chrome_ja,
+        .system, .english => environment_chrome_en,
     };
 }
 
@@ -1592,4 +1659,42 @@ test "backgroundChromeFor english default; zh and ja chrome; english ignores ja 
 
     try testing.expectEqualStrings(rightPanelChromeFor(.english, "").no_background_work, "No background work");
     try testing.expectEqualStrings(rightPanelChromeFor(.english, "").no_output, "No output");
+}
+
+test "environmentChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Environment", environmentChromeFor(.english, "ja").environment);
+    try testing.expectEqualStrings("Commit or Push", environmentChromeFor(.english, "").commit_or_push);
+    try testing.expectEqualStrings("Compare", environmentChromeFor(.english, "").compare);
+    try testing.expectEqualStrings("Copy task ID", environmentChromeFor(.english, "").copy_task_id);
+    try testing.expectEqualStrings("Copy agent CLI thread ID", environmentChromeFor(.english, "").copy_agent_thread_id);
+    try testing.expectEqualStrings("Dismiss all settled", environmentChromeFor(.english, "").dismiss_all_settled);
+    try testing.expectEqualStrings("Environment", environmentChromeFor(.system, "").environment);
+
+    try testing.expectEqualStrings("环境", environmentChromeFor(.simplified_chinese, "").environment);
+    try testing.expectEqualStrings("提交或推送", environmentChromeFor(.simplified_chinese, "").commit_or_push);
+    try testing.expectEqualStrings("比较", environmentChromeFor(.simplified_chinese, "").compare);
+    try testing.expectEqualStrings("复制任务 ID", environmentChromeFor(.simplified_chinese, "").copy_task_id);
+    try testing.expectEqualStrings("复制代理 CLI 线程 ID", environmentChromeFor(.simplified_chinese, "").copy_agent_thread_id);
+    try testing.expectEqualStrings("关闭全部已结束项", environmentChromeFor(.simplified_chinese, "").dismiss_all_settled);
+
+    try testing.expectEqualStrings("環境", environmentChromeFor(.japanese, "").environment);
+    try testing.expectEqualStrings("コミットまたはプッシュ", environmentChromeFor(.japanese, "").commit_or_push);
+    try testing.expectEqualStrings("比較", environmentChromeFor(.japanese, "").compare);
+    try testing.expectEqualStrings("タスク ID をコピー", environmentChromeFor(.japanese, "").copy_task_id);
+    try testing.expectEqualStrings("エージェント CLI スレッド ID をコピー", environmentChromeFor(.japanese, "").copy_agent_thread_id);
+    try testing.expectEqualStrings("終了した項目をすべて閉じる", environmentChromeFor(.japanese, "").dismiss_all_settled);
+
+    try testing.expectEqualStrings("环境", environmentChromeFor(.system, "zh_CN.UTF-8").environment);
+    try testing.expectEqualStrings("提交或推送", environmentChromeFor(.system, "zh_CN.UTF-8").commit_or_push);
+    try testing.expectEqualStrings("关闭全部已结束项", environmentChromeFor(.system, "zh_CN.UTF-8").dismiss_all_settled);
+    try testing.expectEqualStrings("環境", environmentChromeFor(.system, "ja_JP.UTF-8").environment);
+    try testing.expectEqualStrings("コミットまたはプッシュ", environmentChromeFor(.system, "ja_JP.UTF-8").commit_or_push);
+    try testing.expectEqualStrings("終了した項目をすべて閉じる", environmentChromeFor(.system, "ja_JP.UTF-8").dismiss_all_settled);
+    try testing.expectEqualStrings("Environment", environmentChromeFor(.english, "ja_JP.UTF-8").environment);
+    try testing.expectEqualStrings("Commit or Push", environmentChromeFor(.english, "zh_CN.UTF-8").commit_or_push);
+    try testing.expectEqualStrings("Compare", environmentChromeFor(.english, "ja_JP.UTF-8").compare);
+    try testing.expectEqualStrings("Copy task ID", environmentChromeFor(.english, "zh_CN.UTF-8").copy_task_id);
+    try testing.expectEqualStrings("Copy agent CLI thread ID", environmentChromeFor(.english, "ja_JP.UTF-8").copy_agent_thread_id);
+    try testing.expectEqualStrings("Dismiss all settled", environmentChromeFor(.english, "zh_CN.UTF-8").dismiss_all_settled);
 }

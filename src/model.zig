@@ -3543,6 +3543,43 @@ pub const Model = struct {
         return model.reviewDiffChrome().last_turn;
     }
 
+    /// Header Environment info a11y and dropdown header. `on-press`
+    /// stays `toggle_environment_summary`.
+    pub fn environment_label(model: *const Model) []const u8 {
+        return model.environmentChrome().environment;
+    }
+
+    /// Environment dropdown Commit or Push. `on-press` stays
+    /// `environment_commit_or_push`.
+    pub fn environment_commit_or_push_label(model: *const Model) []const u8 {
+        return model.environmentChrome().commit_or_push;
+    }
+
+    /// Environment dropdown Compare. `on-press` stays
+    /// `environment_compare`.
+    pub fn environment_compare_label(model: *const Model) []const u8 {
+        return model.environmentChrome().compare;
+    }
+
+    /// Environment dropdown Copy task ID. `on-press` stays
+    /// `environment_copy_task_id`.
+    pub fn environment_copy_task_id_label(model: *const Model) []const u8 {
+        return model.environmentChrome().copy_task_id;
+    }
+
+    /// Environment dropdown Copy agent CLI thread ID. `on-press`
+    /// stays `environment_copy_agent_thread_id`.
+    pub fn environment_copy_agent_thread_id_label(model: *const Model) []const u8 {
+        return model.environmentChrome().copy_agent_thread_id;
+    }
+
+    /// Environment dropdown Dismiss all settled. `on-press` stays
+    /// `environment_dismiss_settled_background`. Distinct from queued
+    /// Dismiss all.
+    pub fn environment_dismiss_all_settled_label(model: *const Model) []const u8 {
+        return model.environmentChrome().dismiss_all_settled;
+    }
+
     pub fn switcher_rows(model: *const Model, arena: std.mem.Allocator) []const SessionRow {
         if (!model.switcher_open or model.switcher_count == 0) return &.{};
         const out = arena.alloc(SessionRow, model.switcher_count) catch return &.{};
@@ -4453,6 +4490,10 @@ pub const Model = struct {
 
     fn reviewDiffChrome(model: *const Model) i18n.ReviewDiffChrome {
         return i18n.reviewDiffChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn environmentChrome(model: *const Model) i18n.EnvironmentChrome {
+        return i18n.environmentChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Palette row display label for `action`. New Task / Settings /
