@@ -160,8 +160,8 @@
         <if test="{sidebar_expanded}">
           <spacer width="6" />
           <row gap="2" cross="center">
-            <button variant="ghost" size="icon" icon="chevron-left" label="Back" on-press="history_back"></button>
-            <button variant="ghost" size="icon" icon="chevron-right" label="Forward" on-press="history_forward"></button>
+            <button variant="ghost" size="icon" icon="chevron-left" label="{sidebar_history_back_label}" on-press="history_back"></button>
+            <button variant="ghost" size="icon" icon="chevron-right" label="{sidebar_history_forward_label}" on-press="history_forward"></button>
           </row>
           <spacer grow="1" />
         </if>

@@ -2110,6 +2110,7 @@ pub const Model = struct {
         "composerChrome",
         "browserAddressChrome",
         "browserToolbarChrome",
+        "sidebarHistoryChrome",
         "palette_action_label",
         "show_right_panel_label",
         "sidebarDates",
@@ -4306,6 +4307,18 @@ pub const Model = struct {
         return if (model.sidebar_collapsed) labels.expand_sidebar else labels.collapse_sidebar;
     }
 
+    /// Sidebar titlebar session-history Back a11y. Distinct from
+    /// Browser toolbar `browser_back`. `on-press` stays `history_back`.
+    pub fn sidebar_history_back_label(model: *const Model) []const u8 {
+        return model.sidebarHistoryChrome().back;
+    }
+
+    /// Sidebar titlebar session-history Forward a11y. Distinct from
+    /// Browser toolbar `browser_forward`. `on-press` stays `history_forward`.
+    pub fn sidebar_history_forward_label(model: *const Model) []const u8 {
+        return model.sidebarHistoryChrome().forward;
+    }
+
     pub fn can_go_back(model: *const Model) bool {
         return model.history_count > 0 and model.history_index > 0;
     }
@@ -4783,6 +4796,10 @@ pub const Model = struct {
 
     fn browserToolbarChrome(model: *const Model) i18n.BrowserToolbarChrome {
         return i18n.browserToolbarChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn sidebarHistoryChrome(model: *const Model) i18n.SidebarHistoryChrome {
+        return i18n.sidebarHistoryChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Palette row display label for `action`. New Task / Settings /

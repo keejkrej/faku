@@ -67,6 +67,8 @@
 //! strings; Latin `https://example.com` in every locale)
 //! plus Browser toolbar Back / Forward / Reload / Navigate and
 //! Secure / Not secure a11y (same `BrowserToolbarChrome` strings)
+//! plus sidebar titlebar session-history Back / Forward a11y
+//! (same `SidebarHistoryChrome` strings)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -141,7 +143,9 @@
 //! address `on-input` / on-submit stay English (`browser_url_edit` /
 //! `browser_navigate`). Browser toolbar `on-press` stays English
 //! (`browser_back` / `browser_forward` / `browser_reload` /
-//! `browser_navigate`). Typed URL text stays data. Parked `home_url`
+//! `browser_navigate`). Sidebar titlebar history `on-press` stays
+//! English (`history_back` / `history_forward`). Typed URL text
+//! stays data. Parked `home_url`
 //! / scene URLs stay data. OS
 //! folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript / PowerShell
@@ -1659,8 +1663,9 @@ const browser_address_chrome_ja: BrowserAddressChrome = .{
 /// Wire ids / on-press stay English (`browser_back` /
 /// `browser_forward` / `browser_reload` / `browser_navigate`).
 /// Typed URL text stays data. Parked `home_url` / shell webview
-/// scene URLs stay data. Distinct from sidebar titlebar transcript
-/// history Back / Forward (`history_back` / `history_forward`).
+/// scene URLs stay data. Distinct from sidebar titlebar
+/// session-history Back / Forward (`SidebarHistoryChrome`;
+/// `history_back` / `history_forward`).
 pub const BrowserToolbarChrome = struct {
     back: []const u8,
     forward: []const u8,
@@ -1695,6 +1700,34 @@ const browser_toolbar_chrome_ja: BrowserToolbarChrome = .{
     .navigate = "移動",
     .secure = "安全",
     .not_secure = "保護されていません",
+};
+
+/// Sidebar titlebar session-history Back / Forward a11y for the
+/// resolved locale. Same resolve path as BrowserToolbarChrome.
+/// English matches the former hardcoded copy. zh-CN / ja reuse the
+/// same Back / Forward wording as BrowserToolbarChrome, kept in a
+/// separate struct so Browser vs sidebar stay independently
+/// documented. Wire ids / on-press stay English (`history_back` /
+/// `history_forward`). Distinct from Browser toolbar Back / Forward
+/// (`browser_back` / `browser_forward`).
+pub const SidebarHistoryChrome = struct {
+    back: []const u8,
+    forward: []const u8,
+};
+
+const sidebar_history_chrome_en: SidebarHistoryChrome = .{
+    .back = "Back",
+    .forward = "Forward",
+};
+
+const sidebar_history_chrome_zh_cn: SidebarHistoryChrome = .{
+    .back = "返回",
+    .forward = "前进",
+};
+
+const sidebar_history_chrome_ja: SidebarHistoryChrome = .{
+    .back = "戻る",
+    .forward = "進む",
 };
 
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
@@ -2104,6 +2137,19 @@ pub fn browserToolbarChromeFor(preference: LanguagePreference, system_locale_id:
         .simplified_chinese => browser_toolbar_chrome_zh_cn,
         .japanese => browser_toolbar_chrome_ja,
         .system, .english => browser_toolbar_chrome_en,
+    };
+}
+
+/// Sidebar titlebar session-history Back / Forward a11y for the
+/// resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Wire
+/// ids / on-press stay English. Distinct from Browser toolbar
+/// `browser_back` / `browser_forward`.
+pub fn sidebarHistoryChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SidebarHistoryChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => sidebar_history_chrome_zh_cn,
+        .japanese => sidebar_history_chrome_ja,
+        .system, .english => sidebar_history_chrome_en,
     };
 }
 
@@ -3403,5 +3449,28 @@ test "browserToolbarChromeFor english default; zh and ja chrome; english ignores
     try testing.expectEqualStrings("Reload", browserToolbarChromeFor(.english, "zh_CN.UTF-8").reload);
     try testing.expectEqualStrings("Forward", browserToolbarChromeFor(.english, "ja_JP.UTF-8").forward);
     try testing.expectEqualStrings("Secure", browserToolbarChromeFor(.english, "zh_CN.UTF-8").secure);
+}
+
+test "sidebarHistoryChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Back", sidebarHistoryChromeFor(.english, "ja").back);
+    try testing.expectEqualStrings("Back", sidebarHistoryChromeFor(.english, "").back);
+    try testing.expectEqualStrings("Back", sidebarHistoryChromeFor(.system, "").back);
+    try testing.expectEqualStrings("Forward", sidebarHistoryChromeFor(.english, "").forward);
+
+    try testing.expectEqualStrings("返回", sidebarHistoryChromeFor(.simplified_chinese, "").back);
+    try testing.expectEqualStrings("前进", sidebarHistoryChromeFor(.simplified_chinese, "").forward);
+
+    try testing.expectEqualStrings("戻る", sidebarHistoryChromeFor(.japanese, "").back);
+    try testing.expectEqualStrings("進む", sidebarHistoryChromeFor(.japanese, "").forward);
+
+    try testing.expectEqualStrings("返回", sidebarHistoryChromeFor(.system, "zh_CN.UTF-8").back);
+    try testing.expectEqualStrings("前进", sidebarHistoryChromeFor(.system, "zh_CN.UTF-8").forward);
+    try testing.expectEqualStrings("戻る", sidebarHistoryChromeFor(.system, "ja_JP.UTF-8").back);
+    try testing.expectEqualStrings("進む", sidebarHistoryChromeFor(.system, "ja_JP.UTF-8").forward);
+    try testing.expectEqualStrings("Back", sidebarHistoryChromeFor(.english, "ja_JP.UTF-8").back);
+    try testing.expectEqualStrings("Forward", sidebarHistoryChromeFor(.english, "zh_CN.UTF-8").forward);
+    try testing.expectEqualStrings("Back", sidebarHistoryChromeFor(.english, "zh_CN.UTF-8").back);
+    try testing.expectEqualStrings("Forward", sidebarHistoryChromeFor(.english, "ja_JP.UTF-8").forward);
 }
 

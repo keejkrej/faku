@@ -27902,7 +27902,7 @@ test "Browser Address field chrome follows Appearance language; placeholder stay
     try testing.expect(findByPlaceholder(tree.root, .text_field, "https://example.com") != null);
 }
 
-test "Browser toolbar chrome follows Appearance language; history Back/Forward stay English" {
+test "Browser toolbar chrome follows Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -27927,8 +27927,6 @@ test "Browser toolbar chrome follows Appearance language; history Back/Forward s
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"browser_navigate\">Navigate</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Secure\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Not secure\""));
-    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"Back\" on-press=\"history_back\""));
-    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"Forward\" on-press=\"history_forward\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"{browser_address_placeholder}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{browser_address_label}\""));
 
@@ -27981,10 +27979,10 @@ test "Browser toolbar chrome follows Appearance language; history Back/Forward s
     _ = try expectByText(tree.root, .button, "前进");
     _ = try expectByText(tree.root, .button, "重新加载");
     _ = try expectButtonMsg(tree, "转到", .browser_navigate);
-    _ = try expectByText(tree.root, .button, "Back");
-    _ = try expectByText(tree.root, .button, "Forward");
-    try testing.expect(findNthByText(tree.root, .button, "Back", 1) == null);
-    try testing.expect(findNthByText(tree.root, .button, "Forward", 1) == null);
+    try testing.expect(findNthByText(tree.root, .button, "返回", 1) != null);
+    try testing.expect(findNthByText(tree.root, .button, "前进", 1) != null);
+    try testing.expect(findByText(tree.root, .button, "Back") == null);
+    try testing.expect(findByText(tree.root, .button, "Forward") == null);
     _ = try expectByText(tree.root, .icon, "安全");
     try testing.expect(findByText(tree.root, .button, "Navigate") == null);
     try testing.expect(findByText(tree.root, .icon, "Secure") == null);
@@ -28002,8 +28000,10 @@ test "Browser toolbar chrome follows Appearance language; history Back/Forward s
     _ = try expectByText(tree.root, .button, "進む");
     _ = try expectByText(tree.root, .button, "再読み込み");
     _ = try expectButtonMsg(tree, "移動", .browser_navigate);
-    _ = try expectByText(tree.root, .button, "Back");
-    _ = try expectByText(tree.root, .button, "Forward");
+    try testing.expect(findNthByText(tree.root, .button, "戻る", 1) != null);
+    try testing.expect(findNthByText(tree.root, .button, "進む", 1) != null);
+    try testing.expect(findByText(tree.root, .button, "Back") == null);
+    try testing.expect(findByText(tree.root, .button, "Forward") == null);
     _ = try expectByText(tree.root, .icon, "安全");
     try testing.expect(findByText(tree.root, .button, "转到") == null);
     try testing.expect(findByText(tree.root, .icon, "Secure") == null);
@@ -28029,7 +28029,8 @@ test "Browser toolbar chrome follows Appearance language; history Back/Forward s
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .button, "返回");
     _ = try expectButtonMsg(tree, "转到", .browser_navigate);
-    _ = try expectByText(tree.root, .button, "Back");
+    try testing.expect(findNthByText(tree.root, .button, "返回", 1) != null);
+    try testing.expect(findByText(tree.root, .button, "Back") == null);
     _ = try expectByText(tree.root, .icon, "安全");
 
     model.setSystemLocaleId("ja_JP.UTF-8");
@@ -28039,8 +28040,93 @@ test "Browser toolbar chrome follows Appearance language; history Back/Forward s
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .button, "戻る");
     _ = try expectButtonMsg(tree, "移動", .browser_navigate);
-    _ = try expectByText(tree.root, .button, "Back");
+    try testing.expect(findNthByText(tree.root, .button, "戻る", 1) != null);
+    try testing.expect(findByText(tree.root, .button, "Back") == null);
     _ = try expectByText(tree.root, .icon, "安全");
+}
+
+test "Sidebar titlebar history chrome follows Appearance language; Browser toolbar bindings stay BrowserToolbarChrome" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{sidebar_history_back_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{sidebar_history_forward_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"history_back\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"history_forward\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Back\" on-press=\"history_back\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Forward\" on-press=\"history_forward\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{browser_back_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{browser_forward_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"browser_back\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"browser_forward\""));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Back", model.sidebar_history_back_label());
+    try testing.expectEqualStrings("Forward", model.sidebar_history_forward_label());
+    try testing.expectEqualStrings(i18n.sidebarHistoryChromeFor(.english, "").back, model.sidebar_history_back_label());
+    try testing.expectEqualStrings(i18n.sidebarHistoryChromeFor(.english, "").forward, model.sidebar_history_forward_label());
+    try testing.expectEqualStrings("Back", model.browser_back_label());
+    try testing.expectEqualStrings("Forward", model.browser_forward_label());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Back", .history_back);
+    _ = try expectButtonMsg(tree, "Forward", .history_forward);
+    try testing.expect(findNthByText(tree.root, .button, "Back", 1) == null);
+    try testing.expect(findNthByText(tree.root, .button, "Forward", 1) == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("返回", model.sidebar_history_back_label());
+    try testing.expectEqualStrings("前进", model.sidebar_history_forward_label());
+    try testing.expectEqualStrings(i18n.sidebarHistoryChromeFor(.simplified_chinese, "").back, model.sidebar_history_back_label());
+    try testing.expectEqualStrings(i18n.sidebarHistoryChromeFor(.simplified_chinese, "").forward, model.sidebar_history_forward_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "返回", .history_back);
+    _ = try expectButtonMsg(tree, "前进", .history_forward);
+    try testing.expect(findByText(tree.root, .button, "Back") == null);
+    try testing.expect(findByText(tree.root, .button, "Forward") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("戻る", model.sidebar_history_back_label());
+    try testing.expectEqualStrings("進む", model.sidebar_history_forward_label());
+    try testing.expectEqualStrings(i18n.sidebarHistoryChromeFor(.japanese, "").back, model.sidebar_history_back_label());
+    try testing.expectEqualStrings(i18n.sidebarHistoryChromeFor(.japanese, "").forward, model.sidebar_history_forward_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "戻る", .history_back);
+    _ = try expectButtonMsg(tree, "進む", .history_forward);
+    try testing.expect(findByText(tree.root, .button, "Back") == null);
+    try testing.expect(findByText(tree.root, .button, "返回") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Back", model.sidebar_history_back_label());
+    try testing.expectEqualStrings("Forward", model.sidebar_history_forward_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Back", .history_back);
+    _ = try expectButtonMsg(tree, "Forward", .history_forward);
+    try testing.expect(findByText(tree.root, .button, "戻る") == null);
+    try testing.expect(findByText(tree.root, .button, "進む") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("返回", model.sidebar_history_back_label());
+    try testing.expectEqualStrings("前进", model.sidebar_history_forward_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "返回", .history_back);
+    _ = try expectButtonMsg(tree, "前进", .history_forward);
+    try testing.expect(findByText(tree.root, .button, "Back") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("戻る", model.sidebar_history_back_label());
+    try testing.expectEqualStrings("進む", model.sidebar_history_forward_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "戻る", .history_back);
+    _ = try expectButtonMsg(tree, "進む", .history_forward);
+    try testing.expect(findByText(tree.root, .button, "Back") == null);
 }
 
 test "DateBucket.title english default; zh and ja follow datesFor" {
