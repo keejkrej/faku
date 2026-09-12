@@ -4671,6 +4671,10 @@ pub const Model = struct {
         return i18n.filePreviewChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn commitChrome(model: *const Model) i18n.CommitChrome {
+        return i18n.commitChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     /// Palette row display label for `action`. New Task / Settings /
     /// Collapse all folders reuse Sidebar / Chrome strings; remaining
     /// names come from `i18n.Palette`. Ids / keywords stay English.
@@ -5517,6 +5521,79 @@ pub const Model = struct {
     /// push that is not Commit and Push).
     pub fn has_git_commit_push_only(model: *const Model) bool {
         return git_commit_mod.hasGitCommitPushOnly(model);
+    }
+
+    /// Commit… card placeholder. Typed text stays on `git_commit`;
+    /// `on-input` stays `git_commit_edit`.
+    pub fn git_commit_message_placeholder(model: *const Model) []const u8 {
+        return model.commitChrome().commit_message;
+    }
+
+    /// Commit… card Include unstaged. `on-press` stays
+    /// `toggle_git_commit_include_unstaged`.
+    pub fn git_commit_include_unstaged_label(model: *const Model) []const u8 {
+        return model.commitChrome().include_unstaged;
+    }
+
+    /// Commit… card Amend. `on-press` stays `toggle_git_commit_amend`.
+    pub fn git_commit_amend_label(model: *const Model) []const u8 {
+        return model.commitChrome().amend;
+    }
+
+    /// Commit… card Force. Distinct from leftover delete /
+    /// push-confirm Force. `on-press` stays `toggle_git_push_force`.
+    pub fn git_commit_force_label(model: *const Model) []const u8 {
+        return model.commitChrome().force;
+    }
+
+    /// Commit… card Generating…. Generate prompt text stays English.
+    pub fn git_commit_generating_label(model: *const Model) []const u8 {
+        return model.commitChrome().generating;
+    }
+
+    /// Commit… card Amending….
+    pub fn git_commit_amending_label(model: *const Model) []const u8 {
+        return model.commitChrome().amending;
+    }
+
+    /// Commit… card Committing and pushing….
+    pub fn git_commit_committing_and_pushing_label(model: *const Model) []const u8 {
+        return model.commitChrome().committing_and_pushing;
+    }
+
+    /// Commit… card Committing….
+    pub fn git_commit_committing_label(model: *const Model) []const u8 {
+        return model.commitChrome().committing;
+    }
+
+    /// Commit… card Pushing…. Distinct from leftover push-confirm.
+    pub fn git_commit_pushing_label(model: *const Model) []const u8 {
+        return model.commitChrome().pushing;
+    }
+
+    /// Commit… card Commit. Distinct from leftover branch-menu
+    /// `Commit…`. `on-press` stays `confirm_git_commit`.
+    pub fn git_commit_label(model: *const Model) []const u8 {
+        return model.commitChrome().commit;
+    }
+
+    /// Commit… card Commit and Push. `on-press` stays
+    /// `confirm_git_commit_and_push`.
+    pub fn git_commit_and_push_label(model: *const Model) []const u8 {
+        return model.commitChrome().commit_and_push;
+    }
+
+    /// Commit… card Push. Distinct from leftover branch-menu `Push…`
+    /// and push-confirm Push. `on-press` stays `confirm_git_commit_push`.
+    pub fn git_commit_push_label(model: *const Model) []const u8 {
+        return model.commitChrome().push;
+    }
+
+    /// Commit… card Cancel. Distinct from leftover New branch /
+    /// worktree / delete / push-confirm Cancel. `on-press` stays
+    /// `cancel_git_commit`.
+    pub fn git_commit_cancel_label(model: *const Model) []const u8 {
+        return model.commitChrome().cancel;
     }
 
     /// Runtime-only muted status on the Review card (Comparing… /

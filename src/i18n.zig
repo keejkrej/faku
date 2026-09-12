@@ -33,7 +33,9 @@
 //! search-field placeholder + a11y label and empty-state No project
 //! usage (same `FilterChrome` strings), and first-cut Files
 //! right-panel file-preview toolbar / find-replace / discard /
-//! truncated·binary chrome (same `FilePreviewChrome` strings) live
+//! truncated·binary chrome (same `FilePreviewChrome` strings), and
+//! first-cut Commit message composer chrome (same `CommitChrome`
+//! strings) live
 //! here so `main.zig` does not grow. Palette ids / `PaletteAction` /
 //! keywords stay English.
 //! Wire `access_mode` ids stay `ask` / `auto` / `fullAccess`. Wire
@@ -59,7 +61,14 @@
 //! File-preview toolbar `on-press` / `on-input` stay English
 //! (`file_preview_save` / `close_right_panel_file_preview` /
 //! `toggle_file_preview_find_replace` / `file_preview_find_edit` /
-//! …). Aa / Ab / .* glyphs stay. Path text and body content stay data.
+//! …). Commit composer `on-press` / `on-input` stay English
+//! (`git_commit_edit` / `toggle_git_commit_include_unstaged` /
+//! `toggle_git_commit_amend` / `toggle_git_push_force` /
+//! `confirm_git_commit` / `confirm_git_commit_and_push` /
+//! `confirm_git_commit_push` / `cancel_git_commit`). Branch menu
+//! `Commit…` / `Push…` and New branch / worktree / delete /
+//! push-confirm Cancel / Force / Push stay leftover English.
+//! Aa / Ab / .* glyphs stay. Path text and body content stay data.
 //! Not rust_i18n, not YAML catalogs, not full-app translation, not
 //! tz-aware grouping.
 
@@ -1041,6 +1050,80 @@ const file_preview_chrome_ja: FilePreviewChrome = .{
     .binary_file = "バイナリファイル — 非表示",
 };
 
+/// Commit message composer chrome for the resolved locale. Same
+/// resolve path as FilePreviewChrome. Paints the `git_commit_active`
+/// row only. Wire ids / on-press / on-input stay English
+/// (`git_commit_edit` / `toggle_git_commit_include_unstaged` /
+/// `toggle_git_commit_amend` / `toggle_git_push_force` /
+/// `confirm_git_commit` / `confirm_git_commit_and_push` /
+/// `confirm_git_commit_push` / `cancel_git_commit`). English matches
+/// the former hardcoded copy. Branch menu `Commit…` / `Push…`, New
+/// branch / worktree / delete / push-confirm Cancel / Force / Push,
+/// and `git_commit.zig` status strings stay leftover English.
+pub const CommitChrome = struct {
+    commit_message: []const u8,
+    include_unstaged: []const u8,
+    amend: []const u8,
+    force: []const u8,
+    generating: []const u8,
+    amending: []const u8,
+    committing_and_pushing: []const u8,
+    committing: []const u8,
+    pushing: []const u8,
+    commit: []const u8,
+    commit_and_push: []const u8,
+    push: []const u8,
+    cancel: []const u8,
+};
+
+const commit_chrome_en: CommitChrome = .{
+    .commit_message = "Commit message",
+    .include_unstaged = "Include unstaged",
+    .amend = "Amend",
+    .force = "Force",
+    .generating = "Generating…",
+    .amending = "Amending…",
+    .committing_and_pushing = "Committing and pushing…",
+    .committing = "Committing…",
+    .pushing = "Pushing…",
+    .commit = "Commit",
+    .commit_and_push = "Commit and Push",
+    .push = "Push",
+    .cancel = "Cancel",
+};
+
+const commit_chrome_zh_cn: CommitChrome = .{
+    .commit_message = "提交信息",
+    .include_unstaged = "包含未暂存",
+    .amend = "修订",
+    .force = "强制",
+    .generating = "正在生成…",
+    .amending = "正在修订…",
+    .committing_and_pushing = "正在提交并推送…",
+    .committing = "正在提交…",
+    .pushing = "正在推送…",
+    .commit = "提交",
+    .commit_and_push = "提交并推送",
+    .push = "推送",
+    .cancel = "取消",
+};
+
+const commit_chrome_ja: CommitChrome = .{
+    .commit_message = "コミットメッセージ",
+    .include_unstaged = "未ステージを含める",
+    .amend = "修正",
+    .force = "強制",
+    .generating = "生成中…",
+    .amending = "修正中…",
+    .committing_and_pushing = "コミットしてプッシュ中…",
+    .committing = "コミット中…",
+    .pushing = "プッシュ中…",
+    .commit = "コミット",
+    .commit_and_push = "コミットしてプッシュ",
+    .push = "プッシュ",
+    .cancel = "キャンセル",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -1262,6 +1345,18 @@ pub fn filePreviewChromeFor(preference: LanguagePreference, system_locale_id: []
         .simplified_chinese => file_preview_chrome_zh_cn,
         .japanese => file_preview_chrome_ja,
         .system, .english => file_preview_chrome_en,
+    };
+}
+
+/// Commit message composer chrome for the resolved locale. Callers
+/// pass Model `language_preference` + `system_locale_id`; this file
+/// does not read process env. Wire ids / on-press / on-input stay
+/// English. Branch menu / other git rows stay leftover English.
+pub fn commitChromeFor(preference: LanguagePreference, system_locale_id: []const u8) CommitChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => commit_chrome_zh_cn,
+        .japanese => commit_chrome_ja,
+        .system, .english => commit_chrome_en,
     };
 }
 
@@ -2045,5 +2140,77 @@ test "filePreviewChromeFor english default; zh and ja chrome; english ignores ja
     try testing.expectEqualStrings("Find in file", filePreviewChromeFor(.english, "ja_JP.UTF-8").find_in_file);
     try testing.expectEqualStrings("Keep editing", filePreviewChromeFor(.english, "zh_CN.UTF-8").keep_editing);
     try testing.expectEqualStrings("Binary file — not shown", filePreviewChromeFor(.english, "ja_JP.UTF-8").binary_file);
+}
+
+test "commitChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Commit message", commitChromeFor(.english, "ja").commit_message);
+    try testing.expectEqualStrings("Include unstaged", commitChromeFor(.english, "").include_unstaged);
+    try testing.expectEqualStrings("Amend", commitChromeFor(.english, "").amend);
+    try testing.expectEqualStrings("Force", commitChromeFor(.english, "").force);
+    try testing.expectEqualStrings("Generating…", commitChromeFor(.english, "").generating);
+    try testing.expectEqualStrings("Amending…", commitChromeFor(.english, "").amending);
+    try testing.expectEqualStrings("Committing and pushing…", commitChromeFor(.english, "").committing_and_pushing);
+    try testing.expectEqualStrings("Committing…", commitChromeFor(.english, "").committing);
+    try testing.expectEqualStrings("Pushing…", commitChromeFor(.english, "").pushing);
+    try testing.expectEqualStrings("Commit", commitChromeFor(.english, "").commit);
+    try testing.expectEqualStrings("Commit and Push", commitChromeFor(.english, "").commit_and_push);
+    try testing.expectEqualStrings("Push", commitChromeFor(.english, "").push);
+    try testing.expectEqualStrings("Cancel", commitChromeFor(.english, "").cancel);
+    try testing.expectEqualStrings("Commit message", commitChromeFor(.system, "").commit_message);
+    try testing.expectEqualStrings("Include unstaged", commitChromeFor(.system, "").include_unstaged);
+    try testing.expectEqualStrings(reviewDiffChromeFor(.english, "").cancel, commitChromeFor(.english, "").cancel);
+
+    try testing.expectEqualStrings("提交信息", commitChromeFor(.simplified_chinese, "").commit_message);
+    try testing.expectEqualStrings("包含未暂存", commitChromeFor(.simplified_chinese, "").include_unstaged);
+    try testing.expectEqualStrings("修订", commitChromeFor(.simplified_chinese, "").amend);
+    try testing.expectEqualStrings("强制", commitChromeFor(.simplified_chinese, "").force);
+    try testing.expectEqualStrings("正在生成…", commitChromeFor(.simplified_chinese, "").generating);
+    try testing.expectEqualStrings("正在修订…", commitChromeFor(.simplified_chinese, "").amending);
+    try testing.expectEqualStrings("正在提交并推送…", commitChromeFor(.simplified_chinese, "").committing_and_pushing);
+    try testing.expectEqualStrings("正在提交…", commitChromeFor(.simplified_chinese, "").committing);
+    try testing.expectEqualStrings("正在推送…", commitChromeFor(.simplified_chinese, "").pushing);
+    try testing.expectEqualStrings("提交", commitChromeFor(.simplified_chinese, "").commit);
+    try testing.expectEqualStrings("提交并推送", commitChromeFor(.simplified_chinese, "").commit_and_push);
+    try testing.expectEqualStrings("推送", commitChromeFor(.simplified_chinese, "").push);
+    try testing.expectEqualStrings("取消", commitChromeFor(.simplified_chinese, "").cancel);
+    try testing.expectEqualStrings(reviewDiffChromeFor(.simplified_chinese, "").cancel, commitChromeFor(.simplified_chinese, "").cancel);
+
+    try testing.expectEqualStrings("コミットメッセージ", commitChromeFor(.japanese, "").commit_message);
+    try testing.expectEqualStrings("未ステージを含める", commitChromeFor(.japanese, "").include_unstaged);
+    try testing.expectEqualStrings("修正", commitChromeFor(.japanese, "").amend);
+    try testing.expectEqualStrings("強制", commitChromeFor(.japanese, "").force);
+    try testing.expectEqualStrings("生成中…", commitChromeFor(.japanese, "").generating);
+    try testing.expectEqualStrings("修正中…", commitChromeFor(.japanese, "").amending);
+    try testing.expectEqualStrings("コミットしてプッシュ中…", commitChromeFor(.japanese, "").committing_and_pushing);
+    try testing.expectEqualStrings("コミット中…", commitChromeFor(.japanese, "").committing);
+    try testing.expectEqualStrings("プッシュ中…", commitChromeFor(.japanese, "").pushing);
+    try testing.expectEqualStrings("コミット", commitChromeFor(.japanese, "").commit);
+    try testing.expectEqualStrings("コミットしてプッシュ", commitChromeFor(.japanese, "").commit_and_push);
+    try testing.expectEqualStrings("プッシュ", commitChromeFor(.japanese, "").push);
+    try testing.expectEqualStrings("キャンセル", commitChromeFor(.japanese, "").cancel);
+    try testing.expectEqualStrings(reviewDiffChromeFor(.japanese, "").cancel, commitChromeFor(.japanese, "").cancel);
+
+    try testing.expectEqualStrings("提交信息", commitChromeFor(.system, "zh_CN.UTF-8").commit_message);
+    try testing.expectEqualStrings("包含未暂存", commitChromeFor(.system, "zh_CN.UTF-8").include_unstaged);
+    try testing.expectEqualStrings("正在提交并推送…", commitChromeFor(.system, "zh_CN.UTF-8").committing_and_pushing);
+    try testing.expectEqualStrings("提交并推送", commitChromeFor(.system, "zh_CN.UTF-8").commit_and_push);
+    try testing.expectEqualStrings("コミットメッセージ", commitChromeFor(.system, "ja_JP.UTF-8").commit_message);
+    try testing.expectEqualStrings("未ステージを含める", commitChromeFor(.system, "ja_JP.UTF-8").include_unstaged);
+    try testing.expectEqualStrings("コミットしてプッシュ中…", commitChromeFor(.system, "ja_JP.UTF-8").committing_and_pushing);
+    try testing.expectEqualStrings("コミットしてプッシュ", commitChromeFor(.system, "ja_JP.UTF-8").commit_and_push);
+    try testing.expectEqualStrings("Commit message", commitChromeFor(.english, "ja_JP.UTF-8").commit_message);
+    try testing.expectEqualStrings("Include unstaged", commitChromeFor(.english, "zh_CN.UTF-8").include_unstaged);
+    try testing.expectEqualStrings("Amend", commitChromeFor(.english, "ja_JP.UTF-8").amend);
+    try testing.expectEqualStrings("Force", commitChromeFor(.english, "zh_CN.UTF-8").force);
+    try testing.expectEqualStrings("Generating…", commitChromeFor(.english, "ja_JP.UTF-8").generating);
+    try testing.expectEqualStrings("Amending…", commitChromeFor(.english, "zh_CN.UTF-8").amending);
+    try testing.expectEqualStrings("Committing and pushing…", commitChromeFor(.english, "ja_JP.UTF-8").committing_and_pushing);
+    try testing.expectEqualStrings("Committing…", commitChromeFor(.english, "zh_CN.UTF-8").committing);
+    try testing.expectEqualStrings("Pushing…", commitChromeFor(.english, "ja_JP.UTF-8").pushing);
+    try testing.expectEqualStrings("Commit", commitChromeFor(.english, "zh_CN.UTF-8").commit);
+    try testing.expectEqualStrings("Commit and Push", commitChromeFor(.english, "ja_JP.UTF-8").commit_and_push);
+    try testing.expectEqualStrings("Push", commitChromeFor(.english, "zh_CN.UTF-8").push);
+    try testing.expectEqualStrings("Cancel", commitChromeFor(.english, "ja_JP.UTF-8").cancel);
 }
 
