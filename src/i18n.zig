@@ -28,10 +28,11 @@
 //! status / stop·dismiss chrome (same `BackgroundChrome` strings;
 //! Environment Summary + right-panel Background body), and
 //! first-cut Environment info-button a11y + dropdown-menu header /
-//! menu-item chrome (same `EnvironmentChrome` strings), and first-cut
+//! menu-item chrome plus the dropdown Background section header
+//! (same `EnvironmentChrome` strings), and first-cut
 //! Settings Skills filter placeholder plus Settings Usage Projects
 //! search-field placeholder + a11y label and empty-state No project
-//! usage (same `FilterChrome` strings), and first-cut Files
+//! usage / No matching projects (same `FilterChrome` strings), and first-cut Files
 //! right-panel file-preview toolbar / find-replace / discard /
 //! truncated·binary chrome (same `FilePreviewChrome` strings), and
 //! first-cut Commit message composer chrome (same `CommitChrome`
@@ -864,8 +865,9 @@ const background_chrome_ja: BackgroundChrome = .{
 /// `environment_copy_task_id` / `environment_copy_agent_thread_id` /
 /// `environment_dismiss_settled_background`). English matches the
 /// former hardcoded copy. Title EN Environment is also the a11y
-/// label. Dropdown Background section header stays leftover English;
-/// row chrome lives in `BackgroundChrome`.
+/// label. Dropdown Background section header lives here (EN matches
+/// `RightPanelTabs.background`; dedicated field so Environment chrome
+/// stays self-contained). Row chrome lives in `BackgroundChrome`.
 pub const EnvironmentChrome = struct {
     environment: []const u8,
     commit_or_push: []const u8,
@@ -873,6 +875,7 @@ pub const EnvironmentChrome = struct {
     copy_task_id: []const u8,
     copy_agent_thread_id: []const u8,
     dismiss_all_settled: []const u8,
+    background_section: []const u8,
 };
 
 const environment_chrome_en: EnvironmentChrome = .{
@@ -882,6 +885,7 @@ const environment_chrome_en: EnvironmentChrome = .{
     .copy_task_id = "Copy task ID",
     .copy_agent_thread_id = "Copy agent CLI thread ID",
     .dismiss_all_settled = "Dismiss all settled",
+    .background_section = "Background",
 };
 
 const environment_chrome_zh_cn: EnvironmentChrome = .{
@@ -891,6 +895,7 @@ const environment_chrome_zh_cn: EnvironmentChrome = .{
     .copy_task_id = "复制任务 ID",
     .copy_agent_thread_id = "复制代理 CLI 线程 ID",
     .dismiss_all_settled = "关闭全部已结束项",
+    .background_section = "后台工作",
 };
 
 const environment_chrome_ja: EnvironmentChrome = .{
@@ -900,37 +905,43 @@ const environment_chrome_ja: EnvironmentChrome = .{
     .copy_task_id = "タスク ID をコピー",
     .copy_agent_thread_id = "エージェント CLI スレッド ID をコピー",
     .dismiss_all_settled = "終了した項目をすべて閉じる",
+    .background_section = "バックグラウンド",
 };
 
 /// Settings Skills filter placeholder and Settings Usage Projects
 /// search-field placeholder + a11y label plus empty-state No project
-/// usage for the resolved locale. Same resolve path as
-/// EnvironmentChrome. Wire ids / on-input stay English
-/// (`skills_filter_edit` / `usage_project_filter_edit`). Filter text
-/// itself stays English (user-typed). English matches the former
-/// hardcoded copy.
+/// usage / No matching projects for the resolved locale. Same
+/// resolve path as EnvironmentChrome. Wire ids / on-input stay
+/// English (`skills_filter_edit` / `usage_project_filter_edit`).
+/// Filter text itself stays English (user-typed). English matches
+/// the former hardcoded copy. No matching projects is distinct from
+/// No project usage.
 pub const FilterChrome = struct {
     filter_skills: []const u8,
     filter_projects: []const u8,
     no_project_usage: []const u8,
+    no_matching_projects: []const u8,
 };
 
 const filter_chrome_en: FilterChrome = .{
     .filter_skills = "Filter skills",
     .filter_projects = "Filter projects",
     .no_project_usage = "No project usage",
+    .no_matching_projects = "No matching projects",
 };
 
 const filter_chrome_zh_cn: FilterChrome = .{
     .filter_skills = "筛选技能",
     .filter_projects = "筛选项目",
     .no_project_usage = "没有项目用量",
+    .no_matching_projects = "没有匹配的项目",
 };
 
 const filter_chrome_ja: FilterChrome = .{
     .filter_skills = "スキルを絞り込む",
     .filter_projects = "プロジェクトを絞り込む",
     .no_project_usage = "プロジェクトの使用量はありません",
+    .no_matching_projects = "一致するプロジェクトはありません",
 };
 
 /// Files right-panel file-preview toolbar / find-replace / discard /
@@ -1313,9 +1324,10 @@ pub fn backgroundChromeFor(preference: LanguagePreference, system_locale_id: []c
 }
 
 /// Environment info-button a11y + dropdown-menu header / menu-item
-/// chrome for the resolved locale. Callers pass Model
-/// `language_preference` + `system_locale_id`; this file does not
-/// read process env. Wire ids / on-press stay English.
+/// chrome plus the dropdown Background section header for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Wire ids /
+/// on-press stay English.
 pub fn environmentChromeFor(preference: LanguagePreference, system_locale_id: []const u8) EnvironmentChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => environment_chrome_zh_cn,
@@ -1324,10 +1336,11 @@ pub fn environmentChromeFor(preference: LanguagePreference, system_locale_id: []
     };
 }
 
-/// Settings Skills / Usage Projects filter chrome for the resolved
-/// locale. Callers pass Model `language_preference` +
-/// `system_locale_id`; this file does not read process env. Wire ids /
-/// on-input / filter text stay English.
+/// Settings Skills / Usage Projects filter chrome (including empty-state
+/// No project usage / No matching projects) for the resolved locale.
+/// Callers pass Model `language_preference` + `system_locale_id`;
+/// this file does not read process env. Wire ids / on-input /
+/// filter text stay English.
 pub fn filterChromeFor(preference: LanguagePreference, system_locale_id: []const u8) FilterChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => filter_chrome_zh_cn,
@@ -1991,7 +2004,9 @@ test "environmentChromeFor english default; zh and ja chrome; english ignores ja
     try testing.expectEqualStrings("Copy task ID", environmentChromeFor(.english, "").copy_task_id);
     try testing.expectEqualStrings("Copy agent CLI thread ID", environmentChromeFor(.english, "").copy_agent_thread_id);
     try testing.expectEqualStrings("Dismiss all settled", environmentChromeFor(.english, "").dismiss_all_settled);
+    try testing.expectEqualStrings("Background", environmentChromeFor(.english, "").background_section);
     try testing.expectEqualStrings("Environment", environmentChromeFor(.system, "").environment);
+    try testing.expectEqualStrings("Background", environmentChromeFor(.system, "").background_section);
 
     try testing.expectEqualStrings("环境", environmentChromeFor(.simplified_chinese, "").environment);
     try testing.expectEqualStrings("提交或推送", environmentChromeFor(.simplified_chinese, "").commit_or_push);
@@ -1999,6 +2014,7 @@ test "environmentChromeFor english default; zh and ja chrome; english ignores ja
     try testing.expectEqualStrings("复制任务 ID", environmentChromeFor(.simplified_chinese, "").copy_task_id);
     try testing.expectEqualStrings("复制代理 CLI 线程 ID", environmentChromeFor(.simplified_chinese, "").copy_agent_thread_id);
     try testing.expectEqualStrings("关闭全部已结束项", environmentChromeFor(.simplified_chinese, "").dismiss_all_settled);
+    try testing.expectEqualStrings("后台工作", environmentChromeFor(.simplified_chinese, "").background_section);
 
     try testing.expectEqualStrings("環境", environmentChromeFor(.japanese, "").environment);
     try testing.expectEqualStrings("コミットまたはプッシュ", environmentChromeFor(.japanese, "").commit_or_push);
@@ -2006,19 +2022,23 @@ test "environmentChromeFor english default; zh and ja chrome; english ignores ja
     try testing.expectEqualStrings("タスク ID をコピー", environmentChromeFor(.japanese, "").copy_task_id);
     try testing.expectEqualStrings("エージェント CLI スレッド ID をコピー", environmentChromeFor(.japanese, "").copy_agent_thread_id);
     try testing.expectEqualStrings("終了した項目をすべて閉じる", environmentChromeFor(.japanese, "").dismiss_all_settled);
+    try testing.expectEqualStrings("バックグラウンド", environmentChromeFor(.japanese, "").background_section);
 
     try testing.expectEqualStrings("环境", environmentChromeFor(.system, "zh_CN.UTF-8").environment);
     try testing.expectEqualStrings("提交或推送", environmentChromeFor(.system, "zh_CN.UTF-8").commit_or_push);
     try testing.expectEqualStrings("关闭全部已结束项", environmentChromeFor(.system, "zh_CN.UTF-8").dismiss_all_settled);
+    try testing.expectEqualStrings("后台工作", environmentChromeFor(.system, "zh_CN.UTF-8").background_section);
     try testing.expectEqualStrings("環境", environmentChromeFor(.system, "ja_JP.UTF-8").environment);
     try testing.expectEqualStrings("コミットまたはプッシュ", environmentChromeFor(.system, "ja_JP.UTF-8").commit_or_push);
     try testing.expectEqualStrings("終了した項目をすべて閉じる", environmentChromeFor(.system, "ja_JP.UTF-8").dismiss_all_settled);
+    try testing.expectEqualStrings("バックグラウンド", environmentChromeFor(.system, "ja_JP.UTF-8").background_section);
     try testing.expectEqualStrings("Environment", environmentChromeFor(.english, "ja_JP.UTF-8").environment);
     try testing.expectEqualStrings("Commit or Push", environmentChromeFor(.english, "zh_CN.UTF-8").commit_or_push);
     try testing.expectEqualStrings("Compare", environmentChromeFor(.english, "ja_JP.UTF-8").compare);
     try testing.expectEqualStrings("Copy task ID", environmentChromeFor(.english, "zh_CN.UTF-8").copy_task_id);
     try testing.expectEqualStrings("Copy agent CLI thread ID", environmentChromeFor(.english, "ja_JP.UTF-8").copy_agent_thread_id);
     try testing.expectEqualStrings("Dismiss all settled", environmentChromeFor(.english, "zh_CN.UTF-8").dismiss_all_settled);
+    try testing.expectEqualStrings("Background", environmentChromeFor(.english, "ja_JP.UTF-8").background_section);
 }
 
 test "filterChromeFor english default; zh and ja chrome; english ignores ja LANG" {
@@ -2026,27 +2046,34 @@ test "filterChromeFor english default; zh and ja chrome; english ignores ja LANG
     try testing.expectEqualStrings("Filter skills", filterChromeFor(.english, "ja").filter_skills);
     try testing.expectEqualStrings("Filter projects", filterChromeFor(.english, "").filter_projects);
     try testing.expectEqualStrings("No project usage", filterChromeFor(.english, "").no_project_usage);
+    try testing.expectEqualStrings("No matching projects", filterChromeFor(.english, "").no_matching_projects);
     try testing.expectEqualStrings("Filter skills", filterChromeFor(.system, "").filter_skills);
     try testing.expectEqualStrings("Filter projects", filterChromeFor(.system, "").filter_projects);
     try testing.expectEqualStrings("No project usage", filterChromeFor(.system, "").no_project_usage);
+    try testing.expectEqualStrings("No matching projects", filterChromeFor(.system, "").no_matching_projects);
 
     try testing.expectEqualStrings("筛选技能", filterChromeFor(.simplified_chinese, "").filter_skills);
     try testing.expectEqualStrings("筛选项目", filterChromeFor(.simplified_chinese, "").filter_projects);
     try testing.expectEqualStrings("没有项目用量", filterChromeFor(.simplified_chinese, "").no_project_usage);
+    try testing.expectEqualStrings("没有匹配的项目", filterChromeFor(.simplified_chinese, "").no_matching_projects);
 
     try testing.expectEqualStrings("スキルを絞り込む", filterChromeFor(.japanese, "").filter_skills);
     try testing.expectEqualStrings("プロジェクトを絞り込む", filterChromeFor(.japanese, "").filter_projects);
     try testing.expectEqualStrings("プロジェクトの使用量はありません", filterChromeFor(.japanese, "").no_project_usage);
+    try testing.expectEqualStrings("一致するプロジェクトはありません", filterChromeFor(.japanese, "").no_matching_projects);
 
     try testing.expectEqualStrings("筛选技能", filterChromeFor(.system, "zh_CN.UTF-8").filter_skills);
     try testing.expectEqualStrings("筛选项目", filterChromeFor(.system, "zh_CN.UTF-8").filter_projects);
     try testing.expectEqualStrings("没有项目用量", filterChromeFor(.system, "zh_CN.UTF-8").no_project_usage);
+    try testing.expectEqualStrings("没有匹配的项目", filterChromeFor(.system, "zh_CN.UTF-8").no_matching_projects);
     try testing.expectEqualStrings("スキルを絞り込む", filterChromeFor(.system, "ja_JP.UTF-8").filter_skills);
     try testing.expectEqualStrings("プロジェクトを絞り込む", filterChromeFor(.system, "ja_JP.UTF-8").filter_projects);
     try testing.expectEqualStrings("プロジェクトの使用量はありません", filterChromeFor(.system, "ja_JP.UTF-8").no_project_usage);
+    try testing.expectEqualStrings("一致するプロジェクトはありません", filterChromeFor(.system, "ja_JP.UTF-8").no_matching_projects);
     try testing.expectEqualStrings("Filter skills", filterChromeFor(.english, "ja_JP.UTF-8").filter_skills);
     try testing.expectEqualStrings("Filter projects", filterChromeFor(.english, "zh_CN.UTF-8").filter_projects);
     try testing.expectEqualStrings("No project usage", filterChromeFor(.english, "ja_JP.UTF-8").no_project_usage);
+    try testing.expectEqualStrings("No matching projects", filterChromeFor(.english, "zh_CN.UTF-8").no_matching_projects);
 }
 
 test "filePreviewChromeFor english default; zh and ja chrome; english ignores ja LANG" {
