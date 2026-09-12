@@ -27,26 +27,30 @@
 //! status / stop·dismiss chrome (same `BackgroundChrome` strings;
 //! Environment Summary + right-panel Background body), and
 //! first-cut Environment info-button a11y + dropdown-menu header /
-//! menu-item chrome (same `EnvironmentChrome` strings) live here so
-//! `main.zig` does not grow. Palette ids / `PaletteAction` / keywords
-//! stay English. Wire `access_mode` ids stay `ask` / `auto` /
-//! `fullAccess`. Wire `reasoning_effort` ids stay `auto` / `none` /
-//! `minimal` / `low` / `medium` / `high` / `xhigh` / `max`. Wire
-//! `interaction_mode` ids stay `build` / `plan`. Wire
-//! `right_panel_tab` ids stay `files` / `diff` / `browser` /
-//! `terminal` / `background`. Diff filter `on-input` and filter text
-//! stay English. Open in browser / Open in Terminal `on-press` stay
-//! `open_url` / `open_terminal`. Composer Pick folder / Reveal folder /
-//! Open in Editor / Copy path `on-press` stay `pick_folder` /
-//! `reveal_folder` / `open_editor` / `copy_project_path`. Review Diff
-//! Cancel / source chips `on-press` stay `close_review_diff` /
-//! `set_review_diff_source_*`. Background Stop / Dismiss `on-press`
-//! stay `environment_stop_background:*` / `open_background_work:*`.
-//! Environment info / menu `on-press` stay `toggle_environment_summary` /
-//! `close_environment_summary` / `environment_commit_or_push` /
-//! `environment_compare` / `environment_copy_task_id` /
-//! `environment_copy_agent_thread_id` /
-//! `environment_dismiss_settled_background`.
+//! menu-item chrome (same `EnvironmentChrome` strings), and first-cut
+//! Settings Skills filter placeholder plus Settings Usage Projects
+//! search-field placeholder + a11y label and empty-state No project
+//! usage (same `FilterChrome` strings) live here so `main.zig` does
+//! not grow. Palette ids / `PaletteAction` / keywords stay English.
+//! Wire `access_mode` ids stay `ask` / `auto` / `fullAccess`. Wire
+//! `reasoning_effort` ids stay `auto` / `none` / `minimal` / `low` /
+//! `medium` / `high` / `xhigh` / `max`. Wire `interaction_mode` ids
+//! stay `build` / `plan`. Wire `right_panel_tab` ids stay `files` /
+//! `diff` / `browser` / `terminal` / `background`. Diff filter
+//! `on-input` and filter text stay English. Open in browser / Open
+//! in Terminal `on-press` stay `open_url` / `open_terminal`. Composer
+//! Pick folder / Reveal folder / Open in Editor / Copy path
+//! `on-press` stay `pick_folder` / `reveal_folder` / `open_editor` /
+//! `copy_project_path`. Review Diff Cancel / source chips `on-press`
+//! stay `close_review_diff` / `set_review_diff_source_*`. Background
+//! Stop / Dismiss `on-press` stay `environment_stop_background:*` /
+//! `open_background_work:*`. Environment info / menu `on-press`
+//! stay `toggle_environment_summary` / `close_environment_summary` /
+//! `environment_commit_or_push` / `environment_compare` /
+//! `environment_copy_task_id` / `environment_copy_agent_thread_id` /
+//! `environment_dismiss_settled_background`. Skills / Usage Projects
+//! filter `on-input` stay `skills_filter_edit` /
+//! `usage_project_filter_edit`; filter text stays English (user-typed).
 //! Not rust_i18n, not YAML catalogs, not full-app translation, not
 //! tz-aware grouping.
 
@@ -862,6 +866,37 @@ const environment_chrome_ja: EnvironmentChrome = .{
     .dismiss_all_settled = "終了した項目をすべて閉じる",
 };
 
+/// Settings Skills filter placeholder and Settings Usage Projects
+/// search-field placeholder + a11y label plus empty-state No project
+/// usage for the resolved locale. Same resolve path as
+/// EnvironmentChrome. Wire ids / on-input stay English
+/// (`skills_filter_edit` / `usage_project_filter_edit`). Filter text
+/// itself stays English (user-typed). English matches the former
+/// hardcoded copy.
+pub const FilterChrome = struct {
+    filter_skills: []const u8,
+    filter_projects: []const u8,
+    no_project_usage: []const u8,
+};
+
+const filter_chrome_en: FilterChrome = .{
+    .filter_skills = "Filter skills",
+    .filter_projects = "Filter projects",
+    .no_project_usage = "No project usage",
+};
+
+const filter_chrome_zh_cn: FilterChrome = .{
+    .filter_skills = "筛选技能",
+    .filter_projects = "筛选项目",
+    .no_project_usage = "没有项目用量",
+};
+
+const filter_chrome_ja: FilterChrome = .{
+    .filter_skills = "スキルを絞り込む",
+    .filter_projects = "プロジェクトを絞り込む",
+    .no_project_usage = "プロジェクトの使用量はありません",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -1059,6 +1094,18 @@ pub fn environmentChromeFor(preference: LanguagePreference, system_locale_id: []
         .simplified_chinese => environment_chrome_zh_cn,
         .japanese => environment_chrome_ja,
         .system, .english => environment_chrome_en,
+    };
+}
+
+/// Settings Skills / Usage Projects filter chrome for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Wire ids /
+/// on-input / filter text stay English.
+pub fn filterChromeFor(preference: LanguagePreference, system_locale_id: []const u8) FilterChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => filter_chrome_zh_cn,
+        .japanese => filter_chrome_ja,
+        .system, .english => filter_chrome_en,
     };
 }
 
@@ -1697,4 +1744,32 @@ test "environmentChromeFor english default; zh and ja chrome; english ignores ja
     try testing.expectEqualStrings("Copy task ID", environmentChromeFor(.english, "zh_CN.UTF-8").copy_task_id);
     try testing.expectEqualStrings("Copy agent CLI thread ID", environmentChromeFor(.english, "ja_JP.UTF-8").copy_agent_thread_id);
     try testing.expectEqualStrings("Dismiss all settled", environmentChromeFor(.english, "zh_CN.UTF-8").dismiss_all_settled);
+}
+
+test "filterChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Filter skills", filterChromeFor(.english, "ja").filter_skills);
+    try testing.expectEqualStrings("Filter projects", filterChromeFor(.english, "").filter_projects);
+    try testing.expectEqualStrings("No project usage", filterChromeFor(.english, "").no_project_usage);
+    try testing.expectEqualStrings("Filter skills", filterChromeFor(.system, "").filter_skills);
+    try testing.expectEqualStrings("Filter projects", filterChromeFor(.system, "").filter_projects);
+    try testing.expectEqualStrings("No project usage", filterChromeFor(.system, "").no_project_usage);
+
+    try testing.expectEqualStrings("筛选技能", filterChromeFor(.simplified_chinese, "").filter_skills);
+    try testing.expectEqualStrings("筛选项目", filterChromeFor(.simplified_chinese, "").filter_projects);
+    try testing.expectEqualStrings("没有项目用量", filterChromeFor(.simplified_chinese, "").no_project_usage);
+
+    try testing.expectEqualStrings("スキルを絞り込む", filterChromeFor(.japanese, "").filter_skills);
+    try testing.expectEqualStrings("プロジェクトを絞り込む", filterChromeFor(.japanese, "").filter_projects);
+    try testing.expectEqualStrings("プロジェクトの使用量はありません", filterChromeFor(.japanese, "").no_project_usage);
+
+    try testing.expectEqualStrings("筛选技能", filterChromeFor(.system, "zh_CN.UTF-8").filter_skills);
+    try testing.expectEqualStrings("筛选项目", filterChromeFor(.system, "zh_CN.UTF-8").filter_projects);
+    try testing.expectEqualStrings("没有项目用量", filterChromeFor(.system, "zh_CN.UTF-8").no_project_usage);
+    try testing.expectEqualStrings("スキルを絞り込む", filterChromeFor(.system, "ja_JP.UTF-8").filter_skills);
+    try testing.expectEqualStrings("プロジェクトを絞り込む", filterChromeFor(.system, "ja_JP.UTF-8").filter_projects);
+    try testing.expectEqualStrings("プロジェクトの使用量はありません", filterChromeFor(.system, "ja_JP.UTF-8").no_project_usage);
+    try testing.expectEqualStrings("Filter skills", filterChromeFor(.english, "ja_JP.UTF-8").filter_skills);
+    try testing.expectEqualStrings("Filter projects", filterChromeFor(.english, "zh_CN.UTF-8").filter_projects);
+    try testing.expectEqualStrings("No project usage", filterChromeFor(.english, "ja_JP.UTF-8").no_project_usage);
 }

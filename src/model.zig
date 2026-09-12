@@ -4496,6 +4496,10 @@ pub const Model = struct {
         return i18n.environmentChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn filterChrome(model: *const Model) i18n.FilterChrome {
+        return i18n.filterChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     /// Palette row display label for `action`. New Task / Settings /
     /// Collapse all folders reuse Sidebar / Chrome strings; remaining
     /// names come from `i18n.Palette`. Ids / keywords stay English.
@@ -4744,6 +4748,12 @@ pub const Model = struct {
 
     pub fn skills_filter(model: *const Model) []const u8 {
         return model.skills_filter_buffer.text();
+    }
+
+    /// Settings Skills filter placeholder. Filter text stays on
+    /// `skills_filter`; `on-input` stays `skills_filter_edit`.
+    pub fn skills_filter_placeholder(model: *const Model) []const u8 {
+        return model.filterChrome().filter_skills;
     }
 
     pub fn skill_rows(model: *const Model, arena: std.mem.Allocator) []const SkillRow {
@@ -5607,6 +5617,26 @@ pub const Model = struct {
 
     pub fn usage_project_filter(model: *const Model) []const u8 {
         return model.usage_project_filter_buffer.text();
+    }
+
+    /// Settings Usage Projects search-field placeholder. Filter text
+    /// stays on `usage_project_filter`; `on-input` stays
+    /// `usage_project_filter_edit`.
+    pub fn usage_project_filter_placeholder(model: *const Model) []const u8 {
+        return model.filterChrome().filter_projects;
+    }
+
+    /// Settings Usage Projects search-field a11y label. Same chrome
+    /// string as the placeholder. `on-input` stays
+    /// `usage_project_filter_edit`.
+    pub fn usage_project_filter_label(model: *const Model) []const u8 {
+        return model.filterChrome().filter_projects;
+    }
+
+    /// Settings Usage Projects empty-state when history has no
+    /// project rows. Distinct from no matching projects.
+    pub fn no_project_usage_label(model: *const Model) []const u8 {
+        return model.filterChrome().no_project_usage;
     }
 
     pub fn applyUsageProjectFilter(model: *Model, edit: canvas.TextInputEvent) void {

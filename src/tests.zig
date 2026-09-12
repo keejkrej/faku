@@ -25554,6 +25554,147 @@ test "Environment menu chrome follows Appearance language" {
     try testing.expectEqualStrings("Dismiss all settled", model.environment_dismiss_all_settled_label());
 }
 
+test "Settings Skills filter and Usage Projects filter chrome follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"{skills_filter_placeholder}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"{usage_project_filter_placeholder}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{usage_project_filter_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{no_project_usage_label}"));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-input=\"skills_filter_edit\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-input=\"usage_project_filter_edit\"") != null);
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Filter skills\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Filter projects\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Filter projects\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No project usage<"));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Filter skills", model.skills_filter_placeholder());
+    try testing.expectEqualStrings("Filter projects", model.usage_project_filter_placeholder());
+    try testing.expectEqualStrings("Filter projects", model.usage_project_filter_label());
+    try testing.expectEqualStrings("No project usage", model.no_project_usage_label());
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_skills, &fx);
+    try testing.expect(model.settings_page_skills());
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "筛选技能") == null);
+
+    main.update(&model, .{ .skills_filter_edit = .{ .insert_text = "foo" } }, &fx);
+    try testing.expectEqualStrings("foo", model.skills_filter());
+    main.update(&model, .{ .skills_filter_edit = .clear }, &fx);
+    try testing.expectEqualStrings("", model.skills_filter());
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("筛选技能", model.skills_filter_placeholder());
+    try testing.expectEqualStrings("筛选项目", model.usage_project_filter_placeholder());
+    try testing.expectEqualStrings("筛选项目", model.usage_project_filter_label());
+    try testing.expectEqualStrings("没有项目用量", model.no_project_usage_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "筛选技能") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("スキルを絞り込む", model.skills_filter_placeholder());
+    try testing.expectEqualStrings("プロジェクトを絞り込む", model.usage_project_filter_placeholder());
+    try testing.expectEqualStrings("プロジェクトを絞り込む", model.usage_project_filter_label());
+    try testing.expectEqualStrings("プロジェクトの使用量はありません", model.no_project_usage_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "スキルを絞り込む") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "筛选技能") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Filter skills", model.skills_filter_placeholder());
+    try testing.expectEqualStrings("Filter projects", model.usage_project_filter_placeholder());
+    try testing.expectEqualStrings("Filter projects", model.usage_project_filter_label());
+    try testing.expectEqualStrings("No project usage", model.no_project_usage_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "スキルを絞り込む") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("筛选技能", model.skills_filter_placeholder());
+    try testing.expectEqualStrings("筛选项目", model.usage_project_filter_placeholder());
+    try testing.expectEqualStrings("筛选项目", model.usage_project_filter_label());
+    try testing.expectEqualStrings("没有项目用量", model.no_project_usage_label());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("スキルを絞り込む", model.skills_filter_placeholder());
+    try testing.expectEqualStrings("プロジェクトを絞り込む", model.usage_project_filter_placeholder());
+    try testing.expectEqualStrings("プロジェクトを絞り込む", model.usage_project_filter_label());
+    try testing.expectEqualStrings("プロジェクトの使用量はありません", model.no_project_usage_label());
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Filter skills", model.skills_filter_placeholder());
+    try testing.expectEqualStrings("Filter projects", model.usage_project_filter_placeholder());
+    try testing.expectEqualStrings("Filter projects", model.usage_project_filter_label());
+    try testing.expectEqualStrings("No project usage", model.no_project_usage_label());
+
+    main.update(&model, .set_settings_page_usage, &fx);
+    main.update(&model, .set_usage_view_projects, &fx);
+    try testing.expect(model.settings_page_usage());
+    try testing.expect(model.usage_view_projects());
+    model.usage_history.present = true;
+    model.usage_history.window = .{ .trailing_days = 30 };
+    model.usage_history.project_count = 0;
+    try testing.expect(model.has_usage_history());
+    try testing.expect(model.usage_projects_empty());
+    try testing.expect(!model.usage_projects_no_match());
+
+    tree = try buildTree(arena, &model);
+    const projects_filter = findByPlaceholder(tree.root, .search_field, "Filter projects") orelse return error.WidgetNotFound;
+    try testing.expectEqualStrings("Filter projects", projects_filter.semantics.label);
+    _ = try expectByText(tree.root, .search_field, "Filter projects");
+    _ = try expectByText(tree.root, .text, "No project usage");
+    try testing.expect(findByText(tree.root, .text, "No matching projects") == null);
+
+    main.update(&model, .{ .usage_project_filter_edit = .{ .insert_text = "OTHER" } }, &fx);
+    try testing.expectEqualStrings("OTHER", model.usage_project_filter());
+    main.update(&model, .{ .usage_project_filter_edit = .clear }, &fx);
+    try testing.expectEqualStrings("", model.usage_project_filter());
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("筛选项目", model.usage_project_filter_placeholder());
+    try testing.expectEqualStrings("筛选项目", model.usage_project_filter_label());
+    try testing.expectEqualStrings("没有项目用量", model.no_project_usage_label());
+    tree = try buildTree(arena, &model);
+    const zh_projects = findByPlaceholder(tree.root, .search_field, "筛选项目") orelse return error.WidgetNotFound;
+    try testing.expectEqualStrings("筛选项目", zh_projects.semantics.label);
+    _ = try expectByText(tree.root, .search_field, "筛选项目");
+    _ = try expectByText(tree.root, .text, "没有项目用量");
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "Filter projects") == null);
+    try testing.expect(findByText(tree.root, .text, "No project usage") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("プロジェクトを絞り込む", model.usage_project_filter_placeholder());
+    try testing.expectEqualStrings("プロジェクトを絞り込む", model.usage_project_filter_label());
+    try testing.expectEqualStrings("プロジェクトの使用量はありません", model.no_project_usage_label());
+    tree = try buildTree(arena, &model);
+    const ja_projects = findByPlaceholder(tree.root, .search_field, "プロジェクトを絞り込む") orelse return error.WidgetNotFound;
+    try testing.expectEqualStrings("プロジェクトを絞り込む", ja_projects.semantics.label);
+    _ = try expectByText(tree.root, .search_field, "プロジェクトを絞り込む");
+    _ = try expectByText(tree.root, .text, "プロジェクトの使用量はありません");
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "筛选项目") == null);
+    try testing.expect(findByText(tree.root, .text, "没有项目用量") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("Filter projects", model.usage_project_filter_placeholder());
+    try testing.expectEqualStrings("Filter projects", model.usage_project_filter_label());
+    try testing.expectEqualStrings("No project usage", model.no_project_usage_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "No project usage");
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "Filter projects") != null);
+    try testing.expect(findByText(tree.root, .text, "プロジェクトの使用量はありません") == null);
+}
+
 test "DateBucket.title english default; zh and ja follow datesFor" {
     try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
     try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());
