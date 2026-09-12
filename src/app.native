@@ -1746,71 +1746,71 @@
                 <row gap="6" cross="center">
                   <text wrap="false" overflow="ellipsis" grow="1">{file_preview_path}</text>
                   <if test="{file_preview_dirty}">
-                    <text wrap="false" foreground="text_muted">Unsaved</text>
+                    <text wrap="false" foreground="text_muted">{file_preview_unsaved_label}</text>
                   </if>
                   <if test="{file_preview_shows_markdown_mode}">
-                    <button variant="ghost" size="sm" selected="{file_preview_markdown_preview}" on-press="set_file_preview_markdown_preview">Preview</button>
-                    <button variant="ghost" size="sm" selected="{file_preview_markdown_source}" on-press="set_file_preview_markdown_source">Source</button>
+                    <button variant="ghost" size="sm" selected="{file_preview_markdown_preview}" on-press="set_file_preview_markdown_preview">{file_preview_preview_label}</button>
+                    <button variant="ghost" size="sm" selected="{file_preview_markdown_source}" on-press="set_file_preview_markdown_source">{file_preview_source_label}</button>
                   </if>
                   <if test="{file_preview_can_edit}">
-                    <button variant="ghost" size="sm" on-press="open_right_panel_file_edit">Edit</button>
+                    <button variant="ghost" size="sm" on-press="open_right_panel_file_edit">{file_preview_edit_label}</button>
                   </if>
                   <if test="{file_preview_can_save}">
-                    <button variant="ghost" size="sm" on-press="file_preview_save">Save</button>
+                    <button variant="ghost" size="sm" on-press="file_preview_save">{file_preview_save_label}</button>
                   </if>
                   <if test="{file_preview_can_reload}">
-                    <button variant="ghost" size="sm" on-press="file_preview_reload">Reload</button>
+                    <button variant="ghost" size="sm" on-press="file_preview_reload">{file_preview_reload_label}</button>
                   </if>
-                  <button variant="ghost" size="sm" on-press="open_right_panel_file_editor">Open in editor</button>
-                  <button variant="ghost" size="sm" on-press="close_right_panel_file_preview">Close</button>
+                  <button variant="ghost" size="sm" on-press="open_right_panel_file_editor">{file_preview_open_in_editor_label}</button>
+                  <button variant="ghost" size="sm" on-press="close_right_panel_file_preview">{file_preview_close_label}</button>
                 </row>
                 <if test="{file_preview_find_active}">
                   <row height="32" gap="6" cross="center">
                     <if test="{file_preview_find_replace_visible}">
-                      <button variant="ghost" size="icon" icon="chevron-up" label="Hide replace" on-press="toggle_file_preview_find_replace"></button>
+                      <button variant="ghost" size="icon" icon="chevron-up" label="{file_preview_hide_replace_label}" on-press="toggle_file_preview_find_replace"></button>
                     </if>
                     <else>
-                      <button variant="ghost" size="icon" icon="chevron-down" label="Show replace" on-press="toggle_file_preview_find_replace"></button>
+                      <button variant="ghost" size="icon" icon="chevron-down" label="{file_preview_show_replace_label}" on-press="toggle_file_preview_find_replace"></button>
                     </else>
-                    <search-field grow="1" height="32" placeholder="Find" text="{file_preview_find_query}" on-input="file_preview_find_edit" on-submit="find_next" autofocus="true" label="Find in file" />
+                    <search-field grow="1" height="32" placeholder="{file_preview_find_placeholder}" text="{file_preview_find_query}" on-input="file_preview_find_edit" on-submit="find_next" autofocus="true" label="{file_preview_find_in_file_label}" />
                     <button variant="ghost" size="sm" selected="{file_preview_find_case_sensitive}" on-press="toggle_file_preview_find_case">Aa</button>
                     <button variant="ghost" size="sm" selected="{file_preview_find_whole_word}" on-press="toggle_file_preview_find_whole_word">Ab</button>
                     <button variant="ghost" size="sm" selected="{file_preview_find_use_regex}" on-press="toggle_file_preview_find_regex">.*</button>
                     <if test="{has_file_preview_find_match_label}">
                       <text wrap="false" overflow="ellipsis" foreground="text_muted">{file_preview_find_match_label}</text>
                     </if>
-                    <button variant="ghost" size="icon" icon="chevron-up" label="Previous file match" on-press="find_prev"></button>
-                    <button variant="ghost" size="icon" icon="chevron-down" label="Next file match" on-press="find_next"></button>
-                    <button variant="ghost" size="icon" icon="x" label="Close file find" on-press="close_file_preview_find"></button>
+                    <button variant="ghost" size="icon" icon="chevron-up" label="{file_preview_previous_match_label}" on-press="find_prev"></button>
+                    <button variant="ghost" size="icon" icon="chevron-down" label="{file_preview_next_match_label}" on-press="find_next"></button>
+                    <button variant="ghost" size="icon" icon="x" label="{file_preview_close_find_label}" on-press="close_file_preview_find"></button>
                   </row>
                   <if test="{file_preview_find_replace_visible}">
                     <row height="32" gap="6" cross="center">
-                      <text-field grow="1" height="32" placeholder="Replace" text="{file_preview_find_replace}" on-input="file_preview_find_replace_edit" on-submit="file_preview_find_replace_one" label="Replace in file" />
+                      <text-field grow="1" height="32" placeholder="{file_preview_replace_placeholder}" text="{file_preview_find_replace}" on-input="file_preview_find_replace_edit" on-submit="file_preview_find_replace_one" label="{file_preview_replace_in_file_label}" />
                       <if test="{file_preview_find_can_replace}">
-                        <button variant="ghost" size="sm" on-press="file_preview_find_replace_one">Replace</button>
-                        <button variant="ghost" size="sm" on-press="file_preview_find_replace_all">Replace all</button>
+                        <button variant="ghost" size="sm" on-press="file_preview_find_replace_one">{file_preview_replace_label}</button>
+                        <button variant="ghost" size="sm" on-press="file_preview_find_replace_all">{file_preview_replace_all_label}</button>
                       </if>
                       <else>
-                        <text wrap="false" overflow="ellipsis" foreground="text_muted">Read-only</text>
+                        <text wrap="false" overflow="ellipsis" foreground="text_muted">{file_preview_read_only_label}</text>
                       </else>
                     </row>
                   </if>
                 </if>
                 <if test="{file_preview_discard_confirm}">
                   <row gap="8" cross="center">
-                    <text wrap="false" overflow="ellipsis" grow="1" foreground="text_muted">Discard unsaved changes?</text>
-                    <button variant="ghost" size="sm" on-press="file_preview_discard">Discard</button>
-                    <button variant="ghost" size="sm" on-press="file_preview_keep_editing">Keep editing</button>
+                    <text wrap="false" overflow="ellipsis" grow="1" foreground="text_muted">{file_preview_discard_unsaved_label}</text>
+                    <button variant="ghost" size="sm" on-press="file_preview_discard">{file_preview_discard_label}</button>
+                    <button variant="ghost" size="sm" on-press="file_preview_keep_editing">{file_preview_keep_editing_label}</button>
                   </row>
                 </if>
                 <if test="{file_preview_has_status}">
                   <text wrap="true" foreground="text_muted">{file_preview_status}</text>
                 </if>
                 <if test="{file_preview_truncated}">
-                  <text foreground="text_muted">Truncated — showing first 256 KB</text>
+                  <text foreground="text_muted">{file_preview_truncated_label}</text>
                 </if>
                 <if test="{file_preview_binary}">
-                  <text foreground="text_muted">Binary file — not shown</text>
+                  <text foreground="text_muted">{file_preview_binary_label}</text>
                 </if>
                 <else>
                   <if test="{file_preview_has_error}">

@@ -13100,7 +13100,7 @@ test "cmd-f routes to Files preview find when a preview is open" {
     try testing.expect(model.right_panel_file_preview_open());
     try testing.expectEqualStrings("alpha hello\nbeta hello\n", model.file_preview_body());
 
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Find in file\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"{file_preview_find_in_file_label}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"close_file_preview_find\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"file_preview_find_replace_one\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-input=\"file_preview_find_edit\" on-submit=\"find_next\"") != null);
@@ -25693,6 +25693,274 @@ test "Settings Skills filter and Usage Projects filter chrome follow Appearance 
     _ = try expectByText(tree.root, .text, "No project usage");
     try testing.expect(findByPlaceholder(tree.root, .search_field, "Filter projects") != null);
     try testing.expect(findByText(tree.root, .text, "プロジェクトの使用量はありません") == null);
+}
+
+test "Files preview toolbar chrome follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try absCopyProjectDir(tmp, "preview-chrome-i18n", &project_buf);
+    var readme_buf: [320]u8 = undefined;
+    const readme = try std.fmt.bufPrint(&readme_buf, "{s}/README.md", .{project});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = readme,
+        .data = "# Hello\n",
+    });
+    var bin_buf: [320]u8 = undefined;
+    const bin_path = try std.fmt.bufPrint(&bin_buf, "{s}/nul.bin", .{project});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = bin_path,
+        .data = "ok\x00still",
+    });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{file_preview_unsaved_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{file_preview_preview_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{file_preview_source_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{file_preview_edit_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{file_preview_save_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{file_preview_reload_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{file_preview_open_in_editor_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{file_preview_close_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_hide_replace_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_show_replace_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"{file_preview_find_placeholder}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_find_in_file_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_previous_match_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_next_match_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_close_find_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"{file_preview_replace_placeholder}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_replace_in_file_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{file_preview_replace_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{file_preview_replace_all_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{file_preview_read_only_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{file_preview_discard_unsaved_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{file_preview_discard_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{file_preview_keep_editing_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{file_preview_truncated_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{file_preview_binary_label}"));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"open_right_panel_file_editor\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"close_right_panel_file_preview\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"file_preview_save\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"toggle_file_preview_find_replace\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-input=\"file_preview_find_edit\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-input=\"file_preview_find_replace_edit\"") != null);
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Unsaved<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Preview</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Source</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Edit</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Save</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Reload</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Open in editor</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Hide replace\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Show replace\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Find in file\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Previous file match\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Next file match\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Close file find\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Replace\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Replace in file\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Replace</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Replace all</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Read-only<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Discard unsaved changes?<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Keep editing</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Truncated — showing first 256 KB<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Binary file — not shown<"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"Find\""));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, ">Close</button>"));
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("preview chrome i18n", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    defer right_panel.clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
+
+    try testing.expectEqualStrings("Unsaved", model.file_preview_unsaved_label());
+    try testing.expectEqualStrings("Preview", model.file_preview_preview_label());
+    try testing.expectEqualStrings("Source", model.file_preview_source_label());
+    try testing.expectEqualStrings("Edit", model.file_preview_edit_label());
+    try testing.expectEqualStrings("Save", model.file_preview_save_label());
+    try testing.expectEqualStrings("Reload", model.file_preview_reload_label());
+    try testing.expectEqualStrings("Open in editor", model.file_preview_open_in_editor_label());
+    try testing.expectEqualStrings("Close", model.file_preview_close_label());
+    try testing.expectEqualStrings("Hide replace", model.file_preview_hide_replace_label());
+    try testing.expectEqualStrings("Show replace", model.file_preview_show_replace_label());
+    try testing.expectEqualStrings("Find", model.file_preview_find_placeholder());
+    try testing.expectEqualStrings("Find in file", model.file_preview_find_in_file_label());
+    try testing.expectEqualStrings("Previous file match", model.file_preview_previous_match_label());
+    try testing.expectEqualStrings("Next file match", model.file_preview_next_match_label());
+    try testing.expectEqualStrings("Close file find", model.file_preview_close_find_label());
+    try testing.expectEqualStrings("Replace", model.file_preview_replace_placeholder());
+    try testing.expectEqualStrings("Replace in file", model.file_preview_replace_in_file_label());
+    try testing.expectEqualStrings("Replace", model.file_preview_replace_label());
+    try testing.expectEqualStrings("Replace all", model.file_preview_replace_all_label());
+    try testing.expectEqualStrings("Read-only", model.file_preview_read_only_label());
+    try testing.expectEqualStrings("Discard unsaved changes?", model.file_preview_discard_unsaved_label());
+    try testing.expectEqualStrings("Discard", model.file_preview_discard_label());
+    try testing.expectEqualStrings("Keep editing", model.file_preview_keep_editing_label());
+    try testing.expectEqualStrings("Truncated — showing first 256 KB", model.file_preview_truncated_label());
+    try testing.expectEqualStrings("Binary file — not shown", model.file_preview_binary_label());
+    try testing.expect(!std.mem.eql(u8, model.file_preview_open_in_editor_label(), model.open_in_editor_label()));
+
+    main.update(&model, .show_right_panel, &fx);
+    file_mention.applyStdoutPaths(&model, "README.md\nnul.bin\n");
+    main.update(&model, .{ .open_right_panel_file = 1 }, &fx);
+    try testing.expect(model.right_panel_file_preview_open());
+    try testing.expect(model.file_preview_shows_markdown_mode());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Preview", .set_file_preview_markdown_preview);
+    _ = try expectButtonMsg(tree, "Source", .set_file_preview_markdown_source);
+    _ = try expectButtonMsg(tree, "Edit", .open_right_panel_file_edit);
+    _ = try expectButtonMsg(tree, "Reload", .file_preview_reload);
+    _ = try expectButtonMsg(tree, "Open in editor", .open_right_panel_file_editor);
+    _ = try expectButtonMsg(tree, "Close", .close_right_panel_file_preview);
+    try testing.expect(findByText(tree.root, .text, "Unsaved") == null);
+
+    main.update(&model, .open_right_panel_file_edit, &fx);
+    main.update(&model, .{ .file_preview_edit = .{ .insert_text = "x" } }, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Unsaved");
+    _ = try expectButtonMsg(tree, "Save", .file_preview_save);
+
+    main.update(&model, .open_find, &fx);
+    try testing.expect(model.file_preview_find_active);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .search_field, "Find in file");
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "Find") != null);
+    _ = try expectButtonMsg(tree, "Show replace", .toggle_file_preview_find_replace);
+    _ = try expectButton(tree.root, "Close file find");
+    _ = try expectButton(tree.root, "Previous file match");
+    _ = try expectButton(tree.root, "Next file match");
+    _ = try expectButton(tree.root, "Aa");
+    main.update(&model, .toggle_file_preview_find_replace, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Hide replace", .toggle_file_preview_find_replace);
+    _ = try expectButtonMsg(tree, "Replace", .file_preview_find_replace_one);
+    _ = try expectButtonMsg(tree, "Replace all", .file_preview_find_replace_all);
+    _ = try expectByText(tree.root, .text_field, "Replace in file");
+
+    main.update(&model, .close_file_preview_find, &fx);
+    main.update(&model, .close_right_panel_file_preview, &fx);
+    try testing.expect(model.file_preview_discard_confirm());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Discard unsaved changes?");
+    _ = try expectButtonMsg(tree, "Discard", .file_preview_discard);
+    _ = try expectButtonMsg(tree, "Keep editing", .file_preview_keep_editing);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("未保存", model.file_preview_unsaved_label());
+    try testing.expectEqualStrings("预览", model.file_preview_preview_label());
+    try testing.expectEqualStrings("源码", model.file_preview_source_label());
+    try testing.expectEqualStrings("编辑", model.file_preview_edit_label());
+    try testing.expectEqualStrings("保存", model.file_preview_save_label());
+    try testing.expectEqualStrings("重新加载", model.file_preview_reload_label());
+    try testing.expectEqualStrings("在编辑器中打开", model.file_preview_open_in_editor_label());
+    try testing.expectEqualStrings("关闭", model.file_preview_close_label());
+    try testing.expectEqualStrings("在文件中查找", model.file_preview_find_in_file_label());
+    try testing.expectEqualStrings("放弃未保存的更改？", model.file_preview_discard_unsaved_label());
+    try testing.expectEqualStrings("放弃", model.file_preview_discard_label());
+    try testing.expectEqualStrings("继续编辑", model.file_preview_keep_editing_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "未保存");
+    _ = try expectButtonMsg(tree, "预览", .set_file_preview_markdown_preview);
+    _ = try expectButtonMsg(tree, "源码", .set_file_preview_markdown_source);
+    _ = try expectButtonMsg(tree, "保存", .file_preview_save);
+    _ = try expectButtonMsg(tree, "重新加载", .file_preview_reload);
+    _ = try expectButtonMsg(tree, "在编辑器中打开", .open_right_panel_file_editor);
+    _ = try expectButtonMsg(tree, "关闭", .close_right_panel_file_preview);
+    _ = try expectByText(tree.root, .text, "放弃未保存的更改？");
+    _ = try expectButtonMsg(tree, "放弃", .file_preview_discard);
+    _ = try expectButtonMsg(tree, "继续编辑", .file_preview_keep_editing);
+    try testing.expect(findByText(tree.root, .text, "Unsaved") == null);
+    try testing.expect(findByText(tree.root, .button, "Open in editor") == null);
+    try testing.expect(findByText(tree.root, .text, "Discard unsaved changes?") == null);
+
+    model.right_panel_file_preview_truncated = true;
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "已截断 — 仅显示前 256 KB");
+    try testing.expect(findByText(tree.root, .text, "Truncated — showing first 256 KB") == null);
+    model.right_panel_file_preview_truncated = false;
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("未保存", model.file_preview_unsaved_label());
+    try testing.expectEqualStrings("プレビュー", model.file_preview_preview_label());
+    try testing.expectEqualStrings("ソース", model.file_preview_source_label());
+    try testing.expectEqualStrings("編集", model.file_preview_edit_label());
+    try testing.expectEqualStrings("保存", model.file_preview_save_label());
+    try testing.expectEqualStrings("再読み込み", model.file_preview_reload_label());
+    try testing.expectEqualStrings("エディターで開く", model.file_preview_open_in_editor_label());
+    try testing.expectEqualStrings("閉じる", model.file_preview_close_label());
+    try testing.expectEqualStrings("ファイル内を検索", model.file_preview_find_in_file_label());
+    try testing.expectEqualStrings("未保存の変更を破棄しますか？", model.file_preview_discard_unsaved_label());
+    try testing.expectEqualStrings("破棄", model.file_preview_discard_label());
+    try testing.expectEqualStrings("編集を続ける", model.file_preview_keep_editing_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "未保存");
+    _ = try expectButtonMsg(tree, "プレビュー", .set_file_preview_markdown_preview);
+    _ = try expectButtonMsg(tree, "ソース", .set_file_preview_markdown_source);
+    _ = try expectButtonMsg(tree, "保存", .file_preview_save);
+    _ = try expectButtonMsg(tree, "再読み込み", .file_preview_reload);
+    _ = try expectButtonMsg(tree, "エディターで開く", .open_right_panel_file_editor);
+    _ = try expectButtonMsg(tree, "閉じる", .close_right_panel_file_preview);
+    _ = try expectByText(tree.root, .text, "未保存の変更を破棄しますか？");
+    _ = try expectButtonMsg(tree, "破棄", .file_preview_discard);
+    _ = try expectButtonMsg(tree, "編集を続ける", .file_preview_keep_editing);
+    try testing.expect(findByText(tree.root, .button, "在编辑器中打开") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Open in editor", model.file_preview_open_in_editor_label());
+    try testing.expectEqualStrings("Find in file", model.file_preview_find_in_file_label());
+    try testing.expectEqualStrings("Keep editing", model.file_preview_keep_editing_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Open in editor", .open_right_panel_file_editor);
+    _ = try expectButtonMsg(tree, "Keep editing", .file_preview_keep_editing);
+    try testing.expect(findByText(tree.root, .button, "エディターで開く") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("在编辑器中打开", model.file_preview_open_in_editor_label());
+    try testing.expectEqualStrings("在文件中查找", model.file_preview_find_in_file_label());
+    try testing.expectEqualStrings("放弃未保存的更改？", model.file_preview_discard_unsaved_label());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("エディターで開く", model.file_preview_open_in_editor_label());
+    try testing.expectEqualStrings("ファイル内を検索", model.file_preview_find_in_file_label());
+    try testing.expectEqualStrings("未保存の変更を破棄しますか？", model.file_preview_discard_unsaved_label());
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Open in editor", model.file_preview_open_in_editor_label());
+    try testing.expectEqualStrings("Find in file", model.file_preview_find_in_file_label());
+    try testing.expectEqualStrings("Keep editing", model.file_preview_keep_editing_label());
+
+    main.update(&model, .file_preview_keep_editing, &fx);
+    main.update(&model, .close_file_preview_find, &fx);
+    main.update(&model, .{ .open_right_panel_file = 2 }, &fx);
+    try testing.expect(model.file_preview_binary());
+    main.update(&model, .open_file_preview_find_replace, &fx);
+    try testing.expect(model.file_preview_find_replace_visible);
+    try testing.expect(!model.file_preview_find_can_replace());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Binary file — not shown");
+    _ = try expectByText(tree.root, .text, "Read-only");
+    _ = try expectByText(tree.root, .search_field, "Find in file");
+    try testing.expect(findByText(tree.root, .button, "Replace") == null);
+    model.language_preference = .simplified_chinese;
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "二进制文件 — 未显示");
+    _ = try expectByText(tree.root, .text, "只读");
+    _ = try expectByText(tree.root, .search_field, "在文件中查找");
+    try testing.expect(findByText(tree.root, .text, "Binary file — not shown") == null);
+    try testing.expect(findByText(tree.root, .text, "Read-only") == null);
 }
 
 test "DateBucket.title english default; zh and ja follow datesFor" {

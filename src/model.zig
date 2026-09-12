@@ -3370,6 +3370,149 @@ pub const Model = struct {
         return right_panel.canFilePreviewFindReplace(model);
     }
 
+    /// Files preview Unsaved badge. Path text stays data.
+    pub fn file_preview_unsaved_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().unsaved;
+    }
+
+    /// Files preview markdown Preview chip. `on-press` stays
+    /// `set_file_preview_markdown_preview`.
+    pub fn file_preview_preview_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().preview;
+    }
+
+    /// Files preview markdown Source chip. `on-press` stays
+    /// `set_file_preview_markdown_source`.
+    pub fn file_preview_source_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().source;
+    }
+
+    /// Files preview Edit. `on-press` stays `open_right_panel_file_edit`.
+    pub fn file_preview_edit_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().edit;
+    }
+
+    /// Files preview Save. `on-press` stays `file_preview_save`.
+    pub fn file_preview_save_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().save;
+    }
+
+    /// Files preview Reload. `on-press` stays `file_preview_reload`.
+    pub fn file_preview_reload_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().reload;
+    }
+
+    /// Files preview Open in editor. Distinct from composer
+    /// `Open in Editor`. `on-press` stays `open_right_panel_file_editor`.
+    pub fn file_preview_open_in_editor_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().open_in_editor;
+    }
+
+    /// Files preview Close. Distinct from Browser / Terminal Close
+    /// leftovers. `on-press` stays `close_right_panel_file_preview`.
+    pub fn file_preview_close_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().close;
+    }
+
+    /// Files preview Hide replace a11y. `on-press` stays
+    /// `toggle_file_preview_find_replace`.
+    pub fn file_preview_hide_replace_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().hide_replace;
+    }
+
+    /// Files preview Show replace a11y. `on-press` stays
+    /// `toggle_file_preview_find_replace`.
+    pub fn file_preview_show_replace_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().show_replace;
+    }
+
+    /// Files preview Find placeholder. Distinct from transcript Find.
+    /// Query text stays on `file_preview_find_query`; `on-input` stays
+    /// `file_preview_find_edit`.
+    pub fn file_preview_find_placeholder(model: *const Model) []const u8 {
+        return model.filePreviewChrome().find;
+    }
+
+    /// Files preview Find in file a11y. `on-input` stays
+    /// `file_preview_find_edit`.
+    pub fn file_preview_find_in_file_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().find_in_file;
+    }
+
+    /// Files preview Previous file match a11y. `on-press` stays
+    /// `find_prev`.
+    pub fn file_preview_previous_match_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().previous_file_match;
+    }
+
+    /// Files preview Next file match a11y. `on-press` stays `find_next`.
+    pub fn file_preview_next_match_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().next_file_match;
+    }
+
+    /// Files preview Close file find a11y. `on-press` stays
+    /// `close_file_preview_find`.
+    pub fn file_preview_close_find_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().close_file_find;
+    }
+
+    /// Files preview Replace placeholder. Replace text stays on
+    /// `file_preview_find_replace`; `on-input` stays
+    /// `file_preview_find_replace_edit`.
+    pub fn file_preview_replace_placeholder(model: *const Model) []const u8 {
+        return model.filePreviewChrome().replace;
+    }
+
+    /// Files preview Replace in file a11y. `on-input` stays
+    /// `file_preview_find_replace_edit`.
+    pub fn file_preview_replace_in_file_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().replace_in_file;
+    }
+
+    /// Files preview Replace button. Same chrome string as the
+    /// placeholder. `on-press` stays `file_preview_find_replace_one`.
+    pub fn file_preview_replace_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().replace;
+    }
+
+    /// Files preview Replace all. `on-press` stays
+    /// `file_preview_find_replace_all`.
+    pub fn file_preview_replace_all_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().replace_all;
+    }
+
+    /// Files preview Read-only when replace is gated.
+    pub fn file_preview_read_only_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().read_only;
+    }
+
+    /// Files preview discard confirm prompt. `on-press` stays
+    /// `file_preview_discard` / `file_preview_keep_editing`.
+    pub fn file_preview_discard_unsaved_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().discard_unsaved;
+    }
+
+    /// Files preview Discard. `on-press` stays `file_preview_discard`.
+    pub fn file_preview_discard_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().discard;
+    }
+
+    /// Files preview Keep editing. `on-press` stays
+    /// `file_preview_keep_editing`.
+    pub fn file_preview_keep_editing_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().keep_editing;
+    }
+
+    /// Files preview truncated status. Body bytes stay data.
+    pub fn file_preview_truncated_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().truncated;
+    }
+
+    /// Files preview binary status. Body bytes stay data.
+    pub fn file_preview_binary_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().binary_file;
+    }
+
     /// Textarea autofocus only while the find bar is closed so Cmd-F
     /// can arm the find field.
     pub fn file_preview_editor_autofocus(model: *const Model) bool {
@@ -4498,6 +4641,10 @@ pub const Model = struct {
 
     fn filterChrome(model: *const Model) i18n.FilterChrome {
         return i18n.filterChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn filePreviewChrome(model: *const Model) i18n.FilePreviewChrome {
+        return i18n.filePreviewChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Palette row display label for `action`. New Task / Settings /

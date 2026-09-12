@@ -30,8 +30,11 @@
 //! menu-item chrome (same `EnvironmentChrome` strings), and first-cut
 //! Settings Skills filter placeholder plus Settings Usage Projects
 //! search-field placeholder + a11y label and empty-state No project
-//! usage (same `FilterChrome` strings) live here so `main.zig` does
-//! not grow. Palette ids / `PaletteAction` / keywords stay English.
+//! usage (same `FilterChrome` strings), and first-cut Files
+//! right-panel file-preview toolbar / find-replace / discard /
+//! truncated·binary chrome (same `FilePreviewChrome` strings) live
+//! here so `main.zig` does not grow. Palette ids / `PaletteAction` /
+//! keywords stay English.
 //! Wire `access_mode` ids stay `ask` / `auto` / `fullAccess`. Wire
 //! `reasoning_effort` ids stay `auto` / `none` / `minimal` / `low` /
 //! `medium` / `high` / `xhigh` / `max`. Wire `interaction_mode` ids
@@ -51,6 +54,10 @@
 //! `environment_dismiss_settled_background`. Skills / Usage Projects
 //! filter `on-input` stay `skills_filter_edit` /
 //! `usage_project_filter_edit`; filter text stays English (user-typed).
+//! File-preview toolbar `on-press` / `on-input` stay English
+//! (`file_preview_save` / `close_right_panel_file_preview` /
+//! `toggle_file_preview_find_replace` / `file_preview_find_edit` /
+//! …). Aa / Ab / .* glyphs stay. Path text and body content stay data.
 //! Not rust_i18n, not YAML catalogs, not full-app translation, not
 //! tz-aware grouping.
 
@@ -897,6 +904,123 @@ const filter_chrome_ja: FilterChrome = .{
     .no_project_usage = "プロジェクトの使用量はありません",
 };
 
+/// Files right-panel file-preview toolbar / find-replace / discard /
+/// truncated·binary chrome for the resolved locale. Same resolve path
+/// as FilterChrome. Wire ids / on-press / on-input stay English
+/// (`file_preview_save` / `close_right_panel_file_preview` /
+/// `toggle_file_preview_find_replace` / `file_preview_find_edit` /
+/// `file_preview_find_replace_edit`). English matches the former
+/// hardcoded copy. Distinct from composer `Open in Editor` (title
+/// case). Aa / Ab / .* glyphs stay. Path text and body content stay
+/// data. Transcript Find placeholder stays on the transcript bar.
+pub const FilePreviewChrome = struct {
+    unsaved: []const u8,
+    preview: []const u8,
+    source: []const u8,
+    edit: []const u8,
+    save: []const u8,
+    reload: []const u8,
+    open_in_editor: []const u8,
+    close: []const u8,
+    hide_replace: []const u8,
+    show_replace: []const u8,
+    find: []const u8,
+    find_in_file: []const u8,
+    previous_file_match: []const u8,
+    next_file_match: []const u8,
+    close_file_find: []const u8,
+    replace: []const u8,
+    replace_in_file: []const u8,
+    replace_all: []const u8,
+    read_only: []const u8,
+    discard_unsaved: []const u8,
+    discard: []const u8,
+    keep_editing: []const u8,
+    truncated: []const u8,
+    binary_file: []const u8,
+};
+
+const file_preview_chrome_en: FilePreviewChrome = .{
+    .unsaved = "Unsaved",
+    .preview = "Preview",
+    .source = "Source",
+    .edit = "Edit",
+    .save = "Save",
+    .reload = "Reload",
+    .open_in_editor = "Open in editor",
+    .close = "Close",
+    .hide_replace = "Hide replace",
+    .show_replace = "Show replace",
+    .find = "Find",
+    .find_in_file = "Find in file",
+    .previous_file_match = "Previous file match",
+    .next_file_match = "Next file match",
+    .close_file_find = "Close file find",
+    .replace = "Replace",
+    .replace_in_file = "Replace in file",
+    .replace_all = "Replace all",
+    .read_only = "Read-only",
+    .discard_unsaved = "Discard unsaved changes?",
+    .discard = "Discard",
+    .keep_editing = "Keep editing",
+    .truncated = "Truncated — showing first 256 KB",
+    .binary_file = "Binary file — not shown",
+};
+
+const file_preview_chrome_zh_cn: FilePreviewChrome = .{
+    .unsaved = "未保存",
+    .preview = "预览",
+    .source = "源码",
+    .edit = "编辑",
+    .save = "保存",
+    .reload = "重新加载",
+    .open_in_editor = "在编辑器中打开",
+    .close = "关闭",
+    .hide_replace = "隐藏替换",
+    .show_replace = "显示替换",
+    .find = "查找",
+    .find_in_file = "在文件中查找",
+    .previous_file_match = "上一个文件匹配",
+    .next_file_match = "下一个文件匹配",
+    .close_file_find = "关闭文件查找",
+    .replace = "替换",
+    .replace_in_file = "在文件中替换",
+    .replace_all = "全部替换",
+    .read_only = "只读",
+    .discard_unsaved = "放弃未保存的更改？",
+    .discard = "放弃",
+    .keep_editing = "继续编辑",
+    .truncated = "已截断 — 仅显示前 256 KB",
+    .binary_file = "二进制文件 — 未显示",
+};
+
+const file_preview_chrome_ja: FilePreviewChrome = .{
+    .unsaved = "未保存",
+    .preview = "プレビュー",
+    .source = "ソース",
+    .edit = "編集",
+    .save = "保存",
+    .reload = "再読み込み",
+    .open_in_editor = "エディターで開く",
+    .close = "閉じる",
+    .hide_replace = "置換を隠す",
+    .show_replace = "置換を表示",
+    .find = "検索",
+    .find_in_file = "ファイル内を検索",
+    .previous_file_match = "前のファイル一致",
+    .next_file_match = "次のファイル一致",
+    .close_file_find = "ファイル検索を閉じる",
+    .replace = "置換",
+    .replace_in_file = "ファイル内を置換",
+    .replace_all = "すべて置換",
+    .read_only = "読み取り専用",
+    .discard_unsaved = "未保存の変更を破棄しますか？",
+    .discard = "破棄",
+    .keep_editing = "編集を続ける",
+    .truncated = "切り詰め済み — 先頭 256 KB を表示",
+    .binary_file = "バイナリファイル — 非表示",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -1106,6 +1230,18 @@ pub fn filterChromeFor(preference: LanguagePreference, system_locale_id: []const
         .simplified_chinese => filter_chrome_zh_cn,
         .japanese => filter_chrome_ja,
         .system, .english => filter_chrome_en,
+    };
+}
+
+/// Files right-panel file-preview toolbar chrome for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Wire ids /
+/// on-press / on-input stay English.
+pub fn filePreviewChromeFor(preference: LanguagePreference, system_locale_id: []const u8) FilePreviewChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => file_preview_chrome_zh_cn,
+        .japanese => file_preview_chrome_ja,
+        .system, .english => file_preview_chrome_en,
     };
 }
 
@@ -1773,3 +1909,97 @@ test "filterChromeFor english default; zh and ja chrome; english ignores ja LANG
     try testing.expectEqualStrings("Filter projects", filterChromeFor(.english, "zh_CN.UTF-8").filter_projects);
     try testing.expectEqualStrings("No project usage", filterChromeFor(.english, "ja_JP.UTF-8").no_project_usage);
 }
+
+test "filePreviewChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Unsaved", filePreviewChromeFor(.english, "ja").unsaved);
+    try testing.expectEqualStrings("Preview", filePreviewChromeFor(.english, "").preview);
+    try testing.expectEqualStrings("Source", filePreviewChromeFor(.english, "").source);
+    try testing.expectEqualStrings("Edit", filePreviewChromeFor(.english, "").edit);
+    try testing.expectEqualStrings("Save", filePreviewChromeFor(.english, "").save);
+    try testing.expectEqualStrings("Reload", filePreviewChromeFor(.english, "").reload);
+    try testing.expectEqualStrings("Open in editor", filePreviewChromeFor(.english, "").open_in_editor);
+    try testing.expectEqualStrings("Close", filePreviewChromeFor(.english, "").close);
+    try testing.expectEqualStrings("Hide replace", filePreviewChromeFor(.english, "").hide_replace);
+    try testing.expectEqualStrings("Show replace", filePreviewChromeFor(.english, "").show_replace);
+    try testing.expectEqualStrings("Find", filePreviewChromeFor(.english, "").find);
+    try testing.expectEqualStrings("Find in file", filePreviewChromeFor(.english, "").find_in_file);
+    try testing.expectEqualStrings("Previous file match", filePreviewChromeFor(.english, "").previous_file_match);
+    try testing.expectEqualStrings("Next file match", filePreviewChromeFor(.english, "").next_file_match);
+    try testing.expectEqualStrings("Close file find", filePreviewChromeFor(.english, "").close_file_find);
+    try testing.expectEqualStrings("Replace", filePreviewChromeFor(.english, "").replace);
+    try testing.expectEqualStrings("Replace in file", filePreviewChromeFor(.english, "").replace_in_file);
+    try testing.expectEqualStrings("Replace all", filePreviewChromeFor(.english, "").replace_all);
+    try testing.expectEqualStrings("Read-only", filePreviewChromeFor(.english, "").read_only);
+    try testing.expectEqualStrings("Discard unsaved changes?", filePreviewChromeFor(.english, "").discard_unsaved);
+    try testing.expectEqualStrings("Discard", filePreviewChromeFor(.english, "").discard);
+    try testing.expectEqualStrings("Keep editing", filePreviewChromeFor(.english, "").keep_editing);
+    try testing.expectEqualStrings("Truncated — showing first 256 KB", filePreviewChromeFor(.english, "").truncated);
+    try testing.expectEqualStrings("Binary file — not shown", filePreviewChromeFor(.english, "").binary_file);
+    try testing.expectEqualStrings("Unsaved", filePreviewChromeFor(.system, "").unsaved);
+    try testing.expectEqualStrings("Find in file", filePreviewChromeFor(.system, "").find_in_file);
+    try testing.expect(!std.mem.eql(u8, filePreviewChromeFor(.english, "").open_in_editor, composerProjectChromeFor(.english, "").open_in_editor));
+
+    try testing.expectEqualStrings("未保存", filePreviewChromeFor(.simplified_chinese, "").unsaved);
+    try testing.expectEqualStrings("预览", filePreviewChromeFor(.simplified_chinese, "").preview);
+    try testing.expectEqualStrings("源码", filePreviewChromeFor(.simplified_chinese, "").source);
+    try testing.expectEqualStrings("编辑", filePreviewChromeFor(.simplified_chinese, "").edit);
+    try testing.expectEqualStrings("保存", filePreviewChromeFor(.simplified_chinese, "").save);
+    try testing.expectEqualStrings("重新加载", filePreviewChromeFor(.simplified_chinese, "").reload);
+    try testing.expectEqualStrings("在编辑器中打开", filePreviewChromeFor(.simplified_chinese, "").open_in_editor);
+    try testing.expectEqualStrings("关闭", filePreviewChromeFor(.simplified_chinese, "").close);
+    try testing.expectEqualStrings("隐藏替换", filePreviewChromeFor(.simplified_chinese, "").hide_replace);
+    try testing.expectEqualStrings("显示替换", filePreviewChromeFor(.simplified_chinese, "").show_replace);
+    try testing.expectEqualStrings("查找", filePreviewChromeFor(.simplified_chinese, "").find);
+    try testing.expectEqualStrings("在文件中查找", filePreviewChromeFor(.simplified_chinese, "").find_in_file);
+    try testing.expectEqualStrings("上一个文件匹配", filePreviewChromeFor(.simplified_chinese, "").previous_file_match);
+    try testing.expectEqualStrings("下一个文件匹配", filePreviewChromeFor(.simplified_chinese, "").next_file_match);
+    try testing.expectEqualStrings("关闭文件查找", filePreviewChromeFor(.simplified_chinese, "").close_file_find);
+    try testing.expectEqualStrings("替换", filePreviewChromeFor(.simplified_chinese, "").replace);
+    try testing.expectEqualStrings("在文件中替换", filePreviewChromeFor(.simplified_chinese, "").replace_in_file);
+    try testing.expectEqualStrings("全部替换", filePreviewChromeFor(.simplified_chinese, "").replace_all);
+    try testing.expectEqualStrings("只读", filePreviewChromeFor(.simplified_chinese, "").read_only);
+    try testing.expectEqualStrings("放弃未保存的更改？", filePreviewChromeFor(.simplified_chinese, "").discard_unsaved);
+    try testing.expectEqualStrings("放弃", filePreviewChromeFor(.simplified_chinese, "").discard);
+    try testing.expectEqualStrings("继续编辑", filePreviewChromeFor(.simplified_chinese, "").keep_editing);
+    try testing.expectEqualStrings("已截断 — 仅显示前 256 KB", filePreviewChromeFor(.simplified_chinese, "").truncated);
+    try testing.expectEqualStrings("二进制文件 — 未显示", filePreviewChromeFor(.simplified_chinese, "").binary_file);
+
+    try testing.expectEqualStrings("未保存", filePreviewChromeFor(.japanese, "").unsaved);
+    try testing.expectEqualStrings("プレビュー", filePreviewChromeFor(.japanese, "").preview);
+    try testing.expectEqualStrings("ソース", filePreviewChromeFor(.japanese, "").source);
+    try testing.expectEqualStrings("編集", filePreviewChromeFor(.japanese, "").edit);
+    try testing.expectEqualStrings("保存", filePreviewChromeFor(.japanese, "").save);
+    try testing.expectEqualStrings("再読み込み", filePreviewChromeFor(.japanese, "").reload);
+    try testing.expectEqualStrings("エディターで開く", filePreviewChromeFor(.japanese, "").open_in_editor);
+    try testing.expectEqualStrings("閉じる", filePreviewChromeFor(.japanese, "").close);
+    try testing.expectEqualStrings("置換を隠す", filePreviewChromeFor(.japanese, "").hide_replace);
+    try testing.expectEqualStrings("置換を表示", filePreviewChromeFor(.japanese, "").show_replace);
+    try testing.expectEqualStrings("検索", filePreviewChromeFor(.japanese, "").find);
+    try testing.expectEqualStrings("ファイル内を検索", filePreviewChromeFor(.japanese, "").find_in_file);
+    try testing.expectEqualStrings("前のファイル一致", filePreviewChromeFor(.japanese, "").previous_file_match);
+    try testing.expectEqualStrings("次のファイル一致", filePreviewChromeFor(.japanese, "").next_file_match);
+    try testing.expectEqualStrings("ファイル検索を閉じる", filePreviewChromeFor(.japanese, "").close_file_find);
+    try testing.expectEqualStrings("置換", filePreviewChromeFor(.japanese, "").replace);
+    try testing.expectEqualStrings("ファイル内を置換", filePreviewChromeFor(.japanese, "").replace_in_file);
+    try testing.expectEqualStrings("すべて置換", filePreviewChromeFor(.japanese, "").replace_all);
+    try testing.expectEqualStrings("読み取り専用", filePreviewChromeFor(.japanese, "").read_only);
+    try testing.expectEqualStrings("未保存の変更を破棄しますか？", filePreviewChromeFor(.japanese, "").discard_unsaved);
+    try testing.expectEqualStrings("破棄", filePreviewChromeFor(.japanese, "").discard);
+    try testing.expectEqualStrings("編集を続ける", filePreviewChromeFor(.japanese, "").keep_editing);
+    try testing.expectEqualStrings("切り詰め済み — 先頭 256 KB を表示", filePreviewChromeFor(.japanese, "").truncated);
+    try testing.expectEqualStrings("バイナリファイル — 非表示", filePreviewChromeFor(.japanese, "").binary_file);
+
+    try testing.expectEqualStrings("未保存", filePreviewChromeFor(.system, "zh_CN.UTF-8").unsaved);
+    try testing.expectEqualStrings("在文件中查找", filePreviewChromeFor(.system, "zh_CN.UTF-8").find_in_file);
+    try testing.expectEqualStrings("放弃未保存的更改？", filePreviewChromeFor(.system, "zh_CN.UTF-8").discard_unsaved);
+    try testing.expectEqualStrings("未保存", filePreviewChromeFor(.system, "ja_JP.UTF-8").unsaved);
+    try testing.expectEqualStrings("ファイル内を検索", filePreviewChromeFor(.system, "ja_JP.UTF-8").find_in_file);
+    try testing.expectEqualStrings("未保存の変更を破棄しますか？", filePreviewChromeFor(.system, "ja_JP.UTF-8").discard_unsaved);
+    try testing.expectEqualStrings("Unsaved", filePreviewChromeFor(.english, "ja_JP.UTF-8").unsaved);
+    try testing.expectEqualStrings("Open in editor", filePreviewChromeFor(.english, "zh_CN.UTF-8").open_in_editor);
+    try testing.expectEqualStrings("Find in file", filePreviewChromeFor(.english, "ja_JP.UTF-8").find_in_file);
+    try testing.expectEqualStrings("Keep editing", filePreviewChromeFor(.english, "zh_CN.UTF-8").keep_editing);
+    try testing.expectEqualStrings("Binary file — not shown", filePreviewChromeFor(.english, "ja_JP.UTF-8").binary_file);
+}
+
