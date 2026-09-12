@@ -25319,7 +25319,7 @@ test "Background row kind / status / stop chrome follow Appearance language" {
     try testing.expectEqualStrings("Stop monitor", model.background_work_stop_label());
 
     model.language_preference = .simplified_chinese;
-    try testing.expectEqualStrings("进程", model.background_work_kind_label());
+    try testing.expectEqualStrings("监视器", model.background_work_kind_label());
     try testing.expectEqualStrings("监视器", model.background_work_title());
     try testing.expectEqualStrings("监视中", model.background_work_status());
     try testing.expectEqualStrings("停止监视器", model.background_work_stop_label());
