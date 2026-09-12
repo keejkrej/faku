@@ -22,8 +22,9 @@
 //! composer project-row Pick folder / Reveal folder / Open in Editor /
 //! Copy path (same `ComposerProjectChrome` strings; Open in Terminal
 //! reuses `RightPanelChrome.open_in_terminal`), and first-cut Review
-//! Diff header title / Cancel / source chips (same
-//! `ReviewDiffChrome` strings), and first-cut Background row kind /
+//! Diff header title / Cancel / source chips / gap expand
+//! Start / End / Both / All (same `ReviewDiffChrome` strings),
+//! and first-cut Background row kind /
 //! status / stop·dismiss chrome (same `BackgroundChrome` strings;
 //! Environment Summary + right-panel Background body), and
 //! first-cut Environment info-button a11y + dropdown-menu header /
@@ -44,8 +45,9 @@
 //! in Terminal `on-press` stay `open_url` / `open_terminal`. Composer
 //! Pick folder / Reveal folder / Open in Editor / Copy path
 //! `on-press` stay `pick_folder` / `reveal_folder` / `open_editor` /
-//! `copy_project_path`. Review Diff Cancel / source chips `on-press`
-//! stay `close_review_diff` / `set_review_diff_source_*`. Background
+//! `copy_project_path`. Review Diff Cancel / source chips / gap
+//! expand `on-press` stay `close_review_diff` /
+//! `set_review_diff_source_*` / `expand_review_diff_gap_*`. Background
 //! Stop / Dismiss `on-press` stay `environment_stop_background:*` /
 //! `open_background_work:*`. Environment info / menu `on-press`
 //! stay `toggle_environment_summary` / `close_environment_summary` /
@@ -685,14 +687,16 @@ const composer_project_chrome_ja: ComposerProjectChrome = .{
     .copy_path = "パスをコピー",
 };
 
-/// Review Diff header title / Cancel and source chips for the
-/// resolved locale. Same resolve path as ComposerProjectChrome.
-/// Wire ids / on-press stay English (`close_review_diff` /
-/// `set_review_diff_source_*`); selected-state bools stay
+/// Review Diff header title / Cancel, source chips, and gap
+/// expand Start / End / Both / All for the resolved locale. Same
+/// resolve path as ComposerProjectChrome. Wire ids / on-press
+/// stay English (`close_review_diff` / `set_review_diff_source_*`
+/// / `expand_review_diff_gap_*`); selected-state bools stay
 /// `review_diff_source_*`. English matches the former hardcoded
-/// header and chips. Title EN Review matches the Diff tab
-/// (`RightPanelTabs.diff`), not Diff. Gap expand Start/End/Both/All
-/// and remaining hunk chrome stay English.
+/// header, chips, and gap expand buttons. Title EN Review matches
+/// the Diff tab (`RightPanelTabs.diff`), not Diff. Remaining hunk
+/// chrome (unmodified-line gap labels, `label="Review hunk"`)
+/// stays English.
 pub const ReviewDiffChrome = struct {
     review_title: []const u8,
     cancel: []const u8,
@@ -702,6 +706,10 @@ pub const ReviewDiffChrome = struct {
     unstaged: []const u8,
     committed: []const u8,
     last_turn: []const u8,
+    gap_expand_start: []const u8,
+    gap_expand_end: []const u8,
+    gap_expand_both: []const u8,
+    gap_expand_all: []const u8,
 };
 
 const review_diff_chrome_en: ReviewDiffChrome = .{
@@ -713,6 +721,10 @@ const review_diff_chrome_en: ReviewDiffChrome = .{
     .unstaged = "Unstaged",
     .committed = "Committed",
     .last_turn = "Last turn",
+    .gap_expand_start = "Start",
+    .gap_expand_end = "End",
+    .gap_expand_both = "Both",
+    .gap_expand_all = "All",
 };
 
 const review_diff_chrome_zh_cn: ReviewDiffChrome = .{
@@ -724,6 +736,10 @@ const review_diff_chrome_zh_cn: ReviewDiffChrome = .{
     .unstaged = "未暂存",
     .committed = "已提交",
     .last_turn = "上一轮",
+    .gap_expand_start = "开头",
+    .gap_expand_end = "末尾",
+    .gap_expand_both = "两端",
+    .gap_expand_all = "全部",
 };
 
 const review_diff_chrome_ja: ReviewDiffChrome = .{
@@ -735,6 +751,10 @@ const review_diff_chrome_ja: ReviewDiffChrome = .{
     .unstaged = "未ステージ",
     .committed = "コミット済み",
     .last_turn = "直前のターン",
+    .gap_expand_start = "先頭",
+    .gap_expand_end = "末尾",
+    .gap_expand_both = "両端",
+    .gap_expand_all = "すべて",
 };
 
 /// Background row kind / status / stop·dismiss chrome for the
@@ -1184,10 +1204,10 @@ pub fn composerProjectChromeFor(preference: LanguagePreference, system_locale_id
     };
 }
 
-/// Review Diff header title / Cancel / source chips for the resolved
-/// locale. Callers pass Model `language_preference` +
-/// `system_locale_id`; this file does not read process env. Wire ids /
-/// on-press stay English.
+/// Review Diff header title / Cancel / source chips / gap expand
+/// Start / End / Both / All for the resolved locale. Callers pass
+/// Model `language_preference` + `system_locale_id`; this file
+/// does not read process env. Wire ids / on-press stay English.
 pub fn reviewDiffChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ReviewDiffChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => review_diff_chrome_zh_cn,
@@ -1720,6 +1740,10 @@ test "reviewDiffChromeFor english default; zh and ja chrome; english ignores ja 
     try testing.expectEqualStrings("Unstaged", reviewDiffChromeFor(.english, "").unstaged);
     try testing.expectEqualStrings("Committed", reviewDiffChromeFor(.english, "").committed);
     try testing.expectEqualStrings("Last turn", reviewDiffChromeFor(.english, "").last_turn);
+    try testing.expectEqualStrings("Start", reviewDiffChromeFor(.english, "").gap_expand_start);
+    try testing.expectEqualStrings("End", reviewDiffChromeFor(.english, "").gap_expand_end);
+    try testing.expectEqualStrings("Both", reviewDiffChromeFor(.english, "").gap_expand_both);
+    try testing.expectEqualStrings("All", reviewDiffChromeFor(.english, "").gap_expand_all);
     try testing.expectEqualStrings("Review", reviewDiffChromeFor(.system, "").review_title);
     try testing.expectEqualStrings(rightPanelTabsFor(.english, "").diff, reviewDiffChromeFor(.english, "").review_title);
 
@@ -1731,6 +1755,10 @@ test "reviewDiffChromeFor english default; zh and ja chrome; english ignores ja 
     try testing.expectEqualStrings("未暂存", reviewDiffChromeFor(.simplified_chinese, "").unstaged);
     try testing.expectEqualStrings("已提交", reviewDiffChromeFor(.simplified_chinese, "").committed);
     try testing.expectEqualStrings("上一轮", reviewDiffChromeFor(.simplified_chinese, "").last_turn);
+    try testing.expectEqualStrings("开头", reviewDiffChromeFor(.simplified_chinese, "").gap_expand_start);
+    try testing.expectEqualStrings("末尾", reviewDiffChromeFor(.simplified_chinese, "").gap_expand_end);
+    try testing.expectEqualStrings("两端", reviewDiffChromeFor(.simplified_chinese, "").gap_expand_both);
+    try testing.expectEqualStrings("全部", reviewDiffChromeFor(.simplified_chinese, "").gap_expand_all);
     try testing.expectEqualStrings(rightPanelTabsFor(.simplified_chinese, "").diff, reviewDiffChromeFor(.simplified_chinese, "").review_title);
 
     try testing.expectEqualStrings("レビュー", reviewDiffChromeFor(.japanese, "").review_title);
@@ -1741,14 +1769,26 @@ test "reviewDiffChromeFor english default; zh and ja chrome; english ignores ja 
     try testing.expectEqualStrings("未ステージ", reviewDiffChromeFor(.japanese, "").unstaged);
     try testing.expectEqualStrings("コミット済み", reviewDiffChromeFor(.japanese, "").committed);
     try testing.expectEqualStrings("直前のターン", reviewDiffChromeFor(.japanese, "").last_turn);
+    try testing.expectEqualStrings("先頭", reviewDiffChromeFor(.japanese, "").gap_expand_start);
+    try testing.expectEqualStrings("末尾", reviewDiffChromeFor(.japanese, "").gap_expand_end);
+    try testing.expectEqualStrings("両端", reviewDiffChromeFor(.japanese, "").gap_expand_both);
+    try testing.expectEqualStrings("すべて", reviewDiffChromeFor(.japanese, "").gap_expand_all);
     try testing.expectEqualStrings(rightPanelTabsFor(.japanese, "").diff, reviewDiffChromeFor(.japanese, "").review_title);
 
     try testing.expectEqualStrings("审阅", reviewDiffChromeFor(.system, "zh_CN.UTF-8").review_title);
     try testing.expectEqualStrings("取消", reviewDiffChromeFor(.system, "zh_CN.UTF-8").cancel);
     try testing.expectEqualStrings("上一轮", reviewDiffChromeFor(.system, "zh_CN.UTF-8").last_turn);
+    try testing.expectEqualStrings("开头", reviewDiffChromeFor(.system, "zh_CN.UTF-8").gap_expand_start);
+    try testing.expectEqualStrings("末尾", reviewDiffChromeFor(.system, "zh_CN.UTF-8").gap_expand_end);
+    try testing.expectEqualStrings("两端", reviewDiffChromeFor(.system, "zh_CN.UTF-8").gap_expand_both);
+    try testing.expectEqualStrings("全部", reviewDiffChromeFor(.system, "zh_CN.UTF-8").gap_expand_all);
     try testing.expectEqualStrings("レビュー", reviewDiffChromeFor(.system, "ja_JP.UTF-8").review_title);
     try testing.expectEqualStrings("キャンセル", reviewDiffChromeFor(.system, "ja_JP.UTF-8").cancel);
     try testing.expectEqualStrings("直前のターン", reviewDiffChromeFor(.system, "ja_JP.UTF-8").last_turn);
+    try testing.expectEqualStrings("先頭", reviewDiffChromeFor(.system, "ja_JP.UTF-8").gap_expand_start);
+    try testing.expectEqualStrings("末尾", reviewDiffChromeFor(.system, "ja_JP.UTF-8").gap_expand_end);
+    try testing.expectEqualStrings("両端", reviewDiffChromeFor(.system, "ja_JP.UTF-8").gap_expand_both);
+    try testing.expectEqualStrings("すべて", reviewDiffChromeFor(.system, "ja_JP.UTF-8").gap_expand_all);
     try testing.expectEqualStrings("Review", reviewDiffChromeFor(.english, "ja_JP.UTF-8").review_title);
     try testing.expectEqualStrings("Cancel", reviewDiffChromeFor(.english, "zh_CN.UTF-8").cancel);
     try testing.expectEqualStrings("Branch", reviewDiffChromeFor(.english, "ja_JP.UTF-8").branch);
@@ -1757,6 +1797,10 @@ test "reviewDiffChromeFor english default; zh and ja chrome; english ignores ja 
     try testing.expectEqualStrings("Unstaged", reviewDiffChromeFor(.english, "zh_CN.UTF-8").unstaged);
     try testing.expectEqualStrings("Committed", reviewDiffChromeFor(.english, "ja_JP.UTF-8").committed);
     try testing.expectEqualStrings("Last turn", reviewDiffChromeFor(.english, "zh_CN.UTF-8").last_turn);
+    try testing.expectEqualStrings("Start", reviewDiffChromeFor(.english, "ja_JP.UTF-8").gap_expand_start);
+    try testing.expectEqualStrings("End", reviewDiffChromeFor(.english, "zh_CN.UTF-8").gap_expand_end);
+    try testing.expectEqualStrings("Both", reviewDiffChromeFor(.english, "ja_JP.UTF-8").gap_expand_both);
+    try testing.expectEqualStrings("All", reviewDiffChromeFor(.english, "zh_CN.UTF-8").gap_expand_all);
 }
 
 test "backgroundChromeFor english default; zh and ja chrome; english ignores ja LANG" {

@@ -3686,6 +3686,30 @@ pub const Model = struct {
         return model.reviewDiffChrome().last_turn;
     }
 
+    /// Review Diff gap expand Start. `on-press` stays
+    /// `expand_review_diff_gap_start`.
+    pub fn review_diff_gap_expand_start_label(model: *const Model) []const u8 {
+        return model.reviewDiffChrome().gap_expand_start;
+    }
+
+    /// Review Diff gap expand End. `on-press` stays
+    /// `expand_review_diff_gap_end`.
+    pub fn review_diff_gap_expand_end_label(model: *const Model) []const u8 {
+        return model.reviewDiffChrome().gap_expand_end;
+    }
+
+    /// Review Diff gap expand Both. `on-press` stays
+    /// `expand_review_diff_gap_both`.
+    pub fn review_diff_gap_expand_both_label(model: *const Model) []const u8 {
+        return model.reviewDiffChrome().gap_expand_both;
+    }
+
+    /// Review Diff gap expand All. `on-press` stays
+    /// `expand_review_diff_gap_all`.
+    pub fn review_diff_gap_expand_all_label(model: *const Model) []const u8 {
+        return model.reviewDiffChrome().gap_expand_all;
+    }
+
     /// Header Environment info a11y and dropdown header. `on-press`
     /// stays `toggle_environment_summary`.
     pub fn environment_label(model: *const Model) []const u8 {

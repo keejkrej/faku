@@ -25250,6 +25250,128 @@ test "Review Diff header title / Cancel / source chips follow Appearance languag
     try testing.expectEqualStrings("Last turn", model.review_diff_source_last_turn_label());
 }
 
+test "Review Diff gap expand Start / End / Both / All follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{review_diff_gap_expand_start_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{review_diff_gap_expand_end_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{review_diff_gap_expand_both_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{review_diff_gap_expand_all_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"expand_review_diff_gap_start:{h.id}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"expand_review_diff_gap_end:{h.id}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"expand_review_diff_gap_both:{h.id}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"expand_review_diff_gap_all:{h.id}\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Start</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">End</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Both</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">All</button>"));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Start", model.review_diff_gap_expand_start_label());
+    try testing.expectEqualStrings("End", model.review_diff_gap_expand_end_label());
+    try testing.expectEqualStrings("Both", model.review_diff_gap_expand_both_label());
+    try testing.expectEqualStrings("All", model.review_diff_gap_expand_all_label());
+
+    main.update(&model, .show_right_panel, &fx);
+    try testing.expect(model.right_panel_open);
+    model.right_panel_tab = .diff;
+    model.review_diff_active = true;
+    try testing.expect(model.right_panel_showing_diff());
+
+    // Paint gap expand chrome without a git hunk probe: one trailing,
+    // leading, and between Gap so Start / End / Both / All all show.
+    // `hidden_len == gap_count` is the expandable rule; expandGap is
+    // unchanged and still covered by review_diff.zig.
+    var gaps = [_]review_diff.DiffLine{
+        .{ .kind = .gap, .gap_position = .trailing, .gap_count = 20, .hidden_len = 20 },
+        .{ .kind = .gap, .gap_position = .leading, .gap_count = 20, .hidden_len = 20 },
+        .{ .kind = .gap, .gap_position = .between, .gap_count = 20, .hidden_len = 20 },
+    };
+    model.review_diff_visible_store = &gaps;
+    model.review_diff_visible_count = gaps.len;
+    model.review_diff_hunk_len = 1;
+    defer {
+        model.review_diff_visible_store = &.{};
+        model.review_diff_visible_count = 0;
+        model.review_diff_hunk_len = 0;
+    }
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Start", .{ .expand_review_diff_gap_start = 1 });
+    _ = try expectButtonMsg(tree, "End", .{ .expand_review_diff_gap_end = 2 });
+    _ = try expectButtonMsg(tree, "Both", .{ .expand_review_diff_gap_both = 3 });
+    _ = try expectButtonMsg(tree, "All", .{ .expand_review_diff_gap_all = 1 });
+    _ = try expectButtonMsg(tree, "All", .{ .expand_review_diff_gap_all = 2 });
+    _ = try expectButtonMsg(tree, "All", .{ .expand_review_diff_gap_all = 3 });
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("开头", model.review_diff_gap_expand_start_label());
+    try testing.expectEqualStrings("末尾", model.review_diff_gap_expand_end_label());
+    try testing.expectEqualStrings("两端", model.review_diff_gap_expand_both_label());
+    try testing.expectEqualStrings("全部", model.review_diff_gap_expand_all_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "开头", .{ .expand_review_diff_gap_start = 1 });
+    _ = try expectButtonMsg(tree, "末尾", .{ .expand_review_diff_gap_end = 2 });
+    _ = try expectButtonMsg(tree, "两端", .{ .expand_review_diff_gap_both = 3 });
+    _ = try expectButtonMsg(tree, "全部", .{ .expand_review_diff_gap_all = 1 });
+    try testing.expect(findByText(tree.root, .button, "Start") == null);
+    try testing.expect(findByText(tree.root, .button, "End") == null);
+    try testing.expect(findByText(tree.root, .button, "Both") == null);
+    try testing.expect(findByText(tree.root, .button, "All") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("先頭", model.review_diff_gap_expand_start_label());
+    try testing.expectEqualStrings("末尾", model.review_diff_gap_expand_end_label());
+    try testing.expectEqualStrings("両端", model.review_diff_gap_expand_both_label());
+    try testing.expectEqualStrings("すべて", model.review_diff_gap_expand_all_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "先頭", .{ .expand_review_diff_gap_start = 1 });
+    _ = try expectButtonMsg(tree, "末尾", .{ .expand_review_diff_gap_end = 2 });
+    _ = try expectButtonMsg(tree, "両端", .{ .expand_review_diff_gap_both = 3 });
+    _ = try expectButtonMsg(tree, "すべて", .{ .expand_review_diff_gap_all = 1 });
+    try testing.expect(findByText(tree.root, .button, "开头") == null);
+    try testing.expect(findByText(tree.root, .button, "两端") == null);
+    try testing.expect(findByText(tree.root, .button, "全部") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Start", model.review_diff_gap_expand_start_label());
+    try testing.expectEqualStrings("End", model.review_diff_gap_expand_end_label());
+    try testing.expectEqualStrings("Both", model.review_diff_gap_expand_both_label());
+    try testing.expectEqualStrings("All", model.review_diff_gap_expand_all_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Start", .{ .expand_review_diff_gap_start = 1 });
+    _ = try expectButtonMsg(tree, "End", .{ .expand_review_diff_gap_end = 2 });
+    _ = try expectButtonMsg(tree, "Both", .{ .expand_review_diff_gap_both = 3 });
+    _ = try expectButtonMsg(tree, "All", .{ .expand_review_diff_gap_all = 3 });
+    try testing.expect(findByText(tree.root, .button, "先頭") == null);
+    try testing.expect(findByText(tree.root, .button, "両端") == null);
+    try testing.expect(findByText(tree.root, .button, "すべて") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("开头", model.review_diff_gap_expand_start_label());
+    try testing.expectEqualStrings("末尾", model.review_diff_gap_expand_end_label());
+    try testing.expectEqualStrings("两端", model.review_diff_gap_expand_both_label());
+    try testing.expectEqualStrings("全部", model.review_diff_gap_expand_all_label());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("先頭", model.review_diff_gap_expand_start_label());
+    try testing.expectEqualStrings("末尾", model.review_diff_gap_expand_end_label());
+    try testing.expectEqualStrings("両端", model.review_diff_gap_expand_both_label());
+    try testing.expectEqualStrings("すべて", model.review_diff_gap_expand_all_label());
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Start", model.review_diff_gap_expand_start_label());
+    try testing.expectEqualStrings("End", model.review_diff_gap_expand_end_label());
+    try testing.expectEqualStrings("Both", model.review_diff_gap_expand_both_label());
+    try testing.expectEqualStrings("All", model.review_diff_gap_expand_all_label());
+}
+
 test "Background row kind / status / stop chrome follow Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
