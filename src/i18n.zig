@@ -49,7 +49,13 @@
 //! strings; Cancel reuses `CommitChrome`) plus session-switcher
 //! title / Switch (same `SwitcherChrome` strings; Cancel reuses
 //! `CommitChrome`) plus Settings General / project-edit Workspace path
-//! placeholders (same `WorkspacePathChrome` strings) live
+//! placeholders (same `WorkspacePathChrome` strings) plus transcript
+//! Find placeholder (reuses `FilePreviewChrome.find`) and Find in
+//! transcript a11y (reuses `Palette.find_in_transcript`) plus session
+//! title untitled placeholders (same `UntitledChrome` strings; catalog
+//! titles stay English `untitled`) plus Settings General daemon address
+//! placeholder (same `DaemonAddressChrome` strings; Latin `host:port`
+//! in every locale) live
 //! here so `main.zig` does not grow. Palette ids / `PaletteAction` /
 //! keywords stay English.
 //! Wire `access_mode` ids stay `ask` / `auto` / `fullAccess`. Wire
@@ -101,7 +107,11 @@
 //! (`palette_cancel` / `palette_confirm` / `switcher_cancel` /
 //! `switcher_confirm`). Workspace path `on-input` stays English
 //! (`settings_project_edit` / `project_path_edit`); typed path text
-//! stays English (data). OS folder-dialog prompts stay leftover
+//! stays English (data). Transcript Find `on-input` / on-submit stay
+//! English (`find_edit` / `find_next`); typed query stays English
+//! (data). Session title `on-input` stays English
+//! (`session_title_edit`). Daemon address `on-input` stays English
+//! (`settings_daemon_edit`). OS folder-dialog prompts stay leftover
 //! English. Aa / Ab / .* glyphs stay. Path text and body content stay data.
 //! Not rust_i18n, not YAML catalogs, not full-app translation, not
 //! tz-aware grouping.
@@ -474,7 +484,8 @@ const interaction_ja: Interaction = .{
 /// the English spec label, the localized label, and English keywords.
 /// Expand / Collapse sidebar are chrome a11y
 /// (`sidebar_toggle_label`), not the palette "Toggle sidebar"
-/// command name.
+/// command name. Transcript Find a11y reuses `find_in_transcript`
+/// via a distinct Model getter; palette command wiring is unchanged.
 pub const Palette = struct {
     focus_composer: []const u8,
     toggle_sidebar: []const u8,
@@ -996,7 +1007,8 @@ const filter_chrome_ja: FilterChrome = .{
 /// `file_preview_find_replace_edit`). English matches the former
 /// hardcoded copy. Distinct from composer `Open in Editor` (title
 /// case). Aa / Ab / .* glyphs stay. Path text and body content stay
-/// data. Transcript Find placeholder stays on the transcript bar.
+/// data. Transcript Find placeholder reuses `find` via a distinct
+/// Model getter; a11y reuses `Palette.find_in_transcript`.
 pub const FilePreviewChrome = struct {
     unsaved: []const u8,
     preview: []const u8,
@@ -1379,6 +1391,48 @@ const workspace_path_chrome_ja: WorkspacePathChrome = .{
     .placeholder = "ワークスペースのパス",
 };
 
+/// Session title rename placeholders for the resolved locale. Same
+/// resolve path as WorkspacePathChrome. Wire ids / on-input stay
+/// English (`session_title_edit`). English matches the former
+/// hardcoded copy. Catalog titles stay English `untitled` (data,
+/// not chrome).
+pub const UntitledChrome = struct {
+    placeholder: []const u8,
+};
+
+const untitled_chrome_en: UntitledChrome = .{
+    .placeholder = "untitled",
+};
+
+const untitled_chrome_zh_cn: UntitledChrome = .{
+    .placeholder = "未命名",
+};
+
+const untitled_chrome_ja: UntitledChrome = .{
+    .placeholder = "無題",
+};
+
+/// Settings General daemon address placeholder for the resolved
+/// locale. Same resolve path as UntitledChrome. Wire ids / on-input
+/// stay English (`settings_daemon_edit`). Latin `host:port` in every
+/// locale (FX_MODEL-like technical token). English matches the former
+/// hardcoded copy. Typed address text stays data.
+pub const DaemonAddressChrome = struct {
+    placeholder: []const u8,
+};
+
+const daemon_address_chrome_en: DaemonAddressChrome = .{
+    .placeholder = "host:port",
+};
+
+const daemon_address_chrome_zh_cn: DaemonAddressChrome = .{
+    .placeholder = "host:port",
+};
+
+const daemon_address_chrome_ja: DaemonAddressChrome = .{
+    .placeholder = "host:port",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -1679,6 +1733,31 @@ pub fn workspacePathChromeFor(preference: LanguagePreference, system_locale_id: 
         .simplified_chinese => workspace_path_chrome_zh_cn,
         .japanese => workspace_path_chrome_ja,
         .system, .english => workspace_path_chrome_en,
+    };
+}
+
+/// Session title rename placeholders for the resolved locale. Callers
+/// pass Model `language_preference` + `system_locale_id`; this file
+/// does not read process env. Wire ids / on-input stay English.
+/// Catalog titles stay English `untitled` (data).
+pub fn untitledChromeFor(preference: LanguagePreference, system_locale_id: []const u8) UntitledChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => untitled_chrome_zh_cn,
+        .japanese => untitled_chrome_ja,
+        .system, .english => untitled_chrome_en,
+    };
+}
+
+/// Settings General daemon address placeholder for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Wire
+/// ids / on-input stay English. Latin `host:port` in every locale.
+/// Typed address text stays data.
+pub fn daemonAddressChromeFor(preference: LanguagePreference, system_locale_id: []const u8) DaemonAddressChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => daemon_address_chrome_zh_cn,
+        .japanese => daemon_address_chrome_ja,
+        .system, .english => daemon_address_chrome_en,
     };
 }
 
@@ -2753,5 +2832,33 @@ test "workspacePathChromeFor english default; zh and ja chrome; english ignores 
     try testing.expectEqualStrings("ワークスペースのパス", workspacePathChromeFor(.system, "ja_JP.UTF-8").placeholder);
     try testing.expectEqualStrings("Workspace path", workspacePathChromeFor(.english, "ja_JP.UTF-8").placeholder);
     try testing.expectEqualStrings("Workspace path", workspacePathChromeFor(.english, "zh_CN.UTF-8").placeholder);
+}
+
+test "untitledChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("untitled", untitledChromeFor(.english, "ja").placeholder);
+    try testing.expectEqualStrings("untitled", untitledChromeFor(.english, "").placeholder);
+    try testing.expectEqualStrings("untitled", untitledChromeFor(.system, "").placeholder);
+
+    try testing.expectEqualStrings("未命名", untitledChromeFor(.simplified_chinese, "").placeholder);
+    try testing.expectEqualStrings("無題", untitledChromeFor(.japanese, "").placeholder);
+
+    try testing.expectEqualStrings("未命名", untitledChromeFor(.system, "zh_CN.UTF-8").placeholder);
+    try testing.expectEqualStrings("無題", untitledChromeFor(.system, "ja_JP.UTF-8").placeholder);
+    try testing.expectEqualStrings("untitled", untitledChromeFor(.english, "ja_JP.UTF-8").placeholder);
+    try testing.expectEqualStrings("untitled", untitledChromeFor(.english, "zh_CN.UTF-8").placeholder);
+}
+
+test "daemonAddressChromeFor latin host:port in every locale; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("host:port", daemonAddressChromeFor(.english, "ja").placeholder);
+    try testing.expectEqualStrings("host:port", daemonAddressChromeFor(.english, "").placeholder);
+    try testing.expectEqualStrings("host:port", daemonAddressChromeFor(.system, "").placeholder);
+    try testing.expectEqualStrings("host:port", daemonAddressChromeFor(.simplified_chinese, "").placeholder);
+    try testing.expectEqualStrings("host:port", daemonAddressChromeFor(.japanese, "").placeholder);
+    try testing.expectEqualStrings("host:port", daemonAddressChromeFor(.system, "zh_CN.UTF-8").placeholder);
+    try testing.expectEqualStrings("host:port", daemonAddressChromeFor(.system, "ja_JP.UTF-8").placeholder);
+    try testing.expectEqualStrings("host:port", daemonAddressChromeFor(.english, "ja_JP.UTF-8").placeholder);
+    try testing.expectEqualStrings("host:port", daemonAddressChromeFor(.english, "zh_CN.UTF-8").placeholder);
 }
 
