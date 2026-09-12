@@ -3496,6 +3496,53 @@ pub const Model = struct {
         return model.composerProjectChrome().copy_path;
     }
 
+    /// Review Diff header title. Same EN Review as the Diff tab.
+    pub fn review_diff_title_label(model: *const Model) []const u8 {
+        return model.reviewDiffChrome().review_title;
+    }
+
+    /// Review Diff Cancel. `on-press` stays `close_review_diff`.
+    pub fn review_diff_cancel_label(model: *const Model) []const u8 {
+        return model.reviewDiffChrome().cancel;
+    }
+
+    /// Review Diff source chip Branch. `on-press` stays
+    /// `set_review_diff_source_branch`. Selected-state bool stays
+    /// `review_diff_source_branch`.
+    pub fn review_diff_source_branch_label(model: *const Model) []const u8 {
+        return model.reviewDiffChrome().branch;
+    }
+
+    /// Review Diff source chip Uncommitted. `on-press` stays
+    /// `set_review_diff_source_uncommitted`.
+    pub fn review_diff_source_uncommitted_label(model: *const Model) []const u8 {
+        return model.reviewDiffChrome().uncommitted;
+    }
+
+    /// Review Diff source chip Staged. `on-press` stays
+    /// `set_review_diff_source_staged`.
+    pub fn review_diff_source_staged_label(model: *const Model) []const u8 {
+        return model.reviewDiffChrome().staged;
+    }
+
+    /// Review Diff source chip Unstaged. `on-press` stays
+    /// `set_review_diff_source_unstaged`.
+    pub fn review_diff_source_unstaged_label(model: *const Model) []const u8 {
+        return model.reviewDiffChrome().unstaged;
+    }
+
+    /// Review Diff source chip Committed. `on-press` stays
+    /// `set_review_diff_source_committed`.
+    pub fn review_diff_source_committed_label(model: *const Model) []const u8 {
+        return model.reviewDiffChrome().committed;
+    }
+
+    /// Review Diff source chip Last turn. `on-press` stays
+    /// `set_review_diff_source_last_turn`.
+    pub fn review_diff_source_last_turn_label(model: *const Model) []const u8 {
+        return model.reviewDiffChrome().last_turn;
+    }
+
     pub fn switcher_rows(model: *const Model, arena: std.mem.Allocator) []const SessionRow {
         if (!model.switcher_open or model.switcher_count == 0) return &.{};
         const out = arena.alloc(SessionRow, model.switcher_count) catch return &.{};
@@ -4402,6 +4449,10 @@ pub const Model = struct {
 
     fn composerProjectChrome(model: *const Model) i18n.ComposerProjectChrome {
         return i18n.composerProjectChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn reviewDiffChrome(model: *const Model) i18n.ReviewDiffChrome {
+        return i18n.reviewDiffChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Palette row display label for `action`. New Task / Settings /
