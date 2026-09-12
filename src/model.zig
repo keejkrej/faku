@@ -6562,6 +6562,13 @@ pub const Model = struct {
         return model.composerChrome().attach_image;
     }
 
+    /// Composer Commands toggle chip. `on-press` stays
+    /// `toggle_commands`. Distinct from palette overlay Commands
+    /// (`i18n.PaletteChrome.commands`); wording matches that header.
+    pub fn composer_commands_label(model: *const Model) []const u8 {
+        return model.composerChrome().commands;
+    }
+
     /// True when last-known `tokensUsed` / `tokenBudget` / `timeUsedSeconds`
     /// can fill the muted composer meter.
     pub fn has_goal_usage(model: *const Model) bool {

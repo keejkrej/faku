@@ -1011,7 +1011,7 @@
               <input-group-actions>
                 <button variant="ghost" size="icon" icon="file-text" label="{attach_image_label}" on-press="pick_image"></button>
                 <if test="{has_commands}">
-                  <button variant="ghost" size="sm" selected="{commands_open}" on-press="toggle_commands">Commands</button>
+                  <button variant="ghost" size="sm" selected="{commands_open}" on-press="toggle_commands">{composer_commands_label}</button>
                 </if>
                 <stack>
                   <button variant="ghost" size="sm" selected="{model_picker_open}" on-press="toggle_model_picker">{model_label}</button>
