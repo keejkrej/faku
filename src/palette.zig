@@ -7,6 +7,9 @@
 //! all folders reuse Sidebar / Chrome strings; remaining names live
 //! in `i18n.Palette`). Section headers and empty-state lines follow
 //! Appearance via `Model.paletteOverlayChrome()` (`i18n.PaletteChrome`).
+//! Footer Confirm lives on that same chrome; Cancel reuses
+//! `CommitChrome.cancel` via `Model.palette_cancel_label()`. Dialog
+//! title `Command palette` stays leftover English.
 //! Ids / `PaletteAction` / keywords stay English. Matching checks the
 //! English spec label, the localized label, and English keywords.
 //! Behavior is otherwise unchanged from the former `main` palette helpers.

@@ -1290,7 +1290,7 @@
                     <button variant="ghost" size="sm" on-press="cancel_daemon_dir_browser">{daemon_dir_browser_cancel_label}</button>
                   </row>
                   <if test="{daemon_dir_browser_loading}">
-                    <text foreground="text_muted">Loading…</text>
+                    <text foreground="text_muted">{daemon_dir_browser_loading_label}</text>
                   </if>
                   <column>
                     <for each="daemon_dir_browser_rows" key="row_id" as="e">
@@ -1347,7 +1347,7 @@
                   <button variant="ghost" size="sm" on-press="copy_project_path">{copy_path_label}</button>
                 </if>
                 <if test="{project_is_local}">
-                  <button variant="ghost" size="sm" on-press="start_project_edit">Local</button>
+                  <button variant="ghost" size="sm" on-press="start_project_edit">{project_local_label}</button>
                 </if>
                 <if test="{can_pick_git_branch}">
                   <stack>
@@ -1391,7 +1391,7 @@
                 <if test="{can_pick_workspace_base}">
                   <text wrap="false" overflow="ellipsis" foreground="text_muted">{git_worktree_base_label}</text>
                   <stack>
-                    <button variant="ghost" size="sm" on-press="toggle_git_worktree_base_picker">Base</button>
+                    <button variant="ghost" size="sm" on-press="toggle_git_worktree_base_picker">{git_worktree_base_button_label}</button>
                     <if test="{git_worktree_base_picker_open}">
                       <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_git_worktree_base_picker">
                         <for each="git_worktree_base_rows" key="row_id" as="w">
@@ -1938,14 +1938,14 @@
           </column>
         </scroll>
         <row gap="8" main="end">
-          <button variant="ghost" on-press="palette_cancel">Cancel</button>
-          <button variant="primary" on-press="palette_confirm">Confirm</button>
+          <button variant="ghost" on-press="palette_cancel">{palette_cancel_label}</button>
+          <button variant="primary" on-press="palette_confirm">{palette_confirm_label}</button>
         </row>
       </column>
     </dialog>
   </if>
   <if test="{switcher_open}">
-    <dialog text="Switch session" width="420" height="420" padding="16" on-dismiss="switcher_cancel">
+    <dialog text="{switcher_title}" width="420" height="420" padding="16" on-dismiss="switcher_cancel">
       <column gap="8">
         <spacer height="34"></spacer>
         <scroll grow="1">
@@ -1963,8 +1963,8 @@
           </column>
         </scroll>
         <row gap="8" main="end">
-          <button variant="ghost" on-press="switcher_cancel">Cancel</button>
-          <button variant="primary" on-press="switcher_confirm">Switch</button>
+          <button variant="ghost" on-press="switcher_cancel">{switcher_cancel_label}</button>
+          <button variant="primary" on-press="switcher_confirm">{switcher_confirm_label}</button>
         </row>
       </column>
     </dialog>
