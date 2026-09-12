@@ -27524,6 +27524,143 @@ test "Settings General daemon address placeholder follows Appearance language" {
     try testing.expect(findByPlaceholder(tree.root, .text_field, "host:port") != null);
 }
 
+test "Settings General field labels follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{settings_default_model_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"{settings_model_placeholder}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{settings_access_mode_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{settings_interaction_field_label}"));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{settings_effort_field_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{settings_last_project_path_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{settings_daemon_address_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-input=\"settings_model_edit\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"toggle_settings_effort_picker\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "<text>Default model</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "<text>Access mode</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "<text>Interaction</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "<text>Effort</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "<text>Last project path</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "<text>Daemon address</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"FX_MODEL\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Effort\""));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Default model", model.settings_default_model_label());
+    try testing.expectEqualStrings("Access mode", model.settings_access_mode_label());
+    try testing.expectEqualStrings("Interaction", model.settings_interaction_field_label());
+    try testing.expectEqualStrings("Effort", model.settings_effort_field_label());
+    try testing.expectEqualStrings("Last project path", model.settings_last_project_path_label());
+    try testing.expectEqualStrings("Daemon address", model.settings_daemon_address_label());
+    try testing.expectEqualStrings("FX_MODEL", model.settings_model_placeholder());
+    try testing.expectEqualStrings(i18n.settingsGeneralChromeFor(.english, "").default_model, model.settings_default_model_label());
+    try testing.expectEqualStrings(i18n.settingsGeneralChromeFor(.english, "").default_model_placeholder, model.settings_model_placeholder());
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_open);
+    try testing.expect(model.settings_page_general());
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Default model");
+    _ = try expectByText(tree.root, .text, "Access mode");
+    _ = try expectByText(tree.root, .text, "Interaction");
+    _ = try expectByText(tree.root, .text, "Effort");
+    _ = try expectByText(tree.root, .text, "Last project path");
+    _ = try expectByText(tree.root, .text, "Daemon address");
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "FX_MODEL") != null);
+    try testing.expect(findByPlaceholder(tree.root, .select, "Effort") != null);
+    try testing.expect(findByText(tree.root, .text, "默认模型") == null);
+    _ = try expectButton(tree.root, "Ask");
+    _ = try expectButton(tree.root, "Build");
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "host:port") != null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("默认模型", model.settings_default_model_label());
+    try testing.expectEqualStrings("访问模式", model.settings_access_mode_label());
+    try testing.expectEqualStrings("交互", model.settings_interaction_field_label());
+    try testing.expectEqualStrings("力度", model.settings_effort_field_label());
+    try testing.expectEqualStrings("上次项目路径", model.settings_last_project_path_label());
+    try testing.expectEqualStrings("守护进程地址", model.settings_daemon_address_label());
+    try testing.expectEqualStrings("FX_MODEL", model.settings_model_placeholder());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "默认模型");
+    _ = try expectByText(tree.root, .text, "访问模式");
+    _ = try expectByText(tree.root, .text, "交互");
+    _ = try expectByText(tree.root, .text, "力度");
+    _ = try expectByText(tree.root, .text, "上次项目路径");
+    _ = try expectByText(tree.root, .text, "守护进程地址");
+    try testing.expect(findByText(tree.root, .text, "Default model") == null);
+    try testing.expect(findByText(tree.root, .text, "Last project path") == null);
+    try testing.expect(findByText(tree.root, .text, "Daemon address") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "FX_MODEL") != null);
+    try testing.expect(findByPlaceholder(tree.root, .select, "力度") != null);
+    try testing.expect(findByPlaceholder(tree.root, .select, "Effort") == null);
+    _ = try expectButton(tree.root, "询问");
+    _ = try expectButton(tree.root, "构建");
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "host:port") != null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("デフォルトモデル", model.settings_default_model_label());
+    try testing.expectEqualStrings("アクセスモード", model.settings_access_mode_label());
+    try testing.expectEqualStrings("インタラクション", model.settings_interaction_field_label());
+    try testing.expectEqualStrings("エフォート", model.settings_effort_field_label());
+    try testing.expectEqualStrings("前回のプロジェクトパス", model.settings_last_project_path_label());
+    try testing.expectEqualStrings("デーモンアドレス", model.settings_daemon_address_label());
+    try testing.expectEqualStrings("FX_MODEL", model.settings_model_placeholder());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "デフォルトモデル");
+    _ = try expectByText(tree.root, .text, "アクセスモード");
+    _ = try expectByText(tree.root, .text, "インタラクション");
+    _ = try expectByText(tree.root, .text, "エフォート");
+    _ = try expectByText(tree.root, .text, "前回のプロジェクトパス");
+    _ = try expectByText(tree.root, .text, "デーモンアドレス");
+    try testing.expect(findByText(tree.root, .text, "默认模型") == null);
+    try testing.expect(findByText(tree.root, .text, "Default model") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "FX_MODEL") != null);
+    try testing.expect(findByPlaceholder(tree.root, .select, "エフォート") != null);
+    _ = try expectButton(tree.root, "確認");
+    _ = try expectButton(tree.root, "ビルド");
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Default model", model.settings_default_model_label());
+    try testing.expectEqualStrings("Last project path", model.settings_last_project_path_label());
+    try testing.expectEqualStrings("FX_MODEL", model.settings_model_placeholder());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Default model");
+    _ = try expectByText(tree.root, .text, "Last project path");
+    try testing.expect(findByText(tree.root, .text, "デフォルトモデル") == null);
+    try testing.expect(findByPlaceholder(tree.root, .select, "Effort") != null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("默认模型", model.settings_default_model_label());
+    try testing.expectEqualStrings("上次项目路径", model.settings_last_project_path_label());
+    try testing.expectEqualStrings("守护进程地址", model.settings_daemon_address_label());
+    try testing.expectEqualStrings("FX_MODEL", model.settings_model_placeholder());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "默认模型");
+    _ = try expectByText(tree.root, .text, "上次项目路径");
+    _ = try expectByText(tree.root, .text, "守护进程地址");
+    try testing.expect(findByPlaceholder(tree.root, .select, "力度") != null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("デフォルトモデル", model.settings_default_model_label());
+    try testing.expectEqualStrings("前回のプロジェクトパス", model.settings_last_project_path_label());
+    try testing.expectEqualStrings("デーモンアドレス", model.settings_daemon_address_label());
+    try testing.expectEqualStrings("FX_MODEL", model.settings_model_placeholder());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "デフォルトモデル");
+    _ = try expectByText(tree.root, .text, "前回のプロジェクトパス");
+    _ = try expectByText(tree.root, .text, "デーモンアドレス");
+    try testing.expect(findByPlaceholder(tree.root, .select, "エフォート") != null);
+}
+
 test "DateBucket.title english default; zh and ja follow datesFor" {
     try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
     try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());

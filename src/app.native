@@ -795,22 +795,22 @@
           <if test="{settings_page_general}">
           <row grow="1" main="center">
             <column grow="1" max-width="720" gap="10" padding="14">
-              <text>Default model</text>
-              <text-field text="{settings_model}" placeholder="FX_MODEL" on-input="settings_model_edit" />
-              <text>Access mode</text>
+              <text>{settings_default_model_label}</text>
+              <text-field text="{settings_model}" placeholder="{settings_model_placeholder}" on-input="settings_model_edit" />
+              <text>{settings_access_mode_label}</text>
               <row gap="8">
                 <button variant="ghost" size="sm" selected="{access_ask}" on-press="settings_access_ask">{access_ask_label}</button>
                 <button variant="ghost" size="sm" selected="{access_auto}" on-press="settings_access_auto">{access_auto_label}</button>
                 <button variant="ghost" size="sm" selected="{access_full}" on-press="settings_access_full">{access_full_label}</button>
               </row>
-              <text>Interaction</text>
+              <text>{settings_interaction_field_label}</text>
               <row gap="8">
                 <button variant="ghost" size="sm" selected="{interaction_build}" on-press="settings_interaction_build">{interaction_build_label}</button>
                 <button variant="ghost" size="sm" selected="{interaction_plan}" on-press="settings_interaction_plan">{interaction_plan_label}</button>
               </row>
-              <text>Effort</text>
+              <text>{settings_effort_field_label}</text>
               <stack>
-                <select placeholder="Effort" on-press="toggle_settings_effort_picker">{settings_effort_label}</select>
+                <select placeholder="{settings_effort_field_label}" on-press="toggle_settings_effort_picker">{settings_effort_label}</select>
                 <if test="{settings_effort_picker_open}">
                   <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_settings_effort_picker">
                     <for each="settings_effort_picker_rows" key="row_id" as="e">
@@ -819,9 +819,9 @@
                   </dropdown-menu>
                 </if>
               </stack>
-              <text>Last project path</text>
+              <text>{settings_last_project_path_label}</text>
               <text-field text="{settings_project}" placeholder="{workspace_path_placeholder}" on-input="settings_project_edit" />
-              <text>Daemon address</text>
+              <text>{settings_daemon_address_label}</text>
               <text-field text="{settings_daemon}" placeholder="{daemon_address_placeholder}" on-input="settings_daemon_edit" />
             </column>
           </row>

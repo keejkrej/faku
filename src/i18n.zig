@@ -55,7 +55,11 @@
 //! title untitled placeholders (same `UntitledChrome` strings; catalog
 //! titles stay English `untitled`) plus Settings General daemon address
 //! placeholder (same `DaemonAddressChrome` strings; Latin `host:port`
-//! in every locale) plus OS folder-dialog prompts / missing-picker
+//! in every locale) plus Settings General field labels Default model /
+//! Access mode / Interaction / Effort / Last project path / Daemon
+//! address and Default model / Effort placeholders (same
+//! `SettingsGeneralChrome` strings; Latin `FX_MODEL` in every locale)
+//! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
 //! OS image-dialog prompts / missing-picker status (same
@@ -116,7 +120,12 @@
 //! English (`find_edit` / `find_next`); typed query stays English
 //! (data). Session title `on-input` stays English
 //! (`session_title_edit`). Daemon address `on-input` stays English
-//! (`settings_daemon_edit`). OS folder-dialog prompts / missing-picker
+//! (`settings_daemon_edit`). Settings General field labels / Default
+//! model / Effort placeholders (same `SettingsGeneralChrome` strings;
+//! Latin `FX_MODEL` in every locale) follow the resolved locale this
+//! cut. Settings model `on-input` stays English
+//! (`settings_model_edit`); effort picker `on-press` stays English
+//! (`toggle_settings_effort_picker`). OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript / PowerShell
 //! / zenity `--title` / kdialog `--title` at spawn) follow the
 //! resolved locale this cut. OS image-dialog prompts / missing-picker
@@ -1444,8 +1453,59 @@ const daemon_address_chrome_ja: DaemonAddressChrome = .{
     .placeholder = "host:port",
 };
 
+/// Settings General field labels (Default model / Access mode /
+/// Interaction / Effort / Last project path / Daemon address) plus
+/// Default model / Effort placeholders for the resolved locale. Same
+/// resolve path as DaemonAddressChrome. Wire ids / on-input /
+/// on-press stay English (`settings_model_edit` /
+/// `toggle_settings_effort_picker`). Latin `FX_MODEL` in every
+/// locale (FX_MODEL-like technical token, same rule as `host:port`).
+/// English matches the former hardcoded copy. Access / Interaction /
+/// Effort chip values stay on `Access` / `Interaction` / `Effort`.
+/// Daemon address placeholder stays on `DaemonAddressChrome`.
+/// Workspace path placeholder stays on `WorkspacePathChrome`.
+pub const SettingsGeneralChrome = struct {
+    default_model: []const u8,
+    access_mode: []const u8,
+    interaction: []const u8,
+    effort: []const u8,
+    last_project_path: []const u8,
+    daemon_address: []const u8,
+    default_model_placeholder: []const u8,
+};
+
+const settings_general_chrome_en: SettingsGeneralChrome = .{
+    .default_model = "Default model",
+    .access_mode = "Access mode",
+    .interaction = "Interaction",
+    .effort = "Effort",
+    .last_project_path = "Last project path",
+    .daemon_address = "Daemon address",
+    .default_model_placeholder = "FX_MODEL",
+};
+
+const settings_general_chrome_zh_cn: SettingsGeneralChrome = .{
+    .default_model = "默认模型",
+    .access_mode = "访问模式",
+    .interaction = "交互",
+    .effort = "力度",
+    .last_project_path = "上次项目路径",
+    .daemon_address = "守护进程地址",
+    .default_model_placeholder = "FX_MODEL",
+};
+
+const settings_general_chrome_ja: SettingsGeneralChrome = .{
+    .default_model = "デフォルトモデル",
+    .access_mode = "アクセスモード",
+    .interaction = "インタラクション",
+    .effort = "エフォート",
+    .last_project_path = "前回のプロジェクトパス",
+    .daemon_address = "デーモンアドレス",
+    .default_model_placeholder = "FX_MODEL",
+};
+
 /// OS folder-dialog prompt and missing-picker status for the resolved
-/// locale. Same resolve path as DaemonAddressChrome. English matches
+/// locale. Same resolve path as SettingsGeneralChrome. English matches
 /// the former hardcoded `pick_folder` osascript / PowerShell /
 /// zenity-or-kdialog copy. Binary names stay Latin (`zenity` /
 /// `kdialog` / `osascript` / `powershell.exe`). OS image-dialog
@@ -1837,6 +1897,22 @@ pub fn daemonAddressChromeFor(preference: LanguagePreference, system_locale_id: 
         .simplified_chinese => daemon_address_chrome_zh_cn,
         .japanese => daemon_address_chrome_ja,
         .system, .english => daemon_address_chrome_en,
+    };
+}
+
+/// Settings General field labels and Default model / Effort
+/// placeholders for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does not
+/// read process env. Wire ids / on-input / on-press stay English.
+/// Latin `FX_MODEL` in every locale. Access / Interaction / Effort
+/// chip values stay on `accessFor` / `interactionFor` / `effortFor`.
+/// Daemon address placeholder stays on `daemonAddressChromeFor`.
+/// Workspace path placeholder stays on `workspacePathChromeFor`.
+pub fn settingsGeneralChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SettingsGeneralChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => settings_general_chrome_zh_cn,
+        .japanese => settings_general_chrome_ja,
+        .system, .english => settings_general_chrome_en,
     };
 }
 
@@ -2964,6 +3040,44 @@ test "daemonAddressChromeFor latin host:port in every locale; english ignores ja
     try testing.expectEqualStrings("host:port", daemonAddressChromeFor(.system, "ja_JP.UTF-8").placeholder);
     try testing.expectEqualStrings("host:port", daemonAddressChromeFor(.english, "ja_JP.UTF-8").placeholder);
     try testing.expectEqualStrings("host:port", daemonAddressChromeFor(.english, "zh_CN.UTF-8").placeholder);
+}
+
+test "settingsGeneralChromeFor english default; zh and ja chrome; latin FX_MODEL; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Default model", settingsGeneralChromeFor(.english, "ja").default_model);
+    try testing.expectEqualStrings("Default model", settingsGeneralChromeFor(.english, "").default_model);
+    try testing.expectEqualStrings("Default model", settingsGeneralChromeFor(.system, "").default_model);
+    try testing.expectEqualStrings("Access mode", settingsGeneralChromeFor(.english, "").access_mode);
+    try testing.expectEqualStrings("Interaction", settingsGeneralChromeFor(.english, "").interaction);
+    try testing.expectEqualStrings("Effort", settingsGeneralChromeFor(.english, "").effort);
+    try testing.expectEqualStrings("Last project path", settingsGeneralChromeFor(.english, "").last_project_path);
+    try testing.expectEqualStrings("Daemon address", settingsGeneralChromeFor(.english, "").daemon_address);
+    try testing.expectEqualStrings("FX_MODEL", settingsGeneralChromeFor(.english, "").default_model_placeholder);
+
+    try testing.expectEqualStrings("默认模型", settingsGeneralChromeFor(.simplified_chinese, "").default_model);
+    try testing.expectEqualStrings("访问模式", settingsGeneralChromeFor(.simplified_chinese, "").access_mode);
+    try testing.expectEqualStrings("交互", settingsGeneralChromeFor(.simplified_chinese, "").interaction);
+    try testing.expectEqualStrings("力度", settingsGeneralChromeFor(.simplified_chinese, "").effort);
+    try testing.expectEqualStrings("上次项目路径", settingsGeneralChromeFor(.simplified_chinese, "").last_project_path);
+    try testing.expectEqualStrings("守护进程地址", settingsGeneralChromeFor(.simplified_chinese, "").daemon_address);
+    try testing.expectEqualStrings("FX_MODEL", settingsGeneralChromeFor(.simplified_chinese, "").default_model_placeholder);
+
+    try testing.expectEqualStrings("デフォルトモデル", settingsGeneralChromeFor(.japanese, "").default_model);
+    try testing.expectEqualStrings("アクセスモード", settingsGeneralChromeFor(.japanese, "").access_mode);
+    try testing.expectEqualStrings("インタラクション", settingsGeneralChromeFor(.japanese, "").interaction);
+    try testing.expectEqualStrings("エフォート", settingsGeneralChromeFor(.japanese, "").effort);
+    try testing.expectEqualStrings("前回のプロジェクトパス", settingsGeneralChromeFor(.japanese, "").last_project_path);
+    try testing.expectEqualStrings("デーモンアドレス", settingsGeneralChromeFor(.japanese, "").daemon_address);
+    try testing.expectEqualStrings("FX_MODEL", settingsGeneralChromeFor(.japanese, "").default_model_placeholder);
+
+    try testing.expectEqualStrings("默认模型", settingsGeneralChromeFor(.system, "zh_CN.UTF-8").default_model);
+    try testing.expectEqualStrings("デフォルトモデル", settingsGeneralChromeFor(.system, "ja_JP.UTF-8").default_model);
+    try testing.expectEqualStrings("Default model", settingsGeneralChromeFor(.english, "ja_JP.UTF-8").default_model);
+    try testing.expectEqualStrings("Default model", settingsGeneralChromeFor(.english, "zh_CN.UTF-8").default_model);
+    try testing.expectEqualStrings("上次项目路径", settingsGeneralChromeFor(.system, "zh_CN.UTF-8").last_project_path);
+    try testing.expectEqualStrings("デーモンアドレス", settingsGeneralChromeFor(.system, "ja_JP.UTF-8").daemon_address);
+    try testing.expectEqualStrings("FX_MODEL", settingsGeneralChromeFor(.system, "zh_CN.UTF-8").default_model_placeholder);
+    try testing.expectEqualStrings("FX_MODEL", settingsGeneralChromeFor(.system, "ja_JP.UTF-8").default_model_placeholder);
 }
 
 test "osFolderDialogChromeFor english default; zh and ja chrome; english ignores ja LANG" {
