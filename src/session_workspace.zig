@@ -125,14 +125,19 @@ const git_ahead_behind = @import("git_ahead_behind.zig");
 const session_fork = @import("fork.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const protocol = @import("protocol.zig");
+const i18n = @import("i18n.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
 const Session = main.Session;
 
 pub const preparing_status = "Creating worktree…";
+/// English chrome fallback. Localized Work in picker labels use
+/// `i18n.workspaceChromeFor`.
 pub const local_label = "Local";
 pub const new_worktree_label = "New worktree";
+/// Materialized worktree fallback when branch is empty. Git jargon;
+/// stays Latin in every locale.
 pub const worktree_fallback_label = "Worktree";
 
 pub fn isLocal(session: *const Session) bool {
@@ -166,10 +171,11 @@ pub fn canPickBase(model: *const Model) bool {
 }
 
 pub fn label(model: *const Model) []const u8 {
-    const session = model.sessionByIdConst(model.selected) orelse return local_label;
+    const chrome = i18n.workspaceChromeFor(model.language_preference, model.systemLocaleId());
+    const session = model.sessionByIdConst(model.selected) orelse return chrome.local;
     return switch (session.workspace_kind) {
-        .local => local_label,
-        .new_worktree => new_worktree_label,
+        .local => chrome.local,
+        .new_worktree => chrome.new_worktree,
         .worktree => if (session.workspaceBranch().len > 0) session.workspaceBranch() else worktree_fallback_label,
     };
 }
