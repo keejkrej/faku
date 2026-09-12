@@ -856,15 +856,15 @@
             </row>
           </if>
           <stack>
-            <button variant="ghost" size="icon" icon="info" label="Environment" selected="{environment_info_selected}" on-press="toggle_environment_summary" width="28" height="28"></button>
+            <button variant="ghost" size="icon" icon="info" label="{environment_label}" selected="{environment_info_selected}" on-press="toggle_environment_summary" width="28" height="28"></button>
             <if test="{environment_summary_open}">
               <dropdown-menu anchor="below" on-dismiss="close_environment_summary">
-                <text foreground="text_muted">Environment</text>
-                <menu-item on-press="environment_commit_or_push">Commit or Push</menu-item>
-                <menu-item on-press="environment_compare">Compare</menu-item>
-                <menu-item on-press="environment_copy_task_id">Copy task ID</menu-item>
+                <text foreground="text_muted">{environment_label}</text>
+                <menu-item on-press="environment_commit_or_push">{environment_commit_or_push_label}</menu-item>
+                <menu-item on-press="environment_compare">{environment_compare_label}</menu-item>
+                <menu-item on-press="environment_copy_task_id">{environment_copy_task_id_label}</menu-item>
                 <if test="{has_provider_session_id}">
-                  <menu-item on-press="environment_copy_agent_thread_id">Copy agent CLI thread ID</menu-item>
+                  <menu-item on-press="environment_copy_agent_thread_id">{environment_copy_agent_thread_id_label}</menu-item>
                 </if>
                 <if test="{has_background_section}">
                   <text foreground="text_muted">Background</text>
@@ -885,7 +885,7 @@
                     </if>
                   </for>
                   <if test="{has_dismissable_settled_background}">
-                    <menu-item on-press="environment_dismiss_settled_background">Dismiss all settled</menu-item>
+                    <menu-item on-press="environment_dismiss_settled_background">{environment_dismiss_all_settled_label}</menu-item>
                   </if>
                 </if>
               </dropdown-menu>

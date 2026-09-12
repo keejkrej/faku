@@ -25396,6 +25396,164 @@ test "Background row kind / status / stop chrome follow Appearance language" {
     try testing.expectEqualStrings("已完成", model.background_settled_status());
 }
 
+test "Environment menu chrome follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{environment_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{environment_commit_or_push_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{environment_compare_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{environment_copy_task_id_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{environment_copy_agent_thread_id_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{environment_dismiss_all_settled_label}"));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"toggle_environment_summary\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-dismiss=\"close_environment_summary\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"environment_commit_or_push\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"environment_compare\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"environment_copy_task_id\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"environment_copy_agent_thread_id\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"environment_dismiss_settled_background\"") != null);
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Environment\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Environment</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Commit or Push</menu-item>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Compare</menu-item>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Copy task ID</menu-item>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Copy agent CLI thread ID</menu-item>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Dismiss all settled</menu-item>"));
+
+    var model = main.initialModel();
+    const selected = model.selected;
+    try testing.expect(selected != 0);
+    if (model.sessionById(selected)) |session| {
+        session.setFxSessionId("fx-sess-env-chrome");
+    }
+    environment_summary.settle(&model, selected, .completed);
+    try testing.expect(model.has_provider_session_id());
+    try testing.expect(model.has_dismissable_settled_background());
+
+    try testing.expectEqualStrings("Environment", model.environment_label());
+    try testing.expectEqualStrings("Commit or Push", model.environment_commit_or_push_label());
+    try testing.expectEqualStrings("Compare", model.environment_compare_label());
+    try testing.expectEqualStrings("Copy task ID", model.environment_copy_task_id_label());
+    try testing.expectEqualStrings("Copy agent CLI thread ID", model.environment_copy_agent_thread_id_label());
+    try testing.expectEqualStrings("Dismiss all settled", model.environment_dismiss_all_settled_label());
+
+    main.update(&model, .toggle_environment_summary, &fx);
+    try testing.expect(model.environment_summary_open);
+    var tree = try buildTree(arena, &model);
+    const trigger = try expectByText(try expectByText(tree.root, .row, "Toolbar"), .button, "Environment");
+    try testing.expectEqual(Msg.toggle_environment_summary, tree.msgForPointer(trigger.id, .up).?);
+    _ = try expectByText(tree.root, .text, "Environment");
+    const commit_or_push = try expectByText(tree.root, .menu_item, "Commit or Push");
+    try testing.expectEqual(Msg.environment_commit_or_push, tree.msgForPointer(commit_or_push.id, .up).?);
+    const compare = try expectByText(tree.root, .menu_item, "Compare");
+    try testing.expectEqual(Msg.environment_compare, tree.msgForPointer(compare.id, .up).?);
+    const copy_task = try expectByText(tree.root, .menu_item, "Copy task ID");
+    try testing.expectEqual(Msg.environment_copy_task_id, tree.msgForPointer(copy_task.id, .up).?);
+    const copy_thread = try expectByText(tree.root, .menu_item, "Copy agent CLI thread ID");
+    try testing.expectEqual(Msg.environment_copy_agent_thread_id, tree.msgForPointer(copy_thread.id, .up).?);
+    const dismiss_all = try expectByText(tree.root, .menu_item, "Dismiss all settled");
+    try testing.expectEqual(Msg.environment_dismiss_settled_background, tree.msgForPointer(dismiss_all.id, .up).?);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("环境", model.environment_label());
+    try testing.expectEqualStrings("提交或推送", model.environment_commit_or_push_label());
+    try testing.expectEqualStrings("比较", model.environment_compare_label());
+    try testing.expectEqualStrings("复制任务 ID", model.environment_copy_task_id_label());
+    try testing.expectEqualStrings("复制代理 CLI 线程 ID", model.environment_copy_agent_thread_id_label());
+    try testing.expectEqualStrings("关闭全部已结束项", model.environment_dismiss_all_settled_label());
+    tree = try buildTree(arena, &model);
+    const zh_trigger = try expectByText(try expectByText(tree.root, .row, "Toolbar"), .button, "环境");
+    try testing.expectEqual(Msg.toggle_environment_summary, tree.msgForPointer(zh_trigger.id, .up).?);
+    _ = try expectByText(tree.root, .text, "环境");
+    const zh_commit = try expectByText(tree.root, .menu_item, "提交或推送");
+    try testing.expectEqual(Msg.environment_commit_or_push, tree.msgForPointer(zh_commit.id, .up).?);
+    const zh_compare = try expectByText(tree.root, .menu_item, "比较");
+    try testing.expectEqual(Msg.environment_compare, tree.msgForPointer(zh_compare.id, .up).?);
+    const zh_copy_task = try expectByText(tree.root, .menu_item, "复制任务 ID");
+    try testing.expectEqual(Msg.environment_copy_task_id, tree.msgForPointer(zh_copy_task.id, .up).?);
+    const zh_copy_thread = try expectByText(tree.root, .menu_item, "复制代理 CLI 线程 ID");
+    try testing.expectEqual(Msg.environment_copy_agent_thread_id, tree.msgForPointer(zh_copy_thread.id, .up).?);
+    const zh_dismiss = try expectByText(tree.root, .menu_item, "关闭全部已结束项");
+    try testing.expectEqual(Msg.environment_dismiss_settled_background, tree.msgForPointer(zh_dismiss.id, .up).?);
+    try testing.expect(findByText(tree.root, .button, "Environment") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Commit or Push") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Compare") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Copy task ID") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Copy agent CLI thread ID") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Dismiss all settled") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("環境", model.environment_label());
+    try testing.expectEqualStrings("コミットまたはプッシュ", model.environment_commit_or_push_label());
+    try testing.expectEqualStrings("比較", model.environment_compare_label());
+    try testing.expectEqualStrings("タスク ID をコピー", model.environment_copy_task_id_label());
+    try testing.expectEqualStrings("エージェント CLI スレッド ID をコピー", model.environment_copy_agent_thread_id_label());
+    try testing.expectEqualStrings("終了した項目をすべて閉じる", model.environment_dismiss_all_settled_label());
+    tree = try buildTree(arena, &model);
+    const ja_trigger = try expectByText(try expectByText(tree.root, .row, "Toolbar"), .button, "環境");
+    try testing.expectEqual(Msg.toggle_environment_summary, tree.msgForPointer(ja_trigger.id, .up).?);
+    _ = try expectByText(tree.root, .text, "環境");
+    const ja_commit = try expectByText(tree.root, .menu_item, "コミットまたはプッシュ");
+    try testing.expectEqual(Msg.environment_commit_or_push, tree.msgForPointer(ja_commit.id, .up).?);
+    const ja_compare = try expectByText(tree.root, .menu_item, "比較");
+    try testing.expectEqual(Msg.environment_compare, tree.msgForPointer(ja_compare.id, .up).?);
+    const ja_copy_task = try expectByText(tree.root, .menu_item, "タスク ID をコピー");
+    try testing.expectEqual(Msg.environment_copy_task_id, tree.msgForPointer(ja_copy_task.id, .up).?);
+    const ja_copy_thread = try expectByText(tree.root, .menu_item, "エージェント CLI スレッド ID をコピー");
+    try testing.expectEqual(Msg.environment_copy_agent_thread_id, tree.msgForPointer(ja_copy_thread.id, .up).?);
+    const ja_dismiss = try expectByText(tree.root, .menu_item, "終了した項目をすべて閉じる");
+    try testing.expectEqual(Msg.environment_dismiss_settled_background, tree.msgForPointer(ja_dismiss.id, .up).?);
+    try testing.expect(findByText(tree.root, .button, "环境") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "提交或推送") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "关闭全部已结束项") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Environment", model.environment_label());
+    try testing.expectEqualStrings("Commit or Push", model.environment_commit_or_push_label());
+    try testing.expectEqualStrings("Compare", model.environment_compare_label());
+    try testing.expectEqualStrings("Copy task ID", model.environment_copy_task_id_label());
+    try testing.expectEqualStrings("Copy agent CLI thread ID", model.environment_copy_agent_thread_id_label());
+    try testing.expectEqualStrings("Dismiss all settled", model.environment_dismiss_all_settled_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(try expectByText(tree.root, .row, "Toolbar"), .button, "Environment");
+    _ = try expectByText(tree.root, .text, "Environment");
+    const en_commit = try expectByText(tree.root, .menu_item, "Commit or Push");
+    try testing.expectEqual(Msg.environment_commit_or_push, tree.msgForPointer(en_commit.id, .up).?);
+    try testing.expect(findByText(tree.root, .button, "環境") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "コミットまたはプッシュ") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "終了した項目をすべて閉じる") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("环境", model.environment_label());
+    try testing.expectEqualStrings("提交或推送", model.environment_commit_or_push_label());
+    try testing.expectEqualStrings("比较", model.environment_compare_label());
+    try testing.expectEqualStrings("复制任务 ID", model.environment_copy_task_id_label());
+    try testing.expectEqualStrings("复制代理 CLI 线程 ID", model.environment_copy_agent_thread_id_label());
+    try testing.expectEqualStrings("关闭全部已结束项", model.environment_dismiss_all_settled_label());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("環境", model.environment_label());
+    try testing.expectEqualStrings("コミットまたはプッシュ", model.environment_commit_or_push_label());
+    try testing.expectEqualStrings("比較", model.environment_compare_label());
+    try testing.expectEqualStrings("タスク ID をコピー", model.environment_copy_task_id_label());
+    try testing.expectEqualStrings("エージェント CLI スレッド ID をコピー", model.environment_copy_agent_thread_id_label());
+    try testing.expectEqualStrings("終了した項目をすべて閉じる", model.environment_dismiss_all_settled_label());
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Environment", model.environment_label());
+    try testing.expectEqualStrings("Commit or Push", model.environment_commit_or_push_label());
+    try testing.expectEqualStrings("Compare", model.environment_compare_label());
+    try testing.expectEqualStrings("Copy task ID", model.environment_copy_task_id_label());
+    try testing.expectEqualStrings("Copy agent CLI thread ID", model.environment_copy_agent_thread_id_label());
+    try testing.expectEqualStrings("Dismiss all settled", model.environment_dismiss_all_settled_label());
+}
+
 test "DateBucket.title english default; zh and ja follow datesFor" {
     try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
     try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());
@@ -26104,7 +26262,7 @@ test "header Environment trigger opens a dropdown; Esc and second click close it
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_stop_background:{b.id}") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_stop_background:{b.id}").? < std.mem.indexOf(u8, main.app_markup, "environment_dismiss_settled_background").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "has_dismissable_settled_background") != null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "Dismiss all settled") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{environment_dismiss_all_settled_label}") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{b.kind_label}").? < std.mem.indexOf(u8, main.app_markup, "{b.title}").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{b.title}").? < std.mem.indexOf(u8, main.app_markup, "b.has_detail").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "b.has_detail").? < std.mem.indexOf(u8, main.app_markup, "{b.detail}").?);
