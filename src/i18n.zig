@@ -69,6 +69,8 @@
 //! Secure / Not secure a11y (same `BrowserToolbarChrome` strings)
 //! plus sidebar titlebar session-history Back / Forward a11y
 //! (same `SidebarHistoryChrome` strings)
+//! plus Browser / Terminal multi-session New / Close chips
+//! (same `SessionChipsChrome` strings)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -144,7 +146,9 @@
 //! `browser_navigate`). Browser toolbar `on-press` stays English
 //! (`browser_back` / `browser_forward` / `browser_reload` /
 //! `browser_navigate`). Sidebar titlebar history `on-press` stays
-//! English (`history_back` / `history_forward`). Typed URL text
+//! English (`history_back` / `history_forward`). Browser / Terminal
+//! session-chip `on-press` stays English (`new_browser` /
+//! `close_browser` / `new_terminal` / `close_terminal`). Typed URL text
 //! stays data. Parked `home_url`
 //! / scene URLs stay data. OS
 //! folder-dialog prompts / missing-picker
@@ -1730,6 +1734,37 @@ const sidebar_history_chrome_ja: SidebarHistoryChrome = .{
     .forward = "進む",
 };
 
+/// Browser / Terminal multi-session New / Close chips for the
+/// resolved locale. Same resolve path as SidebarHistoryChrome.
+/// English matches the former hardcoded copy. zh-CN New is 新建
+/// (same verb as New Task / New folder / New branch). ja New is
+/// compact 新規 (chip, not 新しい…). Close wording matches
+/// FilePreviewChrome.close (关闭 / 閉じる) but stays in this
+/// dedicated struct so Browser / Terminal do not silently couple
+/// to file-preview Close. Wire ids / on-press stay English
+/// (`new_browser` / `close_browser` / `new_terminal` /
+/// `close_terminal`). Browser and Terminal share identical
+/// wording.
+pub const SessionChipsChrome = struct {
+    new: []const u8,
+    close: []const u8,
+};
+
+const session_chips_chrome_en: SessionChipsChrome = .{
+    .new = "New",
+    .close = "Close",
+};
+
+const session_chips_chrome_zh_cn: SessionChipsChrome = .{
+    .new = "新建",
+    .close = "关闭",
+};
+
+const session_chips_chrome_ja: SessionChipsChrome = .{
+    .new = "新規",
+    .close = "閉じる",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -2150,6 +2185,20 @@ pub fn sidebarHistoryChromeFor(preference: LanguagePreference, system_locale_id:
         .simplified_chinese => sidebar_history_chrome_zh_cn,
         .japanese => sidebar_history_chrome_ja,
         .system, .english => sidebar_history_chrome_en,
+    };
+}
+
+/// Browser / Terminal multi-session New / Close chips for the
+/// resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Wire
+/// ids / on-press stay English. Browser and Terminal share these
+/// strings. Distinct from Files preview Close
+/// (`close_right_panel_file_preview`).
+pub fn sessionChipsChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SessionChipsChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => session_chips_chrome_zh_cn,
+        .japanese => session_chips_chrome_ja,
+        .system, .english => session_chips_chrome_en,
     };
 }
 
@@ -3472,5 +3521,32 @@ test "sidebarHistoryChromeFor english default; zh and ja chrome; english ignores
     try testing.expectEqualStrings("Forward", sidebarHistoryChromeFor(.english, "zh_CN.UTF-8").forward);
     try testing.expectEqualStrings("Back", sidebarHistoryChromeFor(.english, "zh_CN.UTF-8").back);
     try testing.expectEqualStrings("Forward", sidebarHistoryChromeFor(.english, "ja_JP.UTF-8").forward);
+}
+
+test "sessionChipsChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("New", sessionChipsChromeFor(.english, "ja").new);
+    try testing.expectEqualStrings("New", sessionChipsChromeFor(.english, "").new);
+    try testing.expectEqualStrings("New", sessionChipsChromeFor(.system, "").new);
+    try testing.expectEqualStrings("Close", sessionChipsChromeFor(.english, "").close);
+    try testing.expectEqualStrings("Close", sessionChipsChromeFor(.system, "").close);
+    try testing.expectEqualStrings(filePreviewChromeFor(.english, "").close, sessionChipsChromeFor(.english, "").close);
+
+    try testing.expectEqualStrings("新建", sessionChipsChromeFor(.simplified_chinese, "").new);
+    try testing.expectEqualStrings("关闭", sessionChipsChromeFor(.simplified_chinese, "").close);
+    try testing.expectEqualStrings(filePreviewChromeFor(.simplified_chinese, "").close, sessionChipsChromeFor(.simplified_chinese, "").close);
+
+    try testing.expectEqualStrings("新規", sessionChipsChromeFor(.japanese, "").new);
+    try testing.expectEqualStrings("閉じる", sessionChipsChromeFor(.japanese, "").close);
+    try testing.expectEqualStrings(filePreviewChromeFor(.japanese, "").close, sessionChipsChromeFor(.japanese, "").close);
+
+    try testing.expectEqualStrings("新建", sessionChipsChromeFor(.system, "zh_CN.UTF-8").new);
+    try testing.expectEqualStrings("关闭", sessionChipsChromeFor(.system, "zh_CN.UTF-8").close);
+    try testing.expectEqualStrings("新規", sessionChipsChromeFor(.system, "ja_JP.UTF-8").new);
+    try testing.expectEqualStrings("閉じる", sessionChipsChromeFor(.system, "ja_JP.UTF-8").close);
+    try testing.expectEqualStrings("New", sessionChipsChromeFor(.english, "ja_JP.UTF-8").new);
+    try testing.expectEqualStrings("Close", sessionChipsChromeFor(.english, "zh_CN.UTF-8").close);
+    try testing.expectEqualStrings("New", sessionChipsChromeFor(.english, "zh_CN.UTF-8").new);
+    try testing.expectEqualStrings("Close", sessionChipsChromeFor(.english, "ja_JP.UTF-8").close);
 }
 

@@ -26115,7 +26115,7 @@ test "Files preview toolbar chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Truncated — showing first 256 KB<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Binary file — not shown<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Find\""));
-    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, ">Close</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Close</button>"));
 
     var model = Model{};
     model.store_io = testing.io;
@@ -28127,6 +28127,119 @@ test "Sidebar titlebar history chrome follows Appearance language; Browser toolb
     _ = try expectButtonMsg(tree, "戻る", .history_back);
     _ = try expectButtonMsg(tree, "進む", .history_forward);
     try testing.expect(findByText(tree.root, .button, "Back") == null);
+}
+
+test "Browser / Terminal session New / Close chips follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{session_chip_new_label}"));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{session_chip_close_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"new_browser\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"close_browser\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"new_terminal\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"close_terminal\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"new_browser\">New</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"close_browser\">Close</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"new_terminal\">New</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"close_terminal\">Close</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">New</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Close</button>"));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("New", model.session_chip_new_label());
+    try testing.expectEqualStrings("Close", model.session_chip_close_label());
+    try testing.expectEqualStrings(i18n.sessionChipsChromeFor(.english, "").new, model.session_chip_new_label());
+    try testing.expectEqualStrings(i18n.sessionChipsChromeFor(.english, "").close, model.session_chip_close_label());
+    try testing.expectEqualStrings(model.file_preview_close_label(), model.session_chip_close_label());
+
+    main.update(&model, .show_right_panel, &fx);
+    main.update(&model, .set_right_panel_tab_browser, &fx);
+    try testing.expect(model.right_panel_showing_browser());
+    try testing.expect(model.can_new_browser());
+    try testing.expect(!model.can_close_browser());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "New", .new_browser);
+    try testing.expect(findByText(tree.root, .button, "Close") == null);
+
+    main.update(&model, .new_browser, &fx);
+    try testing.expect(model.can_close_browser());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "New", .new_browser);
+    _ = try expectButtonMsg(tree, "Close", .close_browser);
+
+    main.update(&model, .set_right_panel_tab_terminal, &fx);
+    try testing.expect(model.right_panel_showing_terminal());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "New", .new_terminal);
+    _ = try expectButtonMsg(tree, "Close", .close_terminal);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("新建", model.session_chip_new_label());
+    try testing.expectEqualStrings("关闭", model.session_chip_close_label());
+    try testing.expectEqualStrings(i18n.sessionChipsChromeFor(.simplified_chinese, "").new, model.session_chip_new_label());
+    try testing.expectEqualStrings(i18n.sessionChipsChromeFor(.simplified_chinese, "").close, model.session_chip_close_label());
+    try testing.expectEqualStrings(model.file_preview_close_label(), model.session_chip_close_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "新建", .new_terminal);
+    _ = try expectButtonMsg(tree, "关闭", .close_terminal);
+    try testing.expect(findByText(tree.root, .button, "New") == null);
+    try testing.expect(findByText(tree.root, .button, "Close") == null);
+
+    main.update(&model, .set_right_panel_tab_browser, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "新建", .new_browser);
+    _ = try expectButtonMsg(tree, "关闭", .close_browser);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("新規", model.session_chip_new_label());
+    try testing.expectEqualStrings("閉じる", model.session_chip_close_label());
+    try testing.expectEqualStrings(i18n.sessionChipsChromeFor(.japanese, "").new, model.session_chip_new_label());
+    try testing.expectEqualStrings(i18n.sessionChipsChromeFor(.japanese, "").close, model.session_chip_close_label());
+    try testing.expectEqualStrings(model.file_preview_close_label(), model.session_chip_close_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "新規", .new_browser);
+    _ = try expectButtonMsg(tree, "閉じる", .close_browser);
+    try testing.expect(findByText(tree.root, .button, "New") == null);
+    try testing.expect(findByText(tree.root, .button, "新建") == null);
+
+    main.update(&model, .set_right_panel_tab_terminal, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "新規", .new_terminal);
+    _ = try expectButtonMsg(tree, "閉じる", .close_terminal);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("New", model.session_chip_new_label());
+    try testing.expectEqualStrings("Close", model.session_chip_close_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "New", .new_terminal);
+    _ = try expectButtonMsg(tree, "Close", .close_terminal);
+    try testing.expect(findByText(tree.root, .button, "新規") == null);
+    try testing.expect(findByText(tree.root, .button, "閉じる") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("新建", model.session_chip_new_label());
+    try testing.expectEqualStrings("关闭", model.session_chip_close_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "新建", .new_terminal);
+    _ = try expectButtonMsg(tree, "关闭", .close_terminal);
+    try testing.expect(findByText(tree.root, .button, "New") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("新規", model.session_chip_new_label());
+    try testing.expectEqualStrings("閉じる", model.session_chip_close_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "新規", .new_terminal);
+    _ = try expectButtonMsg(tree, "閉じる", .close_terminal);
+    try testing.expect(findByText(tree.root, .button, "New") == null);
 }
 
 test "DateBucket.title english default; zh and ja follow datesFor" {

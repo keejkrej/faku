@@ -1625,10 +1625,10 @@
                 <button variant="ghost" size="sm" selected="{b.selected}" on-press="select_browser_session:{b.id}">{b.label}</button>
               </for>
               <if test="{can_new_browser}">
-                <button variant="ghost" size="sm" on-press="new_browser">New</button>
+                <button variant="ghost" size="sm" on-press="new_browser">{session_chip_new_label}</button>
               </if>
               <if test="{can_close_browser}">
-                <button variant="ghost" size="sm" on-press="close_browser">Close</button>
+                <button variant="ghost" size="sm" on-press="close_browser">{session_chip_close_label}</button>
               </if>
             </row>
             <row gap="6" cross="center">
@@ -1667,10 +1667,10 @@
                 <button variant="ghost" size="sm" selected="{t.selected}" on-press="select_term_session:{t.id}">{t.label}</button>
               </for>
               <if test="{can_new_terminal}">
-                <button variant="ghost" size="sm" on-press="new_terminal">New</button>
+                <button variant="ghost" size="sm" on-press="new_terminal">{session_chip_new_label}</button>
               </if>
               <if test="{can_close_terminal}">
-                <button variant="ghost" size="sm" on-press="close_terminal">Close</button>
+                <button variant="ghost" size="sm" on-press="close_terminal">{session_chip_close_label}</button>
               </if>
               <if test="{can_restart_terminal}">
                 <button variant="ghost" size="sm" on-press="restart_terminal">Restart</button>
