@@ -27868,7 +27868,7 @@ test "Browser Address field chrome follows Appearance language; placeholder stay
     _ = try expectByText(tree.root, .text_field, "地址");
     try testing.expect(findByText(tree.root, .text_field, "Address") == null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "https://example.com") != null);
-    _ = try expectButtonMsg(tree, "Navigate", .browser_navigate);
+    _ = try expectButtonMsg(tree, "转到", .browser_navigate);
 
     model.language_preference = .japanese;
     try testing.expectEqualStrings("アドレス", model.browser_address_label());
@@ -27900,6 +27900,147 @@ test "Browser Address field chrome follows Appearance language; placeholder stay
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text_field, "アドレス");
     try testing.expect(findByPlaceholder(tree.root, .text_field, "https://example.com") != null);
+}
+
+test "Browser toolbar chrome follows Appearance language; history Back/Forward stay English" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{browser_back_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{browser_forward_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{browser_reload_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, ">{browser_navigate_label}</button>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{browser_secure_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{browser_not_secure_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"browser_back\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"browser_forward\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"browser_reload\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"browser_navigate\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Back\" on-press=\"browser_back\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Forward\" on-press=\"browser_forward\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Reload\" on-press=\"browser_reload\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"browser_navigate\">Navigate</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Secure\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Not secure\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"Back\" on-press=\"history_back\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"Forward\" on-press=\"history_forward\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"{browser_address_placeholder}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{browser_address_label}\""));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Back", model.browser_back_label());
+    try testing.expectEqualStrings("Forward", model.browser_forward_label());
+    try testing.expectEqualStrings("Reload", model.browser_reload_label());
+    try testing.expectEqualStrings("Navigate", model.browser_navigate_label());
+    try testing.expectEqualStrings("Secure", model.browser_secure_label());
+    try testing.expectEqualStrings("Not secure", model.browser_not_secure_label());
+    try testing.expectEqualStrings(i18n.browserToolbarChromeFor(.english, "").back, model.browser_back_label());
+    try testing.expectEqualStrings(i18n.browserToolbarChromeFor(.english, "").forward, model.browser_forward_label());
+    try testing.expectEqualStrings(i18n.browserToolbarChromeFor(.english, "").reload, model.browser_reload_label());
+    try testing.expectEqualStrings(i18n.browserToolbarChromeFor(.english, "").navigate, model.browser_navigate_label());
+    try testing.expectEqualStrings(i18n.browserToolbarChromeFor(.english, "").secure, model.browser_secure_label());
+    try testing.expectEqualStrings(i18n.browserToolbarChromeFor(.english, "").not_secure, model.browser_not_secure_label());
+
+    main.update(&model, .show_right_panel, &fx);
+    main.update(&model, .set_right_panel_tab_browser, &fx);
+    try testing.expect(model.right_panel_showing_browser());
+    try testing.expect(!model.browser_url_secure());
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findNthByText(tree.root, .button, "Back", 1) != null);
+    try testing.expect(findNthByText(tree.root, .button, "Forward", 1) != null);
+    _ = try expectByText(tree.root, .button, "Reload");
+    _ = try expectButtonMsg(tree, "Navigate", .browser_navigate);
+    _ = try expectByText(tree.root, .button, "Back");
+    _ = try expectByText(tree.root, .button, "Forward");
+    _ = try expectByText(tree.root, .icon, "Not secure");
+    try testing.expect(findByText(tree.root, .icon, "Secure") == null);
+    _ = try expectByText(tree.root, .text_field, "Address");
+
+    main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://example.com" } }, &fx);
+    main.update(&model, .browser_navigate, &fx);
+    try testing.expect(model.browser_url_secure());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .icon, "Secure");
+    try testing.expect(findByText(tree.root, .icon, "Not secure") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("返回", model.browser_back_label());
+    try testing.expectEqualStrings("前进", model.browser_forward_label());
+    try testing.expectEqualStrings("重新加载", model.browser_reload_label());
+    try testing.expectEqualStrings("转到", model.browser_navigate_label());
+    try testing.expectEqualStrings("安全", model.browser_secure_label());
+    try testing.expectEqualStrings("不安全", model.browser_not_secure_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "返回");
+    _ = try expectByText(tree.root, .button, "前进");
+    _ = try expectByText(tree.root, .button, "重新加载");
+    _ = try expectButtonMsg(tree, "转到", .browser_navigate);
+    _ = try expectByText(tree.root, .button, "Back");
+    _ = try expectByText(tree.root, .button, "Forward");
+    try testing.expect(findNthByText(tree.root, .button, "Back", 1) == null);
+    try testing.expect(findNthByText(tree.root, .button, "Forward", 1) == null);
+    _ = try expectByText(tree.root, .icon, "安全");
+    try testing.expect(findByText(tree.root, .button, "Navigate") == null);
+    try testing.expect(findByText(tree.root, .icon, "Secure") == null);
+    _ = try expectByText(tree.root, .text_field, "地址");
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("戻る", model.browser_back_label());
+    try testing.expectEqualStrings("進む", model.browser_forward_label());
+    try testing.expectEqualStrings("再読み込み", model.browser_reload_label());
+    try testing.expectEqualStrings("移動", model.browser_navigate_label());
+    try testing.expectEqualStrings("安全", model.browser_secure_label());
+    try testing.expectEqualStrings("保護されていません", model.browser_not_secure_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "戻る");
+    _ = try expectByText(tree.root, .button, "進む");
+    _ = try expectByText(tree.root, .button, "再読み込み");
+    _ = try expectButtonMsg(tree, "移動", .browser_navigate);
+    _ = try expectByText(tree.root, .button, "Back");
+    _ = try expectByText(tree.root, .button, "Forward");
+    _ = try expectByText(tree.root, .icon, "安全");
+    try testing.expect(findByText(tree.root, .button, "转到") == null);
+    try testing.expect(findByText(tree.root, .icon, "Secure") == null);
+    _ = try expectByText(tree.root, .text_field, "アドレス");
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Back", model.browser_back_label());
+    try testing.expectEqualStrings("Navigate", model.browser_navigate_label());
+    try testing.expectEqualStrings("Not secure", model.browser_not_secure_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findNthByText(tree.root, .button, "Back", 1) != null);
+    _ = try expectButtonMsg(tree, "Navigate", .browser_navigate);
+    _ = try expectByText(tree.root, .icon, "Secure");
+    try testing.expect(findByText(tree.root, .button, "戻る") == null);
+    try testing.expect(findByText(tree.root, .button, "移動") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("返回", model.browser_back_label());
+    try testing.expectEqualStrings("转到", model.browser_navigate_label());
+    try testing.expectEqualStrings("安全", model.browser_secure_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "返回");
+    _ = try expectButtonMsg(tree, "转到", .browser_navigate);
+    _ = try expectByText(tree.root, .button, "Back");
+    _ = try expectByText(tree.root, .icon, "安全");
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("戻る", model.browser_back_label());
+    try testing.expectEqualStrings("移動", model.browser_navigate_label());
+    try testing.expectEqualStrings("保護されていません", model.browser_not_secure_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "戻る");
+    _ = try expectButtonMsg(tree, "移動", .browser_navigate);
+    _ = try expectByText(tree.root, .button, "Back");
+    _ = try expectByText(tree.root, .icon, "安全");
 }
 
 test "DateBucket.title english default; zh and ja follow datesFor" {

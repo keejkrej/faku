@@ -65,6 +65,8 @@
 //! plus Browser address-field Address label and
 //! `https://example.com` placeholder (same `BrowserAddressChrome`
 //! strings; Latin `https://example.com` in every locale)
+//! plus Browser toolbar Back / Forward / Reload / Navigate and
+//! Secure / Not secure a11y (same `BrowserToolbarChrome` strings)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -137,6 +139,8 @@
 //! image `on-press` stays English (`pick_image`). Typed path text stays
 //! English (data). ThreadGoalStatus wire names stay English. Browser
 //! address `on-input` / on-submit stay English (`browser_url_edit` /
+//! `browser_navigate`). Browser toolbar `on-press` stays English
+//! (`browser_back` / `browser_forward` / `browser_reload` /
 //! `browser_navigate`). Typed URL text stays data. Parked `home_url`
 //! / scene URLs stay data. OS
 //! folder-dialog prompts / missing-picker
@@ -1649,6 +1653,50 @@ const browser_address_chrome_ja: BrowserAddressChrome = .{
     .placeholder = "https://example.com",
 };
 
+/// Browser toolbar Back / Forward / Reload / Navigate and Secure /
+/// Not secure a11y for the resolved locale. Same resolve path as
+/// BrowserAddressChrome. English matches the former hardcoded copy.
+/// Wire ids / on-press stay English (`browser_back` /
+/// `browser_forward` / `browser_reload` / `browser_navigate`).
+/// Typed URL text stays data. Parked `home_url` / shell webview
+/// scene URLs stay data. Distinct from sidebar titlebar transcript
+/// history Back / Forward (`history_back` / `history_forward`).
+pub const BrowserToolbarChrome = struct {
+    back: []const u8,
+    forward: []const u8,
+    reload: []const u8,
+    navigate: []const u8,
+    secure: []const u8,
+    not_secure: []const u8,
+};
+
+const browser_toolbar_chrome_en: BrowserToolbarChrome = .{
+    .back = "Back",
+    .forward = "Forward",
+    .reload = "Reload",
+    .navigate = "Navigate",
+    .secure = "Secure",
+    .not_secure = "Not secure",
+};
+
+const browser_toolbar_chrome_zh_cn: BrowserToolbarChrome = .{
+    .back = "返回",
+    .forward = "前进",
+    .reload = "重新加载",
+    .navigate = "转到",
+    .secure = "安全",
+    .not_secure = "不安全",
+};
+
+const browser_toolbar_chrome_ja: BrowserToolbarChrome = .{
+    .back = "戻る",
+    .forward = "進む",
+    .reload = "再読み込み",
+    .navigate = "移動",
+    .secure = "安全",
+    .not_secure = "保護されていません",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -2043,6 +2091,19 @@ pub fn browserAddressChromeFor(preference: LanguagePreference, system_locale_id:
         .simplified_chinese => browser_address_chrome_zh_cn,
         .japanese => browser_address_chrome_ja,
         .system, .english => browser_address_chrome_en,
+    };
+}
+
+/// Browser toolbar Back / Forward / Reload / Navigate and Secure /
+/// Not secure a11y for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does not
+/// read process env. Wire ids / on-press stay English. Typed URL
+/// text stays data. Parked `home_url` / scene URLs stay data.
+pub fn browserToolbarChromeFor(preference: LanguagePreference, system_locale_id: []const u8) BrowserToolbarChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => browser_toolbar_chrome_zh_cn,
+        .japanese => browser_toolbar_chrome_ja,
+        .system, .english => browser_toolbar_chrome_en,
     };
 }
 
@@ -3303,5 +3364,44 @@ test "browserAddressChromeFor english default; zh and ja chrome; latin placehold
     try testing.expectEqualStrings("https://example.com", browserAddressChromeFor(.english, "zh_CN.UTF-8").placeholder);
     try testing.expectEqualStrings("https://example.com", browserAddressChromeFor(.simplified_chinese, "ja_JP.UTF-8").placeholder);
     try testing.expectEqualStrings("https://example.com", browserAddressChromeFor(.japanese, "zh_CN.UTF-8").placeholder);
+}
+
+test "browserToolbarChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Back", browserToolbarChromeFor(.english, "ja").back);
+    try testing.expectEqualStrings("Back", browserToolbarChromeFor(.english, "").back);
+    try testing.expectEqualStrings("Back", browserToolbarChromeFor(.system, "").back);
+    try testing.expectEqualStrings("Forward", browserToolbarChromeFor(.english, "").forward);
+    try testing.expectEqualStrings("Reload", browserToolbarChromeFor(.english, "").reload);
+    try testing.expectEqualStrings("Navigate", browserToolbarChromeFor(.english, "").navigate);
+    try testing.expectEqualStrings("Secure", browserToolbarChromeFor(.english, "").secure);
+    try testing.expectEqualStrings("Not secure", browserToolbarChromeFor(.system, "").not_secure);
+
+    try testing.expectEqualStrings("返回", browserToolbarChromeFor(.simplified_chinese, "").back);
+    try testing.expectEqualStrings("前进", browserToolbarChromeFor(.simplified_chinese, "").forward);
+    try testing.expectEqualStrings("重新加载", browserToolbarChromeFor(.simplified_chinese, "").reload);
+    try testing.expectEqualStrings("转到", browserToolbarChromeFor(.simplified_chinese, "").navigate);
+    try testing.expectEqualStrings("安全", browserToolbarChromeFor(.simplified_chinese, "").secure);
+    try testing.expectEqualStrings("不安全", browserToolbarChromeFor(.simplified_chinese, "").not_secure);
+
+    try testing.expectEqualStrings("戻る", browserToolbarChromeFor(.japanese, "").back);
+    try testing.expectEqualStrings("進む", browserToolbarChromeFor(.japanese, "").forward);
+    try testing.expectEqualStrings("再読み込み", browserToolbarChromeFor(.japanese, "").reload);
+    try testing.expectEqualStrings("移動", browserToolbarChromeFor(.japanese, "").navigate);
+    try testing.expectEqualStrings("安全", browserToolbarChromeFor(.japanese, "").secure);
+    try testing.expectEqualStrings("保護されていません", browserToolbarChromeFor(.japanese, "").not_secure);
+
+    try testing.expectEqualStrings("返回", browserToolbarChromeFor(.system, "zh_CN.UTF-8").back);
+    try testing.expectEqualStrings("转到", browserToolbarChromeFor(.system, "zh_CN.UTF-8").navigate);
+    try testing.expectEqualStrings("不安全", browserToolbarChromeFor(.system, "zh_CN.UTF-8").not_secure);
+    try testing.expectEqualStrings("戻る", browserToolbarChromeFor(.system, "ja_JP.UTF-8").back);
+    try testing.expectEqualStrings("移動", browserToolbarChromeFor(.system, "ja_JP.UTF-8").navigate);
+    try testing.expectEqualStrings("保護されていません", browserToolbarChromeFor(.system, "ja_JP.UTF-8").not_secure);
+    try testing.expectEqualStrings("Back", browserToolbarChromeFor(.english, "ja_JP.UTF-8").back);
+    try testing.expectEqualStrings("Navigate", browserToolbarChromeFor(.english, "zh_CN.UTF-8").navigate);
+    try testing.expectEqualStrings("Not secure", browserToolbarChromeFor(.english, "ja_JP.UTF-8").not_secure);
+    try testing.expectEqualStrings("Reload", browserToolbarChromeFor(.english, "zh_CN.UTF-8").reload);
+    try testing.expectEqualStrings("Forward", browserToolbarChromeFor(.english, "ja_JP.UTF-8").forward);
+    try testing.expectEqualStrings("Secure", browserToolbarChromeFor(.english, "zh_CN.UTF-8").secure);
 }
 

@@ -2109,6 +2109,7 @@ pub const Model = struct {
         "settingsGeneralChrome",
         "composerChrome",
         "browserAddressChrome",
+        "browserToolbarChrome",
         "palette_action_label",
         "show_right_panel_label",
         "sidebarDates",
@@ -3038,6 +3039,42 @@ pub const Model = struct {
     /// `browser_url_edit` / `browser_navigate`. Typed URL text stays data.
     pub fn browser_address_placeholder(model: *const Model) []const u8 {
         return model.browserAddressChrome().placeholder;
+    }
+
+    /// Browser toolbar Back a11y. Distinct from sidebar titlebar
+    /// `history_back`. `on-press` stays `browser_back`.
+    pub fn browser_back_label(model: *const Model) []const u8 {
+        return model.browserToolbarChrome().back;
+    }
+
+    /// Browser toolbar Forward a11y. Distinct from sidebar titlebar
+    /// `history_forward`. `on-press` stays `browser_forward`.
+    pub fn browser_forward_label(model: *const Model) []const u8 {
+        return model.browserToolbarChrome().forward;
+    }
+
+    /// Browser toolbar Reload a11y. Distinct from Files preview
+    /// Reload. `on-press` stays `browser_reload`.
+    pub fn browser_reload_label(model: *const Model) []const u8 {
+        return model.browserToolbarChrome().reload;
+    }
+
+    /// Browser toolbar Navigate button. `on-press` stays
+    /// `browser_navigate`. Distinct from the address-field on-submit
+    /// wire id (same English name).
+    pub fn browser_navigate_label(model: *const Model) []const u8 {
+        return model.browserToolbarChrome().navigate;
+    }
+
+    /// Browser toolbar lock-icon a11y when the committed URL is https.
+    pub fn browser_secure_label(model: *const Model) []const u8 {
+        return model.browserToolbarChrome().secure;
+    }
+
+    /// Browser toolbar globe-icon a11y when the committed URL is not
+    /// https (including empty history).
+    pub fn browser_not_secure_label(model: *const Model) []const u8 {
+        return model.browserToolbarChrome().not_secure;
     }
 
     /// Committed pane URL security for the address-bar lock/globe.
@@ -4742,6 +4779,10 @@ pub const Model = struct {
 
     fn browserAddressChrome(model: *const Model) i18n.BrowserAddressChrome {
         return i18n.browserAddressChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn browserToolbarChrome(model: *const Model) i18n.BrowserToolbarChrome {
+        return i18n.browserToolbarChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Palette row display label for `action`. New Task / Settings /

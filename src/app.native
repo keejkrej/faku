@@ -1632,17 +1632,17 @@
               </if>
             </row>
             <row gap="6" cross="center">
-              <button variant="ghost" size="icon" icon="chevron-left" label="Back" on-press="browser_back" disabled="{browser_back_disabled}"></button>
-              <button variant="ghost" size="icon" icon="chevron-right" label="Forward" on-press="browser_forward" disabled="{browser_forward_disabled}"></button>
-              <button variant="ghost" size="icon" icon="refresh-cw" label="Reload" on-press="browser_reload" disabled="{browser_reload_disabled}"></button>
+              <button variant="ghost" size="icon" icon="chevron-left" label="{browser_back_label}" on-press="browser_back" disabled="{browser_back_disabled}"></button>
+              <button variant="ghost" size="icon" icon="chevron-right" label="{browser_forward_label}" on-press="browser_forward" disabled="{browser_forward_disabled}"></button>
+              <button variant="ghost" size="icon" icon="refresh-cw" label="{browser_reload_label}" on-press="browser_reload" disabled="{browser_reload_disabled}"></button>
               <if test="{browser_url_secure}">
-                <icon name="app:lock" width="11" height="11" foreground="text_muted" label="Secure" />
+                <icon name="app:lock" width="11" height="11" foreground="text_muted" label="{browser_secure_label}" />
               </if>
               <else>
-                <icon name="app:globe" width="11" height="11" foreground="text_muted" label="Not secure" />
+                <icon name="app:globe" width="11" height="11" foreground="text_muted" label="{browser_not_secure_label}" />
               </else>
               <text-field grow="1" placeholder="{browser_address_placeholder}" text="{browser_url}" on-input="browser_url_edit" on-submit="browser_navigate" autofocus="{browser_address_autofocus}" label="{browser_address_label}" />
-              <button variant="ghost" size="sm" on-press="browser_navigate">Navigate</button>
+              <button variant="ghost" size="sm" on-press="browser_navigate">{browser_navigate_label}</button>
               <button variant="ghost" size="sm" on-press="open_url" disabled="{browser_open_disabled}">{open_in_browser_label}</button>
             </row>
             <if test="{browser_showing_start_page}">
