@@ -27750,6 +27750,83 @@ test "Composer Image path and Status chrome follow Appearance language" {
     try testing.expect(findByPlaceholder(tree.root, .select, "ステータス") != null);
 }
 
+test "Composer Pick image and Attach image chrome follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{pick_image_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{attach_image_label}\""));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "on-press=\"pick_image\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Pick image</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Attach image\""));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Pick image", model.pick_image_label());
+    try testing.expectEqualStrings("Attach image", model.attach_image_label());
+    try testing.expectEqualStrings(i18n.composerChromeFor(.english, "").pick_image, model.pick_image_label());
+    try testing.expectEqualStrings(i18n.composerChromeFor(.english, "").attach_image, model.attach_image_label());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Attach image", .pick_image);
+    try testing.expect(findByText(tree.root, .button, "Pick image") == null);
+
+    main.update(&model, .start_image_attach, &fx);
+    try testing.expect(model.image_attach_active);
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Attach image", .pick_image);
+    _ = try expectButtonMsg(tree, "Pick image", .pick_image);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("选择图片", model.pick_image_label());
+    try testing.expectEqualStrings("附加图片", model.attach_image_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "附加图片", .pick_image);
+    _ = try expectButtonMsg(tree, "选择图片", .pick_image);
+    try testing.expect(findByText(tree.root, .button, "Attach image") == null);
+    try testing.expect(findByText(tree.root, .button, "Pick image") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("画像を選択", model.pick_image_label());
+    try testing.expectEqualStrings("画像を添付", model.attach_image_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "画像を添付", .pick_image);
+    _ = try expectButtonMsg(tree, "画像を選択", .pick_image);
+    try testing.expect(findByText(tree.root, .button, "附加图片") == null);
+    try testing.expect(findByText(tree.root, .button, "选择图片") == null);
+    try testing.expect(findByText(tree.root, .button, "Attach image") == null);
+    try testing.expect(findByText(tree.root, .button, "Pick image") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Pick image", model.pick_image_label());
+    try testing.expectEqualStrings("Attach image", model.attach_image_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Attach image", .pick_image);
+    _ = try expectButtonMsg(tree, "Pick image", .pick_image);
+    try testing.expect(findByText(tree.root, .button, "画像を選択") == null);
+    try testing.expect(findByText(tree.root, .button, "画像を添付") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("选择图片", model.pick_image_label());
+    try testing.expectEqualStrings("附加图片", model.attach_image_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "附加图片", .pick_image);
+    _ = try expectButtonMsg(tree, "选择图片", .pick_image);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("画像を選択", model.pick_image_label());
+    try testing.expectEqualStrings("画像を添付", model.attach_image_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "画像を添付", .pick_image);
+    _ = try expectButtonMsg(tree, "画像を選択", .pick_image);
+}
+
 test "Browser Address field chrome follows Appearance language; placeholder stays Latin" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

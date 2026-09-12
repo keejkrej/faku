@@ -6474,6 +6474,18 @@ pub const Model = struct {
         return model.composerChrome().image_path;
     }
 
+    /// Composer Pick image button. `on-press` stays `pick_image`.
+    /// Distinct from Attach image a11y on the same action.
+    pub fn pick_image_label(model: *const Model) []const u8 {
+        return model.composerChrome().pick_image;
+    }
+
+    /// Composer Attach image icon-button a11y. `on-press` stays
+    /// `pick_image`. Distinct from Pick image button text.
+    pub fn attach_image_label(model: *const Model) []const u8 {
+        return model.composerChrome().attach_image;
+    }
+
     /// True when last-known `tokensUsed` / `tokenBudget` / `timeUsedSeconds`
     /// can fill the muted composer meter.
     pub fn has_goal_usage(model: *const Model) bool {
