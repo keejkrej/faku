@@ -4681,6 +4681,10 @@ pub const Model = struct {
         return i18n.commitChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn branchChrome(model: *const Model) i18n.BranchChrome {
+        return i18n.branchChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     /// Palette row display label for `action`. New Task / Settings /
     /// Collapse all folders reuse Sidebar / Chrome strings; remaining
     /// names come from `i18n.Palette`. Ids / keywords stay English.
@@ -5546,8 +5550,9 @@ pub const Model = struct {
         return model.commitChrome().amend;
     }
 
-    /// Commit… card Force. Distinct from leftover delete /
-    /// push-confirm Force. `on-press` stays `toggle_git_push_force`.
+    /// Commit… card Force. Delete / push-confirm Force reuse
+    /// `git_branch_force_label` (same `CommitChrome.force`).
+    /// `on-press` stays `toggle_git_push_force`.
     pub fn git_commit_force_label(model: *const Model) []const u8 {
         return model.commitChrome().force;
     }
@@ -5577,8 +5582,8 @@ pub const Model = struct {
         return model.commitChrome().pushing;
     }
 
-    /// Commit… card Commit. Distinct from leftover branch-menu
-    /// `Commit…`. `on-press` stays `confirm_git_commit`.
+    /// Commit… card Commit. Distinct from branch-menu `Commit…`
+    /// (`git_commit_menu_label`). `on-press` stays `confirm_git_commit`.
     pub fn git_commit_label(model: *const Model) []const u8 {
         return model.commitChrome().commit;
     }
@@ -5589,16 +5594,126 @@ pub const Model = struct {
         return model.commitChrome().commit_and_push;
     }
 
-    /// Commit… card Push. Distinct from leftover branch-menu `Push…`
-    /// and push-confirm Push. `on-press` stays `confirm_git_commit_push`.
+    /// Commit… card Push. Distinct from branch-menu `Push…`
+    /// (`git_push_menu_label`). Push-confirm Push reuses
+    /// `git_branch_push_label` (same `CommitChrome.push`).
+    /// `on-press` stays `confirm_git_commit_push`.
     pub fn git_commit_push_label(model: *const Model) []const u8 {
         return model.commitChrome().push;
     }
 
-    /// Commit… card Cancel. Distinct from leftover New branch /
-    /// worktree / delete / push-confirm Cancel. `on-press` stays
-    /// `cancel_git_commit`.
+    /// Commit… card Cancel. New branch / worktree / delete /
+    /// push-confirm Cancel reuse `git_branch_cancel_label` (same
+    /// `CommitChrome.cancel`). `on-press` stays `cancel_git_commit`.
     pub fn git_commit_cancel_label(model: *const Model) []const u8 {
+        return model.commitChrome().cancel;
+    }
+
+    /// Branch picker + Delete branch… select placeholder. Distinct
+    /// from Review Diff source-chip Branch (`review_diff_source_branch_label`);
+    /// EN copy matches. `on-press` stays `toggle_git_branch_picker` /
+    /// `toggle_git_branch_delete_picker`.
+    pub fn git_branch_placeholder(model: *const Model) []const u8 {
+        return model.branchChrome().branch_placeholder;
+    }
+
+    /// Branch picker Search branches placeholder + a11y label.
+    /// Typed text stays on `git_branch_search`; `on-input` stays
+    /// `git_branch_search_edit`. Distinct from sidebar Search.
+    pub fn git_branch_search_label(model: *const Model) []const u8 {
+        return model.branchChrome().search_branches;
+    }
+
+    /// Branch picker New branch…. `on-press` stays
+    /// `start_git_branch_create`.
+    pub fn git_branch_new_menu_label(model: *const Model) []const u8 {
+        return model.branchChrome().new_branch_menu;
+    }
+
+    /// Branch picker New worktree…. Distinct from leftover workspace
+    /// picker New worktree (no ellipsis). `on-press` stays
+    /// `start_git_worktree_create`.
+    pub fn git_worktree_new_menu_label(model: *const Model) []const u8 {
+        return model.branchChrome().new_worktree_menu;
+    }
+
+    /// Branch picker Delete branch…. `on-press` stays
+    /// `start_git_branch_delete`.
+    pub fn git_branch_delete_menu_label(model: *const Model) []const u8 {
+        return model.branchChrome().delete_branch_menu;
+    }
+
+    /// Branch picker Fetch…. `on-press` stays `start_git_fetch`.
+    pub fn git_fetch_menu_label(model: *const Model) []const u8 {
+        return model.branchChrome().fetch_menu;
+    }
+
+    /// Branch picker Commit…. Distinct from Commit… card Commit
+    /// (`git_commit_label`). `on-press` stays `start_git_commit`.
+    pub fn git_commit_menu_label(model: *const Model) []const u8 {
+        return model.branchChrome().commit_menu;
+    }
+
+    /// Branch picker Push…. Distinct from Commit… card / push-confirm
+    /// Push (`git_commit_push_label` / `git_branch_push_label`).
+    /// `on-press` stays `start_git_push`.
+    pub fn git_push_menu_label(model: *const Model) []const u8 {
+        return model.branchChrome().push_menu;
+    }
+
+    /// New branch… card placeholder. Typed text stays on
+    /// `git_branch_create`; `on-input` stays `git_branch_create_edit`.
+    pub fn git_branch_create_placeholder(model: *const Model) []const u8 {
+        return model.branchChrome().new_branch_name;
+    }
+
+    /// New worktree… card placeholder. Typed text stays on
+    /// `git_worktree_create`; `on-input` stays
+    /// `git_worktree_create_edit`.
+    pub fn git_worktree_create_placeholder(model: *const Model) []const u8 {
+        return model.branchChrome().new_worktree_name;
+    }
+
+    /// New worktree… card Base. Distinct from leftover Work-in Base
+    /// and from `git_worktree_base_label` (the effective base name).
+    /// `on-press` stays `toggle_git_worktree_base_picker`.
+    pub fn git_worktree_base_button_label(model: *const Model) []const u8 {
+        return model.branchChrome().base;
+    }
+
+    /// New branch… / New worktree… Create. `on-press` stays
+    /// `confirm_git_branch_create` / `confirm_git_worktree_create`.
+    pub fn git_branch_create_label(model: *const Model) []const u8 {
+        return model.branchChrome().create;
+    }
+
+    /// Delete branch… Delete. Distinct from folder-menu Delete
+    /// (`delete_label`); EN copy matches.
+    /// `on-press` stays `confirm_git_branch_delete`.
+    pub fn git_branch_delete_label(model: *const Model) []const u8 {
+        return model.branchChrome().delete;
+    }
+
+    /// Delete branch… / Push-confirm Force. Reuses
+    /// `CommitChrome.force`. `on-press` stays
+    /// `toggle_git_branch_delete_force` / `toggle_git_push_force`.
+    pub fn git_branch_force_label(model: *const Model) []const u8 {
+        return model.commitChrome().force;
+    }
+
+    /// Push-confirm Push (no ellipsis). Reuses `CommitChrome.push`.
+    /// Distinct from branch-menu `Push…`. `on-press` stays
+    /// `confirm_git_push`.
+    pub fn git_branch_push_label(model: *const Model) []const u8 {
+        return model.commitChrome().push;
+    }
+
+    /// New branch / worktree / delete / push-confirm Cancel. Reuses
+    /// `CommitChrome.cancel`. Distinct from leftover daemon-dir /
+    /// palette / switcher Cancel. `on-press` stays
+    /// `cancel_git_branch_create` / `cancel_git_worktree_create` /
+    /// `cancel_git_branch_delete` / `cancel_git_push`.
+    pub fn git_branch_cancel_label(model: *const Model) []const u8 {
         return model.commitChrome().cancel;
     }
 
