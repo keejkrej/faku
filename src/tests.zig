@@ -24354,7 +24354,8 @@ test "palette section headers and empty-state follow Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-dismiss=\"palette_cancel\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"palette_cancel\">Cancel</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"palette_confirm\">Confirm</button>"));
-    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "text=\"Command palette\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "text=\"{palette_dialog_title}\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "text=\"Command palette\""));
 
     var model = main.initialModel();
     try testing.expectEqualStrings("Suggested", model.paletteOverlayChrome().suggested);
@@ -24363,7 +24364,10 @@ test "palette section headers and empty-state follow Appearance language" {
     try testing.expectEqualStrings("No matching tasks or commands", model.paletteOverlayChrome().no_matches);
     try testing.expectEqualStrings("Try a task title, project, provider, model, or command", model.paletteOverlayChrome().try_query);
     try testing.expectEqualStrings("Confirm", model.paletteOverlayChrome().confirm);
+    try testing.expectEqualStrings("Command palette", model.paletteOverlayChrome().dialog_title);
     try testing.expectEqualStrings("Confirm", model.palette_confirm_label());
+    try testing.expectEqualStrings("Command palette", model.palette_dialog_title());
+    try testing.expectEqualStrings(i18n.paletteChromeFor(.english, "").dialog_title, model.palette_dialog_title());
     try testing.expectEqualStrings(model.git_commit_cancel_label(), model.palette_cancel_label());
     try testing.expectEqualStrings("Cancel", model.palette_cancel_label());
 
@@ -24381,6 +24385,7 @@ test "palette section headers and empty-state follow Appearance language" {
 
     var tree = try buildTree(arena, &model);
     const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    try testing.expectEqualStrings("Command palette", widgetName(dialog));
     _ = try expectByText(dialog, .text, "Suggested");
     _ = try expectByText(dialog, .text, "Commands");
     _ = try expectButtonMsg(tree, "Cancel", .palette_cancel);
@@ -24415,6 +24420,7 @@ test "palette section headers and empty-state follow Appearance language" {
     try testing.expectEqualStrings("没有匹配的任务或命令", model.paletteOverlayChrome().no_matches);
     try testing.expectEqualStrings("试试任务标题、项目、提供商、模型或命令", model.paletteOverlayChrome().try_query);
     try testing.expectEqualStrings("确认", model.palette_confirm_label());
+    try testing.expectEqualStrings("命令面板", model.palette_dialog_title());
     try testing.expectEqualStrings("取消", model.palette_cancel_label());
 
     main.update(&model, .start_search, &fx);
@@ -24428,6 +24434,7 @@ test "palette section headers and empty-state follow Appearance language" {
     try testing.expectEqual(main.palette_header_id_base + 2, paletteRowId(zh_empty, "命令"));
     tree = try buildTree(arena, &model);
     const zh_dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    try testing.expectEqualStrings("命令面板", widgetName(zh_dialog));
     _ = try expectByText(zh_dialog, .text, "建议");
     _ = try expectByText(zh_dialog, .text, "命令");
     try testing.expect(findByText(zh_dialog, .text, "Suggested") == null);
@@ -24468,6 +24475,7 @@ test "palette section headers and empty-state follow Appearance language" {
     try testing.expectEqualStrings("一致するタスクやコマンドはありません", model.paletteOverlayChrome().no_matches);
     try testing.expectEqualStrings("タスク名、プロジェクト、プロバイダー、モデル、コマンドを試す", model.paletteOverlayChrome().try_query);
     try testing.expectEqualStrings("確認", model.palette_confirm_label());
+    try testing.expectEqualStrings("コマンドパレット", model.palette_dialog_title());
     try testing.expectEqualStrings("キャンセル", model.palette_cancel_label());
 
     main.update(&model, .start_search, &fx);
@@ -24481,6 +24489,7 @@ test "palette section headers and empty-state follow Appearance language" {
     try testing.expectEqual(main.palette_header_id_base + 2, paletteRowId(ja_empty, "コマンド"));
     tree = try buildTree(arena, &model);
     const ja_dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    try testing.expectEqualStrings("コマンドパレット", widgetName(ja_dialog));
     _ = try expectByText(ja_dialog, .text, "おすすめ");
     _ = try expectByText(ja_dialog, .text, "コマンド");
     try testing.expect(findByText(ja_dialog, .text, "Suggested") == null);
@@ -24514,6 +24523,7 @@ test "palette section headers and empty-state follow Appearance language" {
     try testing.expectEqualStrings("Tasks", model.paletteOverlayChrome().tasks);
     try testing.expectEqualStrings("No matching tasks or commands", model.paletteOverlayChrome().no_matches);
     try testing.expectEqualStrings("Confirm", model.palette_confirm_label());
+    try testing.expectEqualStrings("Command palette", model.palette_dialog_title());
     try testing.expectEqualStrings("Cancel", model.palette_cancel_label());
     main.update(&model, .start_search, &fx);
     try testing.expect(paletteHasLabel(model.palette_rows(arena), "Suggested"));
@@ -24529,6 +24539,7 @@ test "palette section headers and empty-state follow Appearance language" {
     try testing.expectEqualStrings("任务", model.paletteOverlayChrome().tasks);
     try testing.expectEqualStrings("没有匹配的任务或命令", model.paletteOverlayChrome().no_matches);
     try testing.expectEqualStrings("确认", model.palette_confirm_label());
+    try testing.expectEqualStrings("命令面板", model.palette_dialog_title());
     try testing.expectEqualStrings("取消", model.palette_cancel_label());
     model.setSystemLocaleId("ja_JP.UTF-8");
     try testing.expectEqualStrings("おすすめ", model.paletteOverlayChrome().suggested);
@@ -24536,6 +24547,7 @@ test "palette section headers and empty-state follow Appearance language" {
     try testing.expectEqualStrings("タスク", model.paletteOverlayChrome().tasks);
     try testing.expectEqualStrings("一致するタスクやコマンドはありません", model.paletteOverlayChrome().no_matches);
     try testing.expectEqualStrings("確認", model.palette_confirm_label());
+    try testing.expectEqualStrings("コマンドパレット", model.palette_dialog_title());
     try testing.expectEqualStrings("キャンセル", model.palette_cancel_label());
 }
 
@@ -27120,6 +27132,98 @@ test "Session switcher chrome follows Appearance language" {
     tree = try buildTree(arena, &model);
     try testing.expectEqualStrings("セッションを切り替え", widgetName(findByKind(tree.root, .dialog) orelse return error.WidgetNotFound));
     _ = try expectButtonMsg(tree, "切り替え", .switcher_confirm);
+}
+
+test "Workspace path placeholders follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "placeholder=\"{workspace_path_placeholder}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-input=\"settings_project_edit\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-input=\"project_path_edit\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Workspace path\""));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Workspace path", model.workspace_path_placeholder());
+    try testing.expectEqualStrings(i18n.workspacePathChromeFor(.english, "").placeholder, model.workspace_path_placeholder());
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_open);
+    try testing.expect(model.settings_page_general());
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Workspace path") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "host:port") != null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("工作区路径", model.workspace_path_placeholder());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "工作区路径") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Workspace path") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "host:port") != null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("ワークスペースのパス", model.workspace_path_placeholder());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "ワークスペースのパス") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "工作区路径") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Workspace path", model.workspace_path_placeholder());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Workspace path") != null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("工作区路径", model.workspace_path_placeholder());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "工作区路径") != null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("ワークスペースのパス", model.workspace_path_placeholder());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "ワークスペースのパス") != null);
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(!model.settings_open);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "ワークスペースのパス") == null);
+
+    model.language_preference = .english;
+    main.update(&model, .start_project_edit, &fx);
+    try testing.expect(model.project_edit_active);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Workspace path") != null);
+
+    model.language_preference = .simplified_chinese;
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "工作区路径") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Workspace path") == null);
+
+    model.language_preference = .japanese;
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "ワークスペースのパス") != null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("Workspace path", model.workspace_path_placeholder());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Workspace path") != null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("工作区路径", model.workspace_path_placeholder());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "工作区路径") != null);
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("ワークスペースのパス", model.workspace_path_placeholder());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "ワークスペースのパス") != null);
 }
 
 test "DateBucket.title english default; zh and ja follow datesFor" {

@@ -820,7 +820,7 @@
                 </if>
               </stack>
               <text>Last project path</text>
-              <text-field text="{settings_project}" placeholder="Workspace path" on-input="settings_project_edit" />
+              <text-field text="{settings_project}" placeholder="{workspace_path_placeholder}" on-input="settings_project_edit" />
               <text>Daemon address</text>
               <text-field text="{settings_daemon}" placeholder="host:port" on-input="settings_daemon_edit" />
             </column>
@@ -1311,7 +1311,7 @@
             </if>
             <if test="{project_edit_active}">
               <row gap="8" cross="center">
-                <text-field grow="1" placeholder="Workspace path" text="{project_edit}" on-input="project_path_edit" autofocus="true" />
+                <text-field grow="1" placeholder="{workspace_path_placeholder}" text="{project_edit}" on-input="project_path_edit" autofocus="true" />
                 <button variant="ghost" size="sm" on-press="pick_folder">{pick_folder_label}</button>
                 <if test="{can_reveal_folder}">
                   <button variant="ghost" size="sm" on-press="reveal_folder">{reveal_folder_label}</button>
@@ -1910,7 +1910,7 @@
     </split>
   </split>
   <if test="{palette_open}">
-    <dialog text="Command palette" width="680" height="480" padding="16" on-dismiss="palette_cancel">
+    <dialog text="{palette_dialog_title}" width="680" height="480" padding="16" on-dismiss="palette_cancel">
       <column gap="8">
         <spacer height="34"></spacer>
         <search-field grow="1" height="60" placeholder="{search_label}" text="{search_query}" on-input="search_edit" autofocus="true" />

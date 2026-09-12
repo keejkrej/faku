@@ -9,7 +9,8 @@
 //! Appearance via `Model.paletteOverlayChrome()` (`i18n.PaletteChrome`).
 //! Footer Confirm lives on that same chrome; Cancel reuses
 //! `CommitChrome.cancel` via `Model.palette_cancel_label()`. Dialog
-//! title `Command palette` stays leftover English.
+//! title follows Appearance via `Model.palette_dialog_title()`
+//! (`i18n.PaletteChrome.dialog_title`).
 //! Ids / `PaletteAction` / keywords stay English. Matching checks the
 //! English spec label, the localized label, and English keywords.
 //! Behavior is otherwise unchanged from the former `main` palette helpers.
