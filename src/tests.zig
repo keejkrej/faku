@@ -27827,6 +27827,72 @@ test "Composer Pick image and Attach image chrome follow Appearance language" {
     _ = try expectButtonMsg(tree, "画像を選択", .pick_image);
 }
 
+test "Composer Commands chip chrome follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{composer_commands_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"toggle_commands\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Commands</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"toggle_commands\">Commands</button>"));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Commands", model.composer_commands_label());
+    try testing.expectEqualStrings(i18n.composerChromeFor(.english, "").commands, model.composer_commands_label());
+    try testing.expectEqualStrings(i18n.paletteChromeFor(.english, "").commands, model.composer_commands_label());
+
+    if (model.sessionById(model.selected)) |session| {
+        session.appendAvailableCommand("web", "Search the web for information");
+    }
+    try testing.expect(model.has_commands());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Commands", .toggle_commands);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("命令", model.composer_commands_label());
+    try testing.expectEqualStrings(i18n.composerChromeFor(.simplified_chinese, "").commands, model.composer_commands_label());
+    try testing.expectEqualStrings(i18n.paletteChromeFor(.simplified_chinese, "").commands, model.composer_commands_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "命令", .toggle_commands);
+    try testing.expect(findByText(tree.root, .button, "Commands") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("コマンド", model.composer_commands_label());
+    try testing.expectEqualStrings(i18n.composerChromeFor(.japanese, "").commands, model.composer_commands_label());
+    try testing.expectEqualStrings(i18n.paletteChromeFor(.japanese, "").commands, model.composer_commands_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "コマンド", .toggle_commands);
+    try testing.expect(findByText(tree.root, .button, "命令") == null);
+    try testing.expect(findByText(tree.root, .button, "Commands") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Commands", model.composer_commands_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Commands", .toggle_commands);
+    try testing.expect(findByText(tree.root, .button, "コマンド") == null);
+    try testing.expect(findByText(tree.root, .button, "命令") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("命令", model.composer_commands_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "命令", .toggle_commands);
+    try testing.expect(findByText(tree.root, .button, "Commands") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("コマンド", model.composer_commands_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "コマンド", .toggle_commands);
+    try testing.expect(findByText(tree.root, .button, "Commands") == null);
+}
+
 test "Browser Address field chrome follows Appearance language; placeholder stays Latin" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

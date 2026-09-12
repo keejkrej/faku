@@ -60,8 +60,11 @@
 //! address and Default model / Effort placeholders (same
 //! `SettingsGeneralChrome` strings; Latin `FX_MODEL` in every locale)
 //! plus composer Image path placeholder, Pick image button,
-//! Attach image a11y, and Goal Status picker placeholder / empty
-//! label (same `ComposerChrome` strings)
+//! Attach image a11y, Goal Status picker placeholder / empty
+//! label, and Commands toggle chip (same `ComposerChrome` strings;
+//! Commands wording matches `PaletteChrome.commands` but stays a
+//! separate field so the composer chip does not couple to the
+//! palette overlay header)
 //! plus Browser address-field Address label and
 //! `https://example.com` placeholder (same `BrowserAddressChrome`
 //! strings; Latin `https://example.com` in every locale)
@@ -140,7 +143,8 @@
 //! (`toggle_settings_effort_picker`). Composer Image path `on-input`
 //! stays English (`image_path_edit`); Goal Status picker `on-press`
 //! stays English (`toggle_goal_status_picker`); Pick image / Attach
-//! image `on-press` stays English (`pick_image`). Typed path text stays
+//! image `on-press` stays English (`pick_image`); Commands chip
+//! `on-press` stays English (`toggle_commands`). Typed path text stays
 //! English (data). ThreadGoalStatus wire names stay English. Browser
 //! address `on-input` / on-submit stay English (`browser_url_edit` /
 //! `browser_navigate`). Browser toolbar `on-press` stays English
@@ -1599,18 +1603,21 @@ const os_image_dialog_chrome_ja: OsImageDialogChrome = .{
 };
 
 /// Composer Image path placeholder, Pick image button, Attach image
-/// a11y, and Goal Status picker placeholder / empty label for the
-/// resolved locale. Same resolve path as SettingsGeneralChrome.
-/// English matches the former hardcoded copy. Wire ids / on-press /
-/// on-input stay English (`image_path_edit` /
-/// `toggle_goal_status_picker` / `pick_image`). Typed path text stays
-/// data. ThreadGoalStatus wire names stay English (`active` /
-/// `paused` / …).
+/// a11y, Goal Status picker placeholder / empty label, and Commands
+/// toggle chip for the resolved locale. Same resolve path as
+/// SettingsGeneralChrome. English matches the former hardcoded copy.
+/// Wire ids / on-press / on-input stay English (`image_path_edit` /
+/// `toggle_goal_status_picker` / `pick_image` / `toggle_commands`).
+/// Typed path text stays data. ThreadGoalStatus wire names stay
+/// English (`active` / `paused` / …). Commands wording matches
+/// `PaletteChrome.commands` (命令 / コマンド) but lives here so the
+/// composer chip stays distinct from the palette overlay header.
 pub const ComposerChrome = struct {
     image_path: []const u8,
     status: []const u8,
     pick_image: []const u8,
     attach_image: []const u8,
+    commands: []const u8,
 };
 
 const composer_chrome_en: ComposerChrome = .{
@@ -1618,6 +1625,7 @@ const composer_chrome_en: ComposerChrome = .{
     .status = "Status",
     .pick_image = "Pick image",
     .attach_image = "Attach image",
+    .commands = "Commands",
 };
 
 const composer_chrome_zh_cn: ComposerChrome = .{
@@ -1625,6 +1633,7 @@ const composer_chrome_zh_cn: ComposerChrome = .{
     .status = "状态",
     .pick_image = "选择图片",
     .attach_image = "附加图片",
+    .commands = "命令",
 };
 
 const composer_chrome_ja: ComposerChrome = .{
@@ -1632,6 +1641,7 @@ const composer_chrome_ja: ComposerChrome = .{
     .status = "ステータス",
     .pick_image = "画像を選択",
     .attach_image = "画像を添付",
+    .commands = "コマンド",
 };
 
 /// Browser address-field a11y label and placeholder for the resolved
@@ -2135,11 +2145,12 @@ pub fn osImageDialogChromeFor(preference: LanguagePreference, system_locale_id: 
 }
 
 /// Composer Image path placeholder, Pick image button, Attach image
-/// a11y, and Goal Status picker placeholder / empty label for the
-/// resolved locale. Callers pass Model `language_preference` +
-/// `system_locale_id`; this file does not read process env. Wire ids /
-/// on-press / on-input stay English. Typed path text stays data.
-/// ThreadGoalStatus wire names stay English.
+/// a11y, Goal Status picker placeholder / empty label, and Commands
+/// toggle chip for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does not
+/// read process env. Wire ids / on-press / on-input stay English.
+/// Typed path text stays data. ThreadGoalStatus wire names stay
+/// English. Commands `on-press` stays `toggle_commands`.
 pub fn composerChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ComposerChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => composer_chrome_zh_cn,
@@ -3406,33 +3417,44 @@ test "composerChromeFor english default; zh and ja chrome; english ignores ja LA
     try testing.expectEqualStrings("Pick image", composerChromeFor(.system, "").pick_image);
     try testing.expectEqualStrings("Attach image", composerChromeFor(.english, "").attach_image);
     try testing.expectEqualStrings("Attach image", composerChromeFor(.system, "").attach_image);
+    try testing.expectEqualStrings("Commands", composerChromeFor(.english, "").commands);
+    try testing.expectEqualStrings("Commands", composerChromeFor(.system, "").commands);
+    try testing.expectEqualStrings(paletteChromeFor(.english, "").commands, composerChromeFor(.english, "").commands);
 
     try testing.expectEqualStrings("图片路径", composerChromeFor(.simplified_chinese, "").image_path);
     try testing.expectEqualStrings("状态", composerChromeFor(.simplified_chinese, "").status);
     try testing.expectEqualStrings("选择图片", composerChromeFor(.simplified_chinese, "").pick_image);
     try testing.expectEqualStrings("附加图片", composerChromeFor(.simplified_chinese, "").attach_image);
+    try testing.expectEqualStrings("命令", composerChromeFor(.simplified_chinese, "").commands);
+    try testing.expectEqualStrings(paletteChromeFor(.simplified_chinese, "").commands, composerChromeFor(.simplified_chinese, "").commands);
 
     try testing.expectEqualStrings("画像パス", composerChromeFor(.japanese, "").image_path);
     try testing.expectEqualStrings("ステータス", composerChromeFor(.japanese, "").status);
     try testing.expectEqualStrings("画像を選択", composerChromeFor(.japanese, "").pick_image);
     try testing.expectEqualStrings("画像を添付", composerChromeFor(.japanese, "").attach_image);
+    try testing.expectEqualStrings("コマンド", composerChromeFor(.japanese, "").commands);
+    try testing.expectEqualStrings(paletteChromeFor(.japanese, "").commands, composerChromeFor(.japanese, "").commands);
 
     try testing.expectEqualStrings("图片路径", composerChromeFor(.system, "zh_CN.UTF-8").image_path);
     try testing.expectEqualStrings("状态", composerChromeFor(.system, "zh_CN.UTF-8").status);
     try testing.expectEqualStrings("选择图片", composerChromeFor(.system, "zh_CN.UTF-8").pick_image);
     try testing.expectEqualStrings("附加图片", composerChromeFor(.system, "zh_CN.UTF-8").attach_image);
+    try testing.expectEqualStrings("命令", composerChromeFor(.system, "zh_CN.UTF-8").commands);
     try testing.expectEqualStrings("画像パス", composerChromeFor(.system, "ja_JP.UTF-8").image_path);
     try testing.expectEqualStrings("ステータス", composerChromeFor(.system, "ja_JP.UTF-8").status);
     try testing.expectEqualStrings("画像を選択", composerChromeFor(.system, "ja_JP.UTF-8").pick_image);
     try testing.expectEqualStrings("画像を添付", composerChromeFor(.system, "ja_JP.UTF-8").attach_image);
+    try testing.expectEqualStrings("コマンド", composerChromeFor(.system, "ja_JP.UTF-8").commands);
     try testing.expectEqualStrings("Image path", composerChromeFor(.english, "ja_JP.UTF-8").image_path);
     try testing.expectEqualStrings("Status", composerChromeFor(.english, "zh_CN.UTF-8").status);
     try testing.expectEqualStrings("Pick image", composerChromeFor(.english, "ja_JP.UTF-8").pick_image);
     try testing.expectEqualStrings("Attach image", composerChromeFor(.english, "zh_CN.UTF-8").attach_image);
+    try testing.expectEqualStrings("Commands", composerChromeFor(.english, "ja_JP.UTF-8").commands);
     try testing.expectEqualStrings("Image path", composerChromeFor(.english, "zh_CN.UTF-8").image_path);
     try testing.expectEqualStrings("Status", composerChromeFor(.english, "ja_JP.UTF-8").status);
     try testing.expectEqualStrings("Pick image", composerChromeFor(.english, "zh_CN.UTF-8").pick_image);
     try testing.expectEqualStrings("Attach image", composerChromeFor(.english, "ja_JP.UTF-8").attach_image);
+    try testing.expectEqualStrings("Commands", composerChromeFor(.english, "zh_CN.UTF-8").commands);
 }
 
 test "browserAddressChromeFor english default; zh and ja chrome; latin placeholder; english ignores ja LANG" {
