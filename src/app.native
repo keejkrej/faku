@@ -341,7 +341,7 @@
           <if test="{settings_page_skills}">
             <row grow="1" main="center">
               <column grow="1" max-width="720" gap="10" padding="14">
-                <text-field text="{skills_filter}" placeholder="Filter skills" on-input="skills_filter_edit" />
+                <text-field text="{skills_filter}" placeholder="{skills_filter_placeholder}" on-input="skills_filter_edit" />
                 <if test="{skills_empty}">
                   <text foreground="text_muted">{skills_empty_hint}</text>
                 </if>
@@ -678,9 +678,9 @@
                           <button variant="ghost" size="sm" selected="{usage_share_cost}" on-press="set_usage_share_cost">Cost</button>
                           <button variant="ghost" size="sm" selected="{usage_share_tokens}" on-press="set_usage_share_tokens">Tokens</button>
                         </row>
-                        <search-field grow="1" height="24" placeholder="Filter projects" text="{usage_project_filter}" on-input="usage_project_filter_edit" label="Filter projects" />
+                        <search-field grow="1" height="24" placeholder="{usage_project_filter_placeholder}" text="{usage_project_filter}" on-input="usage_project_filter_edit" label="{usage_project_filter_label}" />
                         <if test="{usage_projects_empty}">
-                          <text wrap="true" foreground="text_muted">No project usage</text>
+                          <text wrap="true" foreground="text_muted">{no_project_usage_label}</text>
                         </if>
                         <if test="{usage_projects_no_match}">
                           <text wrap="true" foreground="text_muted">No matching projects</text>
