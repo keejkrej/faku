@@ -36,7 +36,10 @@
 //! right-panel file-preview toolbar / find-replace / discard /
 //! truncated·binary chrome (same `FilePreviewChrome` strings), and
 //! first-cut Commit message composer chrome (same `CommitChrome`
-//! strings) live
+//! strings), and first-cut composer branch-picker dropdown plus
+//! New branch / New worktree / Delete branch / Push-confirm
+//! composer-row chrome (same `BranchChrome` strings; Force / Push /
+//! Cancel reuse `CommitChrome`) live
 //! here so `main.zig` does not grow. Palette ids / `PaletteAction` /
 //! keywords stay English.
 //! Wire `access_mode` ids stay `ask` / `auto` / `fullAccess`. Wire
@@ -66,9 +69,20 @@
 //! (`git_commit_edit` / `toggle_git_commit_include_unstaged` /
 //! `toggle_git_commit_amend` / `toggle_git_push_force` /
 //! `confirm_git_commit` / `confirm_git_commit_and_push` /
-//! `confirm_git_commit_push` / `cancel_git_commit`). Branch menu
-//! `Commit…` / `Push…` and New branch / worktree / delete /
-//! push-confirm Cancel / Force / Push stay leftover English.
+//! `confirm_git_commit_push` / `cancel_git_commit`). Branch picker
+//! / create / delete / push-confirm `on-press` / `on-input` stay
+//! English (`toggle_git_branch_picker` / `git_branch_search_edit` /
+//! `start_git_branch_create` / `start_git_worktree_create` /
+//! `start_git_branch_delete` / `start_git_fetch` /
+//! `start_git_commit` / `start_git_push` / `git_branch_create_edit` /
+//! `git_worktree_create_edit` / `confirm_git_branch_create` /
+//! `cancel_git_branch_create` / `toggle_git_worktree_base_picker` /
+//! `confirm_git_worktree_create` / `cancel_git_worktree_create` /
+//! `toggle_git_branch_delete_force` / `confirm_git_branch_delete` /
+//! `cancel_git_branch_delete` / `confirm_git_push` /
+//! `cancel_git_push`). Branch names and search typed text stay
+//! English (data). Workspace picker Work in / Local / New worktree
+//! and daemon-dir browser chrome stay leftover English.
 //! Aa / Ab / .* glyphs stay. Path text and body content stay data.
 //! Not rust_i18n, not YAML catalogs, not full-app translation, not
 //! tz-aware grouping.
@@ -1068,9 +1082,10 @@ const file_preview_chrome_ja: FilePreviewChrome = .{
 /// `toggle_git_commit_amend` / `toggle_git_push_force` /
 /// `confirm_git_commit` / `confirm_git_commit_and_push` /
 /// `confirm_git_commit_push` / `cancel_git_commit`). English matches
-/// the former hardcoded copy. Branch menu `Commit…` / `Push…`, New
-/// branch / worktree / delete / push-confirm Cancel / Force / Push,
-/// and `git_commit.zig` status strings stay leftover English.
+/// the former hardcoded copy. Branch-picker `Commit…` / `Push…`
+/// live in `BranchChrome`. Delete / push-confirm Force / Push /
+/// Cancel reuse `force` / `push` / `cancel` here.
+/// `git_commit.zig` status strings stay leftover English.
 pub const CommitChrome = struct {
     commit_message: []const u8,
     include_unstaged: []const u8,
@@ -1133,6 +1148,88 @@ const commit_chrome_ja: CommitChrome = .{
     .commit_and_push = "コミットしてプッシュ",
     .push = "プッシュ",
     .cancel = "キャンセル",
+};
+
+/// Composer branch-picker dropdown plus New branch / New worktree /
+/// Delete branch / Push-confirm composer-row chrome for the resolved
+/// locale. Same resolve path as CommitChrome. Wire ids / on-press /
+/// on-input stay English (`toggle_git_branch_picker` /
+/// `git_branch_search_edit` / `start_git_branch_create` /
+/// `start_git_worktree_create` / `start_git_branch_delete` /
+/// `start_git_fetch` / `start_git_commit` / `start_git_push` /
+/// `git_branch_create_edit` / `git_worktree_create_edit` /
+/// `confirm_git_branch_create` / `cancel_git_branch_create` /
+/// `toggle_git_worktree_base_picker` / `confirm_git_worktree_create` /
+/// `cancel_git_worktree_create` / `toggle_git_branch_delete_force` /
+/// `confirm_git_branch_delete` / `cancel_git_branch_delete` /
+/// `confirm_git_push` / `cancel_git_push`). Branch names and search
+/// typed text stay English (data). English matches the former
+/// hardcoded copy. Force / Push (no ellipsis) / Cancel reuse
+/// `CommitChrome`. Workspace picker Work in / Local / New worktree
+/// (no ellipsis) stay leftover English. Worktree is git jargon and
+/// stays Latin in zh-CN / ja.
+pub const BranchChrome = struct {
+    branch_placeholder: []const u8,
+    search_branches: []const u8,
+    new_branch_menu: []const u8,
+    new_worktree_menu: []const u8,
+    delete_branch_menu: []const u8,
+    fetch_menu: []const u8,
+    commit_menu: []const u8,
+    push_menu: []const u8,
+    new_branch_name: []const u8,
+    new_worktree_name: []const u8,
+    base: []const u8,
+    create: []const u8,
+    delete: []const u8,
+};
+
+const branch_chrome_en: BranchChrome = .{
+    .branch_placeholder = "Branch",
+    .search_branches = "Search branches",
+    .new_branch_menu = "New branch…",
+    .new_worktree_menu = "New worktree…",
+    .delete_branch_menu = "Delete branch…",
+    .fetch_menu = "Fetch…",
+    .commit_menu = "Commit…",
+    .push_menu = "Push…",
+    .new_branch_name = "New branch name",
+    .new_worktree_name = "New worktree name",
+    .base = "Base",
+    .create = "Create",
+    .delete = "Delete",
+};
+
+const branch_chrome_zh_cn: BranchChrome = .{
+    .branch_placeholder = "分支",
+    .search_branches = "搜索分支",
+    .new_branch_menu = "新建分支…",
+    .new_worktree_menu = "新建 worktree…",
+    .delete_branch_menu = "删除分支…",
+    .fetch_menu = "获取…",
+    .commit_menu = "提交…",
+    .push_menu = "推送…",
+    .new_branch_name = "新分支名称",
+    .new_worktree_name = "新 worktree 名称",
+    .base = "基准",
+    .create = "创建",
+    .delete = "删除",
+};
+
+const branch_chrome_ja: BranchChrome = .{
+    .branch_placeholder = "ブランチ",
+    .search_branches = "ブランチを検索",
+    .new_branch_menu = "新しいブランチ…",
+    .new_worktree_menu = "新しい worktree…",
+    .delete_branch_menu = "ブランチを削除…",
+    .fetch_menu = "フェッチ…",
+    .commit_menu = "コミット…",
+    .push_menu = "プッシュ…",
+    .new_branch_name = "新しいブランチ名",
+    .new_worktree_name = "新しい worktree 名",
+    .base = "ベース",
+    .create = "作成",
+    .delete = "削除",
 };
 
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
@@ -1364,12 +1461,27 @@ pub fn filePreviewChromeFor(preference: LanguagePreference, system_locale_id: []
 /// Commit message composer chrome for the resolved locale. Callers
 /// pass Model `language_preference` + `system_locale_id`; this file
 /// does not read process env. Wire ids / on-press / on-input stay
-/// English. Branch menu / other git rows stay leftover English.
+/// English. Branch-picker / create / delete / push-confirm chrome
+/// lives on `branchChromeFor`.
 pub fn commitChromeFor(preference: LanguagePreference, system_locale_id: []const u8) CommitChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => commit_chrome_zh_cn,
         .japanese => commit_chrome_ja,
         .system, .english => commit_chrome_en,
+    };
+}
+
+/// Composer branch-picker dropdown plus New branch / New worktree /
+/// Delete branch / Push-confirm composer-row chrome for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Wire ids /
+/// on-press / on-input stay English. Force / Push (no ellipsis) /
+/// Cancel stay on `commitChromeFor`.
+pub fn branchChromeFor(preference: LanguagePreference, system_locale_id: []const u8) BranchChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => branch_chrome_zh_cn,
+        .japanese => branch_chrome_ja,
+        .system, .english => branch_chrome_en,
     };
 }
 
@@ -2239,5 +2351,82 @@ test "commitChromeFor english default; zh and ja chrome; english ignores ja LANG
     try testing.expectEqualStrings("Commit and Push", commitChromeFor(.english, "ja_JP.UTF-8").commit_and_push);
     try testing.expectEqualStrings("Push", commitChromeFor(.english, "zh_CN.UTF-8").push);
     try testing.expectEqualStrings("Cancel", commitChromeFor(.english, "ja_JP.UTF-8").cancel);
+}
+
+test "branchChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Branch", branchChromeFor(.english, "ja").branch_placeholder);
+    try testing.expectEqualStrings("Search branches", branchChromeFor(.english, "").search_branches);
+    try testing.expectEqualStrings("New branch…", branchChromeFor(.english, "").new_branch_menu);
+    try testing.expectEqualStrings("New worktree…", branchChromeFor(.english, "").new_worktree_menu);
+    try testing.expectEqualStrings("Delete branch…", branchChromeFor(.english, "").delete_branch_menu);
+    try testing.expectEqualStrings("Fetch…", branchChromeFor(.english, "").fetch_menu);
+    try testing.expectEqualStrings("Commit…", branchChromeFor(.english, "").commit_menu);
+    try testing.expectEqualStrings("Push…", branchChromeFor(.english, "").push_menu);
+    try testing.expectEqualStrings("New branch name", branchChromeFor(.english, "").new_branch_name);
+    try testing.expectEqualStrings("New worktree name", branchChromeFor(.english, "").new_worktree_name);
+    try testing.expectEqualStrings("Base", branchChromeFor(.english, "").base);
+    try testing.expectEqualStrings("Create", branchChromeFor(.english, "").create);
+    try testing.expectEqualStrings("Delete", branchChromeFor(.english, "").delete);
+    try testing.expectEqualStrings("Branch", branchChromeFor(.system, "").branch_placeholder);
+    try testing.expectEqualStrings("Search branches", branchChromeFor(.system, "").search_branches);
+    try testing.expectEqualStrings(reviewDiffChromeFor(.english, "").branch, branchChromeFor(.english, "").branch_placeholder);
+    try testing.expectEqualStrings(sidebarFor(.english, "").delete, branchChromeFor(.english, "").delete);
+
+    try testing.expectEqualStrings("分支", branchChromeFor(.simplified_chinese, "").branch_placeholder);
+    try testing.expectEqualStrings("搜索分支", branchChromeFor(.simplified_chinese, "").search_branches);
+    try testing.expectEqualStrings("新建分支…", branchChromeFor(.simplified_chinese, "").new_branch_menu);
+    try testing.expectEqualStrings("新建 worktree…", branchChromeFor(.simplified_chinese, "").new_worktree_menu);
+    try testing.expectEqualStrings("删除分支…", branchChromeFor(.simplified_chinese, "").delete_branch_menu);
+    try testing.expectEqualStrings("获取…", branchChromeFor(.simplified_chinese, "").fetch_menu);
+    try testing.expectEqualStrings("提交…", branchChromeFor(.simplified_chinese, "").commit_menu);
+    try testing.expectEqualStrings("推送…", branchChromeFor(.simplified_chinese, "").push_menu);
+    try testing.expectEqualStrings("新分支名称", branchChromeFor(.simplified_chinese, "").new_branch_name);
+    try testing.expectEqualStrings("新 worktree 名称", branchChromeFor(.simplified_chinese, "").new_worktree_name);
+    try testing.expectEqualStrings("基准", branchChromeFor(.simplified_chinese, "").base);
+    try testing.expectEqualStrings("创建", branchChromeFor(.simplified_chinese, "").create);
+    try testing.expectEqualStrings("删除", branchChromeFor(.simplified_chinese, "").delete);
+    try testing.expectEqualStrings(reviewDiffChromeFor(.simplified_chinese, "").branch, branchChromeFor(.simplified_chinese, "").branch_placeholder);
+    try testing.expectEqualStrings(sidebarFor(.simplified_chinese, "").delete, branchChromeFor(.simplified_chinese, "").delete);
+
+    try testing.expectEqualStrings("ブランチ", branchChromeFor(.japanese, "").branch_placeholder);
+    try testing.expectEqualStrings("ブランチを検索", branchChromeFor(.japanese, "").search_branches);
+    try testing.expectEqualStrings("新しいブランチ…", branchChromeFor(.japanese, "").new_branch_menu);
+    try testing.expectEqualStrings("新しい worktree…", branchChromeFor(.japanese, "").new_worktree_menu);
+    try testing.expectEqualStrings("ブランチを削除…", branchChromeFor(.japanese, "").delete_branch_menu);
+    try testing.expectEqualStrings("フェッチ…", branchChromeFor(.japanese, "").fetch_menu);
+    try testing.expectEqualStrings("コミット…", branchChromeFor(.japanese, "").commit_menu);
+    try testing.expectEqualStrings("プッシュ…", branchChromeFor(.japanese, "").push_menu);
+    try testing.expectEqualStrings("新しいブランチ名", branchChromeFor(.japanese, "").new_branch_name);
+    try testing.expectEqualStrings("新しい worktree 名", branchChromeFor(.japanese, "").new_worktree_name);
+    try testing.expectEqualStrings("ベース", branchChromeFor(.japanese, "").base);
+    try testing.expectEqualStrings("作成", branchChromeFor(.japanese, "").create);
+    try testing.expectEqualStrings("削除", branchChromeFor(.japanese, "").delete);
+    try testing.expectEqualStrings(reviewDiffChromeFor(.japanese, "").branch, branchChromeFor(.japanese, "").branch_placeholder);
+    try testing.expectEqualStrings(sidebarFor(.japanese, "").delete, branchChromeFor(.japanese, "").delete);
+
+    try testing.expectEqualStrings("分支", branchChromeFor(.system, "zh_CN.UTF-8").branch_placeholder);
+    try testing.expectEqualStrings("搜索分支", branchChromeFor(.system, "zh_CN.UTF-8").search_branches);
+    try testing.expectEqualStrings("新建分支…", branchChromeFor(.system, "zh_CN.UTF-8").new_branch_menu);
+    try testing.expectEqualStrings("新建 worktree…", branchChromeFor(.system, "zh_CN.UTF-8").new_worktree_menu);
+    try testing.expectEqualStrings("创建", branchChromeFor(.system, "zh_CN.UTF-8").create);
+    try testing.expectEqualStrings("ブランチ", branchChromeFor(.system, "ja_JP.UTF-8").branch_placeholder);
+    try testing.expectEqualStrings("ブランチを検索", branchChromeFor(.system, "ja_JP.UTF-8").search_branches);
+    try testing.expectEqualStrings("新しいブランチ…", branchChromeFor(.system, "ja_JP.UTF-8").new_branch_menu);
+    try testing.expectEqualStrings("新しい worktree…", branchChromeFor(.system, "ja_JP.UTF-8").new_worktree_menu);
+    try testing.expectEqualStrings("作成", branchChromeFor(.system, "ja_JP.UTF-8").create);
+    try testing.expectEqualStrings("Branch", branchChromeFor(.english, "ja_JP.UTF-8").branch_placeholder);
+    try testing.expectEqualStrings("Search branches", branchChromeFor(.english, "zh_CN.UTF-8").search_branches);
+    try testing.expectEqualStrings("New branch…", branchChromeFor(.english, "ja_JP.UTF-8").new_branch_menu);
+    try testing.expectEqualStrings("New worktree…", branchChromeFor(.english, "zh_CN.UTF-8").new_worktree_menu);
+    try testing.expectEqualStrings("Delete branch…", branchChromeFor(.english, "ja_JP.UTF-8").delete_branch_menu);
+    try testing.expectEqualStrings("Fetch…", branchChromeFor(.english, "zh_CN.UTF-8").fetch_menu);
+    try testing.expectEqualStrings("Commit…", branchChromeFor(.english, "ja_JP.UTF-8").commit_menu);
+    try testing.expectEqualStrings("Push…", branchChromeFor(.english, "zh_CN.UTF-8").push_menu);
+    try testing.expectEqualStrings("New branch name", branchChromeFor(.english, "ja_JP.UTF-8").new_branch_name);
+    try testing.expectEqualStrings("New worktree name", branchChromeFor(.english, "zh_CN.UTF-8").new_worktree_name);
+    try testing.expectEqualStrings("Base", branchChromeFor(.english, "ja_JP.UTF-8").base);
+    try testing.expectEqualStrings("Create", branchChromeFor(.english, "zh_CN.UTF-8").create);
+    try testing.expectEqualStrings("Delete", branchChromeFor(.english, "ja_JP.UTF-8").delete);
 }
 

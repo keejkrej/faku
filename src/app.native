@@ -1194,17 +1194,17 @@
             </if>
             <if test="{git_branch_create_active}">
               <row gap="8" cross="center">
-                <text-field grow="1" placeholder="New branch name" text="{git_branch_create}" on-input="git_branch_create_edit" autofocus="true" />
-                <button variant="ghost" size="sm" on-press="confirm_git_branch_create">Create</button>
-                <button variant="ghost" size="sm" on-press="cancel_git_branch_create">Cancel</button>
+                <text-field grow="1" placeholder="{git_branch_create_placeholder}" text="{git_branch_create}" on-input="git_branch_create_edit" autofocus="true" />
+                <button variant="ghost" size="sm" on-press="confirm_git_branch_create">{git_branch_create_label}</button>
+                <button variant="ghost" size="sm" on-press="cancel_git_branch_create">{git_branch_cancel_label}</button>
               </row>
             </if>
             <if test="{git_worktree_create_active}">
               <row gap="8" cross="center">
-                <text-field grow="1" placeholder="New worktree name" text="{git_worktree_create}" on-input="git_worktree_create_edit" autofocus="true" />
+                <text-field grow="1" placeholder="{git_worktree_create_placeholder}" text="{git_worktree_create}" on-input="git_worktree_create_edit" autofocus="true" />
                 <text wrap="false" overflow="ellipsis" foreground="text_muted">{git_worktree_base_label}</text>
                 <stack>
-                  <button variant="ghost" size="sm" on-press="toggle_git_worktree_base_picker">Base</button>
+                  <button variant="ghost" size="sm" on-press="toggle_git_worktree_base_picker">{git_worktree_base_button_label}</button>
                   <if test="{git_worktree_base_picker_open}">
                     <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_git_worktree_base_picker">
                       <for each="git_worktree_base_rows" key="row_id" as="w">
@@ -1213,8 +1213,8 @@
                     </dropdown-menu>
                   </if>
                 </stack>
-                <button variant="ghost" size="sm" on-press="confirm_git_worktree_create">Create</button>
-                <button variant="ghost" size="sm" on-press="cancel_git_worktree_create">Cancel</button>
+                <button variant="ghost" size="sm" on-press="confirm_git_worktree_create">{git_branch_create_label}</button>
+                <button variant="ghost" size="sm" on-press="cancel_git_worktree_create">{git_branch_cancel_label}</button>
               </row>
             </if>
             <if test="{git_commit_active}">
@@ -1254,7 +1254,7 @@
             <if test="{git_branch_delete_active}">
               <row gap="8" cross="center">
                 <stack>
-                  <select placeholder="Branch" on-press="toggle_git_branch_delete_picker">{git_branch_delete}</select>
+                  <select placeholder="{git_branch_placeholder}" on-press="toggle_git_branch_delete_picker">{git_branch_delete}</select>
                   <if test="{git_branch_delete_picker_open}">
                     <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_git_branch_delete_picker">
                       <for each="git_branch_delete_rows" key="row_id" as="d">
@@ -1263,16 +1263,16 @@
                     </dropdown-menu>
                   </if>
                 </stack>
-                <button variant="ghost" size="sm" selected="{git_branch_delete_force}" on-press="toggle_git_branch_delete_force">Force</button>
-                <button variant="ghost" size="sm" on-press="confirm_git_branch_delete">Delete</button>
-                <button variant="ghost" size="sm" on-press="cancel_git_branch_delete">Cancel</button>
+                <button variant="ghost" size="sm" selected="{git_branch_delete_force}" on-press="toggle_git_branch_delete_force">{git_branch_force_label}</button>
+                <button variant="ghost" size="sm" on-press="confirm_git_branch_delete">{git_branch_delete_label}</button>
+                <button variant="ghost" size="sm" on-press="cancel_git_branch_delete">{git_branch_cancel_label}</button>
               </row>
             </if>
             <if test="{git_push_confirm_active}">
               <row gap="8" cross="center">
-                <button variant="ghost" size="sm" selected="{git_push_force}" on-press="toggle_git_push_force">Force</button>
-                <button variant="ghost" size="sm" on-press="confirm_git_push">Push</button>
-                <button variant="ghost" size="sm" on-press="cancel_git_push">Cancel</button>
+                <button variant="ghost" size="sm" selected="{git_push_force}" on-press="toggle_git_push_force">{git_branch_force_label}</button>
+                <button variant="ghost" size="sm" on-press="confirm_git_push">{git_branch_push_label}</button>
+                <button variant="ghost" size="sm" on-press="cancel_git_push">{git_branch_cancel_label}</button>
               </row>
             </if>
             <if test="{daemon_dir_browser_open}">
@@ -1351,21 +1351,21 @@
                 </if>
                 <if test="{can_pick_git_branch}">
                   <stack>
-                    <select size="sm" placeholder="Branch" on-press="toggle_git_branch_picker">{git_branch_label}</select>
+                    <select size="sm" placeholder="{git_branch_placeholder}" on-press="toggle_git_branch_picker">{git_branch_label}</select>
                     <if test="{git_branch_picker_open}">
                       <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_git_branch_picker">
-                        <search-field grow="1" height="24" placeholder="Search branches" text="{git_branch_search}" on-input="git_branch_search_edit" autofocus="true" label="Search branches" />
-                        <menu-item on-press="start_git_branch_create">New branch…</menu-item>
-                        <menu-item on-press="start_git_worktree_create">New worktree…</menu-item>
+                        <search-field grow="1" height="24" placeholder="{git_branch_search_label}" text="{git_branch_search}" on-input="git_branch_search_edit" autofocus="true" label="{git_branch_search_label}" />
+                        <menu-item on-press="start_git_branch_create">{git_branch_new_menu_label}</menu-item>
+                        <menu-item on-press="start_git_worktree_create">{git_worktree_new_menu_label}</menu-item>
                         <if test="{can_delete_git_branch}">
-                          <menu-item on-press="start_git_branch_delete">Delete branch…</menu-item>
+                          <menu-item on-press="start_git_branch_delete">{git_branch_delete_menu_label}</menu-item>
                         </if>
-                        <menu-item on-press="start_git_fetch">Fetch…</menu-item>
+                        <menu-item on-press="start_git_fetch">{git_fetch_menu_label}</menu-item>
                         <if test="{can_commit_git}">
-                          <menu-item on-press="start_git_commit">Commit…</menu-item>
+                          <menu-item on-press="start_git_commit">{git_commit_menu_label}</menu-item>
                         </if>
                         <if test="{can_push_git_branch}">
-                          <menu-item on-press="start_git_push">Push…</menu-item>
+                          <menu-item on-press="start_git_push">{git_push_menu_label}</menu-item>
                         </if>
                         <for each="git_branch_picker_rows" key="row_id" as="b">
                           <menu-item selected="{b.selected}" on-press="pick_git_branch:{b.id}">{b.label}</menu-item>
