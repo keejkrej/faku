@@ -27661,6 +27661,95 @@ test "Settings General field labels follow Appearance language" {
     try testing.expect(findByPlaceholder(tree.root, .select, "エフォート") != null);
 }
 
+test "Composer Image path and Status chrome follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"{image_path_placeholder}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-input=\"image_path_edit\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"{goal_status_placeholder}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"toggle_goal_status_picker\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Image path\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Status\""));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Image path", model.image_path_placeholder());
+    try testing.expectEqualStrings("Status", model.goal_status_placeholder());
+    try testing.expectEqualStrings("Status", model.goal_status_label());
+    try testing.expectEqualStrings(i18n.composerChromeFor(.english, "").image_path, model.image_path_placeholder());
+    try testing.expectEqualStrings(i18n.composerChromeFor(.english, "").status, model.goal_status_placeholder());
+
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    main.update(&model, .start_image_attach, &fx);
+    try testing.expect(model.show_goal());
+    try testing.expect(model.image_attach_active);
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Image path") != null);
+    try testing.expect(findByPlaceholder(tree.root, .select, "Status") != null);
+    _ = try expectSelectMsg(tree, "Status", .toggle_goal_status_picker);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("图片路径", model.image_path_placeholder());
+    try testing.expectEqualStrings("状态", model.goal_status_placeholder());
+    try testing.expectEqualStrings("状态", model.goal_status_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "图片路径") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Image path") == null);
+    try testing.expect(findByPlaceholder(tree.root, .select, "状态") != null);
+    try testing.expect(findByPlaceholder(tree.root, .select, "Status") == null);
+    _ = try expectSelectMsg(tree, "状态", .toggle_goal_status_picker);
+
+    if (model.sessionById(model.selected)) |session| session.setThreadGoal("Ship", "active");
+    try testing.expectEqualStrings("active", model.goal_status_label());
+    try testing.expectEqualStrings("状态", model.goal_status_placeholder());
+    tree = try buildTree(arena, &model);
+    _ = try expectSelectMsg(tree, "active", .toggle_goal_status_picker);
+    try testing.expect(findByPlaceholder(tree.root, .select, "状态") != null);
+
+    model.language_preference = .japanese;
+    if (model.sessionById(model.selected)) |session| session.setThreadGoal("", "");
+    try testing.expectEqualStrings("画像パス", model.image_path_placeholder());
+    try testing.expectEqualStrings("ステータス", model.goal_status_placeholder());
+    try testing.expectEqualStrings("ステータス", model.goal_status_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "画像パス") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "图片路径") == null);
+    try testing.expect(findByPlaceholder(tree.root, .select, "ステータス") != null);
+    _ = try expectSelectMsg(tree, "ステータス", .toggle_goal_status_picker);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Image path", model.image_path_placeholder());
+    try testing.expectEqualStrings("Status", model.goal_status_placeholder());
+    try testing.expectEqualStrings("Status", model.goal_status_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Image path") != null);
+    try testing.expect(findByPlaceholder(tree.root, .select, "Status") != null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("图片路径", model.image_path_placeholder());
+    try testing.expectEqualStrings("状态", model.goal_status_placeholder());
+    try testing.expectEqualStrings("状态", model.goal_status_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "图片路径") != null);
+    try testing.expect(findByPlaceholder(tree.root, .select, "状态") != null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("画像パス", model.image_path_placeholder());
+    try testing.expectEqualStrings("ステータス", model.goal_status_placeholder());
+    try testing.expectEqualStrings("ステータス", model.goal_status_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "画像パス") != null);
+    try testing.expect(findByPlaceholder(tree.root, .select, "ステータス") != null);
+}
+
 test "DateBucket.title english default; zh and ja follow datesFor" {
     try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
     try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());

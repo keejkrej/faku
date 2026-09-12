@@ -2107,6 +2107,7 @@ pub const Model = struct {
         "untitledChrome",
         "daemonAddressChrome",
         "settingsGeneralChrome",
+        "composerChrome",
         "palette_action_label",
         "show_right_panel_label",
         "sidebarDates",
@@ -4719,6 +4720,10 @@ pub const Model = struct {
         return i18n.settingsGeneralChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn composerChrome(model: *const Model) i18n.ComposerChrome {
+        return i18n.composerChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     /// Palette row display label for `action`. New Task / Settings /
     /// Collapse all folders reuse Sidebar / Chrome strings; remaining
     /// names come from `i18n.Palette`. Ids / keywords stay English.
@@ -6428,11 +6433,25 @@ pub const Model = struct {
         return session.threadGoalObjective();
     }
 
-    /// Current Codex `ThreadGoalStatus` wire name, or "Status".
+    /// Current Codex `ThreadGoalStatus` wire name, or localized Status
+    /// chrome when empty. Wire names stay English (`active` / `paused` / …).
     pub fn goal_status_label(model: *const Model) []const u8 {
-        const session = model.sessionByIdConst(model.selected) orelse return "Status";
-        if (session.threadGoalStatus().len == 0) return "Status";
+        const session = model.sessionByIdConst(model.selected) orelse return model.goal_status_placeholder();
+        if (session.threadGoalStatus().len == 0) return model.goal_status_placeholder();
         return session.threadGoalStatus();
+    }
+
+    /// Goal status picker placeholder / empty label. Distinct from
+    /// `goal_status_label` (wire name when set). `on-press` stays
+    /// `toggle_goal_status_picker`.
+    pub fn goal_status_placeholder(model: *const Model) []const u8 {
+        return model.composerChrome().status;
+    }
+
+    /// Composer image-attach path field placeholder. `on-input` stays
+    /// `image_path_edit`. Typed path text stays data.
+    pub fn image_path_placeholder(model: *const Model) []const u8 {
+        return model.composerChrome().image_path;
     }
 
     /// True when last-known `tokensUsed` / `tokenBudget` / `timeUsedSeconds`

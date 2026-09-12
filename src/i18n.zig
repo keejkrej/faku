@@ -59,6 +59,8 @@
 //! Access mode / Interaction / Effort / Last project path / Daemon
 //! address and Default model / Effort placeholders (same
 //! `SettingsGeneralChrome` strings; Latin `FX_MODEL` in every locale)
+//! plus composer Image path placeholder and Goal Status picker
+//! placeholder / empty label (same `ComposerChrome` strings)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -125,7 +127,11 @@
 //! Latin `FX_MODEL` in every locale) follow the resolved locale this
 //! cut. Settings model `on-input` stays English
 //! (`settings_model_edit`); effort picker `on-press` stays English
-//! (`toggle_settings_effort_picker`). OS folder-dialog prompts / missing-picker
+//! (`toggle_settings_effort_picker`). Composer Image path `on-input`
+//! stays English (`image_path_edit`); Goal Status picker `on-press`
+//! stays English (`toggle_goal_status_picker`). Typed path text stays
+//! English (data). ThreadGoalStatus wire names stay English. OS
+//! folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript / PowerShell
 //! / zenity `--title` / kdialog `--title` at spawn) follow the
 //! resolved locale this cut. OS image-dialog prompts / missing-picker
@@ -1572,6 +1578,32 @@ const os_image_dialog_chrome_ja: OsImageDialogChrome = .{
     .windows_missing = "OS の画像選択がありません（powershell.exe がありません）。パスを入力するかファイルをドロップしてください。",
 };
 
+/// Composer Image path placeholder and Goal Status picker placeholder /
+/// empty label for the resolved locale. Same resolve path as
+/// SettingsGeneralChrome. English matches the former hardcoded copy.
+/// Wire ids / on-press / on-input stay English (`image_path_edit` /
+/// `toggle_goal_status_picker`). Typed path text stays data.
+/// ThreadGoalStatus wire names stay English (`active` / `paused` / …).
+pub const ComposerChrome = struct {
+    image_path: []const u8,
+    status: []const u8,
+};
+
+const composer_chrome_en: ComposerChrome = .{
+    .image_path = "Image path",
+    .status = "Status",
+};
+
+const composer_chrome_zh_cn: ComposerChrome = .{
+    .image_path = "图片路径",
+    .status = "状态",
+};
+
+const composer_chrome_ja: ComposerChrome = .{
+    .image_path = "画像パス",
+    .status = "ステータス",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -1938,6 +1970,20 @@ pub fn osImageDialogChromeFor(preference: LanguagePreference, system_locale_id: 
         .simplified_chinese => os_image_dialog_chrome_zh_cn,
         .japanese => os_image_dialog_chrome_ja,
         .system, .english => os_image_dialog_chrome_en,
+    };
+}
+
+/// Composer Image path placeholder and Goal Status picker placeholder /
+/// empty label for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does not
+/// read process env. Wire ids / on-press / on-input stay English.
+/// Typed path text stays data. ThreadGoalStatus wire names stay
+/// English.
+pub fn composerChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ComposerChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => composer_chrome_zh_cn,
+        .japanese => composer_chrome_ja,
+        .system, .english => composer_chrome_en,
     };
 }
 
@@ -3132,5 +3178,29 @@ test "osImageDialogChromeFor english default; zh and ja chrome; english ignores 
     try testing.expectEqualStrings("Choose an image", osImageDialogChromeFor(.english, "zh_CN.UTF-8").prompt);
     try testing.expectEqualStrings("没有 OS 图片选择器（请安装 zenity 或 kdialog）。请输入路径或拖放文件。", osImageDialogChromeFor(.system, "zh_CN.UTF-8").linux_missing);
     try testing.expectEqualStrings("OS の画像選択がありません（osascript がありません）。パスを入力するかファイルをドロップしてください。", osImageDialogChromeFor(.system, "ja_JP.UTF-8").macos_missing);
+}
+
+test "composerChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Image path", composerChromeFor(.english, "ja").image_path);
+    try testing.expectEqualStrings("Image path", composerChromeFor(.english, "").image_path);
+    try testing.expectEqualStrings("Image path", composerChromeFor(.system, "").image_path);
+    try testing.expectEqualStrings("Status", composerChromeFor(.english, "").status);
+    try testing.expectEqualStrings("Status", composerChromeFor(.system, "").status);
+
+    try testing.expectEqualStrings("图片路径", composerChromeFor(.simplified_chinese, "").image_path);
+    try testing.expectEqualStrings("状态", composerChromeFor(.simplified_chinese, "").status);
+
+    try testing.expectEqualStrings("画像パス", composerChromeFor(.japanese, "").image_path);
+    try testing.expectEqualStrings("ステータス", composerChromeFor(.japanese, "").status);
+
+    try testing.expectEqualStrings("图片路径", composerChromeFor(.system, "zh_CN.UTF-8").image_path);
+    try testing.expectEqualStrings("状态", composerChromeFor(.system, "zh_CN.UTF-8").status);
+    try testing.expectEqualStrings("画像パス", composerChromeFor(.system, "ja_JP.UTF-8").image_path);
+    try testing.expectEqualStrings("ステータス", composerChromeFor(.system, "ja_JP.UTF-8").status);
+    try testing.expectEqualStrings("Image path", composerChromeFor(.english, "ja_JP.UTF-8").image_path);
+    try testing.expectEqualStrings("Status", composerChromeFor(.english, "zh_CN.UTF-8").status);
+    try testing.expectEqualStrings("Image path", composerChromeFor(.english, "zh_CN.UTF-8").image_path);
+    try testing.expectEqualStrings("Status", composerChromeFor(.english, "ja_JP.UTF-8").status);
 }
 
