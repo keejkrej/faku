@@ -1673,7 +1673,7 @@
                 <button variant="ghost" size="sm" on-press="close_terminal">{session_chip_close_label}</button>
               </if>
               <if test="{can_restart_terminal}">
-                <button variant="ghost" size="sm" on-press="restart_terminal">Restart</button>
+                <button variant="ghost" size="sm" on-press="restart_terminal">{terminal_restart_label}</button>
               </if>
               <if test="{can_open_terminal}">
                 <button variant="ghost" size="sm" on-press="open_terminal">{open_in_terminal_label}</button>

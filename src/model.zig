@@ -2111,6 +2111,8 @@ pub const Model = struct {
         "browserAddressChrome",
         "browserToolbarChrome",
         "sidebarHistoryChrome",
+        "sessionChipsChrome",
+        "terminalRestartChrome",
         "palette_action_label",
         "show_right_panel_label",
         "sidebarDates",
@@ -3160,6 +3162,12 @@ pub const Model = struct {
 
     pub fn can_restart_terminal(model: *const Model) bool {
         return pty_terminal.can_restart_terminal(model);
+    }
+
+    /// Terminal tab Restart after the pty exit. `on-press` stays
+    /// `restart_terminal`. Distinct from Browser toolbar Reload.
+    pub fn terminal_restart_label(model: *const Model) []const u8 {
+        return model.terminalRestartChrome().restart;
     }
 
     pub fn can_new_terminal(model: *const Model) bool {
@@ -4818,6 +4826,10 @@ pub const Model = struct {
 
     fn sessionChipsChrome(model: *const Model) i18n.SessionChipsChrome {
         return i18n.sessionChipsChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn terminalRestartChrome(model: *const Model) i18n.TerminalRestartChrome {
+        return i18n.terminalRestartChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Palette row display label for `action`. New Task / Settings /
