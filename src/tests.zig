@@ -25085,6 +25085,88 @@ test "right panel Browser start page and Open in browser/Terminal follow Appeara
     try testing.expectEqualStrings("Open in Terminal", model.open_in_terminal_label());
 }
 
+test "Browser start-page globe icon a11y follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{browser_start_icon_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{browser_start_title}"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Browse\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Browse the web<"));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Browse", model.browser_start_icon_label());
+    try testing.expectEqualStrings("Browse the web", model.browser_start_title());
+    try testing.expectEqualStrings(i18n.browserStartIconChromeFor(.english, "").browse, model.browser_start_icon_label());
+    try testing.expect(!std.mem.eql(u8, model.browser_start_icon_label(), model.browser_start_title()));
+    try testing.expect(!std.mem.eql(u8, model.browser_start_icon_label(), model.browser_navigate_label()));
+    try testing.expect(!std.mem.eql(u8, model.browser_start_icon_label(), model.browser_address_label()));
+
+    main.update(&model, .show_right_panel, &fx);
+    main.update(&model, .set_right_panel_tab_browser, &fx);
+    try testing.expect(model.right_panel_showing_browser());
+    try testing.expect(model.browser_showing_start_page());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .column, "browser-start");
+    _ = try expectByText(tree.root, .icon, "Browse");
+    _ = try expectByText(tree.root, .text, "Browse the web");
+    try testing.expect(findByText(tree.root, .icon, "浏览") == null);
+    try testing.expect(findByText(tree.root, .icon, "閲覧") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("浏览", model.browser_start_icon_label());
+    try testing.expectEqualStrings("浏览网页", model.browser_start_title());
+    try testing.expectEqualStrings(i18n.browserStartIconChromeFor(.simplified_chinese, "").browse, model.browser_start_icon_label());
+    try testing.expect(!std.mem.eql(u8, model.browser_start_icon_label(), model.browser_start_title()));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .icon, "浏览");
+    _ = try expectByText(tree.root, .text, "浏览网页");
+    try testing.expect(findByText(tree.root, .icon, "Browse") == null);
+    try testing.expect(findByText(tree.root, .text, "Browse the web") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("閲覧", model.browser_start_icon_label());
+    try testing.expectEqualStrings("ウェブを閲覧", model.browser_start_title());
+    try testing.expectEqualStrings(i18n.browserStartIconChromeFor(.japanese, "").browse, model.browser_start_icon_label());
+    try testing.expect(!std.mem.eql(u8, model.browser_start_icon_label(), model.browser_start_title()));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .icon, "閲覧");
+    _ = try expectByText(tree.root, .text, "ウェブを閲覧");
+    try testing.expect(findByText(tree.root, .icon, "浏览") == null);
+    try testing.expect(findByText(tree.root, .icon, "Browse") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Browse", model.browser_start_icon_label());
+    try testing.expectEqualStrings("Browse the web", model.browser_start_title());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .icon, "Browse");
+    try testing.expect(findByText(tree.root, .icon, "閲覧") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("浏览", model.browser_start_icon_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .icon, "浏览");
+    try testing.expect(findByText(tree.root, .icon, "Browse") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("閲覧", model.browser_start_icon_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .icon, "閲覧");
+    try testing.expect(findByText(tree.root, .icon, "浏览") == null);
+
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Browse", model.browser_start_icon_label());
+    try testing.expectEqualStrings("Browse the web", model.browser_start_title());
+}
+
 test "composer project-row Pick folder / Reveal folder / Open in Terminal / Open in Editor / Copy path follow Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
@@ -27887,7 +27969,7 @@ test "transcript Match / Copy / Fork chrome follows Appearance language" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, ">{queued_header_label}</text>") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"clear_queue\">{dismiss_all_queued_label}</button>") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"{remove_queued_label}\" on-press=\"remove_queued:{q.id}\"") != null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Browse\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"{browser_start_icon_label}\"") != null);
 
     var model = Model{};
     const id = model.addSession("turn chrome", .fx);
@@ -27947,7 +28029,7 @@ test "transcript Match / Copy / Fork chrome follows Appearance language" {
     try testing.expect(findByText(zh_user, .button, "Copy") == null);
     try testing.expect(findByText(zh_user, .button, "Fork") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"jump_latest\">{jump_latest_label}</button>") != null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Browse\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"{browser_start_icon_label}\"") != null);
 
     model.language_preference = .japanese;
     try testing.expectEqualStrings("一致", model.transcript_match_label());
@@ -28014,7 +28096,7 @@ test "transcript Match / Copy / Fork chrome follows Appearance language" {
     try testing.expect(findByText(sys_ja_user, .button, "Copy") == null);
     try testing.expect(findByText(sys_ja_user, .button, "Fork") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"jump_latest\">{jump_latest_label}</button>") != null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Browse\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"{browser_start_icon_label}\"") != null);
 }
 
 test "composer queue / Jump to latest chrome follows Appearance language" {
@@ -28035,7 +28117,7 @@ test "composer queue / Jump to latest chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Queued</text>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Dismiss all</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Remove queued\""));
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Browse\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"{browser_start_icon_label}\"") != null);
 
     var model = Model{};
     const id = model.addSession("queue chrome", .fx);
@@ -28096,7 +28178,7 @@ test "composer queue / Jump to latest chrome follows Appearance language" {
     try testing.expect(findByText(tree.root, .button, "Jump to latest") == null);
     try testing.expect(findByText(tree.root, .text, "Queued") == null);
     try testing.expect(findByText(tree.root, .button, "Dismiss all") == null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Browse\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"{browser_start_icon_label}\"") != null);
 
     model.language_preference = .japanese;
     try testing.expectEqualStrings("最新へジャンプ", model.jump_latest_label());
@@ -28163,7 +28245,7 @@ test "composer queue / Jump to latest chrome follows Appearance language" {
     try testing.expect(findByText(tree.root, .button, "Jump to latest") == null);
     try testing.expect(findByText(tree.root, .text, "Queued") == null);
     try testing.expect(findByText(tree.root, .button, "Fork") == null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Browse\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"{browser_start_icon_label}\"") != null);
 }
 
 test "session title untitled placeholders follow Appearance language" {
@@ -28878,7 +28960,6 @@ test "composer textarea placeholders follow Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-submit=\"composer_enter\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Do anything...\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Queue a follow-up...\""));
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Browse\"") != null);
 
     var model = main.initialModel();
     try testing.expect(!model.is_streaming());
@@ -28970,7 +29051,6 @@ test "composer textarea placeholders follow Appearance language" {
         try testing.expectEqualStrings("フォローアップをキュー...", composer.placeholder);
     } else return error.WidgetNotFound;
     try testing.expect(findByPlaceholder(tree.root, .textarea, "Queue a follow-up...") == null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Browse\"") != null);
 }
 
 test "Browser Address field chrome follows Appearance language; placeholder stays Latin" {

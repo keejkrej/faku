@@ -2112,6 +2112,7 @@ pub const Model = struct {
         "composerPlaceholderChrome",
         "browserAddressChrome",
         "browserToolbarChrome",
+        "browserStartIconChrome",
         "sidebarHistoryChrome",
         "sessionChipsChrome",
         "terminalRestartChrome",
@@ -3690,6 +3691,14 @@ pub const Model = struct {
         return model.rightPanelChrome().browse_the_web;
     }
 
+    /// Browser start-page globe icon a11y. Distinct from
+    /// `i18n.RightPanelChrome.browse_the_web` (title "Browse the web")
+    /// / `BrowserToolbarChrome` / `BrowserAddressChrome`. No wire-id /
+    /// on-press changes.
+    pub fn browser_start_icon_label(model: *const Model) []const u8 {
+        return model.browserStartIconChrome().browse;
+    }
+
     /// Browser-tab empty start-page address-focus hint.
     pub fn browser_address_focus_hint(model: *const Model) []const u8 {
         return model.rightPanelChrome().address_focus_hint;
@@ -4949,6 +4958,10 @@ pub const Model = struct {
 
     fn browserToolbarChrome(model: *const Model) i18n.BrowserToolbarChrome {
         return i18n.browserToolbarChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn browserStartIconChrome(model: *const Model) i18n.BrowserStartIconChrome {
+        return i18n.browserStartIconChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     fn sidebarHistoryChrome(model: *const Model) i18n.SidebarHistoryChrome {

@@ -111,6 +111,11 @@
 //! strings; Latin `https://example.com` in every locale)
 //! plus Browser toolbar Back / Forward / Reload / Navigate and
 //! Secure / Not secure a11y (same `BrowserToolbarChrome` strings)
+//! plus Browser start-page globe icon a11y (same
+//! `BrowserStartIconChrome` strings; distinct from
+//! `RightPanelChrome.browse_the_web` / `BrowserToolbarChrome` /
+//! `BrowserAddressChrome` so start-page icon a11y stays independently
+//! evolvable)
 //! plus sidebar titlebar session-history Back / Forward a11y
 //! (same `SidebarHistoryChrome` strings)
 //! plus Browser / Terminal multi-session New / Close chips
@@ -269,7 +274,9 @@
 //! address `on-input` / on-submit stay English (`browser_url_edit` /
 //! `browser_navigate`). Browser toolbar `on-press` stays English
 //! (`browser_back` / `browser_forward` / `browser_reload` /
-//! `browser_navigate`). Sidebar titlebar history `on-press` stays
+//! `browser_navigate`). Browser start-page globe icon a11y follows
+//! the resolved locale this cut (same `BrowserStartIconChrome`
+//! strings). Sidebar titlebar history `on-press` stays
 //! English (`history_back` / `history_forward`). Browser / Terminal
 //! session-chip `on-press` stays English (`new_browser` /
 //! `close_browser` / `new_terminal` / `close_terminal`). Terminal
@@ -2073,6 +2080,28 @@ const browser_toolbar_chrome_ja: BrowserToolbarChrome = .{
     .not_secure = "保護されていません",
 };
 
+/// Browser start-page globe icon a11y for the resolved locale. Same
+/// resolve path as BrowserToolbarChrome. English matches the former
+/// hardcoded copy (`Browse`, shorter than `RightPanelChrome.browse_the_web`
+/// "Browse the web"). Distinct from `RightPanelChrome.browse_the_web` /
+/// `BrowserToolbarChrome` / `BrowserAddressChrome` so start-page icon
+/// a11y stays independently evolvable. No wire-id / on-press changes.
+pub const BrowserStartIconChrome = struct {
+    browse: []const u8,
+};
+
+const browser_start_icon_chrome_en: BrowserStartIconChrome = .{
+    .browse = "Browse",
+};
+
+const browser_start_icon_chrome_zh_cn: BrowserStartIconChrome = .{
+    .browse = "浏览",
+};
+
+const browser_start_icon_chrome_ja: BrowserStartIconChrome = .{
+    .browse = "閲覧",
+};
+
 /// Sidebar titlebar session-history Back / Forward a11y for the
 /// resolved locale. Same resolve path as BrowserToolbarChrome.
 /// English matches the former hardcoded copy. zh-CN / ja reuse the
@@ -3245,6 +3274,19 @@ pub fn browserToolbarChromeFor(preference: LanguagePreference, system_locale_id:
         .simplified_chinese => browser_toolbar_chrome_zh_cn,
         .japanese => browser_toolbar_chrome_ja,
         .system, .english => browser_toolbar_chrome_en,
+    };
+}
+
+/// Browser start-page globe icon a11y for the resolved locale. Callers
+/// pass Model `language_preference` + `system_locale_id`; this file
+/// does not read process env. Distinct from RightPanelChrome.browse_the_web
+/// / BrowserToolbarChrome / BrowserAddressChrome so start-page icon
+/// a11y stays independently evolvable. No wire-id / on-press changes.
+pub fn browserStartIconChromeFor(preference: LanguagePreference, system_locale_id: []const u8) BrowserStartIconChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => browser_start_icon_chrome_zh_cn,
+        .japanese => browser_start_icon_chrome_ja,
+        .system, .english => browser_start_icon_chrome_en,
     };
 }
 
@@ -5042,6 +5084,27 @@ test "browserToolbarChromeFor english default; zh and ja chrome; english ignores
     try testing.expectEqualStrings("Reload", browserToolbarChromeFor(.english, "zh_CN.UTF-8").reload);
     try testing.expectEqualStrings("Forward", browserToolbarChromeFor(.english, "ja_JP.UTF-8").forward);
     try testing.expectEqualStrings("Secure", browserToolbarChromeFor(.english, "zh_CN.UTF-8").secure);
+}
+
+test "browserStartIconChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Browse", browserStartIconChromeFor(.english, "ja").browse);
+    try testing.expectEqualStrings("Browse", browserStartIconChromeFor(.english, "").browse);
+    try testing.expectEqualStrings("Browse", browserStartIconChromeFor(.system, "").browse);
+
+    try testing.expectEqualStrings("浏览", browserStartIconChromeFor(.simplified_chinese, "").browse);
+    try testing.expectEqualStrings("閲覧", browserStartIconChromeFor(.japanese, "").browse);
+
+    try testing.expectEqualStrings("浏览", browserStartIconChromeFor(.system, "zh_CN.UTF-8").browse);
+    try testing.expectEqualStrings("閲覧", browserStartIconChromeFor(.system, "ja_JP.UTF-8").browse);
+    try testing.expectEqualStrings("Browse", browserStartIconChromeFor(.english, "ja_JP.UTF-8").browse);
+    try testing.expectEqualStrings("Browse", browserStartIconChromeFor(.english, "zh_CN.UTF-8").browse);
+
+    try testing.expect(!std.mem.eql(u8, browserStartIconChromeFor(.english, "").browse, rightPanelChromeFor(.english, "").browse_the_web));
+    try testing.expect(!std.mem.eql(u8, browserStartIconChromeFor(.simplified_chinese, "").browse, rightPanelChromeFor(.simplified_chinese, "").browse_the_web));
+    try testing.expect(!std.mem.eql(u8, browserStartIconChromeFor(.japanese, "").browse, rightPanelChromeFor(.japanese, "").browse_the_web));
+    try testing.expect(!std.mem.eql(u8, browserStartIconChromeFor(.english, "").browse, browserToolbarChromeFor(.english, "").navigate));
+    try testing.expect(!std.mem.eql(u8, browserStartIconChromeFor(.english, "").browse, browserAddressChromeFor(.english, "").address));
 }
 
 test "sidebarHistoryChromeFor english default; zh and ja chrome; english ignores ja LANG" {

@@ -1647,7 +1647,7 @@
             </row>
             <if test="{browser_showing_start_page}">
               <column grow="1" gap="8" padding="24" main="center" cross="center" label="browser-start">
-                <icon name="app:globe" width="32" height="32" foreground="text_muted" label="Browse" />
+                <icon name="app:globe" width="32" height="32" foreground="text_muted" label="{browser_start_icon_label}" />
                 <text text-alignment="center">{browser_start_title}</text>
                 <text wrap="true" foreground="text_muted" text-alignment="center">{browser_address_focus_hint}</text>
               </column>
