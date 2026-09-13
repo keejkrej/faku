@@ -28308,6 +28308,77 @@ test "Browser / Terminal session New / Close chips follow Appearance language" {
     try testing.expect(findByText(tree.root, .button, "New") == null);
 }
 
+test "Terminal Restart chrome follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{terminal_restart_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"restart_terminal\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Restart</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"restart_terminal\">Restart</button>"));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Restart", model.terminal_restart_label());
+    try testing.expectEqualStrings(i18n.terminalRestartChromeFor(.english, "").restart, model.terminal_restart_label());
+
+    main.update(&model, .set_right_panel_tab_terminal, &fx);
+    try testing.expect(model.right_panel_showing_terminal());
+    try testing.expect(model.term_session_live());
+    try testing.expect(!model.can_restart_terminal());
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Restart") == null);
+
+    try fx.feedPtyExit(pty_terminal.pty_shell_key, 0, 0, .exited, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.term_session_live());
+    try testing.expect(model.can_restart_terminal());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Restart", .restart_terminal);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("重启", model.terminal_restart_label());
+    try testing.expectEqualStrings(i18n.terminalRestartChromeFor(.simplified_chinese, "").restart, model.terminal_restart_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "重启", .restart_terminal);
+    try testing.expect(findByText(tree.root, .button, "Restart") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("再起動", model.terminal_restart_label());
+    try testing.expectEqualStrings(i18n.terminalRestartChromeFor(.japanese, "").restart, model.terminal_restart_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "再起動", .restart_terminal);
+    try testing.expect(findByText(tree.root, .button, "重启") == null);
+    try testing.expect(findByText(tree.root, .button, "Restart") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Restart", model.terminal_restart_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Restart", .restart_terminal);
+    try testing.expect(findByText(tree.root, .button, "再起動") == null);
+    try testing.expect(findByText(tree.root, .button, "重启") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("重启", model.terminal_restart_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "重启", .restart_terminal);
+    try testing.expect(findByText(tree.root, .button, "Restart") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("再起動", model.terminal_restart_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "再起動", .restart_terminal);
+    try testing.expect(findByText(tree.root, .button, "Restart") == null);
+}
+
 test "DateBucket.title english default; zh and ja follow datesFor" {
     try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
     try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());

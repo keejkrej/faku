@@ -74,6 +74,7 @@
 //! (same `SidebarHistoryChrome` strings)
 //! plus Browser / Terminal multi-session New / Close chips
 //! (same `SessionChipsChrome` strings)
+//! plus Terminal Restart (same `TerminalRestartChrome` strings)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -152,7 +153,8 @@
 //! `browser_navigate`). Sidebar titlebar history `on-press` stays
 //! English (`history_back` / `history_forward`). Browser / Terminal
 //! session-chip `on-press` stays English (`new_browser` /
-//! `close_browser` / `new_terminal` / `close_terminal`). Typed URL text
+//! `close_browser` / `new_terminal` / `close_terminal`). Terminal
+//! Restart `on-press` stays English (`restart_terminal`). Typed URL text
 //! stays data. Parked `home_url`
 //! / scene URLs stay data. OS
 //! folder-dialog prompts / missing-picker
@@ -1775,6 +1777,27 @@ const session_chips_chrome_ja: SessionChipsChrome = .{
     .close = "閉じる",
 };
 
+/// Terminal tab Restart after the pty exit for the resolved locale.
+/// Same resolve path as SessionChipsChrome. English matches the
+/// former hardcoded copy. Distinct from Browser toolbar Reload
+/// (`BrowserToolbarChrome.reload` / `browser_reload`). Wire ids /
+/// on-press stay English (`restart_terminal`).
+pub const TerminalRestartChrome = struct {
+    restart: []const u8,
+};
+
+const terminal_restart_chrome_en: TerminalRestartChrome = .{
+    .restart = "Restart",
+};
+
+const terminal_restart_chrome_zh_cn: TerminalRestartChrome = .{
+    .restart = "重启",
+};
+
+const terminal_restart_chrome_ja: TerminalRestartChrome = .{
+    .restart = "再起動",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -2210,6 +2233,19 @@ pub fn sessionChipsChromeFor(preference: LanguagePreference, system_locale_id: [
         .simplified_chinese => session_chips_chrome_zh_cn,
         .japanese => session_chips_chrome_ja,
         .system, .english => session_chips_chrome_en,
+    };
+}
+
+/// Terminal tab Restart after the pty exit for the resolved locale.
+/// Callers pass Model `language_preference` + `system_locale_id`;
+/// this file does not read process env. Wire ids / on-press stay
+/// English (`restart_terminal`). Distinct from Browser toolbar Reload
+/// (`browser_reload`).
+pub fn terminalRestartChromeFor(preference: LanguagePreference, system_locale_id: []const u8) TerminalRestartChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => terminal_restart_chrome_zh_cn,
+        .japanese => terminal_restart_chrome_ja,
+        .system, .english => terminal_restart_chrome_en,
     };
 }
 
@@ -3570,5 +3606,20 @@ test "sessionChipsChromeFor english default; zh and ja chrome; english ignores j
     try testing.expectEqualStrings("Close", sessionChipsChromeFor(.english, "zh_CN.UTF-8").close);
     try testing.expectEqualStrings("New", sessionChipsChromeFor(.english, "zh_CN.UTF-8").new);
     try testing.expectEqualStrings("Close", sessionChipsChromeFor(.english, "ja_JP.UTF-8").close);
+}
+
+test "terminalRestartChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Restart", terminalRestartChromeFor(.english, "ja").restart);
+    try testing.expectEqualStrings("Restart", terminalRestartChromeFor(.english, "").restart);
+    try testing.expectEqualStrings("Restart", terminalRestartChromeFor(.system, "").restart);
+
+    try testing.expectEqualStrings("重启", terminalRestartChromeFor(.simplified_chinese, "").restart);
+    try testing.expectEqualStrings("再起動", terminalRestartChromeFor(.japanese, "").restart);
+
+    try testing.expectEqualStrings("重启", terminalRestartChromeFor(.system, "zh_CN.UTF-8").restart);
+    try testing.expectEqualStrings("再起動", terminalRestartChromeFor(.system, "ja_JP.UTF-8").restart);
+    try testing.expectEqualStrings("Restart", terminalRestartChromeFor(.english, "ja_JP.UTF-8").restart);
+    try testing.expectEqualStrings("Restart", terminalRestartChromeFor(.english, "zh_CN.UTF-8").restart);
 }
 
