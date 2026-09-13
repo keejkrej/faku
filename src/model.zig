@@ -4275,6 +4275,8 @@ pub const Model = struct {
         return !hasSkillInsertMatch(model, query);
     }
 
+    /// Composer `$` insert empty. Same `i18n.SkillsEmptyChrome` as
+    /// Settings Skills empty (`skills_empty_hint`).
     pub fn skills_insert_hint(model: *const Model) []const u8 {
         return skills.emptyHint(model);
     }
@@ -5258,6 +5260,9 @@ pub const Model = struct {
         return true;
     }
 
+    /// Settings Skills empty-state. Localized via
+    /// `i18n.SkillsEmptyChrome`. Distinct from FilterChrome /
+    /// RightPanelChrome. Composer `$` insert reuses `skills_insert_hint`.
     pub fn skills_empty_hint(model: *const Model) []const u8 {
         return skills.emptyHint(model);
     }
