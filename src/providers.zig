@@ -46,8 +46,11 @@
 //! auto-runs; not fx.sh). fx Available copies
 //! `fx login` the same way — convenience copy, not auth-state detection
 //! or OAuth UI. Other missing CLIs get a muted PATH hint only (no
-//! invented install URLs). Tests do not need a live daemon or any real
-//! CLI install.
+//! invented install URLs). Status / Enable / Apply / Copy / First-party
+//! follow `i18n.ProvidersChrome`. Detail transport notes, fx login notes,
+//! and the other-CLI PATH hint follow `i18n.ProvidersDetailChrome`.
+//! `Binary:` / `Path:` prefixes stay English this cut. Tests do not
+//! need a live daemon or any real CLI install.
 //!
 //! Leftovers: full onboarding / OAuth / auto-install; Pi ACP /
 //! `--mode rpc`; Claude ACP; `--continue`; circular GPUI gauge;
@@ -82,23 +85,32 @@ fn chrome(model: *const Model) i18n.ProvidersChrome {
     return i18n.providersChromeFor(model.language_preference, model.systemLocaleId());
 }
 
+fn detailChrome(model: *const Model) i18n.ProvidersDetailChrome {
+    return i18n.providersDetailChromeFor(model.language_preference, model.systemLocaleId());
+}
+
 /// English defaults from `i18n.ProvidersChrome`. Tests and callers that
 /// still want the former hardcoded copy use these; rows / detail /
 /// status resolve through `chrome` for the Appearance locale.
 const providers_chrome_en = i18n.providersChromeFor(.english, "");
+/// English defaults from `i18n.ProvidersDetailChrome`. Tests that
+/// still want the former EN literals use these; `detailText` and
+/// Model getters resolve through `detailChrome` for the Appearance
+/// locale.
+const providers_detail_chrome_en = i18n.providersDetailChromeFor(.english, "");
 pub const available_status = providers_chrome_en.available;
 pub const missing_status = providers_chrome_en.not_found;
 pub const fx_available_status = available_status;
 pub const fx_missing_status = missing_status;
-pub const catalog_detail_note = "Status is a PATH --help probe. Send stays demo this cut.";
+pub const catalog_detail_note = providers_detail_chrome_en.catalog_detail_note;
 pub const first_party_label = providers_chrome_en.first_party;
-pub const fx_transport_note = "Live path is one-shot fx acp via acp-proxy.";
-pub const acp_transport_note = "Live Send is one-shot acp via acp-proxy when Available (ACP image content blocks when attached).";
-pub const grok_transport_note = "Live Send is one-shot grok agent stdio via acp-proxy when Available (ACP image content blocks when attached).";
-pub const claude_transport_note = "Live Send is one-shot claude -p --output-format stream-json --forward-subagent-text when Available (later Sends --resume {fx_session_id} when stored; image path in the -p prompt when attached).";
-pub const codex_transport_note = "Live Send is one-shot codex exec when Available (`--image` when attached).";
-pub const amp_transport_note = "Live Send is one-shot amp -x / --execute when Available (`@path` when attached).";
-pub const pi_transport_note = "Live Send is one-shot pi --mode json when Available (`@path` when attached).";
+pub const fx_transport_note = providers_detail_chrome_en.fx_transport_note;
+pub const acp_transport_note = providers_detail_chrome_en.acp_transport_note;
+pub const grok_transport_note = providers_detail_chrome_en.grok_transport_note;
+pub const claude_transport_note = providers_detail_chrome_en.claude_transport_note;
+pub const codex_transport_note = providers_detail_chrome_en.codex_transport_note;
+pub const amp_transport_note = providers_detail_chrome_en.amp_transport_note;
+pub const pi_transport_note = providers_detail_chrome_en.pi_transport_note;
 pub const apply_session_label = providers_chrome_en.apply;
 /// Working keejkrej/fx Unix install script on the latest GitHub Release.
 /// Copied to the clipboard; never auto-run. Not fx.sh.
@@ -109,9 +121,9 @@ pub const fx_install_command = "curl -fsSL https://github.com/keejkrej/fx/releas
 pub const fx_login_command = "fx login";
 pub const copy_install_label = providers_chrome_en.copy_install;
 pub const copy_login_label = providers_chrome_en.copy_login;
-pub const fx_login_note = "Faku does not detect auth state from the --help probe. Copy is a convenience, not sign-in UI or OAuth.";
-pub const fx_login_codex_note = "Optional: fx login grok / fx login codex (no Gateway required).";
-pub const other_install_hint = "Install that CLI on PATH, then Refresh.";
+pub const fx_login_note = providers_detail_chrome_en.fx_login_note;
+pub const fx_login_codex_note = providers_detail_chrome_en.fx_login_codex_note;
+pub const other_install_hint = providers_detail_chrome_en.other_install_hint;
 pub const enable_label = providers_chrome_en.enable;
 pub const disable_label = providers_chrome_en.disable;
 
@@ -228,6 +240,7 @@ pub fn rows(model: *const Model, arena: std.mem.Allocator) []const ProviderRow {
 pub fn detailText(model: *const Model, arena: std.mem.Allocator) []const u8 {
     const id = fromRowId(model.provider_selected_id) orelse return "";
     const pack = chrome(model);
+    const notes = detailChrome(model);
     if (id == .fx) {
         const path = model.fxPath();
         if (model.fx_available and path.len > 0) {
@@ -236,7 +249,7 @@ pub fn detailText(model: *const Model, arena: std.mem.Allocator) []const u8 {
                 pack.first_party,
                 id.defaultBinary(),
                 path,
-                fx_transport_note,
+                notes.fx_transport_note,
             }) catch "";
         }
         return std.fmt.allocPrint(arena, "{s}\n{s}\nBinary: {s}\n{s}\n{s}", .{
@@ -244,23 +257,23 @@ pub fn detailText(model: *const Model, arena: std.mem.Allocator) []const u8 {
             pack.first_party,
             id.defaultBinary(),
             pack.not_found,
-            fx_transport_note,
+            notes.fx_transport_note,
         }) catch "";
     }
     const note = if (id == .grok)
-        grok_transport_note
+        notes.grok_transport_note
     else if (id == .claude)
-        claude_transport_note
+        notes.claude_transport_note
     else if (id == .codex)
-        codex_transport_note
+        notes.codex_transport_note
     else if (id == .amp)
-        amp_transport_note
+        notes.amp_transport_note
     else if (id == .pi)
-        pi_transport_note
+        notes.pi_transport_note
     else if (id.speaksBareAcp())
-        acp_transport_note
+        notes.acp_transport_note
     else
-        catalog_detail_note;
+        notes.catalog_detail_note;
     return std.fmt.allocPrint(arena, "{s}\nBinary: {s}\n{s}\n{s}", .{
         id.wireName(),
         id.defaultBinary(),
@@ -942,7 +955,8 @@ test "statusFor / rowFor english default matches former copy; zh-CN / ja localiz
     defer if (zh_detail.len > 0) testing.allocator.free(zh_detail);
     try testing.expect(std.mem.indexOf(u8, zh_detail, "第一方默认") != null);
     try testing.expect(std.mem.indexOf(u8, zh_detail, "fx") != null);
-    try testing.expect(std.mem.indexOf(u8, zh_detail, fx_transport_note) != null);
+    try testing.expect(std.mem.indexOf(u8, zh_detail, i18n.providersDetailChromeFor(.simplified_chinese, "").fx_transport_note) != null);
+    try testing.expect(std.mem.indexOf(u8, zh_detail, fx_transport_note) == null);
 
     model.language_preference = .japanese;
     setProviderEnabled(&model, .fx, true);
@@ -956,6 +970,14 @@ test "statusFor / rowFor english default matches former copy; zh-CN / ja localiz
     const ja_detail = detailText(&model, testing.allocator);
     defer if (ja_detail.len > 0) testing.allocator.free(ja_detail);
     try testing.expect(std.mem.indexOf(u8, ja_detail, "ファーストパーティ既定") != null);
+    try testing.expect(std.mem.indexOf(u8, ja_detail, i18n.providersDetailChromeFor(.japanese, "").fx_transport_note) != null);
+    try testing.expect(std.mem.indexOf(u8, ja_detail, fx_transport_note) == null);
+
+    selectProvider(&model, rowId(.claude));
+    const ja_claude = detailText(&model, testing.allocator);
+    defer if (ja_claude.len > 0) testing.allocator.free(ja_claude);
+    try testing.expect(std.mem.indexOf(u8, ja_claude, i18n.providersDetailChromeFor(.japanese, "").claude_transport_note) != null);
+    try testing.expect(std.mem.indexOf(u8, ja_claude, claude_transport_note) == null);
 
     model.language_preference = .english;
     model.setSystemLocaleId("ja_JP.UTF-8");

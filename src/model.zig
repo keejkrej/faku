@@ -2119,6 +2119,7 @@ pub const Model = struct {
         "goalActionChrome",
         "usageCostQualityChrome",
         "providersChrome",
+        "providersDetailChrome",
         "palette_action_label",
         "show_right_panel_label",
         "sidebarDates",
@@ -4952,6 +4953,10 @@ pub const Model = struct {
         return i18n.providersChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn providersDetailChrome(model: *const Model) i18n.ProvidersDetailChrome {
+        return i18n.providersDetailChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     /// Palette row display label for `action`. New Task / Settings /
     /// Collapse all folders reuse Sidebar / Chrome strings; remaining
     /// names come from `i18n.Palette`. Ids / keywords stay English.
@@ -5178,19 +5183,25 @@ pub const Model = struct {
         return providers.fx_login_command;
     }
 
+    /// Settings Providers muted fx-login note next to Copy login.
+    /// Shown when `can_copy_fx_login`. Localized via
+    /// `i18n.ProvidersDetailChrome`. Login command text stays English.
     pub fn fx_login_note(model: *const Model) []const u8 {
-        _ = model;
-        return providers.fx_login_note;
+        return model.providersDetailChrome().fx_login_note;
     }
 
+    /// Optional `fx login grok` / `fx login codex` note. Shown with
+    /// `fx_login_note`. Localized via `i18n.ProvidersDetailChrome`.
+    /// Command text stays English.
     pub fn fx_login_codex_note(model: *const Model) []const u8 {
-        _ = model;
-        return providers.fx_login_codex_note;
+        return model.providersDetailChrome().fx_login_codex_note;
     }
 
+    /// Muted PATH hint for a missing non-fx CLI. Shown when
+    /// `has_other_install_hint`. Localized via
+    /// `i18n.ProvidersDetailChrome`.
     pub fn other_install_hint(model: *const Model) []const u8 {
-        _ = model;
-        return providers.other_install_hint;
+        return model.providersDetailChrome().other_install_hint;
     }
 
     pub fn provider_detail(model: *const Model, arena: std.mem.Allocator) []const u8 {

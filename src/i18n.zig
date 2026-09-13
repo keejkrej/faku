@@ -118,8 +118,13 @@
 //! distinct from `ComputerUseChrome` Enable / Off so Providers
 //! Enable/Disable stay independently evolvable; provider wire
 //! names, binary paths, install/login commands, and on-press ids
-//! stay English; longer detail transport notes / fx_login_note /
-//! other_install_hint stay English this cut)
+//! stay English)
+//! plus Settings Providers detail transport notes /
+//! fx_login_note / fx_login_codex_note / other_install_hint (same
+//! `ProvidersDetailChrome` strings; distinct from `ProvidersChrome`
+//! so status / Enable / Apply stay independently evolvable; wire
+//! names / binary paths / install/login commands stay English;
+//! `Binary:` / `Path:` prefixes in detailText stay English this cut)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -2232,7 +2237,8 @@ const usage_sessions_chrome_ja: UsageSessionsChrome = .{
 /// Off so Providers Enable/Disable stay independently evolvable.
 /// Provider wire names, binary paths, install/login *commands*, and
 /// on-press ids stay English. Longer detail transport notes /
-/// `fx_login_note` / `other_install_hint` stay English this cut.
+/// `fx_login_note` / `other_install_hint` live in
+/// `ProvidersDetailChrome`.
 pub const ProvidersChrome = struct {
     available: []const u8,
     not_found: []const u8,
@@ -2275,6 +2281,69 @@ const providers_chrome_ja: ProvidersChrome = .{
     .apply = "このセッションで使う",
     .copy_install = "インストールコマンドをコピー",
     .copy_login = "ログインコマンドをコピー",
+};
+
+/// Settings Providers muted detail transport notes, fx login notes,
+/// and other-CLI PATH hint for the resolved locale. Same resolve path
+/// as ProvidersChrome. English matches the former hardcoded copy.
+/// Distinct from ProvidersChrome so status / Enable / Apply /
+/// Copy / First-party stay independently evolvable. CLI flags, wire
+/// names, binary paths, and install/login *commands* stay English.
+/// `Binary:` / `Path:` prefixes in `detailText` stay English this cut.
+pub const ProvidersDetailChrome = struct {
+    catalog_detail_note: []const u8,
+    fx_transport_note: []const u8,
+    acp_transport_note: []const u8,
+    grok_transport_note: []const u8,
+    claude_transport_note: []const u8,
+    codex_transport_note: []const u8,
+    amp_transport_note: []const u8,
+    pi_transport_note: []const u8,
+    fx_login_note: []const u8,
+    fx_login_codex_note: []const u8,
+    other_install_hint: []const u8,
+};
+
+const providers_detail_chrome_en: ProvidersDetailChrome = .{
+    .catalog_detail_note = "Status is a PATH --help probe. Send stays demo this cut.",
+    .fx_transport_note = "Live path is one-shot fx acp via acp-proxy.",
+    .acp_transport_note = "Live Send is one-shot acp via acp-proxy when Available (ACP image content blocks when attached).",
+    .grok_transport_note = "Live Send is one-shot grok agent stdio via acp-proxy when Available (ACP image content blocks when attached).",
+    .claude_transport_note = "Live Send is one-shot claude -p --output-format stream-json --forward-subagent-text when Available (later Sends --resume {fx_session_id} when stored; image path in the -p prompt when attached).",
+    .codex_transport_note = "Live Send is one-shot codex exec when Available (`--image` when attached).",
+    .amp_transport_note = "Live Send is one-shot amp -x / --execute when Available (`@path` when attached).",
+    .pi_transport_note = "Live Send is one-shot pi --mode json when Available (`@path` when attached).",
+    .fx_login_note = "Faku does not detect auth state from the --help probe. Copy is a convenience, not sign-in UI or OAuth.",
+    .fx_login_codex_note = "Optional: fx login grok / fx login codex (no Gateway required).",
+    .other_install_hint = "Install that CLI on PATH, then Refresh.",
+};
+
+const providers_detail_chrome_zh_cn: ProvidersDetailChrome = .{
+    .catalog_detail_note = "状态来自 PATH --help 探测。本轮 Send 仍为演示。",
+    .fx_transport_note = "实际路径是通过 acp-proxy 的一次性 fx acp。",
+    .acp_transport_note = "可用时，实际 Send 是通过 acp-proxy 的一次性 acp（附加图片时使用 ACP 图像内容块）。",
+    .grok_transport_note = "可用时，实际 Send 是通过 acp-proxy 的一次性 grok agent stdio（附加图片时使用 ACP 图像内容块）。",
+    .claude_transport_note = "可用时，实际 Send 是一次性 claude -p --output-format stream-json --forward-subagent-text（已存储时后续 Send 使用 --resume {fx_session_id}；附加图片时在 -p 提示中放入路径）。",
+    .codex_transport_note = "可用时，实际 Send 是一次性 codex exec（附加时使用 `--image`）。",
+    .amp_transport_note = "可用时，实际 Send 是一次性 amp -x / --execute（附加时使用 `@path`）。",
+    .pi_transport_note = "可用时，实际 Send 是一次性 pi --mode json（附加时使用 `@path`）。",
+    .fx_login_note = "Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。",
+    .fx_login_codex_note = "可选：fx login grok / fx login codex（无需 Gateway）。",
+    .other_install_hint = "将该 CLI 安装到 PATH，然后刷新。",
+};
+
+const providers_detail_chrome_ja: ProvidersDetailChrome = .{
+    .catalog_detail_note = "状態は PATH --help のプローブです。現状の Send はデモのままです。",
+    .fx_transport_note = "実経路は acp-proxy 経由のワンショット fx acp です。",
+    .acp_transport_note = "利用可能なとき、実際の Send は acp-proxy 経由のワンショット acp です（添付時は ACP 画像コンテンツブロック）。",
+    .grok_transport_note = "利用可能なとき、実際の Send は acp-proxy 経由のワンショット grok agent stdio です（添付時は ACP 画像コンテンツブロック）。",
+    .claude_transport_note = "利用可能なとき、実際の Send はワンショット claude -p --output-format stream-json --forward-subagent-text です（保存済みなら後続 Send は --resume {fx_session_id}；添付時は -p プロンプトに画像パス）。",
+    .codex_transport_note = "利用可能なとき、実際の Send はワンショット codex exec です（添付時は `--image`）。",
+    .amp_transport_note = "利用可能なとき、実際の Send はワンショット amp -x / --execute です（添付時は `@path`）。",
+    .pi_transport_note = "利用可能なとき、実際の Send はワンショット pi --mode json です（添付時は `@path`）。",
+    .fx_login_note = "Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。",
+    .fx_login_codex_note = "任意: fx login grok / fx login codex（Gateway は不要）。",
+    .other_install_hint = "その CLI を PATH にインストールしてから更新してください。",
 };
 
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
@@ -2846,13 +2915,27 @@ pub fn usageSessionsChromeFor(preference: LanguagePreference, system_locale_id: 
 /// not read process env. Distinct from ComputerUseChrome so Enable /
 /// Off stay independently evolvable. Provider wire names, binary
 /// paths, install/login commands, and on-press stay English. Longer
-/// detail transport notes / `fx_login_note` / `other_install_hint`
-/// stay English this cut.
+/// detail notes live in `providersDetailChromeFor`.
 pub fn providersChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ProvidersChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => providers_chrome_zh_cn,
         .japanese => providers_chrome_ja,
         .system, .english => providers_chrome_en,
+    };
+}
+
+/// Settings Providers muted detail transport notes, fx login
+/// notes, and other-CLI PATH hint for the resolved locale. Callers
+/// pass Model `language_preference` + `system_locale_id`; this file
+/// does not read process env. Distinct from ProvidersChrome so status
+/// / Enable / Apply stay independently evolvable. CLI flags, wire
+/// names, binary paths, and install/login commands stay English.
+/// `Binary:` / `Path:` prefixes stay English this cut.
+pub fn providersDetailChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ProvidersDetailChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => providers_detail_chrome_zh_cn,
+        .japanese => providers_detail_chrome_ja,
+        .system, .english => providers_detail_chrome_en,
     };
 }
 
@@ -4594,5 +4677,96 @@ test "providersChromeFor english default; zh and ja chrome; english ignores ja L
     try testing.expectEqualStrings("Use for this session", providersChromeFor(.english, "ja_JP.UTF-8").apply);
     try testing.expectEqualStrings("Copy install command", providersChromeFor(.english, "zh_CN.UTF-8").copy_install);
     try testing.expectEqualStrings("Copy login command", providersChromeFor(.english, "ja_JP.UTF-8").copy_login);
+}
+
+test "providersDetailChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings(
+        "Status is a PATH --help probe. Send stays demo this cut.",
+        providersDetailChromeFor(.english, "ja").catalog_detail_note,
+    );
+    try testing.expectEqualStrings(
+        "Live path is one-shot fx acp via acp-proxy.",
+        providersDetailChromeFor(.english, "").fx_transport_note,
+    );
+    try testing.expectEqualStrings(
+        "Live Send is one-shot acp via acp-proxy when Available (ACP image content blocks when attached).",
+        providersDetailChromeFor(.english, "").acp_transport_note,
+    );
+    try testing.expectEqualStrings(
+        "Live Send is one-shot grok agent stdio via acp-proxy when Available (ACP image content blocks when attached).",
+        providersDetailChromeFor(.english, "").grok_transport_note,
+    );
+    try testing.expectEqualStrings(
+        "Live Send is one-shot claude -p --output-format stream-json --forward-subagent-text when Available (later Sends --resume {fx_session_id} when stored; image path in the -p prompt when attached).",
+        providersDetailChromeFor(.english, "").claude_transport_note,
+    );
+    try testing.expectEqualStrings(
+        "Live Send is one-shot codex exec when Available (`--image` when attached).",
+        providersDetailChromeFor(.english, "").codex_transport_note,
+    );
+    try testing.expectEqualStrings(
+        "Live Send is one-shot amp -x / --execute when Available (`@path` when attached).",
+        providersDetailChromeFor(.english, "").amp_transport_note,
+    );
+    try testing.expectEqualStrings(
+        "Live Send is one-shot pi --mode json when Available (`@path` when attached).",
+        providersDetailChromeFor(.english, "").pi_transport_note,
+    );
+    try testing.expectEqualStrings(
+        "Faku does not detect auth state from the --help probe. Copy is a convenience, not sign-in UI or OAuth.",
+        providersDetailChromeFor(.english, "").fx_login_note,
+    );
+    try testing.expectEqualStrings(
+        "Optional: fx login grok / fx login codex (no Gateway required).",
+        providersDetailChromeFor(.english, "").fx_login_codex_note,
+    );
+    try testing.expectEqualStrings(
+        "Install that CLI on PATH, then Refresh.",
+        providersDetailChromeFor(.english, "").other_install_hint,
+    );
+    try testing.expectEqualStrings(
+        "Live path is one-shot fx acp via acp-proxy.",
+        providersDetailChromeFor(.system, "").fx_transport_note,
+    );
+    try testing.expectEqualStrings(
+        "Install that CLI on PATH, then Refresh.",
+        providersDetailChromeFor(.system, "").other_install_hint,
+    );
+
+    try testing.expectEqualStrings("状态来自 PATH --help 探测。本轮 Send 仍为演示。", providersDetailChromeFor(.simplified_chinese, "").catalog_detail_note);
+    try testing.expectEqualStrings("实际路径是通过 acp-proxy 的一次性 fx acp。", providersDetailChromeFor(.simplified_chinese, "").fx_transport_note);
+    try testing.expectEqualStrings("可用时，实际 Send 是通过 acp-proxy 的一次性 acp（附加图片时使用 ACP 图像内容块）。", providersDetailChromeFor(.simplified_chinese, "").acp_transport_note);
+    try testing.expectEqualStrings("可用时，实际 Send 是通过 acp-proxy 的一次性 grok agent stdio（附加图片时使用 ACP 图像内容块）。", providersDetailChromeFor(.simplified_chinese, "").grok_transport_note);
+    try testing.expectEqualStrings("可用时，实际 Send 是一次性 claude -p --output-format stream-json --forward-subagent-text（已存储时后续 Send 使用 --resume {fx_session_id}；附加图片时在 -p 提示中放入路径）。", providersDetailChromeFor(.simplified_chinese, "").claude_transport_note);
+    try testing.expectEqualStrings("可用时，实际 Send 是一次性 codex exec（附加时使用 `--image`）。", providersDetailChromeFor(.simplified_chinese, "").codex_transport_note);
+    try testing.expectEqualStrings("可用时，实际 Send 是一次性 amp -x / --execute（附加时使用 `@path`）。", providersDetailChromeFor(.simplified_chinese, "").amp_transport_note);
+    try testing.expectEqualStrings("可用时，实际 Send 是一次性 pi --mode json（附加时使用 `@path`）。", providersDetailChromeFor(.simplified_chinese, "").pi_transport_note);
+    try testing.expectEqualStrings("Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。", providersDetailChromeFor(.simplified_chinese, "").fx_login_note);
+    try testing.expectEqualStrings("可选：fx login grok / fx login codex（无需 Gateway）。", providersDetailChromeFor(.simplified_chinese, "").fx_login_codex_note);
+    try testing.expectEqualStrings("将该 CLI 安装到 PATH，然后刷新。", providersDetailChromeFor(.simplified_chinese, "").other_install_hint);
+
+    try testing.expectEqualStrings("状態は PATH --help のプローブです。現状の Send はデモのままです。", providersDetailChromeFor(.japanese, "").catalog_detail_note);
+    try testing.expectEqualStrings("実経路は acp-proxy 経由のワンショット fx acp です。", providersDetailChromeFor(.japanese, "").fx_transport_note);
+    try testing.expectEqualStrings("利用可能なとき、実際の Send は acp-proxy 経由のワンショット acp です（添付時は ACP 画像コンテンツブロック）。", providersDetailChromeFor(.japanese, "").acp_transport_note);
+    try testing.expectEqualStrings("利用可能なとき、実際の Send は acp-proxy 経由のワンショット grok agent stdio です（添付時は ACP 画像コンテンツブロック）。", providersDetailChromeFor(.japanese, "").grok_transport_note);
+    try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット claude -p --output-format stream-json --forward-subagent-text です（保存済みなら後続 Send は --resume {fx_session_id}；添付時は -p プロンプトに画像パス）。", providersDetailChromeFor(.japanese, "").claude_transport_note);
+    try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット codex exec です（添付時は `--image`）。", providersDetailChromeFor(.japanese, "").codex_transport_note);
+    try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット amp -x / --execute です（添付時は `@path`）。", providersDetailChromeFor(.japanese, "").amp_transport_note);
+    try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット pi --mode json です（添付時は `@path`）。", providersDetailChromeFor(.japanese, "").pi_transport_note);
+    try testing.expectEqualStrings("Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。", providersDetailChromeFor(.japanese, "").fx_login_note);
+    try testing.expectEqualStrings("任意: fx login grok / fx login codex（Gateway は不要）。", providersDetailChromeFor(.japanese, "").fx_login_codex_note);
+    try testing.expectEqualStrings("その CLI を PATH にインストールしてから更新してください。", providersDetailChromeFor(.japanese, "").other_install_hint);
+
+    try testing.expectEqualStrings("实际路径是通过 acp-proxy 的一次性 fx acp。", providersDetailChromeFor(.system, "zh_CN.UTF-8").fx_transport_note);
+    try testing.expectEqualStrings("将该 CLI 安装到 PATH，然后刷新。", providersDetailChromeFor(.system, "zh_CN.UTF-8").other_install_hint);
+    try testing.expectEqualStrings("Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。", providersDetailChromeFor(.system, "zh_CN.UTF-8").fx_login_note);
+    try testing.expectEqualStrings("実経路は acp-proxy 経由のワンショット fx acp です。", providersDetailChromeFor(.system, "ja_JP.UTF-8").fx_transport_note);
+    try testing.expectEqualStrings("その CLI を PATH にインストールしてから更新してください。", providersDetailChromeFor(.system, "ja_JP.UTF-8").other_install_hint);
+    try testing.expectEqualStrings("Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。", providersDetailChromeFor(.system, "ja_JP.UTF-8").fx_login_note);
+    try testing.expectEqualStrings("Live path is one-shot fx acp via acp-proxy.", providersDetailChromeFor(.english, "ja_JP.UTF-8").fx_transport_note);
+    try testing.expectEqualStrings("Install that CLI on PATH, then Refresh.", providersDetailChromeFor(.english, "zh_CN.UTF-8").other_install_hint);
+    try testing.expectEqualStrings("Faku does not detect auth state from the --help probe. Copy is a convenience, not sign-in UI or OAuth.", providersDetailChromeFor(.english, "ja_JP.UTF-8").fx_login_note);
+    try testing.expectEqualStrings("Optional: fx login grok / fx login codex (no Gateway required).", providersDetailChromeFor(.english, "zh_CN.UTF-8").fx_login_codex_note);
 }
 

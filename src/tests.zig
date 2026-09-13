@@ -29567,6 +29567,11 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     _ = try expectButtonMsg(tree, "ログインコマンドをコピー", .copy_fx_login);
     try testing.expect(findByText(tree.root, .button, "インストールコマンドをコピー") == null);
     try testing.expect(findByText(tree.root, .text, "Available") == null);
+    try testing.expect(findTextContaining(tree.root, i18n.providersDetailChromeFor(.japanese, "").fx_login_note) != null);
+    try testing.expect(findTextContaining(tree.root, i18n.providersDetailChromeFor(.japanese, "").fx_login_codex_note) != null);
+    try testing.expect(findTextContaining(tree.root, providers.fx_login_note) == null);
+    try testing.expect(findTextContaining(tree.root, i18n.providersDetailChromeFor(.japanese, "").fx_transport_note) != null);
+    try testing.expect(findTextContaining(tree.root, providers.fx_transport_note) == null);
 
     model.language_preference = .english;
     model.setSystemLocaleId("ja_JP.UTF-8");
@@ -29596,6 +29601,9 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     _ = try expectButtonMsg(tree, "用于此会话", .apply_session_provider);
     try testing.expect(findByText(tree.root, .text, "First-party default") == null);
     try testing.expect(findByText(tree.root, .button, "Use for this session") == null);
+    try testing.expect(findTextContaining(tree.root, i18n.providersDetailChromeFor(.simplified_chinese, "").fx_login_note) != null);
+    try testing.expect(findTextContaining(tree.root, i18n.providersDetailChromeFor(.simplified_chinese, "").fx_login_codex_note) != null);
+    try testing.expect(findTextContaining(tree.root, providers.fx_login_note) == null);
 
     model.setSystemLocaleId("ja_JP.UTF-8");
     try testing.expectEqualStrings("このセッションで使う", model.apply_session_provider_label());
@@ -29615,6 +29623,66 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "有効", .{ .toggle_provider_enabled = 1 });
     try testing.expect(findByText(tree.root, .button, "Enable") == null);
+}
+
+test "Settings Providers fx_login_note fx_login_codex_note other_install_hint follow Appearance language" {
+    var model = main.initialModel();
+    const en = i18n.providersDetailChromeFor(.english, "");
+    const zh = i18n.providersDetailChromeFor(.simplified_chinese, "");
+    const ja = i18n.providersDetailChromeFor(.japanese, "");
+
+    try testing.expectEqualStrings(en.fx_login_note, model.fx_login_note());
+    try testing.expectEqualStrings(en.fx_login_codex_note, model.fx_login_codex_note());
+    try testing.expectEqualStrings(en.other_install_hint, model.other_install_hint());
+    try testing.expectEqualStrings(providers.fx_login_note, model.fx_login_note());
+    try testing.expectEqualStrings(providers.fx_login_codex_note, model.fx_login_codex_note());
+    try testing.expectEqualStrings(providers.other_install_hint, model.other_install_hint());
+    try testing.expectEqualStrings(
+        "Faku does not detect auth state from the --help probe. Copy is a convenience, not sign-in UI or OAuth.",
+        model.fx_login_note(),
+    );
+    try testing.expectEqualStrings(
+        "Optional: fx login grok / fx login codex (no Gateway required).",
+        model.fx_login_codex_note(),
+    );
+    try testing.expectEqualStrings("Install that CLI on PATH, then Refresh.", model.other_install_hint());
+
+    model.language_preference = .system;
+    try testing.expectEqualStrings(en.fx_login_note, model.fx_login_note());
+    try testing.expectEqualStrings(en.fx_login_codex_note, model.fx_login_codex_note());
+    try testing.expectEqualStrings(en.other_install_hint, model.other_install_hint());
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings(zh.fx_login_note, model.fx_login_note());
+    try testing.expectEqualStrings(zh.fx_login_codex_note, model.fx_login_codex_note());
+    try testing.expectEqualStrings(zh.other_install_hint, model.other_install_hint());
+    try testing.expectEqualStrings("Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。", model.fx_login_note());
+    try testing.expectEqualStrings("可选：fx login grok / fx login codex（无需 Gateway）。", model.fx_login_codex_note());
+    try testing.expectEqualStrings("将该 CLI 安装到 PATH，然后刷新。", model.other_install_hint());
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings(ja.fx_login_note, model.fx_login_note());
+    try testing.expectEqualStrings(ja.fx_login_codex_note, model.fx_login_codex_note());
+    try testing.expectEqualStrings(ja.other_install_hint, model.other_install_hint());
+    try testing.expectEqualStrings("Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。", model.fx_login_note());
+    try testing.expectEqualStrings("任意: fx login grok / fx login codex（Gateway は不要）。", model.fx_login_codex_note());
+    try testing.expectEqualStrings("その CLI を PATH にインストールしてから更新してください。", model.other_install_hint());
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings(en.fx_login_note, model.fx_login_note());
+    try testing.expectEqualStrings(en.other_install_hint, model.other_install_hint());
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings(zh.fx_login_note, model.fx_login_note());
+    try testing.expectEqualStrings(zh.fx_login_codex_note, model.fx_login_codex_note());
+    try testing.expectEqualStrings(zh.other_install_hint, model.other_install_hint());
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings(ja.fx_login_note, model.fx_login_note());
+    try testing.expectEqualStrings(ja.fx_login_codex_note, model.fx_login_codex_note());
+    try testing.expectEqualStrings(ja.other_install_hint, model.other_install_hint());
 }
 
 test "DateBucket.title english default; zh and ja follow datesFor" {
