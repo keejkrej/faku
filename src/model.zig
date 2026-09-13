@@ -4924,6 +4924,10 @@ pub const Model = struct {
         return i18n.transcriptRoleChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn transcriptTurnChrome(model: *const Model) i18n.TranscriptTurnChrome {
+        return i18n.transcriptTurnChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn browserAddressChrome(model: *const Model) i18n.BrowserAddressChrome {
         return i18n.browserAddressChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6163,7 +6167,7 @@ pub const Model = struct {
     }
 
     /// Header Fork button chrome. `on-press` stays `fork`.
-    /// Distinct from per-turn transcript Fork (`fork_turn`).
+    /// Distinct from per-turn transcript Fork (`fork_turn_label`).
     pub fn fork_label(model: *const Model) []const u8 {
         return model.headerSessionChrome().fork;
     }
@@ -6174,17 +6178,37 @@ pub const Model = struct {
     }
 
     /// Transcript user-turn You said a11y. Distinct from
-    /// `HeaderSessionChrome` and from per-turn transcript Copy /
-    /// Fork. Turn data / wire ids / on-press stay English.
+    /// `HeaderSessionChrome` and from `TranscriptTurnChrome`.
+    /// Turn data / wire ids / on-press stay English.
     pub fn you_said_label(model: *const Model) []const u8 {
         return model.transcriptRoleChrome().you_said;
     }
 
     /// Transcript assistant-turn Assistant said a11y. Distinct from
-    /// `HeaderSessionChrome` and from per-turn transcript Copy /
-    /// Fork. Turn data / wire ids / on-press stay English.
+    /// `HeaderSessionChrome` and from `TranscriptTurnChrome`.
+    /// Turn data / wire ids / on-press stay English.
     pub fn assistant_said_label(model: *const Model) []const u8 {
         return model.transcriptRoleChrome().assistant_said;
+    }
+
+    /// Transcript current-find-hit Match chip. Distinct from
+    /// `find_match_label` ("1 of 2") and from FindBarChrome /
+    /// FilePreviewChrome match a11y. Find logic unchanged.
+    pub fn transcript_match_label(model: *const Model) []const u8 {
+        return model.transcriptTurnChrome().match;
+    }
+
+    /// Per-turn Copy icon-button a11y. `on-press` stays
+    /// `copy_turn:{t.id}`. Distinct from `copy_session_label` /
+    /// `palette_action_label(.copy_session_id)`.
+    pub fn copy_turn_label(model: *const Model) []const u8 {
+        return model.transcriptTurnChrome().copy;
+    }
+
+    /// Per-turn Fork button chrome. `on-press` stays
+    /// `fork_turn:{t.id}`. Distinct from header `fork_label`.
+    pub fn fork_turn_label(model: *const Model) []const u8 {
+        return model.transcriptTurnChrome().fork;
     }
 
     /// Session title rename placeholders (sidebar + header).

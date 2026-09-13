@@ -27643,8 +27643,8 @@ test "header Copy session / Fork / Rewind chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Copy session\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"fork\">Fork</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"rewind\">Rewind</button>"));
-    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "on-press=\"fork_turn:{t.id}\">Fork</button>"));
-    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "label=\"Copy\" on-press=\"copy_turn:{t.id}\""));
+    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "on-press=\"fork_turn:{t.id}\">{fork_turn_label}</button>"));
+    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "label=\"{copy_turn_label}\" on-press=\"copy_turn:{t.id}\""));
 
     var model = main.initialModel();
     try testing.expect(model.can_fork());
@@ -27690,8 +27690,8 @@ test "header Copy session / Fork / Rewind chrome follows Appearance language" {
     try testing.expect(findByText(zh_toolbar, .button, "Copy session") == null);
     try testing.expect(findByText(zh_toolbar, .button, "Fork") == null);
     try testing.expect(findByText(zh_toolbar, .button, "Rewind") == null);
-    try testing.expect(findByText(tree.root, .button, "Copy") != null);
-    try testing.expect(findByText(tree.root, .button, "Fork") != null);
+    _ = try expectByText(tree.root, .button, "复制");
+    _ = try expectByText(tree.root, .button, "分叉");
 
     model.language_preference = .japanese;
     try testing.expectEqualStrings("セッションをコピー", model.copy_session_label());
@@ -27710,8 +27710,8 @@ test "header Copy session / Fork / Rewind chrome follows Appearance language" {
     try testing.expect(findByText(ja_toolbar, .button, "Fork") == null);
     try testing.expect(findByText(ja_toolbar, .button, "Rewind") == null);
     try testing.expect(findByText(ja_toolbar, .button, "复制会话") == null);
-    try testing.expect(findByText(tree.root, .button, "Copy") != null);
-    try testing.expect(findByText(tree.root, .button, "Fork") != null);
+    _ = try expectByText(tree.root, .button, "コピー");
+    _ = try expectByText(tree.root, .button, "フォーク");
 
     model.language_preference = .english;
     model.setSystemLocaleId("ja_JP.UTF-8");
@@ -27763,9 +27763,9 @@ test "transcript You said / Assistant said chrome follows Appearance language" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"{assistant_said_label}\"") != null);
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"You said\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Assistant said\""));
-    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, ">Match</text>"));
-    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "label=\"Copy\" on-press=\"copy_turn:{t.id}\""));
-    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "on-press=\"fork_turn:{t.id}\">Fork</button>"));
+    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, ">{transcript_match_label}</text>"));
+    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "label=\"{copy_turn_label}\" on-press=\"copy_turn:{t.id}\""));
+    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "on-press=\"fork_turn:{t.id}\">{fork_turn_label}</button>"));
 
     var model = Model{};
     const id = model.addSession("role chrome", .fx);
@@ -27804,8 +27804,8 @@ test "transcript You said / Assistant said chrome follows Appearance language" {
     _ = try expectByText(zh_assistant, .row, "助手说");
     try testing.expect(findByText(zh_user, .column, "You said") == null);
     try testing.expect(findByText(zh_assistant, .row, "Assistant said") == null);
-    try testing.expect(findByText(tree.root, .button, "Copy") != null);
-    try testing.expect(findByText(tree.root, .button, "Fork") != null);
+    try testing.expect(findByText(tree.root, .button, "复制") != null);
+    try testing.expect(findByText(tree.root, .button, "分叉") != null);
 
     model.language_preference = .japanese;
     try testing.expectEqualStrings("あなたが言った", model.you_said_label());
@@ -27821,8 +27821,8 @@ test "transcript You said / Assistant said chrome follows Appearance language" {
     try testing.expect(findByText(ja_user, .column, "You said") == null);
     try testing.expect(findByText(ja_assistant, .row, "Assistant said") == null);
     try testing.expect(findByText(ja_user, .column, "你说") == null);
-    try testing.expect(findByText(tree.root, .button, "Copy") != null);
-    try testing.expect(findByText(tree.root, .button, "Fork") != null);
+    try testing.expect(findByText(tree.root, .button, "コピー") != null);
+    try testing.expect(findByText(tree.root, .button, "フォーク") != null);
 
     model.language_preference = .english;
     model.setSystemLocaleId("ja_JP.UTF-8");
@@ -27848,7 +27848,7 @@ test "transcript You said / Assistant said chrome follows Appearance language" {
     const sys_zh_assistant = try expectByText(sys_zh_transcript, .column, "a wrapped assistant reply that should stay on the left");
     _ = try expectByText(sys_zh_assistant, .row, "助手说");
     try testing.expect(findByText(sys_zh_user, .column, "You said") == null);
-    try testing.expect(findByText(tree.root, .button, "Copy") != null);
+    try testing.expect(findByText(tree.root, .button, "复制") != null);
 
     model.setSystemLocaleId("ja_JP.UTF-8");
     try testing.expectEqualStrings("あなたが言った", model.you_said_label());
@@ -27861,8 +27861,166 @@ test "transcript You said / Assistant said chrome follows Appearance language" {
     _ = try expectByText(sys_ja_assistant, .row, "アシスタントが言った");
     try testing.expect(findByText(sys_ja_user, .column, "You said") == null);
     try testing.expect(findByText(sys_ja_assistant, .row, "Assistant said") == null);
-    try testing.expect(findByText(tree.root, .button, "Copy") != null);
-    try testing.expect(findByText(tree.root, .button, "Fork") != null);
+    try testing.expect(findByText(tree.root, .button, "コピー") != null);
+    try testing.expect(findByText(tree.root, .button, "フォーク") != null);
+}
+
+test "transcript Match / Copy / Fork chrome follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, ">{transcript_match_label}</text>"));
+    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "label=\"{copy_turn_label}\" on-press=\"copy_turn:{t.id}\""));
+    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "on-press=\"fork_turn:{t.id}\">{fork_turn_label}</button>"));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">{transcript_match_label}</text>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"{copy_turn_label}\" on-press=\"copy_turn:{t.id}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"fork_turn:{t.id}\">{fork_turn_label}</button>") != null);
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Match</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Copy\" on-press=\"copy_turn:{t.id}\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"fork_turn:{t.id}\">Fork</button>"));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">Queued</text>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Remove queued\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">Dismiss all</button>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">Jump to latest</button>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Browse\"") != null);
+
+    var model = Model{};
+    const id = model.addSession("turn chrome", .fx);
+    model.selected = id;
+    const user_id = model.appendTurn(id, .user, "alpha hello");
+    _ = model.appendTurn(id, .assistant, "a wrapped assistant reply");
+
+    try testing.expectEqualStrings("Match", model.transcript_match_label());
+    try testing.expectEqualStrings("Copy", model.copy_turn_label());
+    try testing.expectEqualStrings("Fork", model.fork_turn_label());
+    try testing.expectEqualStrings(i18n.transcriptTurnChromeFor(.english, "").match, model.transcript_match_label());
+    try testing.expectEqualStrings(i18n.transcriptTurnChromeFor(.english, "").copy, model.copy_turn_label());
+    try testing.expectEqualStrings(i18n.transcriptTurnChromeFor(.english, "").fork, model.fork_turn_label());
+    try testing.expect(!std.mem.eql(u8, model.copy_turn_label(), model.copy_session_label()));
+    try testing.expect(!std.mem.eql(u8, model.copy_turn_label(), model.palette_action_label(.copy_session_id)));
+    try testing.expect(!std.mem.eql(u8, model.transcript_match_label(), model.find_previous_match_label()));
+    try testing.expect(!std.mem.eql(u8, model.copy_turn_label(), model.you_said_label()));
+
+    main.update(&model, .open_find, &fx);
+    main.update(&model, .{ .find_edit = .{ .insert_text = "hello" } }, &fx);
+    try testing.expectEqualStrings("1 of 1", model.find_match_label(arena));
+    try testing.expect(model.visible_turns(arena)[0].is_find_current);
+
+    var tree = try buildTree(arena, &model);
+    const transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const user_row = try expectByText(transcript, .row, "alpha hello");
+    try testing.expectEqual(@as(usize, 1), countByText(tree.root, .text, "Match"));
+    try testing.expect(findAnyText(user_row, "Match"));
+    const copy = try expectButton(user_row, "Copy");
+    try testing.expectEqual(Msg{ .copy_turn = user_id }, tree.msgForPointer(copy.id, .up).?);
+    const fork = try expectByText(user_row, .button, "Fork");
+    try testing.expectEqual(Msg{ .fork_turn = user_id }, tree.msgForPointer(fork.id, .up).?);
+    try testing.expect(findByText(tree.root, .text, "匹配") == null);
+    try testing.expect(findByText(tree.root, .button, "复制") == null);
+    try testing.expect(findByText(tree.root, .button, "コピー") == null);
+    try testing.expect(findByText(tree.root, .text, "Queued") == null);
+    try testing.expect(findByText(tree.root, .button, "Jump to latest") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("匹配", model.transcript_match_label());
+    try testing.expectEqualStrings("复制", model.copy_turn_label());
+    try testing.expectEqualStrings("分叉", model.fork_turn_label());
+    try testing.expectEqualStrings(i18n.transcriptTurnChromeFor(.simplified_chinese, "").match, model.transcript_match_label());
+    try testing.expectEqualStrings(i18n.transcriptTurnChromeFor(.simplified_chinese, "").copy, model.copy_turn_label());
+    try testing.expectEqualStrings(i18n.transcriptTurnChromeFor(.simplified_chinese, "").fork, model.fork_turn_label());
+    try testing.expect(!std.mem.eql(u8, model.copy_turn_label(), model.copy_session_label()));
+    tree = try buildTree(arena, &model);
+    const zh_transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const zh_user = try expectByText(zh_transcript, .row, "alpha hello");
+    try testing.expectEqual(@as(usize, 1), countByText(tree.root, .text, "匹配"));
+    try testing.expect(findAnyText(zh_user, "匹配"));
+    const zh_copy = try expectButton(zh_user, "复制");
+    try testing.expectEqual(Msg{ .copy_turn = user_id }, tree.msgForPointer(zh_copy.id, .up).?);
+    const zh_fork = try expectByText(zh_user, .button, "分叉");
+    try testing.expectEqual(Msg{ .fork_turn = user_id }, tree.msgForPointer(zh_fork.id, .up).?);
+    try testing.expect(findByText(zh_user, .text, "Match") == null);
+    try testing.expect(findByText(zh_user, .button, "Copy") == null);
+    try testing.expect(findByText(zh_user, .button, "Fork") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">Queued</text>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Remove queued\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">Dismiss all</button>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">Jump to latest</button>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Browse\"") != null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("一致", model.transcript_match_label());
+    try testing.expectEqualStrings("コピー", model.copy_turn_label());
+    try testing.expectEqualStrings("フォーク", model.fork_turn_label());
+    try testing.expectEqualStrings(i18n.transcriptTurnChromeFor(.japanese, "").match, model.transcript_match_label());
+    try testing.expectEqualStrings(i18n.transcriptTurnChromeFor(.japanese, "").copy, model.copy_turn_label());
+    try testing.expectEqualStrings(i18n.transcriptTurnChromeFor(.japanese, "").fork, model.fork_turn_label());
+    tree = try buildTree(arena, &model);
+    const ja_transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const ja_user = try expectByText(ja_transcript, .row, "alpha hello");
+    try testing.expectEqual(@as(usize, 1), countByText(tree.root, .text, "一致"));
+    try testing.expect(findAnyText(ja_user, "一致"));
+    const ja_copy = try expectButton(ja_user, "コピー");
+    try testing.expectEqual(Msg{ .copy_turn = user_id }, tree.msgForPointer(ja_copy.id, .up).?);
+    const ja_fork = try expectByText(ja_user, .button, "フォーク");
+    try testing.expectEqual(Msg{ .fork_turn = user_id }, tree.msgForPointer(ja_fork.id, .up).?);
+    try testing.expect(findByText(ja_user, .text, "Match") == null);
+    try testing.expect(findByText(ja_user, .button, "Copy") == null);
+    try testing.expect(findByText(ja_user, .button, "复制") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Match", model.transcript_match_label());
+    try testing.expectEqualStrings("Copy", model.copy_turn_label());
+    try testing.expectEqualStrings("Fork", model.fork_turn_label());
+    tree = try buildTree(arena, &model);
+    const en_transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const en_user = try expectByText(en_transcript, .row, "alpha hello");
+    try testing.expect(findAnyText(en_user, "Match"));
+    _ = try expectButton(en_user, "Copy");
+    _ = try expectByText(en_user, .button, "Fork");
+    try testing.expect(findByText(en_user, .text, "一致") == null);
+    try testing.expect(findByText(en_user, .button, "コピー") == null);
+    try testing.expect(findByText(en_user, .button, "フォーク") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("匹配", model.transcript_match_label());
+    try testing.expectEqualStrings("复制", model.copy_turn_label());
+    try testing.expectEqualStrings("分叉", model.fork_turn_label());
+    tree = try buildTree(arena, &model);
+    const sys_zh_transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const sys_zh_user = try expectByText(sys_zh_transcript, .row, "alpha hello");
+    try testing.expect(findAnyText(sys_zh_user, "匹配"));
+    const sys_zh_copy = try expectButton(sys_zh_user, "复制");
+    try testing.expectEqual(Msg{ .copy_turn = user_id }, tree.msgForPointer(sys_zh_copy.id, .up).?);
+    const sys_zh_fork = try expectByText(sys_zh_user, .button, "分叉");
+    try testing.expectEqual(Msg{ .fork_turn = user_id }, tree.msgForPointer(sys_zh_fork.id, .up).?);
+    try testing.expect(findByText(sys_zh_user, .text, "Match") == null);
+    try testing.expect(findByText(sys_zh_user, .button, "Copy") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("一致", model.transcript_match_label());
+    try testing.expectEqualStrings("コピー", model.copy_turn_label());
+    try testing.expectEqualStrings("フォーク", model.fork_turn_label());
+    tree = try buildTree(arena, &model);
+    const sys_ja_transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const sys_ja_user = try expectByText(sys_ja_transcript, .row, "alpha hello");
+    try testing.expect(findAnyText(sys_ja_user, "一致"));
+    _ = try expectButton(sys_ja_user, "コピー");
+    _ = try expectByText(sys_ja_user, .button, "フォーク");
+    try testing.expect(findByText(sys_ja_user, .text, "Match") == null);
+    try testing.expect(findByText(sys_ja_user, .button, "Copy") == null);
+    try testing.expect(findByText(sys_ja_user, .button, "Fork") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">Queued</text>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Remove queued\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">Dismiss all</button>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">Jump to latest</button>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Browse\"") != null);
 }
 
 test "session title untitled placeholders follow Appearance language" {
