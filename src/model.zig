@@ -6397,12 +6397,40 @@ pub const Model = struct {
         return model.usage_share_metric == .tokens;
     }
 
+    /// Settings Usage Cost metric chip. Distinct from
+    /// `usage_share_cost` (selected). `on-press` stays
+    /// `set_usage_share_cost`.
+    pub fn usage_share_cost_label(model: *const Model) []const u8 {
+        return model.usageViewChrome().cost;
+    }
+
+    /// Settings Usage Tokens metric chip. Distinct from
+    /// `usage_share_tokens` (selected). `on-press` stays
+    /// `set_usage_share_tokens`.
+    pub fn usage_share_tokens_label(model: *const Model) []const u8 {
+        return model.usageViewChrome().tokens;
+    }
+
     pub fn usage_breakdown_model(model: *const Model) bool {
         return model.usage_breakdown == .model;
     }
 
     pub fn usage_breakdown_days(model: *const Model) bool {
         return model.usage_breakdown == .days;
+    }
+
+    /// Settings Usage Daily Model breakdown chip. Distinct from
+    /// `usage_breakdown_model` (selected). `on-press` stays
+    /// `set_usage_breakdown_model`.
+    pub fn usage_breakdown_model_label(model: *const Model) []const u8 {
+        return model.usageViewChrome().model;
+    }
+
+    /// Settings Usage Daily Days breakdown chip (day-series). Distinct
+    /// from `usage_breakdown_days` (selected) and from Daily view.
+    /// `on-press` stays `set_usage_breakdown_days`.
+    pub fn usage_breakdown_days_label(model: *const Model) []const u8 {
+        return model.usageViewChrome().days;
     }
 
     pub fn has_usage_history(model: *const Model) bool {

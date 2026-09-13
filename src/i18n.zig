@@ -79,11 +79,13 @@
 //! `ComputerUseChrome` strings; title wording matches `Chrome.computer_use`
 //! but stays a dedicated field so the page title does not couple to
 //! Settings nav; wire ids stay English)
-//! plus Settings Usage Daily / Monthly / Projects view chips and
-//! Daily / Projects window chips (same `UsageViewChrome` strings;
-//! `7d` / `30d` / `90d` stay Latin in every locale; Projects stays a
-//! dedicated field so the view chip does not couple to other Projects
-//! wording; wire ids stay English)
+//! plus Settings Usage Daily / Monthly / Projects view chips,
+//! Daily / Projects window chips, Cost|Tokens metric chips, and
+//! Daily-only Model|Days breakdown chips (same `UsageViewChrome`
+//! strings; `7d` / `30d` / `90d` stay Latin in every locale; Projects
+//! stays a dedicated field so the view chip does not couple to other
+//! Projects wording; Days stays distinct from Daily; wire ids stay
+//! English)
 //! plus Settings Providers / Skills / Usage Refresh (same
 //! `SettingsRefreshChrome` strings; one Refresh field shared by all
 //! three Settings pages; wire ids / on-press stay English)
@@ -176,6 +178,9 @@
 //! `set_usage_view_projects` / `set_usage_window_7d` /
 //! `set_usage_window_30d` / `set_usage_window_90d` /
 //! `set_usage_window_this_month` / `set_usage_window_last_month`).
+//! Settings Usage Cost|Tokens / Model|Days chip `on-press` stay
+//! English (`set_usage_share_cost` / `set_usage_share_tokens` /
+//! `set_usage_breakdown_model` / `set_usage_breakdown_days`).
 //! Settings Providers / Skills / Usage Refresh `on-press` stay
 //! English (`refresh_providers` / `refresh_skills` /
 //! `refresh_usage_history`). Refresh goal / plan Refresh `on-press`
@@ -1876,17 +1881,20 @@ const computer_use_chrome_ja: ComputerUseChrome = .{
     .no_always_allowed_apps = "常に許可するアプリはありません",
 };
 
-/// Settings Usage Daily / Monthly / Projects view chips and Daily /
-/// Projects window chips for the resolved locale. Same resolve path as
-/// ComputerUseChrome. English matches the former hardcoded copy.
-/// Projects stays a dedicated field so the view chip does not couple
-/// to FilterChrome / other Projects wording if they diverge. `7d` /
-/// `30d` / `90d` stay Latin in every locale (same rule as `host:port`).
-/// Wire ids / on-press / selected stay English (`set_usage_view_daily` /
-/// `usage_view_daily` / `set_usage_window_7d` /
-/// `usage_window_this_month` / …). Settings Refresh lives in
-/// `SettingsRefreshChrome`. Cost|Tokens / Model|Days stay English
-/// this cut.
+/// Settings Usage Daily / Monthly / Projects view chips, Daily /
+/// Projects window chips, Cost|Tokens metric chips, and Daily-only
+/// Model|Days breakdown chips for the resolved locale. Same resolve
+/// path as ComputerUseChrome. English matches the former hardcoded
+/// copy. Projects stays a dedicated field so the view chip does not
+/// couple to FilterChrome / other Projects wording if they diverge.
+/// Days stays distinct from Daily (day-series breakdown vs Daily
+/// view). `7d` / `30d` / `90d` stay Latin in every locale (same rule
+/// as `host:port`). Wire ids / on-press / selected stay English
+/// (`set_usage_view_daily` / `usage_view_daily` / `set_usage_window_7d` /
+/// `usage_window_this_month` / `set_usage_share_cost` /
+/// `usage_share_cost` / `set_usage_breakdown_model` /
+/// `usage_breakdown_days` / …). Settings Refresh lives in
+/// `SettingsRefreshChrome`.
 pub const UsageViewChrome = struct {
     daily: []const u8,
     monthly: []const u8,
@@ -1896,6 +1904,10 @@ pub const UsageViewChrome = struct {
     window_90d: []const u8,
     this_month: []const u8,
     last_month: []const u8,
+    cost: []const u8,
+    tokens: []const u8,
+    model: []const u8,
+    days: []const u8,
 };
 
 const usage_view_chrome_en: UsageViewChrome = .{
@@ -1907,6 +1919,10 @@ const usage_view_chrome_en: UsageViewChrome = .{
     .window_90d = "90d",
     .this_month = "This month",
     .last_month = "Last month",
+    .cost = "Cost",
+    .tokens = "Tokens",
+    .model = "Model",
+    .days = "Days",
 };
 
 const usage_view_chrome_zh_cn: UsageViewChrome = .{
@@ -1918,6 +1934,10 @@ const usage_view_chrome_zh_cn: UsageViewChrome = .{
     .window_90d = "90d",
     .this_month = "本月",
     .last_month = "上月",
+    .cost = "费用",
+    .tokens = "Token",
+    .model = "模型",
+    .days = "按日",
 };
 
 const usage_view_chrome_ja: UsageViewChrome = .{
@@ -1929,6 +1949,10 @@ const usage_view_chrome_ja: UsageViewChrome = .{
     .window_90d = "90d",
     .this_month = "今月",
     .last_month = "先月",
+    .cost = "コスト",
+    .tokens = "トークン",
+    .model = "モデル",
+    .days = "日別",
 };
 
 /// Settings Providers / Skills / Usage Refresh for the resolved locale.
@@ -2448,13 +2472,14 @@ pub fn computerUseChromeFor(preference: LanguagePreference, system_locale_id: []
     };
 }
 
-/// Settings Usage Daily / Monthly / Projects view chips and Daily /
-/// Projects window chips for the resolved locale. Callers pass Model
-/// `language_preference` + `system_locale_id`; this file does not read
-/// process env. Projects stays a dedicated field. `7d` / `30d` / `90d`
-/// stay Latin in every locale. Wire ids / on-press / selected stay
-/// English. Settings Refresh lives in `settingsRefreshChromeFor`.
-/// Cost|Tokens / Model|Days stay English this cut.
+/// Settings Usage Daily / Monthly / Projects view chips, Daily /
+/// Projects window chips, Cost|Tokens metric chips, and Daily-only
+/// Model|Days breakdown chips for the resolved locale. Callers pass
+/// Model `language_preference` + `system_locale_id`; this file does
+/// not read process env. Projects stays a dedicated field. Days stays
+/// distinct from Daily. `7d` / `30d` / `90d` stay Latin in every
+/// locale. Wire ids / on-press / selected stay English. Settings
+/// Refresh lives in `settingsRefreshChromeFor`.
 pub fn usageViewChromeFor(preference: LanguagePreference, system_locale_id: []const u8) UsageViewChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => usage_view_chrome_zh_cn,
@@ -3928,6 +3953,10 @@ test "usageViewChromeFor english default; zh and ja chrome; latin day chips; eng
     try testing.expectEqualStrings("90d", usageViewChromeFor(.english, "").window_90d);
     try testing.expectEqualStrings("This month", usageViewChromeFor(.english, "").this_month);
     try testing.expectEqualStrings("Last month", usageViewChromeFor(.english, "").last_month);
+    try testing.expectEqualStrings("Cost", usageViewChromeFor(.english, "").cost);
+    try testing.expectEqualStrings("Tokens", usageViewChromeFor(.english, "").tokens);
+    try testing.expectEqualStrings("Model", usageViewChromeFor(.english, "").model);
+    try testing.expectEqualStrings("Days", usageViewChromeFor(.english, "").days);
 
     try testing.expectEqualStrings("每日", usageViewChromeFor(.simplified_chinese, "").daily);
     try testing.expectEqualStrings("每月", usageViewChromeFor(.simplified_chinese, "").monthly);
@@ -3937,6 +3966,10 @@ test "usageViewChromeFor english default; zh and ja chrome; latin day chips; eng
     try testing.expectEqualStrings("90d", usageViewChromeFor(.simplified_chinese, "").window_90d);
     try testing.expectEqualStrings("本月", usageViewChromeFor(.simplified_chinese, "").this_month);
     try testing.expectEqualStrings("上月", usageViewChromeFor(.simplified_chinese, "").last_month);
+    try testing.expectEqualStrings("费用", usageViewChromeFor(.simplified_chinese, "").cost);
+    try testing.expectEqualStrings("Token", usageViewChromeFor(.simplified_chinese, "").tokens);
+    try testing.expectEqualStrings("模型", usageViewChromeFor(.simplified_chinese, "").model);
+    try testing.expectEqualStrings("按日", usageViewChromeFor(.simplified_chinese, "").days);
 
     try testing.expectEqualStrings("日次", usageViewChromeFor(.japanese, "").daily);
     try testing.expectEqualStrings("月次", usageViewChromeFor(.japanese, "").monthly);
@@ -3946,14 +3979,26 @@ test "usageViewChromeFor english default; zh and ja chrome; latin day chips; eng
     try testing.expectEqualStrings("90d", usageViewChromeFor(.japanese, "").window_90d);
     try testing.expectEqualStrings("今月", usageViewChromeFor(.japanese, "").this_month);
     try testing.expectEqualStrings("先月", usageViewChromeFor(.japanese, "").last_month);
+    try testing.expectEqualStrings("コスト", usageViewChromeFor(.japanese, "").cost);
+    try testing.expectEqualStrings("トークン", usageViewChromeFor(.japanese, "").tokens);
+    try testing.expectEqualStrings("モデル", usageViewChromeFor(.japanese, "").model);
+    try testing.expectEqualStrings("日別", usageViewChromeFor(.japanese, "").days);
 
     try testing.expectEqualStrings("每日", usageViewChromeFor(.system, "zh_CN.UTF-8").daily);
     try testing.expectEqualStrings("上月", usageViewChromeFor(.system, "zh_CN.UTF-8").last_month);
+    try testing.expectEqualStrings("费用", usageViewChromeFor(.system, "zh_CN.UTF-8").cost);
+    try testing.expectEqualStrings("按日", usageViewChromeFor(.system, "zh_CN.UTF-8").days);
     try testing.expectEqualStrings("日次", usageViewChromeFor(.system, "ja_JP.UTF-8").daily);
     try testing.expectEqualStrings("先月", usageViewChromeFor(.system, "ja_JP.UTF-8").last_month);
+    try testing.expectEqualStrings("コスト", usageViewChromeFor(.system, "ja_JP.UTF-8").cost);
+    try testing.expectEqualStrings("日別", usageViewChromeFor(.system, "ja_JP.UTF-8").days);
     try testing.expectEqualStrings("Daily", usageViewChromeFor(.english, "ja_JP.UTF-8").daily);
     try testing.expectEqualStrings("Projects", usageViewChromeFor(.english, "zh_CN.UTF-8").projects);
     try testing.expectEqualStrings("This month", usageViewChromeFor(.english, "zh_CN.UTF-8").this_month);
+    try testing.expectEqualStrings("Cost", usageViewChromeFor(.english, "ja_JP.UTF-8").cost);
+    try testing.expectEqualStrings("Tokens", usageViewChromeFor(.english, "zh_CN.UTF-8").tokens);
+    try testing.expectEqualStrings("Model", usageViewChromeFor(.english, "zh_CN.UTF-8").model);
+    try testing.expectEqualStrings("Days", usageViewChromeFor(.english, "ja_JP.UTF-8").days);
     try testing.expectEqualStrings("7d", usageViewChromeFor(.system, "zh_CN.UTF-8").window_7d);
     try testing.expectEqualStrings("30d", usageViewChromeFor(.system, "ja_JP.UTF-8").window_30d);
     try testing.expectEqualStrings("90d", usageViewChromeFor(.japanese, "zh_CN.UTF-8").window_90d);
