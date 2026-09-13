@@ -61,6 +61,10 @@
 //! distinct from `Palette.copy_session_id` / per-turn transcript
 //! Copy / Fork so header session chrome stays independently
 //! evolvable; `on-press` stays `copy_session` / `fork` / `rewind`)
+//! plus transcript turn You said / Assistant said a11y (same
+//! `TranscriptRoleChrome` strings; distinct from
+//! `HeaderSessionChrome` / per-turn transcript Copy / Fork so
+//! transcript role chrome stays independently evolvable)
 //! plus session
 //! title untitled placeholders (same `UntitledChrome` strings; catalog
 //! titles stay English `untitled`) plus Settings General daemon address
@@ -212,8 +216,10 @@
 //! Previous / Next / Close `on-press` stay English (`find_edit` /
 //! `find_next` / `find_prev` / `close_find`); typed query stays
 //! English (data). Header Copy session / Fork / Rewind `on-press`
-//! stay English (`copy_session` / `fork` / `rewind`). Per-turn
-//! transcript Copy / Fork stay English this cut. Session title
+//! stay English (`copy_session` / `fork` / `rewind`). Transcript
+//! turn You said / Assistant said a11y follow the resolved locale
+//! this cut (same `TranscriptRoleChrome` strings). Per-turn
+//! transcript Match / Copy / Fork stay English this cut. Session title
 //! `on-input` stays English
 //! (`session_title_edit`). Daemon address `on-input` stays English
 //! (`settings_daemon_edit`). Settings General field labels / Default
@@ -1841,6 +1847,32 @@ const header_session_chrome_ja: HeaderSessionChrome = .{
     .rewind = "巻き戻し",
 };
 
+/// Transcript turn You said / Assistant said a11y for the resolved
+/// locale. Same resolve path as HeaderSessionChrome. English
+/// matches the former hardcoded copy. Distinct from
+/// `HeaderSessionChrome` and from per-turn transcript Copy / Fork
+/// so transcript role chrome stays independently evolvable. Wire
+/// ids / on-press / turn data stay English.
+pub const TranscriptRoleChrome = struct {
+    you_said: []const u8,
+    assistant_said: []const u8,
+};
+
+const transcript_role_chrome_en: TranscriptRoleChrome = .{
+    .you_said = "You said",
+    .assistant_said = "Assistant said",
+};
+
+const transcript_role_chrome_zh_cn: TranscriptRoleChrome = .{
+    .you_said = "你说",
+    .assistant_said = "助手说",
+};
+
+const transcript_role_chrome_ja: TranscriptRoleChrome = .{
+    .you_said = "あなたが言った",
+    .assistant_said = "アシスタントが言った",
+};
+
 /// Browser address-field a11y label and placeholder for the resolved
 /// locale. Same resolve path as ComposerChrome. English matches the
 /// former hardcoded copy. Wire ids / on-input / on-submit stay
@@ -2996,6 +3028,20 @@ pub fn headerSessionChromeFor(preference: LanguagePreference, system_locale_id: 
         .simplified_chinese => header_session_chrome_zh_cn,
         .japanese => header_session_chrome_ja,
         .system, .english => header_session_chrome_en,
+    };
+}
+
+/// Transcript turn You said / Assistant said a11y for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from HeaderSessionChrome / per-turn transcript Copy / Fork so
+/// transcript role chrome stays independently evolvable. Wire ids /
+/// on-press / turn data stay English.
+pub fn transcriptRoleChromeFor(preference: LanguagePreference, system_locale_id: []const u8) TranscriptRoleChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => transcript_role_chrome_zh_cn,
+        .japanese => transcript_role_chrome_ja,
+        .system, .english => transcript_role_chrome_en,
     };
 }
 
@@ -4590,6 +4636,30 @@ test "headerSessionChromeFor english default; zh and ja chrome; english ignores 
     try testing.expect(!std.mem.eql(u8, headerSessionChromeFor(.english, "").copy_session, paletteFor(.english, "").copy_session_id));
     try testing.expect(!std.mem.eql(u8, headerSessionChromeFor(.simplified_chinese, "").copy_session, paletteFor(.simplified_chinese, "").copy_session_id));
     try testing.expect(!std.mem.eql(u8, headerSessionChromeFor(.japanese, "").copy_session, paletteFor(.japanese, "").copy_session_id));
+}
+
+test "transcriptRoleChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("You said", transcriptRoleChromeFor(.english, "ja").you_said);
+    try testing.expectEqualStrings("Assistant said", transcriptRoleChromeFor(.english, "ja").assistant_said);
+    try testing.expectEqualStrings("You said", transcriptRoleChromeFor(.english, "").you_said);
+    try testing.expectEqualStrings("Assistant said", transcriptRoleChromeFor(.english, "").assistant_said);
+    try testing.expectEqualStrings("You said", transcriptRoleChromeFor(.system, "").you_said);
+    try testing.expectEqualStrings("Assistant said", transcriptRoleChromeFor(.system, "").assistant_said);
+
+    try testing.expectEqualStrings("你说", transcriptRoleChromeFor(.simplified_chinese, "").you_said);
+    try testing.expectEqualStrings("助手说", transcriptRoleChromeFor(.simplified_chinese, "").assistant_said);
+    try testing.expectEqualStrings("あなたが言った", transcriptRoleChromeFor(.japanese, "").you_said);
+    try testing.expectEqualStrings("アシスタントが言った", transcriptRoleChromeFor(.japanese, "").assistant_said);
+
+    try testing.expectEqualStrings("你说", transcriptRoleChromeFor(.system, "zh_CN.UTF-8").you_said);
+    try testing.expectEqualStrings("助手说", transcriptRoleChromeFor(.system, "zh_CN.UTF-8").assistant_said);
+    try testing.expectEqualStrings("あなたが言った", transcriptRoleChromeFor(.system, "ja_JP.UTF-8").you_said);
+    try testing.expectEqualStrings("アシスタントが言った", transcriptRoleChromeFor(.system, "ja_JP.UTF-8").assistant_said);
+    try testing.expectEqualStrings("You said", transcriptRoleChromeFor(.english, "ja_JP.UTF-8").you_said);
+    try testing.expectEqualStrings("Assistant said", transcriptRoleChromeFor(.english, "ja_JP.UTF-8").assistant_said);
+    try testing.expectEqualStrings("You said", transcriptRoleChromeFor(.english, "zh_CN.UTF-8").you_said);
+    try testing.expectEqualStrings("Assistant said", transcriptRoleChromeFor(.english, "zh_CN.UTF-8").assistant_said);
 }
 
 test "browserAddressChromeFor english default; zh and ja chrome; latin placeholder; english ignores ja LANG" {

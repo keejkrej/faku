@@ -4920,6 +4920,10 @@ pub const Model = struct {
         return i18n.headerSessionChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn transcriptRoleChrome(model: *const Model) i18n.TranscriptRoleChrome {
+        return i18n.transcriptRoleChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn browserAddressChrome(model: *const Model) i18n.BrowserAddressChrome {
         return i18n.browserAddressChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6167,6 +6171,20 @@ pub const Model = struct {
     /// Header Rewind button chrome. `on-press` stays `rewind`.
     pub fn rewind_label(model: *const Model) []const u8 {
         return model.headerSessionChrome().rewind;
+    }
+
+    /// Transcript user-turn You said a11y. Distinct from
+    /// `HeaderSessionChrome` and from per-turn transcript Copy /
+    /// Fork. Turn data / wire ids / on-press stay English.
+    pub fn you_said_label(model: *const Model) []const u8 {
+        return model.transcriptRoleChrome().you_said;
+    }
+
+    /// Transcript assistant-turn Assistant said a11y. Distinct from
+    /// `HeaderSessionChrome` and from per-turn transcript Copy /
+    /// Fork. Turn data / wire ids / on-press stay English.
+    pub fn assistant_said_label(model: *const Model) []const u8 {
+        return model.transcriptRoleChrome().assistant_said;
     }
 
     /// Session title rename placeholders (sidebar + header).

@@ -27752,6 +27752,119 @@ test "header Copy session / Fork / Rewind chrome follows Appearance language" {
     try testing.expect(findByText(sys_ja_toolbar, .button, "Rewind") == null);
 }
 
+test "transcript You said / Assistant said chrome follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{you_said_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{assistant_said_label}\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"{you_said_label}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"{assistant_said_label}\"") != null);
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"You said\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Assistant said\""));
+    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, ">Match</text>"));
+    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "label=\"Copy\" on-press=\"copy_turn:{t.id}\""));
+    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "on-press=\"fork_turn:{t.id}\">Fork</button>"));
+
+    var model = Model{};
+    const id = model.addSession("role chrome", .fx);
+    model.selected = id;
+    _ = model.appendTurn(id, .user, "hello there");
+    _ = model.appendTurn(id, .assistant, "a wrapped assistant reply that should stay on the left");
+
+    try testing.expectEqualStrings("You said", model.you_said_label());
+    try testing.expectEqualStrings("Assistant said", model.assistant_said_label());
+    try testing.expectEqualStrings(i18n.transcriptRoleChromeFor(.english, "").you_said, model.you_said_label());
+    try testing.expectEqualStrings(i18n.transcriptRoleChromeFor(.english, "").assistant_said, model.assistant_said_label());
+
+    var tree = try buildTree(arena, &model);
+    const transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const user_row = try expectByText(transcript, .row, "hello there");
+    _ = try expectByText(user_row, .column, "You said");
+    const assistant_row = try expectByText(transcript, .column, "a wrapped assistant reply that should stay on the left");
+    _ = try expectByText(assistant_row, .row, "Assistant said");
+    try testing.expect(findByText(user_row, .column, "你说") == null);
+    try testing.expect(findByText(assistant_row, .row, "助手说") == null);
+    try testing.expect(findByText(user_row, .column, "あなたが言った") == null);
+    try testing.expect(findByText(assistant_row, .row, "アシスタントが言った") == null);
+    try testing.expect(findByText(tree.root, .button, "Copy") != null);
+    try testing.expect(findByText(tree.root, .button, "Fork") != null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("你说", model.you_said_label());
+    try testing.expectEqualStrings("助手说", model.assistant_said_label());
+    try testing.expectEqualStrings(i18n.transcriptRoleChromeFor(.simplified_chinese, "").you_said, model.you_said_label());
+    try testing.expectEqualStrings(i18n.transcriptRoleChromeFor(.simplified_chinese, "").assistant_said, model.assistant_said_label());
+    tree = try buildTree(arena, &model);
+    const zh_transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const zh_user = try expectByText(zh_transcript, .row, "hello there");
+    _ = try expectByText(zh_user, .column, "你说");
+    const zh_assistant = try expectByText(zh_transcript, .column, "a wrapped assistant reply that should stay on the left");
+    _ = try expectByText(zh_assistant, .row, "助手说");
+    try testing.expect(findByText(zh_user, .column, "You said") == null);
+    try testing.expect(findByText(zh_assistant, .row, "Assistant said") == null);
+    try testing.expect(findByText(tree.root, .button, "Copy") != null);
+    try testing.expect(findByText(tree.root, .button, "Fork") != null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("あなたが言った", model.you_said_label());
+    try testing.expectEqualStrings("アシスタントが言った", model.assistant_said_label());
+    try testing.expectEqualStrings(i18n.transcriptRoleChromeFor(.japanese, "").you_said, model.you_said_label());
+    try testing.expectEqualStrings(i18n.transcriptRoleChromeFor(.japanese, "").assistant_said, model.assistant_said_label());
+    tree = try buildTree(arena, &model);
+    const ja_transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const ja_user = try expectByText(ja_transcript, .row, "hello there");
+    _ = try expectByText(ja_user, .column, "あなたが言った");
+    const ja_assistant = try expectByText(ja_transcript, .column, "a wrapped assistant reply that should stay on the left");
+    _ = try expectByText(ja_assistant, .row, "アシスタントが言った");
+    try testing.expect(findByText(ja_user, .column, "You said") == null);
+    try testing.expect(findByText(ja_assistant, .row, "Assistant said") == null);
+    try testing.expect(findByText(ja_user, .column, "你说") == null);
+    try testing.expect(findByText(tree.root, .button, "Copy") != null);
+    try testing.expect(findByText(tree.root, .button, "Fork") != null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("You said", model.you_said_label());
+    try testing.expectEqualStrings("Assistant said", model.assistant_said_label());
+    tree = try buildTree(arena, &model);
+    const en_transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const en_user = try expectByText(en_transcript, .row, "hello there");
+    _ = try expectByText(en_user, .column, "You said");
+    const en_assistant = try expectByText(en_transcript, .column, "a wrapped assistant reply that should stay on the left");
+    _ = try expectByText(en_assistant, .row, "Assistant said");
+    try testing.expect(findByText(en_user, .column, "あなたが言った") == null);
+    try testing.expect(findByText(en_assistant, .row, "アシスタントが言った") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("你说", model.you_said_label());
+    try testing.expectEqualStrings("助手说", model.assistant_said_label());
+    tree = try buildTree(arena, &model);
+    const sys_zh_transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const sys_zh_user = try expectByText(sys_zh_transcript, .row, "hello there");
+    _ = try expectByText(sys_zh_user, .column, "你说");
+    const sys_zh_assistant = try expectByText(sys_zh_transcript, .column, "a wrapped assistant reply that should stay on the left");
+    _ = try expectByText(sys_zh_assistant, .row, "助手说");
+    try testing.expect(findByText(sys_zh_user, .column, "You said") == null);
+    try testing.expect(findByText(tree.root, .button, "Copy") != null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("あなたが言った", model.you_said_label());
+    try testing.expectEqualStrings("アシスタントが言った", model.assistant_said_label());
+    tree = try buildTree(arena, &model);
+    const sys_ja_transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const sys_ja_user = try expectByText(sys_ja_transcript, .row, "hello there");
+    _ = try expectByText(sys_ja_user, .column, "あなたが言った");
+    const sys_ja_assistant = try expectByText(sys_ja_transcript, .column, "a wrapped assistant reply that should stay on the left");
+    _ = try expectByText(sys_ja_assistant, .row, "アシスタントが言った");
+    try testing.expect(findByText(sys_ja_user, .column, "You said") == null);
+    try testing.expect(findByText(sys_ja_assistant, .row, "Assistant said") == null);
+    try testing.expect(findByText(tree.root, .button, "Copy") != null);
+    try testing.expect(findByText(tree.root, .button, "Fork") != null);
+}
+
 test "session title untitled placeholders follow Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
