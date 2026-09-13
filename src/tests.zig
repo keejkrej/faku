@@ -28545,6 +28545,156 @@ test "Computer Use page chrome follows Appearance language" {
     try testing.expect(findByText(tree.root, .button, "Off") == null);
 }
 
+test "Usage view and window chips follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{usage_view_daily_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{usage_view_monthly_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{usage_view_projects_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{usage_window_7d_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{usage_window_30d_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{usage_window_90d_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{usage_window_this_month_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{usage_window_last_month_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_view_daily\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_view_monthly\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_view_projects\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_window_7d\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_window_30d\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_window_90d\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_window_this_month\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_window_last_month\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "selected=\"{usage_view_daily}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "selected=\"{usage_window_this_month}\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_view_daily\">Daily</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_view_monthly\">Monthly</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_view_projects\">Projects</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_window_7d\">7d</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_window_30d\">30d</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_window_90d\">90d</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_window_this_month\">This month</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_window_last_month\">Last month</button>"));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Daily", model.usage_view_daily_label());
+    try testing.expectEqualStrings(i18n.usageViewChromeFor(.english, "").daily, model.usage_view_daily_label());
+    try testing.expectEqualStrings("Monthly", model.usage_view_monthly_label());
+    try testing.expectEqualStrings("Projects", model.usage_view_projects_label());
+    try testing.expectEqualStrings("7d", model.usage_window_7d_label());
+    try testing.expectEqualStrings("30d", model.usage_window_30d_label());
+    try testing.expectEqualStrings("90d", model.usage_window_90d_label());
+    try testing.expectEqualStrings("This month", model.usage_window_this_month_label());
+    try testing.expectEqualStrings("Last month", model.usage_window_last_month_label());
+    try testing.expect(model.usage_view_daily());
+    try testing.expect(model.usage_window_30d());
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_usage, &fx);
+    try testing.expect(model.settings_page_usage());
+    try testing.expect(model.usage_window_selector_visible());
+
+    var tree = try buildTree(arena, &model);
+    const daily_en = try expectButtonMsg(tree, "Daily", .set_usage_view_daily);
+    try testing.expect(daily_en.state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Monthly", .set_usage_view_monthly)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Projects", .set_usage_view_projects)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "7d", .set_usage_window_7d)).state.selected);
+    try testing.expect((try expectButtonMsg(tree, "30d", .set_usage_window_30d)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "90d", .set_usage_window_90d)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "This month", .set_usage_window_this_month)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Last month", .set_usage_window_last_month)).state.selected);
+    _ = try expectButtonMsg(tree, "Refresh", .refresh_usage_history);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("每日", model.usage_view_daily_label());
+    try testing.expectEqualStrings(i18n.usageViewChromeFor(.simplified_chinese, "").daily, model.usage_view_daily_label());
+    try testing.expectEqualStrings("每月", model.usage_view_monthly_label());
+    try testing.expectEqualStrings("项目", model.usage_view_projects_label());
+    try testing.expectEqualStrings("7d", model.usage_window_7d_label());
+    try testing.expectEqualStrings("30d", model.usage_window_30d_label());
+    try testing.expectEqualStrings("90d", model.usage_window_90d_label());
+    try testing.expectEqualStrings("本月", model.usage_window_this_month_label());
+    try testing.expectEqualStrings("上月", model.usage_window_last_month_label());
+    try testing.expect(model.usage_view_daily());
+    try testing.expect(model.usage_window_30d());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "每日", .set_usage_view_daily)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "每月", .set_usage_view_monthly)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "项目", .set_usage_view_projects)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "7d", .set_usage_window_7d)).state.selected);
+    try testing.expect((try expectButtonMsg(tree, "30d", .set_usage_window_30d)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "90d", .set_usage_window_90d)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "本月", .set_usage_window_this_month)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "上月", .set_usage_window_last_month)).state.selected);
+    try testing.expect(findByText(tree.root, .button, "Daily") == null);
+    try testing.expect(findByText(tree.root, .button, "Monthly") == null);
+    try testing.expect(findByText(tree.root, .button, "Projects") == null);
+    try testing.expect(findByText(tree.root, .button, "This month") == null);
+    try testing.expect(findByText(tree.root, .button, "Last month") == null);
+    _ = try expectButtonMsg(tree, "Refresh", .refresh_usage_history);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("日次", model.usage_view_daily_label());
+    try testing.expectEqualStrings(i18n.usageViewChromeFor(.japanese, "").daily, model.usage_view_daily_label());
+    try testing.expectEqualStrings("月次", model.usage_view_monthly_label());
+    try testing.expectEqualStrings("プロジェクト", model.usage_view_projects_label());
+    try testing.expectEqualStrings("7d", model.usage_window_7d_label());
+    try testing.expectEqualStrings("30d", model.usage_window_30d_label());
+    try testing.expectEqualStrings("90d", model.usage_window_90d_label());
+    try testing.expectEqualStrings("今月", model.usage_window_this_month_label());
+    try testing.expectEqualStrings("先月", model.usage_window_last_month_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "日次", .set_usage_view_daily)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "月次", .set_usage_view_monthly)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "プロジェクト", .set_usage_view_projects)).state.selected);
+    try testing.expect((try expectButtonMsg(tree, "30d", .set_usage_window_30d)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "今月", .set_usage_window_this_month)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "先月", .set_usage_window_last_month)).state.selected);
+    try testing.expect(findByText(tree.root, .button, "Daily") == null);
+    try testing.expect(findByText(tree.root, .button, "每日") == null);
+    try testing.expect(findByText(tree.root, .button, "This month") == null);
+    try testing.expect(findByText(tree.root, .button, "本月") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Daily", model.usage_view_daily_label());
+    try testing.expectEqualStrings("Projects", model.usage_view_projects_label());
+    try testing.expectEqualStrings("This month", model.usage_window_this_month_label());
+    try testing.expectEqualStrings("Last month", model.usage_window_last_month_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Daily", .set_usage_view_daily)).state.selected);
+    try testing.expect((try expectButtonMsg(tree, "30d", .set_usage_window_30d)).state.selected);
+    _ = try expectButtonMsg(tree, "This month", .set_usage_window_this_month);
+    try testing.expect(findByText(tree.root, .button, "日次") == null);
+    try testing.expect(findByText(tree.root, .button, "每日") == null);
+    try testing.expect(findByText(tree.root, .button, "今月") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("每日", model.usage_view_daily_label());
+    try testing.expectEqualStrings("上月", model.usage_window_last_month_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "每日", .set_usage_view_daily)).state.selected);
+    try testing.expect((try expectButtonMsg(tree, "30d", .set_usage_window_30d)).state.selected);
+    _ = try expectButtonMsg(tree, "上月", .set_usage_window_last_month);
+    try testing.expect(findByText(tree.root, .button, "Daily") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("日次", model.usage_view_daily_label());
+    try testing.expectEqualStrings("先月", model.usage_window_last_month_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "日次", .set_usage_view_daily)).state.selected);
+    try testing.expect((try expectButtonMsg(tree, "30d", .set_usage_window_30d)).state.selected);
+    _ = try expectButtonMsg(tree, "先月", .set_usage_window_last_month);
+    try testing.expect(findByText(tree.root, .button, "Daily") == null);
+}
+
 test "DateBucket.title english default; zh and ja follow datesFor" {
     try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
     try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());

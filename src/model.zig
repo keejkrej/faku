@@ -2113,6 +2113,7 @@ pub const Model = struct {
         "sidebarHistoryChrome",
         "sessionChipsChrome",
         "terminalRestartChrome",
+        "usageViewChrome",
         "palette_action_label",
         "show_right_panel_label",
         "sidebarDates",
@@ -4867,6 +4868,10 @@ pub const Model = struct {
         return i18n.computerUseChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn usageViewChrome(model: *const Model) i18n.UsageViewChrome {
+        return i18n.usageViewChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     /// Palette row display label for `action`. New Task / Settings /
     /// Collapse all folders reuse Sidebar / Chrome strings; remaining
     /// names come from `i18n.Palette`. Ids / keywords stay English.
@@ -6270,6 +6275,28 @@ pub const Model = struct {
         return model.usage_view == .projects;
     }
 
+    /// Settings Usage Daily view chip. Distinct from
+    /// `usage_view_daily` (selected). `on-press` stays
+    /// `set_usage_view_daily`.
+    pub fn usage_view_daily_label(model: *const Model) []const u8 {
+        return model.usageViewChrome().daily;
+    }
+
+    /// Settings Usage Monthly view chip. Distinct from
+    /// `usage_view_monthly` (selected). `on-press` stays
+    /// `set_usage_view_monthly`.
+    pub fn usage_view_monthly_label(model: *const Model) []const u8 {
+        return model.usageViewChrome().monthly;
+    }
+
+    /// Settings Usage Projects view chip. Dedicated chrome so this
+    /// chip does not couple to FilterChrome / other Projects wording.
+    /// Distinct from `usage_view_projects` (selected). `on-press`
+    /// stays `set_usage_view_projects`.
+    pub fn usage_view_projects_label(model: *const Model) []const u8 {
+        return model.usageViewChrome().projects;
+    }
+
     pub fn usage_window_selector_visible(model: *const Model) bool {
         return model.settings_page == .usage and (model.usage_view == .daily or model.usage_view == .projects);
     }
@@ -6292,6 +6319,41 @@ pub const Model = struct {
 
     pub fn usage_window_last_month(model: *const Model) bool {
         return model.usage_window == .last_month;
+    }
+
+    /// Settings Usage window chip `7d`. Latin in every locale.
+    /// Distinct from `usage_window_7d` (selected). `on-press` stays
+    /// `set_usage_window_7d`.
+    pub fn usage_window_7d_label(model: *const Model) []const u8 {
+        return model.usageViewChrome().window_7d;
+    }
+
+    /// Settings Usage window chip `30d`. Latin in every locale.
+    /// Distinct from `usage_window_30d` (selected). `on-press` stays
+    /// `set_usage_window_30d`.
+    pub fn usage_window_30d_label(model: *const Model) []const u8 {
+        return model.usageViewChrome().window_30d;
+    }
+
+    /// Settings Usage window chip `90d`. Latin in every locale.
+    /// Distinct from `usage_window_90d` (selected). `on-press` stays
+    /// `set_usage_window_90d`.
+    pub fn usage_window_90d_label(model: *const Model) []const u8 {
+        return model.usageViewChrome().window_90d;
+    }
+
+    /// Settings Usage window chip This month. Distinct from
+    /// `usage_window_this_month` (selected) and from sidebar Dates
+    /// This month. `on-press` stays `set_usage_window_this_month`.
+    pub fn usage_window_this_month_label(model: *const Model) []const u8 {
+        return model.usageViewChrome().this_month;
+    }
+
+    /// Settings Usage window chip Last month. Distinct from
+    /// `usage_window_last_month` (selected). `on-press` stays
+    /// `set_usage_window_last_month`.
+    pub fn usage_window_last_month_label(model: *const Model) []const u8 {
+        return model.usageViewChrome().last_month;
     }
 
     pub fn usage_share_cost(model: *const Model) bool {
