@@ -21,6 +21,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const i18n = @import("i18n.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -43,6 +44,8 @@ pub const unix_curl_bin = "/usr/bin/curl";
 pub const path_curl_bin = "curl";
 pub const windows_curl_bin = "curl.exe";
 
+/// English defaults. Localized labels come from
+/// `i18n.UsageCostQualityChrome` via `statusLabel`.
 pub const status_fresh_label = "Rates fresh";
 pub const status_cached_label = "Rates cached";
 pub const status_unavailable_label = "Rates unavailable";
@@ -180,11 +183,12 @@ pub fn lookup(table: *const Table, model: []const u8) ?Rate {
     return null;
 }
 
-pub fn statusLabel(status: Status) []const u8 {
+pub fn statusLabel(status: Status, preference: i18n.LanguagePreference, system_locale_id: []const u8) []const u8 {
+    const chrome = i18n.usageCostQualityChromeFor(preference, system_locale_id);
     return switch (status) {
-        .fresh => status_fresh_label,
-        .cached => status_cached_label,
-        .unavailable => status_unavailable_label,
+        .fresh => chrome.rates_fresh,
+        .cached => chrome.rates_cached,
+        .unavailable => chrome.rates_unavailable,
     };
 }
 
@@ -803,4 +807,26 @@ test "formatRateHint is compact per-MTok" {
     var buf: [32]u8 = undefined;
     const text = formatRateHint(&buf, .{ .input = 1e-6, .output = 2e-6 }) orelse return error.MissingHint;
     try std.testing.expectEqualStrings("$1.00/$2.00/MTok", text);
+}
+
+test "statusLabel english default; zh and ja chrome; english ignores ja LANG" {
+    try std.testing.expectEqualStrings(status_fresh_label, statusLabel(.fresh, .english, "ja"));
+    try std.testing.expectEqualStrings(status_cached_label, statusLabel(.cached, .english, ""));
+    try std.testing.expectEqualStrings(status_unavailable_label, statusLabel(.unavailable, .english, ""));
+    try std.testing.expectEqualStrings(status_fresh_label, statusLabel(.fresh, .system, ""));
+    try std.testing.expectEqualStrings("Rates fresh", i18n.usageCostQualityChromeFor(.english, "").rates_fresh);
+    try std.testing.expectEqualStrings("Rates cached", i18n.usageCostQualityChromeFor(.english, "").rates_cached);
+    try std.testing.expectEqualStrings("Rates unavailable", i18n.usageCostQualityChromeFor(.english, "").rates_unavailable);
+
+    try std.testing.expectEqualStrings("费率最新", statusLabel(.fresh, .simplified_chinese, ""));
+    try std.testing.expectEqualStrings("费率缓存", statusLabel(.cached, .simplified_chinese, ""));
+    try std.testing.expectEqualStrings("费率不可用", statusLabel(.unavailable, .simplified_chinese, ""));
+    try std.testing.expectEqualStrings("レート最新", statusLabel(.fresh, .japanese, ""));
+    try std.testing.expectEqualStrings("レートキャッシュ", statusLabel(.cached, .japanese, ""));
+    try std.testing.expectEqualStrings("レート利用不可", statusLabel(.unavailable, .japanese, ""));
+
+    try std.testing.expectEqualStrings("费率最新", statusLabel(.fresh, .system, "zh_CN.UTF-8"));
+    try std.testing.expectEqualStrings("レートキャッシュ", statusLabel(.cached, .system, "ja_JP.UTF-8"));
+    try std.testing.expectEqualStrings(status_fresh_label, statusLabel(.fresh, .english, "ja_JP.UTF-8"));
+    try std.testing.expectEqualStrings(status_unavailable_label, statusLabel(.unavailable, .english, "zh_CN.UTF-8"));
 }

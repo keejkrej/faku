@@ -2117,6 +2117,7 @@ pub const Model = struct {
         "settingsRefreshChrome",
         "goalPlanRefreshChrome",
         "goalActionChrome",
+        "usageCostQualityChrome",
         "palette_action_label",
         "show_right_panel_label",
         "sidebarDates",
@@ -4924,6 +4925,10 @@ pub const Model = struct {
         return i18n.goalActionChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn usageCostQualityChrome(model: *const Model) i18n.UsageCostQualityChrome {
+        return i18n.usageCostQualityChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     /// Palette row display label for `action`. New Task / Settings /
     /// Collapse all folders reuse Sidebar / Chrome strings; remaining
     /// names come from `i18n.Palette`. Ids / keywords stay English.
@@ -6452,6 +6457,12 @@ pub const Model = struct {
         return model.usageViewChrome().days;
     }
 
+    /// Settings Usage Daily Cost quality card title. Distinct from
+    /// UsageViewChrome Cost chip. Wire ids stay English.
+    pub fn usage_cost_quality_label(model: *const Model) []const u8 {
+        return model.usageCostQualityChrome().cost_quality;
+    }
+
     pub fn has_usage_history(model: *const Model) bool {
         return usage_history.cacheShapeMatches(model) and model.settings_page == .usage;
     }
@@ -6657,7 +6668,7 @@ pub const Model = struct {
 
     pub fn usage_rates_status(model: *const Model) []const u8 {
         if (!model.has_usage_rates_status()) return "";
-        return litellm_rates.statusLabel(model.litellm_rates.status);
+        return litellm_rates.statusLabel(model.litellm_rates.status, model.language_preference, model.systemLocaleId());
     }
 
     pub fn has_usage_quality(model: *const Model) bool {
