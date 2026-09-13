@@ -27883,10 +27883,10 @@ test "transcript Match / Copy / Fork chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Match</text>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Copy\" on-press=\"copy_turn:{t.id}\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"fork_turn:{t.id}\">Fork</button>"));
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">Queued</text>") != null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Remove queued\"") != null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">Dismiss all</button>") != null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">Jump to latest</button>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"jump_latest\">{jump_latest_label}</button>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">{queued_header_label}</text>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"clear_queue\">{dismiss_all_queued_label}</button>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"{remove_queued_label}\" on-press=\"remove_queued:{q.id}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Browse\"") != null);
 
     var model = Model{};
@@ -27946,10 +27946,7 @@ test "transcript Match / Copy / Fork chrome follows Appearance language" {
     try testing.expect(findByText(zh_user, .text, "Match") == null);
     try testing.expect(findByText(zh_user, .button, "Copy") == null);
     try testing.expect(findByText(zh_user, .button, "Fork") == null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">Queued</text>") != null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Remove queued\"") != null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">Dismiss all</button>") != null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">Jump to latest</button>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"jump_latest\">{jump_latest_label}</button>") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Browse\"") != null);
 
     model.language_preference = .japanese;
@@ -28016,10 +28013,156 @@ test "transcript Match / Copy / Fork chrome follows Appearance language" {
     try testing.expect(findByText(sys_ja_user, .text, "Match") == null);
     try testing.expect(findByText(sys_ja_user, .button, "Copy") == null);
     try testing.expect(findByText(sys_ja_user, .button, "Fork") == null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">Queued</text>") != null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Remove queued\"") != null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">Dismiss all</button>") != null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">Jump to latest</button>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"jump_latest\">{jump_latest_label}</button>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Browse\"") != null);
+}
+
+test "composer queue / Jump to latest chrome follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"jump_latest\">{jump_latest_label}</button>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, ">{queued_header_label}</text>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"clear_queue\">{dismiss_all_queued_label}</button>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{remove_queued_label}\" on-press=\"remove_queued:{q.id}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"edit_queued:{q.id}\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"jump_latest\">{jump_latest_label}</button>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">{queued_header_label}</text>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"clear_queue\">{dismiss_all_queued_label}</button>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"{remove_queued_label}\" on-press=\"remove_queued:{q.id}\"") != null);
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Jump to latest</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Queued</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Dismiss all</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Remove queued\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Browse\"") != null);
+
+    var model = Model{};
+    const id = model.addSession("queue chrome", .fx);
+    model.selected = id;
+    _ = model.appendTurn(id, .user, "first prompt");
+    const queued_id = model.enqueue(id, "follow up later");
+    model.transcript_pinned = false;
+    try testing.expect(model.show_jump_latest());
+    try testing.expect(model.has_queued());
+
+    try testing.expectEqualStrings("Jump to latest", model.jump_latest_label());
+    try testing.expectEqualStrings("Queued", model.queued_header_label());
+    try testing.expectEqualStrings("Dismiss all", model.dismiss_all_queued_label());
+    try testing.expectEqualStrings("Remove queued", model.remove_queued_label());
+    try testing.expectEqualStrings(i18n.queueChromeFor(.english, "").jump_latest, model.jump_latest_label());
+    try testing.expectEqualStrings(i18n.queueChromeFor(.english, "").queued, model.queued_header_label());
+    try testing.expectEqualStrings(i18n.queueChromeFor(.english, "").dismiss_all, model.dismiss_all_queued_label());
+    try testing.expectEqualStrings(i18n.queueChromeFor(.english, "").remove_queued, model.remove_queued_label());
+    try testing.expect(!std.mem.eql(u8, model.dismiss_all_queued_label(), model.environment_dismiss_all_settled_label()));
+    try testing.expect(!std.mem.eql(u8, model.jump_latest_label(), model.transcript_match_label()));
+    try testing.expect(!std.mem.eql(u8, model.remove_queued_label(), model.copy_turn_label()));
+
+    var tree = try buildTree(arena, &model);
+    const jump = try expectButton(tree.root, "Jump to latest");
+    try testing.expectEqual(Msg.jump_latest, tree.msgForPointer(jump.id, .up).?);
+    _ = try expectByText(tree.root, .text, "Queued");
+    const dismiss = try expectByText(tree.root, .button, "Dismiss all");
+    try testing.expectEqual(Msg.clear_queue, tree.msgForPointer(dismiss.id, .up).?);
+    _ = try expectByText(tree.root, .text, "follow up later");
+    const queued_row = try expectByText(tree.root, .list_item, "follow up later");
+    try testing.expectEqual(Msg{ .edit_queued = queued_id }, tree.msgForPointer(queued_row.id, .up).?);
+    var queued_removes: [2]canvas.Widget = undefined;
+    try testing.expectEqual(@as(usize, 1), collectByText(tree.root, .button, "Remove queued", &queued_removes));
+    try testing.expectEqual(Msg{ .remove_queued = queued_id }, tree.msgForPointer(queued_removes[0].id, .up).?);
+    try testing.expect(findByText(tree.root, .text, "排队中") == null);
+    try testing.expect(findByText(tree.root, .button, "跳到最新") == null);
+    try testing.expect(findByText(tree.root, .button, "最新へジャンプ") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("跳到最新", model.jump_latest_label());
+    try testing.expectEqualStrings("排队中", model.queued_header_label());
+    try testing.expectEqualStrings("全部清除", model.dismiss_all_queued_label());
+    try testing.expectEqualStrings("移除排队", model.remove_queued_label());
+    try testing.expectEqualStrings(i18n.queueChromeFor(.simplified_chinese, "").jump_latest, model.jump_latest_label());
+    try testing.expectEqualStrings(i18n.queueChromeFor(.simplified_chinese, "").queued, model.queued_header_label());
+    try testing.expectEqualStrings(i18n.queueChromeFor(.simplified_chinese, "").dismiss_all, model.dismiss_all_queued_label());
+    try testing.expectEqualStrings(i18n.queueChromeFor(.simplified_chinese, "").remove_queued, model.remove_queued_label());
+    try testing.expect(!std.mem.eql(u8, model.dismiss_all_queued_label(), model.environment_dismiss_all_settled_label()));
+    tree = try buildTree(arena, &model);
+    const zh_jump = try expectButton(tree.root, "跳到最新");
+    try testing.expectEqual(Msg.jump_latest, tree.msgForPointer(zh_jump.id, .up).?);
+    _ = try expectByText(tree.root, .text, "排队中");
+    const zh_dismiss = try expectByText(tree.root, .button, "全部清除");
+    try testing.expectEqual(Msg.clear_queue, tree.msgForPointer(zh_dismiss.id, .up).?);
+    _ = try expectByText(tree.root, .text, "follow up later");
+    try testing.expectEqual(@as(usize, 1), collectByText(tree.root, .button, "移除排队", &queued_removes));
+    try testing.expectEqual(Msg{ .remove_queued = queued_id }, tree.msgForPointer(queued_removes[0].id, .up).?);
+    try testing.expect(findByText(tree.root, .button, "Jump to latest") == null);
+    try testing.expect(findByText(tree.root, .text, "Queued") == null);
+    try testing.expect(findByText(tree.root, .button, "Dismiss all") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Browse\"") != null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("最新へジャンプ", model.jump_latest_label());
+    try testing.expectEqualStrings("キュー", model.queued_header_label());
+    try testing.expectEqualStrings("すべて解除", model.dismiss_all_queued_label());
+    try testing.expectEqualStrings("キューを削除", model.remove_queued_label());
+    try testing.expectEqualStrings(i18n.queueChromeFor(.japanese, "").jump_latest, model.jump_latest_label());
+    try testing.expectEqualStrings(i18n.queueChromeFor(.japanese, "").queued, model.queued_header_label());
+    try testing.expectEqualStrings(i18n.queueChromeFor(.japanese, "").dismiss_all, model.dismiss_all_queued_label());
+    try testing.expectEqualStrings(i18n.queueChromeFor(.japanese, "").remove_queued, model.remove_queued_label());
+    tree = try buildTree(arena, &model);
+    const ja_jump = try expectButton(tree.root, "最新へジャンプ");
+    try testing.expectEqual(Msg.jump_latest, tree.msgForPointer(ja_jump.id, .up).?);
+    _ = try expectByText(tree.root, .text, "キュー");
+    const ja_dismiss = try expectByText(tree.root, .button, "すべて解除");
+    try testing.expectEqual(Msg.clear_queue, tree.msgForPointer(ja_dismiss.id, .up).?);
+    _ = try expectByText(tree.root, .text, "follow up later");
+    try testing.expectEqual(@as(usize, 1), collectByText(tree.root, .button, "キューを削除", &queued_removes));
+    try testing.expectEqual(Msg{ .remove_queued = queued_id }, tree.msgForPointer(queued_removes[0].id, .up).?);
+    try testing.expect(findByText(tree.root, .button, "Jump to latest") == null);
+    try testing.expect(findByText(tree.root, .text, "Queued") == null);
+    try testing.expect(findByText(tree.root, .button, "排队中") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Jump to latest", model.jump_latest_label());
+    try testing.expectEqualStrings("Queued", model.queued_header_label());
+    try testing.expectEqualStrings("Dismiss all", model.dismiss_all_queued_label());
+    try testing.expectEqualStrings("Remove queued", model.remove_queued_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "Jump to latest");
+    _ = try expectByText(tree.root, .text, "Queued");
+    _ = try expectByText(tree.root, .button, "Dismiss all");
+    try testing.expectEqual(@as(usize, 1), collectByText(tree.root, .button, "Remove queued", &queued_removes));
+    try testing.expect(findByText(tree.root, .button, "最新へジャンプ") == null);
+    try testing.expect(findByText(tree.root, .text, "キュー") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("跳到最新", model.jump_latest_label());
+    try testing.expectEqualStrings("排队中", model.queued_header_label());
+    try testing.expectEqualStrings("全部清除", model.dismiss_all_queued_label());
+    try testing.expectEqualStrings("移除排队", model.remove_queued_label());
+    tree = try buildTree(arena, &model);
+    const sys_zh_jump = try expectButton(tree.root, "跳到最新");
+    try testing.expectEqual(Msg.jump_latest, tree.msgForPointer(sys_zh_jump.id, .up).?);
+    _ = try expectByText(tree.root, .text, "排队中");
+    const sys_zh_dismiss = try expectByText(tree.root, .button, "全部清除");
+    try testing.expectEqual(Msg.clear_queue, tree.msgForPointer(sys_zh_dismiss.id, .up).?);
+    try testing.expectEqual(@as(usize, 1), collectByText(tree.root, .button, "移除排队", &queued_removes));
+    try testing.expect(findByText(tree.root, .button, "Jump to latest") == null);
+    try testing.expect(findByText(tree.root, .text, "Queued") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("最新へジャンプ", model.jump_latest_label());
+    try testing.expectEqualStrings("キュー", model.queued_header_label());
+    try testing.expectEqualStrings("すべて解除", model.dismiss_all_queued_label());
+    try testing.expectEqualStrings("キューを削除", model.remove_queued_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "最新へジャンプ");
+    _ = try expectByText(tree.root, .text, "キュー");
+    _ = try expectByText(tree.root, .button, "すべて解除");
+    try testing.expectEqual(@as(usize, 1), collectByText(tree.root, .button, "キューを削除", &queued_removes));
+    try testing.expect(findByText(tree.root, .button, "Jump to latest") == null);
+    try testing.expect(findByText(tree.root, .text, "Queued") == null);
+    try testing.expect(findByText(tree.root, .button, "Fork") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Browse\"") != null);
 }
 

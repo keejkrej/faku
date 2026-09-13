@@ -983,7 +983,7 @@
       </scroll>
       <if test="{show_jump_latest}">
         <row main="center" padding="4">
-          <button variant="ghost" size="sm" on-press="jump_latest">Jump to latest</button>
+          <button variant="ghost" size="sm" on-press="jump_latest">{jump_latest_label}</button>
         </row>
       </if>
       <column padding="16" gap="8">
@@ -991,15 +991,15 @@
               <card size="sm" padding="10">
                 <column gap="4">
                   <row gap="8" cross="center">
-                    <text>Queued</text>
+                    <text>{queued_header_label}</text>
                     <spacer grow="1" />
-                    <button size="sm" on-press="clear_queue">Dismiss all</button>
+                    <button size="sm" on-press="clear_queue">{dismiss_all_queued_label}</button>
                   </row>
                   <for each="queued_rows" key="id" as="q">
                     <list-item height="30" on-press="edit_queued:{q.id}" label="{q.text}">
                       <row gap="8" cross="center">
                         <text wrap="true" overflow="ellipsis" foreground="text_muted">{q.text}</text>
-                        <button variant="ghost" size="icon" icon="x" label="Remove queued" on-press="remove_queued:{q.id}"></button>
+                        <button variant="ghost" size="icon" icon="x" label="{remove_queued_label}" on-press="remove_queued:{q.id}"></button>
                       </row>
                     </list-item>
                   </for>

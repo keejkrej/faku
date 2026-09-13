@@ -3832,7 +3832,7 @@ pub const Model = struct {
 
     /// Environment dropdown Dismiss all settled. `on-press` stays
     /// `environment_dismiss_settled_background`. Distinct from queued
-    /// Dismiss all.
+    /// Dismiss all (`dismiss_all_queued_label`).
     pub fn environment_dismiss_all_settled_label(model: *const Model) []const u8 {
         return model.environmentChrome().dismiss_all_settled;
     }
@@ -4926,6 +4926,10 @@ pub const Model = struct {
 
     fn transcriptTurnChrome(model: *const Model) i18n.TranscriptTurnChrome {
         return i18n.transcriptTurnChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn queueChrome(model: *const Model) i18n.QueueChrome {
+        return i18n.queueChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     fn browserAddressChrome(model: *const Model) i18n.BrowserAddressChrome {
@@ -6209,6 +6213,31 @@ pub const Model = struct {
     /// `fork_turn:{t.id}`. Distinct from header `fork_label`.
     pub fn fork_turn_label(model: *const Model) []const u8 {
         return model.transcriptTurnChrome().fork;
+    }
+
+    /// Transcript scroll chip Jump to latest. `on-press` stays
+    /// `jump_latest`. Distinct from `TranscriptTurnChrome`.
+    pub fn jump_latest_label(model: *const Model) []const u8 {
+        return model.queueChrome().jump_latest;
+    }
+
+    /// Composer queue card header. Distinct from queued message
+    /// body text (`q.text`, data).
+    pub fn queued_header_label(model: *const Model) []const u8 {
+        return model.queueChrome().queued;
+    }
+
+    /// Composer queue card Dismiss all. `on-press` stays
+    /// `clear_queue`. Distinct from `environment_dismiss_all_settled_label`
+    /// and from `BackgroundChrome` Dismiss*.
+    pub fn dismiss_all_queued_label(model: *const Model) []const u8 {
+        return model.queueChrome().dismiss_all;
+    }
+
+    /// Per-row Remove queued a11y. `on-press` stays
+    /// `remove_queued:{q.id}`. Distinct from `BackgroundChrome` Dismiss*.
+    pub fn remove_queued_label(model: *const Model) []const u8 {
+        return model.queueChrome().remove_queued;
     }
 
     /// Session title rename placeholders (sidebar + header).
