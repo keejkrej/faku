@@ -582,7 +582,7 @@
                     <if test="{has_usage_quality}">
                       <card size="sm" padding="10">
                         <column gap="8">
-                          <text>Cost quality</text>
+                          <text>{usage_cost_quality_label}</text>
                           <for each="usage_quality_rows" key="id" as="q">
                             <column gap="4">
                               <text wrap="false" overflow="ellipsis">{q.line}</text>

@@ -107,6 +107,7 @@ const store = @import("store.zig");
 const goal = @import("goal.zig");
 const session_mod = @import("session.zig");
 const litellm_rates = @import("litellm_rates.zig");
+const i18n = @import("i18n.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -167,6 +168,8 @@ pub const max_metric_tiles: usize = 5;
 pub const max_day_label = 32;
 pub const max_model_name = 64;
 pub const max_line = 160;
+/// English default for daemon `pricing: unavailable`. Localized
+/// notice text comes from `UsageCostQualityChrome.rates_unavailable`.
 pub const rates_unavailable_notice = "Rates unavailable";
 
 pub const Row = struct {
@@ -1587,6 +1590,10 @@ pub fn hasScanFooter(model: *const Model) bool {
     return model.usage_history.scanned_files > 0 or model.usage_history.records > 0;
 }
 
+fn costQualityChrome(model: *const Model) i18n.UsageCostQualityChrome {
+    return i18n.usageCostQualityChromeFor(model.language_preference, model.systemLocaleId());
+}
+
 pub fn noticeRows(model: *const Model, arena: std.mem.Allocator) []const Row {
     if (!hasNotice(model)) return &.{};
     const cache = model.usage_history;
@@ -1603,7 +1610,7 @@ pub fn noticeRows(model: *const Model, arena: std.mem.Allocator) []const Row {
     if (extra == 1) {
         out[i] = .{
             .id = @intCast(i + 1),
-            .line = rates_unavailable_notice,
+            .line = costQualityChrome(model).rates_unavailable,
         };
     }
     return out;
@@ -1612,8 +1619,9 @@ pub fn noticeRows(model: *const Model, arena: std.mem.Allocator) []const Row {
 pub fn qualityRows(model: *const Model, arena: std.mem.Allocator) []const Row {
     if (!hasQuality(model)) return &.{};
     const q = model.usage_history.quality;
+    const chrome = costQualityChrome(model);
     const out = arena.alloc(Row, 4) catch return &.{};
-    const labels = [_][]const u8{ "Provider reported", "Model priced", "Unpriced" };
+    const labels = [_][]const u8{ chrome.provider_reported, chrome.model_priced, chrome.unpriced };
     const shares = [_]f64{ q.provider_reported_share, q.model_priced_share, q.unpriced_share };
     var i: usize = 0;
     while (i < 3) : (i += 1) {
@@ -1630,7 +1638,7 @@ pub fn qualityRows(model: *const Model, arena: std.mem.Allocator) []const Row {
     var usd_buf: [24]u8 = undefined;
     out[3] = .{
         .id = 4,
-        .line = "Cache savings",
+        .line = chrome.cache_savings,
         .share = 0,
         .percent = copyArena(arena, formatUsd(&usd_buf, q.cache_savings_usd)),
         .has_share = false,
@@ -1699,9 +1707,10 @@ pub fn metricRows(model: *const Model, arena: std.mem.Allocator) []const Row {
     const out = arena.alloc(Row, max_metric_tiles) catch return &.{};
 
     var token_buf: [16]u8 = undefined;
-    var detail_buf: [48]u8 = undefined;
+    var detail_buf: [64]u8 = undefined;
     var percent_buf: [16]u8 = undefined;
     var usd_buf: [24]u8 = undefined;
+    const chrome = costQualityChrome(model);
 
     const processed = compactTokenLabel(&token_buf, cache.total_tokens);
     const per_unit_tokens = switch (model.usage_view) {
@@ -1710,12 +1719,12 @@ pub fn metricRows(model: *const Model, arena: std.mem.Allocator) []const Row {
     };
     const per_unit = compactTokenLabel(&percent_buf, per_unit_tokens);
     const per_unit_label: []const u8 = switch (model.usage_view) {
-        .monthly => "per active month",
-        .daily, .projects => "per active day",
+        .monthly => chrome.per_active_month,
+        .daily, .projects => chrome.per_active_day,
     };
     out[0] = .{
         .id = 1,
-        .line = "Processed tokens",
+        .line = chrome.processed_tokens,
         .percent = copyArena(arena, processed),
         .detail = metricDetail(arena, &detail_buf, "{s} {s}", .{ per_unit, per_unit_label }),
     };
@@ -1724,37 +1733,37 @@ pub fn metricRows(model: *const Model, arena: std.mem.Allocator) []const Row {
     const cached_share = formatPercentLabel(&percent_buf, cachedInputShare(totals));
     out[1] = .{
         .id = 2,
-        .line = "Cached input",
+        .line = chrome.cached_input,
         .percent = copyArena(arena, cached),
-        .detail = metricDetail(arena, &detail_buf, "{s} of observed input", .{cached_share}),
+        .detail = metricDetail(arena, &detail_buf, "{s} {s}", .{ cached_share, chrome.of_observed_input }),
     };
 
     const uncached = compactTokenLabel(&token_buf, totals.uncached_input);
     const writes = compactTokenLabel(&percent_buf, totals.cache_creation);
     out[2] = .{
         .id = 3,
-        .line = "Uncached input",
+        .line = chrome.uncached_input,
         .percent = copyArena(arena, uncached),
-        .detail = metricDetail(arena, &detail_buf, "{s} cache writes", .{writes}),
+        .detail = metricDetail(arena, &detail_buf, "{s} {s}", .{ writes, chrome.cache_writes }),
     };
 
     const output = compactTokenLabel(&token_buf, totals.output);
     const reasoning = compactTokenLabel(&percent_buf, totals.reasoning);
     out[3] = .{
         .id = 4,
-        .line = "Output",
+        .line = chrome.output,
         .percent = copyArena(arena, output),
-        .detail = metricDetail(arena, &detail_buf, "includes {s} reasoning", .{reasoning}),
+        .detail = metricDetail(arena, &detail_buf, "{s}{s}{s}", .{ chrome.includes_reasoning_prefix, reasoning, chrome.includes_reasoning_suffix }),
     };
 
     const savings = copyArena(arena, formatUsd(&usd_buf, cache.quality.cache_savings_usd));
     const savings_detail = if (cache.cost_usd > 0)
-        metricDetail(arena, &detail_buf, "{d:.1}x raw cost", .{cache.quality.cache_savings_usd / cache.cost_usd})
+        metricDetail(arena, &detail_buf, "{d:.1}x {s}", .{ cache.quality.cache_savings_usd / cache.cost_usd, chrome.raw_cost })
     else
-        "vs full input rates";
+        chrome.vs_full_input_rates;
     out[4] = .{
         .id = 5,
-        .line = "Cache savings",
+        .line = chrome.cache_savings,
         .percent = savings,
         .detail = savings_detail,
     };
@@ -3616,6 +3625,114 @@ test "metric strip paints five tiles on Daily, Monthly, and Projects; zeros stil
     model.usage_history.present = false;
     try std.testing.expect(!hasMetricStrip(&model));
     try std.testing.expectEqual(@as(usize, 0), metricRows(&model, arena).len);
+}
+
+test "quality metric rates chrome follow Appearance language; english default matches former copy" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model = Model{};
+    model.settings_page = .usage;
+    model.usage_history.present = true;
+    model.usage_history.pricing = .unavailable;
+    model.usage_history.quality.provider_reported_share = 0.5;
+    model.usage_history.quality.model_priced_share = 0.3;
+    model.usage_history.quality.unpriced_share = 0.2;
+    model.usage_history.quality.cache_savings_usd = 1.25;
+    model.usage_history.total_tokens = 12300;
+    model.usage_history.cost_usd = 1.25;
+    model.usage_history.totals.cached_input = 8000;
+    model.usage_history.totals.uncached_input = 2000;
+    model.usage_history.totals.cache_creation = 500;
+    model.usage_history.totals.output = 1800;
+    model.usage_history.totals.reasoning = 300;
+    model.usage_history.daily_count = 2;
+    model.usage_history.daily[0].total_tokens = 4100;
+    model.usage_history.daily[1].total_tokens = 8200;
+
+    try std.testing.expectEqualStrings(rates_unavailable_notice, i18n.usageCostQualityChromeFor(.english, "").rates_unavailable);
+
+    const quality_en = qualityRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 4), quality_en.len);
+    try std.testing.expectEqualStrings("Provider reported", quality_en[0].line);
+    try std.testing.expectEqualStrings("Model priced", quality_en[1].line);
+    try std.testing.expectEqualStrings("Unpriced", quality_en[2].line);
+    try std.testing.expectEqualStrings("Cache savings", quality_en[3].line);
+    try std.testing.expectEqualStrings(i18n.usageCostQualityChromeFor(.english, "").provider_reported, quality_en[0].line);
+
+    const notices_en = noticeRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 1), notices_en.len);
+    try std.testing.expectEqualStrings(rates_unavailable_notice, notices_en[0].line);
+
+    const metrics_en = metricRows(&model, arena);
+    try std.testing.expectEqualStrings("Processed tokens", metrics_en[0].line);
+    try std.testing.expectEqualStrings("6.1k per active day", metrics_en[0].detail);
+    try std.testing.expectEqualStrings("Cached input", metrics_en[1].line);
+    try std.testing.expectEqualStrings("80.0% of observed input", metrics_en[1].detail);
+    try std.testing.expectEqualStrings("Uncached input", metrics_en[2].line);
+    try std.testing.expectEqualStrings("500 cache writes", metrics_en[2].detail);
+    try std.testing.expectEqualStrings("Output", metrics_en[3].line);
+    try std.testing.expectEqualStrings("includes 300 reasoning", metrics_en[3].detail);
+    try std.testing.expectEqualStrings("Cache savings", metrics_en[4].line);
+    try std.testing.expectEqualStrings("1.0x raw cost", metrics_en[4].detail);
+
+    model.language_preference = .simplified_chinese;
+    const zh = i18n.usageCostQualityChromeFor(.simplified_chinese, "");
+    const quality_zh = qualityRows(&model, arena);
+    try std.testing.expectEqualStrings(zh.provider_reported, quality_zh[0].line);
+    try std.testing.expectEqualStrings(zh.model_priced, quality_zh[1].line);
+    try std.testing.expectEqualStrings(zh.unpriced, quality_zh[2].line);
+    try std.testing.expectEqualStrings(zh.cache_savings, quality_zh[3].line);
+    try std.testing.expectEqualStrings(zh.rates_unavailable, noticeRows(&model, arena)[0].line);
+    const metrics_zh = metricRows(&model, arena);
+    try std.testing.expectEqualStrings("已处理 token", metrics_zh[0].line);
+    try std.testing.expectEqualStrings("6.1k 每活跃日", metrics_zh[0].detail);
+    try std.testing.expectEqualStrings("80.0% 占观测输入", metrics_zh[1].detail);
+    try std.testing.expectEqualStrings("500 缓存写入", metrics_zh[2].detail);
+    try std.testing.expectEqualStrings("含 300 推理", metrics_zh[3].detail);
+    try std.testing.expectEqualStrings("1.0x 原始费用", metrics_zh[4].detail);
+    try std.testing.expectEqualStrings("缓存节省", metrics_zh[4].line);
+
+    model.language_preference = .japanese;
+    const ja = i18n.usageCostQualityChromeFor(.japanese, "");
+    const quality_ja = qualityRows(&model, arena);
+    try std.testing.expectEqualStrings(ja.provider_reported, quality_ja[0].line);
+    try std.testing.expectEqualStrings(ja.model_priced, quality_ja[1].line);
+    try std.testing.expectEqualStrings(ja.unpriced, quality_ja[2].line);
+    try std.testing.expectEqualStrings(ja.cache_savings, quality_ja[3].line);
+    try std.testing.expectEqualStrings(ja.rates_unavailable, noticeRows(&model, arena)[0].line);
+    const metrics_ja = metricRows(&model, arena);
+    try std.testing.expectEqualStrings("処理済みトークン", metrics_ja[0].line);
+    try std.testing.expectEqualStrings("6.1k アクティブ日あたり", metrics_ja[0].detail);
+    try std.testing.expectEqualStrings("80.0% の観測入力", metrics_ja[1].detail);
+    try std.testing.expectEqualStrings("500 キャッシュ書き込み", metrics_ja[2].detail);
+    try std.testing.expectEqualStrings("300 の推論を含む", metrics_ja[3].detail);
+    try std.testing.expectEqualStrings("1.0x 生コスト", metrics_ja[4].detail);
+
+    model.usage_view = .monthly;
+    model.usage_history.window = monthly_window;
+    model.usage_history.month_count = 2;
+    model.usage_history.months[0].total_tokens = 4100;
+    model.usage_history.months[1].total_tokens = 8200;
+    try std.testing.expectEqual(@as(usize, 0), qualityRows(&model, arena).len);
+    const month_ja = metricRows(&model, arena);
+    try std.testing.expectEqualStrings("6.1k アクティブ月あたり", month_ja[0].detail);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    model.usage_view = .daily;
+    model.usage_history.window = .{ .trailing_days = 30 };
+    try std.testing.expectEqualStrings("Provider reported", qualityRows(&model, arena)[0].line);
+    try std.testing.expectEqualStrings(rates_unavailable_notice, noticeRows(&model, arena)[0].line);
+    try std.testing.expectEqualStrings("Processed tokens", metricRows(&model, arena)[0].line);
+
+    model.language_preference = .system;
+    try std.testing.expectEqualStrings("プロバイダー報告", qualityRows(&model, arena)[0].line);
+    try std.testing.expectEqualStrings("レート利用不可", noticeRows(&model, arena)[0].line);
+
+    model.usage_history.cost_usd = 0;
+    try std.testing.expectEqualStrings("全入力レート比", metricRows(&model, arena)[4].detail);
 }
 
 

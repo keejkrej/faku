@@ -31,6 +31,7 @@ const file_mention = @import("file_mention.zig");
 const skills = @import("skills.zig");
 const providers = @import("providers.zig");
 const i18n = @import("i18n.zig");
+const litellm_rates = @import("litellm_rates.zig");
 const fx_probe = @import("fx_probe.zig");
 const cli_probe = @import("cli_probe.zig");
 const keys = @import("keys.zig");
@@ -15019,7 +15020,6 @@ test "settings Usage Daily paints LiteLLM Rates cached and a model-row per-MTok 
     const fixture =
         \\{"gpt-5":{"input_cost_per_token":1e-6,"output_cost_per_token":2e-6},"opus":{"input_cost_per_token":3e-6,"output_cost_per_token":4e-6}}
     ;
-    const litellm_rates = @import("litellm_rates.zig");
     model.litellm_rates = litellm_rates.parseLiteLlmDocument(std.heap.page_allocator, fixture);
     model.litellm_rates.status = .cached;
 
@@ -29168,6 +29168,160 @@ test "Usage Cost Tokens Model Days chips follow Appearance language" {
     _ = try expectButtonMsg(tree, "日別", .set_usage_breakdown_days);
     try testing.expect(findByText(tree.root, .button, "Cost") == null);
     try testing.expect(findByText(tree.root, .button, "Days") == null);
+}
+
+test "Usage Cost quality Rates metric-strip chrome follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{usage_cost_quality_label}"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "<text>Cost quality</text>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{usage_rates_status}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "each=\"usage_quality_rows\""));
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, main.app_markup, "each=\"usage_metric_rows\""));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Cost quality", model.usage_cost_quality_label());
+    try testing.expectEqualStrings(i18n.usageCostQualityChromeFor(.english, "").cost_quality, model.usage_cost_quality_label());
+    try testing.expectEqualStrings("Rates fresh", litellm_rates.statusLabel(.fresh, .english, ""));
+    try testing.expectEqualStrings("Rates cached", litellm_rates.statusLabel(.cached, .english, ""));
+    try testing.expectEqualStrings("Rates unavailable", litellm_rates.statusLabel(.unavailable, .english, ""));
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_usage, &fx);
+    try testing.expect(model.settings_page_usage());
+    try testing.expect(model.usage_view_daily());
+    model.usage_history.present = true;
+    model.usage_history.window = .{ .trailing_days = 30 };
+    model.usage_history.pricing = .unavailable;
+    model.usage_history.quality.provider_reported_share = 0.5;
+    model.usage_history.quality.model_priced_share = 0.3;
+    model.usage_history.quality.unpriced_share = 0.2;
+    model.usage_history.quality.cache_savings_usd = 1.25;
+    model.usage_history.total_tokens = 12300;
+    model.usage_history.cost_usd = 1.25;
+    model.usage_history.totals.cached_input = 8000;
+    model.usage_history.totals.uncached_input = 2000;
+    model.usage_history.totals.cache_creation = 500;
+    model.usage_history.totals.output = 1800;
+    model.usage_history.totals.reasoning = 300;
+    model.usage_history.daily_count = 2;
+    model.usage_history.daily[0].total_tokens = 4100;
+    model.usage_history.daily[1].total_tokens = 8200;
+    model.litellm_rates.status = .cached;
+    try testing.expect(model.has_usage_history());
+    try testing.expect(model.has_usage_quality());
+    try testing.expect(model.has_usage_notice());
+    try testing.expect(model.has_usage_rates_status());
+    try testing.expectEqualStrings("Rates cached", model.usage_rates_status());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Cost quality");
+    _ = try expectByText(tree.root, .text, "Provider reported");
+    _ = try expectByText(tree.root, .text, "Model priced");
+    _ = try expectByText(tree.root, .text, "Unpriced");
+    _ = try expectByText(tree.root, .text, "Cache savings");
+    _ = try expectByText(tree.root, .text, "Processed tokens");
+    _ = try expectByText(tree.root, .text, "Cached input");
+    _ = try expectByText(tree.root, .text, "Uncached input");
+    _ = try expectByText(tree.root, .text, "Output");
+    _ = try expectByText(tree.root, .text, "Rates cached");
+    _ = try expectByText(tree.root, .text, "Rates unavailable");
+    _ = try expectByText(tree.root, .text, "6.1k per active day");
+    _ = try expectByText(tree.root, .text, "80.0% of observed input");
+    _ = try expectByText(tree.root, .text, "500 cache writes");
+    _ = try expectByText(tree.root, .text, "includes 300 reasoning");
+    _ = try expectByText(tree.root, .text, "1.0x raw cost");
+    try testing.expect(findByText(tree.root, .text, "费用质量") == null);
+    try testing.expect(findByText(tree.root, .text, "コスト品質") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("费用质量", model.usage_cost_quality_label());
+    try testing.expectEqualStrings(i18n.usageCostQualityChromeFor(.simplified_chinese, "").cost_quality, model.usage_cost_quality_label());
+    try testing.expectEqualStrings("费率缓存", model.usage_rates_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "费用质量");
+    _ = try expectByText(tree.root, .text, "提供商上报");
+    _ = try expectByText(tree.root, .text, "模型定价");
+    _ = try expectByText(tree.root, .text, "未定价");
+    _ = try expectByText(tree.root, .text, "缓存节省");
+    _ = try expectByText(tree.root, .text, "已处理 token");
+    _ = try expectByText(tree.root, .text, "缓存输入");
+    _ = try expectByText(tree.root, .text, "非缓存输入");
+    _ = try expectByText(tree.root, .text, "输出");
+    _ = try expectByText(tree.root, .text, "费率缓存");
+    _ = try expectByText(tree.root, .text, "费率不可用");
+    _ = try expectByText(tree.root, .text, "6.1k 每活跃日");
+    _ = try expectByText(tree.root, .text, "80.0% 占观测输入");
+    _ = try expectByText(tree.root, .text, "500 缓存写入");
+    _ = try expectByText(tree.root, .text, "含 300 推理");
+    _ = try expectByText(tree.root, .text, "1.0x 原始费用");
+    try testing.expect(findByText(tree.root, .text, "Cost quality") == null);
+    try testing.expect(findByText(tree.root, .text, "Provider reported") == null);
+    try testing.expect(findByText(tree.root, .text, "Processed tokens") == null);
+    try testing.expect(findByText(tree.root, .text, "Rates cached") == null);
+    try testing.expect(findByText(tree.root, .text, "Rates unavailable") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("コスト品質", model.usage_cost_quality_label());
+    try testing.expectEqualStrings(i18n.usageCostQualityChromeFor(.japanese, "").cost_quality, model.usage_cost_quality_label());
+    try testing.expectEqualStrings("レートキャッシュ", model.usage_rates_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "コスト品質");
+    _ = try expectByText(tree.root, .text, "プロバイダー報告");
+    _ = try expectByText(tree.root, .text, "モデル価格");
+    _ = try expectByText(tree.root, .text, "未価格");
+    _ = try expectByText(tree.root, .text, "キャッシュ節約");
+    _ = try expectByText(tree.root, .text, "処理済みトークン");
+    _ = try expectByText(tree.root, .text, "キャッシュ入力");
+    _ = try expectByText(tree.root, .text, "非キャッシュ入力");
+    _ = try expectByText(tree.root, .text, "出力");
+    _ = try expectByText(tree.root, .text, "レートキャッシュ");
+    _ = try expectByText(tree.root, .text, "レート利用不可");
+    _ = try expectByText(tree.root, .text, "6.1k アクティブ日あたり");
+    _ = try expectByText(tree.root, .text, "80.0% の観測入力");
+    _ = try expectByText(tree.root, .text, "500 キャッシュ書き込み");
+    _ = try expectByText(tree.root, .text, "300 の推論を含む");
+    _ = try expectByText(tree.root, .text, "1.0x 生コスト");
+    try testing.expect(findByText(tree.root, .text, "Cost quality") == null);
+    try testing.expect(findByText(tree.root, .text, "费用质量") == null);
+    try testing.expect(findByText(tree.root, .text, "Processed tokens") == null);
+    try testing.expect(findByText(tree.root, .text, "Rates cached") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Cost quality", model.usage_cost_quality_label());
+    try testing.expectEqualStrings("Rates cached", model.usage_rates_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Cost quality");
+    _ = try expectByText(tree.root, .text, "Rates cached");
+    try testing.expect(findByText(tree.root, .text, "コスト品質") == null);
+    try testing.expect(findByText(tree.root, .text, "レートキャッシュ") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("费用质量", model.usage_cost_quality_label());
+    try testing.expectEqualStrings("费率缓存", model.usage_rates_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "费用质量");
+    _ = try expectByText(tree.root, .text, "已处理 token");
+    _ = try expectByText(tree.root, .text, "费率缓存");
+    try testing.expect(findByText(tree.root, .text, "Cost quality") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("コスト品質", model.usage_cost_quality_label());
+    try testing.expectEqualStrings("レートキャッシュ", model.usage_rates_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "コスト品質");
+    _ = try expectByText(tree.root, .text, "処理済みトークン");
+    _ = try expectByText(tree.root, .text, "レートキャッシュ");
+    try testing.expect(findByText(tree.root, .text, "Cost quality") == null);
+    try testing.expect(findByText(tree.root, .text, "费用质量") == null);
 }
 
 test "DateBucket.title english default; zh and ja follow datesFor" {

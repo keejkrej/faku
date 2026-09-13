@@ -97,6 +97,12 @@
 //! `GoalActionChrome` strings; distinct from Refresh goal /
 //! plan Refresh so the set/clear verbs stay independently
 //! evolvable; wire ids / on-press stay English)
+//! plus Settings Usage Cost quality / LiteLLM Rates status /
+//! five-tile metric-strip labels (same `UsageCostQualityChrome`
+//! strings; distinct from UsageViewChrome Cost|Tokens chips so
+//! quality / rates / tile labels stay independently evolvable;
+//! `token` stays Latin in zh-CN; scan footer and daemon error
+//! notice text stay English data this cut)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -2039,6 +2045,108 @@ const goal_action_chrome_ja: GoalActionChrome = .{
     .clear_goal = "目標をクリア",
 };
 
+/// Settings Usage Cost quality panel, LiteLLM Rates status, and
+/// five-tile metric-strip labels for the resolved locale. Same
+/// resolve path as GoalActionChrome. English matches the former
+/// hardcoded copy. Distinct from UsageViewChrome so Cost|Tokens
+/// chips stay independently evolvable from quality / rates /
+/// tile labels. One `cache_savings` field is shared by the quality
+/// row and the metric tile. `token` stays Latin in zh-CN (same
+/// rule as UsageViewChrome Tokens). Scan footer and daemon error
+/// notice text stay English data this cut. Wire / status enums stay
+/// English (`fresh` / `cached` / `unavailable`).
+pub const UsageCostQualityChrome = struct {
+    cost_quality: []const u8,
+    provider_reported: []const u8,
+    model_priced: []const u8,
+    unpriced: []const u8,
+    cache_savings: []const u8,
+    processed_tokens: []const u8,
+    cached_input: []const u8,
+    uncached_input: []const u8,
+    output: []const u8,
+    rates_fresh: []const u8,
+    rates_cached: []const u8,
+    rates_unavailable: []const u8,
+    per_active_month: []const u8,
+    per_active_day: []const u8,
+    of_observed_input: []const u8,
+    cache_writes: []const u8,
+    includes_reasoning_prefix: []const u8,
+    includes_reasoning_suffix: []const u8,
+    raw_cost: []const u8,
+    vs_full_input_rates: []const u8,
+};
+
+const usage_cost_quality_chrome_en: UsageCostQualityChrome = .{
+    .cost_quality = "Cost quality",
+    .provider_reported = "Provider reported",
+    .model_priced = "Model priced",
+    .unpriced = "Unpriced",
+    .cache_savings = "Cache savings",
+    .processed_tokens = "Processed tokens",
+    .cached_input = "Cached input",
+    .uncached_input = "Uncached input",
+    .output = "Output",
+    .rates_fresh = "Rates fresh",
+    .rates_cached = "Rates cached",
+    .rates_unavailable = "Rates unavailable",
+    .per_active_month = "per active month",
+    .per_active_day = "per active day",
+    .of_observed_input = "of observed input",
+    .cache_writes = "cache writes",
+    .includes_reasoning_prefix = "includes ",
+    .includes_reasoning_suffix = " reasoning",
+    .raw_cost = "raw cost",
+    .vs_full_input_rates = "vs full input rates",
+};
+
+const usage_cost_quality_chrome_zh_cn: UsageCostQualityChrome = .{
+    .cost_quality = "费用质量",
+    .provider_reported = "提供商上报",
+    .model_priced = "模型定价",
+    .unpriced = "未定价",
+    .cache_savings = "缓存节省",
+    .processed_tokens = "已处理 token",
+    .cached_input = "缓存输入",
+    .uncached_input = "非缓存输入",
+    .output = "输出",
+    .rates_fresh = "费率最新",
+    .rates_cached = "费率缓存",
+    .rates_unavailable = "费率不可用",
+    .per_active_month = "每活跃月",
+    .per_active_day = "每活跃日",
+    .of_observed_input = "占观测输入",
+    .cache_writes = "缓存写入",
+    .includes_reasoning_prefix = "含 ",
+    .includes_reasoning_suffix = " 推理",
+    .raw_cost = "原始费用",
+    .vs_full_input_rates = "对比完整输入费率",
+};
+
+const usage_cost_quality_chrome_ja: UsageCostQualityChrome = .{
+    .cost_quality = "コスト品質",
+    .provider_reported = "プロバイダー報告",
+    .model_priced = "モデル価格",
+    .unpriced = "未価格",
+    .cache_savings = "キャッシュ節約",
+    .processed_tokens = "処理済みトークン",
+    .cached_input = "キャッシュ入力",
+    .uncached_input = "非キャッシュ入力",
+    .output = "出力",
+    .rates_fresh = "レート最新",
+    .rates_cached = "レートキャッシュ",
+    .rates_unavailable = "レート利用不可",
+    .per_active_month = "アクティブ月あたり",
+    .per_active_day = "アクティブ日あたり",
+    .of_observed_input = "の観測入力",
+    .cache_writes = "キャッシュ書き込み",
+    .includes_reasoning_prefix = "",
+    .includes_reasoning_suffix = " の推論を含む",
+    .raw_cost = "生コスト",
+    .vs_full_input_rates = "全入力レート比",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -2556,6 +2664,21 @@ pub fn goalActionChromeFor(preference: LanguagePreference, system_locale_id: []c
         .simplified_chinese => goal_action_chrome_zh_cn,
         .japanese => goal_action_chrome_ja,
         .system, .english => goal_action_chrome_en,
+    };
+}
+
+/// Settings Usage Cost quality / LiteLLM Rates status / five-tile
+/// metric-strip labels for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does not
+/// read process env. Distinct from UsageViewChrome so Cost|Tokens
+/// chips stay independently evolvable. Scan footer and daemon error
+/// notice text stay English data this cut. Wire / status enums stay
+/// English.
+pub fn usageCostQualityChromeFor(preference: LanguagePreference, system_locale_id: []const u8) UsageCostQualityChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => usage_cost_quality_chrome_zh_cn,
+        .japanese => usage_cost_quality_chrome_ja,
+        .system, .english => usage_cost_quality_chrome_en,
     };
 }
 
@@ -4109,5 +4232,83 @@ test "goalActionChromeFor english default; zh and ja chrome; english ignores ja 
     try testing.expectEqualStrings("Clear goal", goalActionChromeFor(.english, "ja_JP.UTF-8").clear_goal);
     try testing.expectEqualStrings("Set goal", goalActionChromeFor(.english, "zh_CN.UTF-8").set_goal);
     try testing.expectEqualStrings("Clear goal", goalActionChromeFor(.english, "zh_CN.UTF-8").clear_goal);
+}
+
+test "usageCostQualityChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Cost quality", usageCostQualityChromeFor(.english, "ja").cost_quality);
+    try testing.expectEqualStrings("Provider reported", usageCostQualityChromeFor(.english, "").provider_reported);
+    try testing.expectEqualStrings("Model priced", usageCostQualityChromeFor(.english, "").model_priced);
+    try testing.expectEqualStrings("Unpriced", usageCostQualityChromeFor(.english, "").unpriced);
+    try testing.expectEqualStrings("Cache savings", usageCostQualityChromeFor(.english, "").cache_savings);
+    try testing.expectEqualStrings("Processed tokens", usageCostQualityChromeFor(.english, "").processed_tokens);
+    try testing.expectEqualStrings("Cached input", usageCostQualityChromeFor(.english, "").cached_input);
+    try testing.expectEqualStrings("Uncached input", usageCostQualityChromeFor(.english, "").uncached_input);
+    try testing.expectEqualStrings("Output", usageCostQualityChromeFor(.english, "").output);
+    try testing.expectEqualStrings("Rates fresh", usageCostQualityChromeFor(.english, "").rates_fresh);
+    try testing.expectEqualStrings("Rates cached", usageCostQualityChromeFor(.english, "").rates_cached);
+    try testing.expectEqualStrings("Rates unavailable", usageCostQualityChromeFor(.english, "").rates_unavailable);
+    try testing.expectEqualStrings("per active month", usageCostQualityChromeFor(.english, "").per_active_month);
+    try testing.expectEqualStrings("per active day", usageCostQualityChromeFor(.english, "").per_active_day);
+    try testing.expectEqualStrings("of observed input", usageCostQualityChromeFor(.english, "").of_observed_input);
+    try testing.expectEqualStrings("cache writes", usageCostQualityChromeFor(.english, "").cache_writes);
+    try testing.expectEqualStrings("includes ", usageCostQualityChromeFor(.english, "").includes_reasoning_prefix);
+    try testing.expectEqualStrings(" reasoning", usageCostQualityChromeFor(.english, "").includes_reasoning_suffix);
+    try testing.expectEqualStrings("raw cost", usageCostQualityChromeFor(.english, "").raw_cost);
+    try testing.expectEqualStrings("vs full input rates", usageCostQualityChromeFor(.english, "").vs_full_input_rates);
+    try testing.expectEqualStrings("Cost quality", usageCostQualityChromeFor(.system, "").cost_quality);
+
+    try testing.expectEqualStrings("费用质量", usageCostQualityChromeFor(.simplified_chinese, "").cost_quality);
+    try testing.expectEqualStrings("提供商上报", usageCostQualityChromeFor(.simplified_chinese, "").provider_reported);
+    try testing.expectEqualStrings("模型定价", usageCostQualityChromeFor(.simplified_chinese, "").model_priced);
+    try testing.expectEqualStrings("未定价", usageCostQualityChromeFor(.simplified_chinese, "").unpriced);
+    try testing.expectEqualStrings("缓存节省", usageCostQualityChromeFor(.simplified_chinese, "").cache_savings);
+    try testing.expectEqualStrings("已处理 token", usageCostQualityChromeFor(.simplified_chinese, "").processed_tokens);
+    try testing.expectEqualStrings("缓存输入", usageCostQualityChromeFor(.simplified_chinese, "").cached_input);
+    try testing.expectEqualStrings("非缓存输入", usageCostQualityChromeFor(.simplified_chinese, "").uncached_input);
+    try testing.expectEqualStrings("输出", usageCostQualityChromeFor(.simplified_chinese, "").output);
+    try testing.expectEqualStrings("费率最新", usageCostQualityChromeFor(.simplified_chinese, "").rates_fresh);
+    try testing.expectEqualStrings("费率缓存", usageCostQualityChromeFor(.simplified_chinese, "").rates_cached);
+    try testing.expectEqualStrings("费率不可用", usageCostQualityChromeFor(.simplified_chinese, "").rates_unavailable);
+    try testing.expectEqualStrings("每活跃月", usageCostQualityChromeFor(.simplified_chinese, "").per_active_month);
+    try testing.expectEqualStrings("每活跃日", usageCostQualityChromeFor(.simplified_chinese, "").per_active_day);
+    try testing.expectEqualStrings("占观测输入", usageCostQualityChromeFor(.simplified_chinese, "").of_observed_input);
+    try testing.expectEqualStrings("缓存写入", usageCostQualityChromeFor(.simplified_chinese, "").cache_writes);
+    try testing.expectEqualStrings("含 ", usageCostQualityChromeFor(.simplified_chinese, "").includes_reasoning_prefix);
+    try testing.expectEqualStrings(" 推理", usageCostQualityChromeFor(.simplified_chinese, "").includes_reasoning_suffix);
+    try testing.expectEqualStrings("原始费用", usageCostQualityChromeFor(.simplified_chinese, "").raw_cost);
+    try testing.expectEqualStrings("对比完整输入费率", usageCostQualityChromeFor(.simplified_chinese, "").vs_full_input_rates);
+
+    try testing.expectEqualStrings("コスト品質", usageCostQualityChromeFor(.japanese, "").cost_quality);
+    try testing.expectEqualStrings("プロバイダー報告", usageCostQualityChromeFor(.japanese, "").provider_reported);
+    try testing.expectEqualStrings("モデル価格", usageCostQualityChromeFor(.japanese, "").model_priced);
+    try testing.expectEqualStrings("未価格", usageCostQualityChromeFor(.japanese, "").unpriced);
+    try testing.expectEqualStrings("キャッシュ節約", usageCostQualityChromeFor(.japanese, "").cache_savings);
+    try testing.expectEqualStrings("処理済みトークン", usageCostQualityChromeFor(.japanese, "").processed_tokens);
+    try testing.expectEqualStrings("キャッシュ入力", usageCostQualityChromeFor(.japanese, "").cached_input);
+    try testing.expectEqualStrings("非キャッシュ入力", usageCostQualityChromeFor(.japanese, "").uncached_input);
+    try testing.expectEqualStrings("出力", usageCostQualityChromeFor(.japanese, "").output);
+    try testing.expectEqualStrings("レート最新", usageCostQualityChromeFor(.japanese, "").rates_fresh);
+    try testing.expectEqualStrings("レートキャッシュ", usageCostQualityChromeFor(.japanese, "").rates_cached);
+    try testing.expectEqualStrings("レート利用不可", usageCostQualityChromeFor(.japanese, "").rates_unavailable);
+    try testing.expectEqualStrings("アクティブ月あたり", usageCostQualityChromeFor(.japanese, "").per_active_month);
+    try testing.expectEqualStrings("アクティブ日あたり", usageCostQualityChromeFor(.japanese, "").per_active_day);
+    try testing.expectEqualStrings("の観測入力", usageCostQualityChromeFor(.japanese, "").of_observed_input);
+    try testing.expectEqualStrings("キャッシュ書き込み", usageCostQualityChromeFor(.japanese, "").cache_writes);
+    try testing.expectEqualStrings("", usageCostQualityChromeFor(.japanese, "").includes_reasoning_prefix);
+    try testing.expectEqualStrings(" の推論を含む", usageCostQualityChromeFor(.japanese, "").includes_reasoning_suffix);
+    try testing.expectEqualStrings("生コスト", usageCostQualityChromeFor(.japanese, "").raw_cost);
+    try testing.expectEqualStrings("全入力レート比", usageCostQualityChromeFor(.japanese, "").vs_full_input_rates);
+
+    try testing.expectEqualStrings("费用质量", usageCostQualityChromeFor(.system, "zh_CN.UTF-8").cost_quality);
+    try testing.expectEqualStrings("费率缓存", usageCostQualityChromeFor(.system, "zh_CN.UTF-8").rates_cached);
+    try testing.expectEqualStrings("已处理 token", usageCostQualityChromeFor(.system, "zh_CN.UTF-8").processed_tokens);
+    try testing.expectEqualStrings("コスト品質", usageCostQualityChromeFor(.system, "ja_JP.UTF-8").cost_quality);
+    try testing.expectEqualStrings("レート最新", usageCostQualityChromeFor(.system, "ja_JP.UTF-8").rates_fresh);
+    try testing.expectEqualStrings("処理済みトークン", usageCostQualityChromeFor(.system, "ja_JP.UTF-8").processed_tokens);
+    try testing.expectEqualStrings("Cost quality", usageCostQualityChromeFor(.english, "ja_JP.UTF-8").cost_quality);
+    try testing.expectEqualStrings("Rates unavailable", usageCostQualityChromeFor(.english, "zh_CN.UTF-8").rates_unavailable);
+    try testing.expectEqualStrings("Processed tokens", usageCostQualityChromeFor(.english, "ja_JP.UTF-8").processed_tokens);
+    try testing.expectEqualStrings("Cache savings", usageCostQualityChromeFor(.english, "zh_CN.UTF-8").cache_savings);
 }
 
