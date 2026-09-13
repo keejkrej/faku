@@ -56,7 +56,12 @@
 //! `FindBarChrome` strings; distinct from `FilePreviewChrome`
 //! previous/next/close file-find so transcript find-bar chrome stays
 //! independently evolvable; `on-press` stays `find_prev` /
-//! `find_next` / `close_find`) plus session
+//! `find_next` / `close_find`) plus header Copy session a11y and
+//! Fork / Rewind button chrome (same `HeaderSessionChrome` strings;
+//! distinct from `Palette.copy_session_id` / per-turn transcript
+//! Copy / Fork so header session chrome stays independently
+//! evolvable; `on-press` stays `copy_session` / `fork` / `rewind`)
+//! plus session
 //! title untitled placeholders (same `UntitledChrome` strings; catalog
 //! titles stay English `untitled`) plus Settings General daemon address
 //! placeholder (same `DaemonAddressChrome` strings; Latin `host:port`
@@ -206,7 +211,10 @@
 //! stays English (data). Transcript Find `on-input` / on-submit /
 //! Previous / Next / Close `on-press` stay English (`find_edit` /
 //! `find_next` / `find_prev` / `close_find`); typed query stays
-//! English (data). Session title `on-input` stays English
+//! English (data). Header Copy session / Fork / Rewind `on-press`
+//! stay English (`copy_session` / `fork` / `rewind`). Per-turn
+//! transcript Copy / Fork stay English this cut. Session title
+//! `on-input` stays English
 //! (`session_title_edit`). Daemon address `on-input` stays English
 //! (`settings_daemon_edit`). Settings General field labels / Default
 //! model / Effort placeholders (same `SettingsGeneralChrome` strings;
@@ -1802,6 +1810,37 @@ const find_bar_chrome_ja: FindBarChrome = .{
     .close_find = "検索を閉じる",
 };
 
+/// Header Copy session a11y plus Fork / Rewind button chrome for the
+/// resolved locale. Same resolve path as FindBarChrome. English
+/// matches the former hardcoded copy. Distinct from
+/// `Palette.copy_session_id` ("Copy session id") and from per-turn
+/// transcript Copy / Fork so header session chrome stays
+/// independently evolvable. Wire ids / on-press stay English
+/// (`copy_session` / `fork` / `rewind`).
+pub const HeaderSessionChrome = struct {
+    copy_session: []const u8,
+    fork: []const u8,
+    rewind: []const u8,
+};
+
+const header_session_chrome_en: HeaderSessionChrome = .{
+    .copy_session = "Copy session",
+    .fork = "Fork",
+    .rewind = "Rewind",
+};
+
+const header_session_chrome_zh_cn: HeaderSessionChrome = .{
+    .copy_session = "复制会话",
+    .fork = "分叉",
+    .rewind = "回退",
+};
+
+const header_session_chrome_ja: HeaderSessionChrome = .{
+    .copy_session = "セッションをコピー",
+    .fork = "フォーク",
+    .rewind = "巻き戻し",
+};
+
 /// Browser address-field a11y label and placeholder for the resolved
 /// locale. Same resolve path as ComposerChrome. English matches the
 /// former hardcoded copy. Wire ids / on-input / on-submit stay
@@ -2943,6 +2982,20 @@ pub fn findBarChromeFor(preference: LanguagePreference, system_locale_id: []cons
         .simplified_chinese => find_bar_chrome_zh_cn,
         .japanese => find_bar_chrome_ja,
         .system, .english => find_bar_chrome_en,
+    };
+}
+
+/// Header Copy session a11y plus Fork / Rewind button chrome for the
+/// resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from Palette.copy_session_id / per-turn transcript Copy / Fork so
+/// header session chrome stays independently evolvable. Wire ids /
+/// on-press stay English (`copy_session` / `fork` / `rewind`).
+pub fn headerSessionChromeFor(preference: LanguagePreference, system_locale_id: []const u8) HeaderSessionChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => header_session_chrome_zh_cn,
+        .japanese => header_session_chrome_ja,
+        .system, .english => header_session_chrome_en,
     };
 }
 
@@ -4500,6 +4553,43 @@ test "findBarChromeFor english default; zh and ja chrome; english ignores ja LAN
     try testing.expectEqualStrings("Previous match", findBarChromeFor(.english, "zh_CN.UTF-8").previous_match);
     try testing.expectEqualStrings("Next match", findBarChromeFor(.english, "zh_CN.UTF-8").next_match);
     try testing.expectEqualStrings("Close find", findBarChromeFor(.english, "zh_CN.UTF-8").close_find);
+}
+
+test "headerSessionChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Copy session", headerSessionChromeFor(.english, "ja").copy_session);
+    try testing.expectEqualStrings("Fork", headerSessionChromeFor(.english, "ja").fork);
+    try testing.expectEqualStrings("Rewind", headerSessionChromeFor(.english, "ja").rewind);
+    try testing.expectEqualStrings("Copy session", headerSessionChromeFor(.english, "").copy_session);
+    try testing.expectEqualStrings("Fork", headerSessionChromeFor(.english, "").fork);
+    try testing.expectEqualStrings("Rewind", headerSessionChromeFor(.english, "").rewind);
+    try testing.expectEqualStrings("Copy session", headerSessionChromeFor(.system, "").copy_session);
+    try testing.expectEqualStrings("Fork", headerSessionChromeFor(.system, "").fork);
+    try testing.expectEqualStrings("Rewind", headerSessionChromeFor(.system, "").rewind);
+
+    try testing.expectEqualStrings("复制会话", headerSessionChromeFor(.simplified_chinese, "").copy_session);
+    try testing.expectEqualStrings("分叉", headerSessionChromeFor(.simplified_chinese, "").fork);
+    try testing.expectEqualStrings("回退", headerSessionChromeFor(.simplified_chinese, "").rewind);
+    try testing.expectEqualStrings("セッションをコピー", headerSessionChromeFor(.japanese, "").copy_session);
+    try testing.expectEqualStrings("フォーク", headerSessionChromeFor(.japanese, "").fork);
+    try testing.expectEqualStrings("巻き戻し", headerSessionChromeFor(.japanese, "").rewind);
+
+    try testing.expectEqualStrings("复制会话", headerSessionChromeFor(.system, "zh_CN.UTF-8").copy_session);
+    try testing.expectEqualStrings("分叉", headerSessionChromeFor(.system, "zh_CN.UTF-8").fork);
+    try testing.expectEqualStrings("回退", headerSessionChromeFor(.system, "zh_CN.UTF-8").rewind);
+    try testing.expectEqualStrings("セッションをコピー", headerSessionChromeFor(.system, "ja_JP.UTF-8").copy_session);
+    try testing.expectEqualStrings("フォーク", headerSessionChromeFor(.system, "ja_JP.UTF-8").fork);
+    try testing.expectEqualStrings("巻き戻し", headerSessionChromeFor(.system, "ja_JP.UTF-8").rewind);
+    try testing.expectEqualStrings("Copy session", headerSessionChromeFor(.english, "ja_JP.UTF-8").copy_session);
+    try testing.expectEqualStrings("Fork", headerSessionChromeFor(.english, "ja_JP.UTF-8").fork);
+    try testing.expectEqualStrings("Rewind", headerSessionChromeFor(.english, "ja_JP.UTF-8").rewind);
+    try testing.expectEqualStrings("Copy session", headerSessionChromeFor(.english, "zh_CN.UTF-8").copy_session);
+    try testing.expectEqualStrings("Fork", headerSessionChromeFor(.english, "zh_CN.UTF-8").fork);
+    try testing.expectEqualStrings("Rewind", headerSessionChromeFor(.english, "zh_CN.UTF-8").rewind);
+
+    try testing.expect(!std.mem.eql(u8, headerSessionChromeFor(.english, "").copy_session, paletteFor(.english, "").copy_session_id));
+    try testing.expect(!std.mem.eql(u8, headerSessionChromeFor(.simplified_chinese, "").copy_session, paletteFor(.simplified_chinese, "").copy_session_id));
+    try testing.expect(!std.mem.eql(u8, headerSessionChromeFor(.japanese, "").copy_session, paletteFor(.japanese, "").copy_session_id));
 }
 
 test "browserAddressChromeFor english default; zh and ja chrome; latin placeholder; english ignores ja LANG" {

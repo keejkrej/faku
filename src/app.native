@@ -842,12 +842,12 @@
           <text grow="1" wrap="false" overflow="ellipsis" on-press="edit_session_title">{header_title}</text>
         </else>
         <spacer grow="1" />
-        <button variant="ghost" size="icon" icon="copy" label="Copy session" on-press="copy_session"></button>
+        <button variant="ghost" size="icon" icon="copy" label="{copy_session_label}" on-press="copy_session"></button>
         <if test="{can_fork}">
-          <button variant="ghost" size="sm" on-press="fork">Fork</button>
+          <button variant="ghost" size="sm" on-press="fork">{fork_label}</button>
         </if>
         <if test="{can_rewind}">
-          <button variant="ghost" size="sm" on-press="rewind">Rewind</button>
+          <button variant="ghost" size="sm" on-press="rewind">{rewind_label}</button>
         </if>
         <row label="header-environment-controls" gap="6" cross="center">
           <if test="{has_git_numstat}">

@@ -27625,6 +27625,133 @@ test "transcript Find bar Previous/Next/Close a11y follows Appearance language" 
     try testing.expect(findByText(tree.root, .button, "Close find") == null);
 }
 
+test "header Copy session / Fork / Rewind chrome follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{copy_session_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, ">{fork_label}</button>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, ">{rewind_label}</button>"));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"{copy_session_label}\" on-press=\"copy_session\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"fork\">{fork_label}</button>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"rewind\">{rewind_label}</button>") != null);
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Copy session\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"fork\">Fork</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"rewind\">Rewind</button>"));
+    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "on-press=\"fork_turn:{t.id}\">Fork</button>"));
+    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "label=\"Copy\" on-press=\"copy_turn:{t.id}\""));
+
+    var model = main.initialModel();
+    try testing.expect(model.can_fork());
+    try testing.expect(!model.can_rewind());
+    if (model.sessionById(model.selected)) |session| {
+        session.appendRewindRef("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", rewind.recorded_ref, 1);
+    }
+    try testing.expect(model.can_rewind());
+    try testing.expectEqualStrings("Copy session", model.copy_session_label());
+    try testing.expectEqualStrings("Fork", model.fork_label());
+    try testing.expectEqualStrings("Rewind", model.rewind_label());
+    try testing.expectEqualStrings(i18n.headerSessionChromeFor(.english, "").copy_session, model.copy_session_label());
+    try testing.expectEqualStrings(i18n.headerSessionChromeFor(.english, "").fork, model.fork_label());
+    try testing.expectEqualStrings(i18n.headerSessionChromeFor(.english, "").rewind, model.rewind_label());
+    try testing.expect(!std.mem.eql(u8, model.copy_session_label(), model.palette_action_label(.copy_session_id)));
+
+    var tree = try buildTree(arena, &model);
+    const toolbar = try expectByText(tree.root, .row, "Toolbar");
+    _ = try expectButtonMsg(tree, "Copy session", .copy_session);
+    _ = try expectButtonMsg(tree, "Fork", .fork);
+    _ = try expectButtonMsg(tree, "Rewind", .rewind);
+    _ = try expectByText(toolbar, .button, "Copy session");
+    _ = try expectByText(toolbar, .button, "Fork");
+    _ = try expectByText(toolbar, .button, "Rewind");
+    try testing.expect(findByText(toolbar, .button, "复制会话") == null);
+    try testing.expect(findByText(toolbar, .button, "セッションをコピー") == null);
+    try testing.expect(findByText(tree.root, .button, "Copy") != null);
+    _ = try expectByText(tree.root, .button, "Fork");
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("复制会话", model.copy_session_label());
+    try testing.expectEqualStrings("分叉", model.fork_label());
+    try testing.expectEqualStrings("回退", model.rewind_label());
+    try testing.expectEqualStrings(i18n.headerSessionChromeFor(.simplified_chinese, "").copy_session, model.copy_session_label());
+    try testing.expectEqualStrings(i18n.headerSessionChromeFor(.simplified_chinese, "").fork, model.fork_label());
+    try testing.expectEqualStrings(i18n.headerSessionChromeFor(.simplified_chinese, "").rewind, model.rewind_label());
+    try testing.expect(!std.mem.eql(u8, model.copy_session_label(), model.palette_action_label(.copy_session_id)));
+    tree = try buildTree(arena, &model);
+    const zh_toolbar = try expectByText(tree.root, .row, "Toolbar");
+    _ = try expectButtonMsg(tree, "复制会话", .copy_session);
+    _ = try expectButtonMsg(tree, "分叉", .fork);
+    _ = try expectButtonMsg(tree, "回退", .rewind);
+    try testing.expect(findByText(zh_toolbar, .button, "Copy session") == null);
+    try testing.expect(findByText(zh_toolbar, .button, "Fork") == null);
+    try testing.expect(findByText(zh_toolbar, .button, "Rewind") == null);
+    try testing.expect(findByText(tree.root, .button, "Copy") != null);
+    try testing.expect(findByText(tree.root, .button, "Fork") != null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("セッションをコピー", model.copy_session_label());
+    try testing.expectEqualStrings("フォーク", model.fork_label());
+    try testing.expectEqualStrings("巻き戻し", model.rewind_label());
+    try testing.expectEqualStrings(i18n.headerSessionChromeFor(.japanese, "").copy_session, model.copy_session_label());
+    try testing.expectEqualStrings(i18n.headerSessionChromeFor(.japanese, "").fork, model.fork_label());
+    try testing.expectEqualStrings(i18n.headerSessionChromeFor(.japanese, "").rewind, model.rewind_label());
+    try testing.expect(!std.mem.eql(u8, model.copy_session_label(), model.palette_action_label(.copy_session_id)));
+    tree = try buildTree(arena, &model);
+    const ja_toolbar = try expectByText(tree.root, .row, "Toolbar");
+    _ = try expectButtonMsg(tree, "セッションをコピー", .copy_session);
+    _ = try expectButtonMsg(tree, "フォーク", .fork);
+    _ = try expectButtonMsg(tree, "巻き戻し", .rewind);
+    try testing.expect(findByText(ja_toolbar, .button, "Copy session") == null);
+    try testing.expect(findByText(ja_toolbar, .button, "Fork") == null);
+    try testing.expect(findByText(ja_toolbar, .button, "Rewind") == null);
+    try testing.expect(findByText(ja_toolbar, .button, "复制会话") == null);
+    try testing.expect(findByText(tree.root, .button, "Copy") != null);
+    try testing.expect(findByText(tree.root, .button, "Fork") != null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Copy session", model.copy_session_label());
+    try testing.expectEqualStrings("Fork", model.fork_label());
+    try testing.expectEqualStrings("Rewind", model.rewind_label());
+    tree = try buildTree(arena, &model);
+    const en_toolbar = try expectByText(tree.root, .row, "Toolbar");
+    _ = try expectButtonMsg(tree, "Copy session", .copy_session);
+    _ = try expectButtonMsg(tree, "Fork", .fork);
+    _ = try expectButtonMsg(tree, "Rewind", .rewind);
+    try testing.expect(findByText(en_toolbar, .button, "フォーク") == null);
+    try testing.expect(findByText(en_toolbar, .button, "巻き戻し") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("复制会话", model.copy_session_label());
+    try testing.expectEqualStrings("分叉", model.fork_label());
+    try testing.expectEqualStrings("回退", model.rewind_label());
+    tree = try buildTree(arena, &model);
+    const sys_zh_toolbar = try expectByText(tree.root, .row, "Toolbar");
+    _ = try expectButtonMsg(tree, "复制会话", .copy_session);
+    _ = try expectButtonMsg(tree, "分叉", .fork);
+    _ = try expectButtonMsg(tree, "回退", .rewind);
+    try testing.expect(findByText(sys_zh_toolbar, .button, "Copy session") == null);
+    try testing.expect(findByText(sys_zh_toolbar, .button, "Fork") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("セッションをコピー", model.copy_session_label());
+    try testing.expectEqualStrings("フォーク", model.fork_label());
+    try testing.expectEqualStrings("巻き戻し", model.rewind_label());
+    tree = try buildTree(arena, &model);
+    const sys_ja_toolbar = try expectByText(tree.root, .row, "Toolbar");
+    _ = try expectButtonMsg(tree, "セッションをコピー", .copy_session);
+    _ = try expectButtonMsg(tree, "フォーク", .fork);
+    _ = try expectButtonMsg(tree, "巻き戻し", .rewind);
+    try testing.expect(findByText(sys_ja_toolbar, .button, "Copy session") == null);
+    try testing.expect(findByText(sys_ja_toolbar, .button, "Rewind") == null);
+}
+
 test "session title untitled placeholders follow Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
