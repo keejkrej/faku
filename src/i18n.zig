@@ -72,6 +72,14 @@
 //! `FilePreviewChrome` so transcript turn action chrome stays
 //! independently evolvable; `on-press` stays `copy_turn:{t.id}` /
 //! `fork_turn:{t.id}`)
+//! plus composer queue card Queued / Dismiss all / Remove queued
+//! and transcript Jump to latest (same `QueueChrome` strings;
+//! distinct from `EnvironmentChrome.dismiss_all_settled` /
+//! `BackgroundChrome` Dismiss* / `TranscriptTurnChrome` /
+//! `HeaderSessionChrome` so queue chrome stays independently
+//! evolvable; `on-press` stays `jump_latest` / `clear_queue` /
+//! `remove_queued:{id}` / `edit_queued:{id}`; queued message
+//! body text stays data)
 //! plus session
 //! title untitled placeholders (same `UntitledChrome` strings; catalog
 //! titles stay English `untitled`) plus Settings General daemon address
@@ -228,7 +236,11 @@
 //! this cut (same `TranscriptRoleChrome` strings). Per-turn
 //! transcript Match / Copy / Fork follow the resolved locale this
 //! cut (same `TranscriptTurnChrome` strings; `on-press` stays
-//! `copy_turn:{t.id}` / `fork_turn:{t.id}`). Session title
+//! `copy_turn:{t.id}` / `fork_turn:{t.id}`). Composer queue Queued /
+//! Dismiss all / Remove queued plus Jump to latest follow the
+//! resolved locale this cut (same `QueueChrome` strings; `on-press`
+//! stays `jump_latest` / `clear_queue` / `remove_queued:{id}` /
+//! `edit_queued:{id}`; queued message body text stays data). Session title
 //! `on-input` stays English
 //! (`session_title_edit`). Daemon address `on-input` stays English
 //! (`settings_daemon_edit`). Settings General field labels / Default
@@ -1914,6 +1926,44 @@ const transcript_turn_chrome_ja: TranscriptTurnChrome = .{
     .fork = "フォーク",
 };
 
+/// Composer queue card Queued / Dismiss all / Remove queued plus
+/// transcript Jump to latest chrome for the resolved locale. Same
+/// resolve path as TranscriptTurnChrome. English matches the former
+/// hardcoded copy. Distinct from `EnvironmentChrome.dismiss_all_settled`
+/// ("Dismiss all settled") and from `BackgroundChrome` Dismiss* so
+/// queue "Dismiss all" can evolve independently. Also distinct from
+/// `TranscriptTurnChrome` / `HeaderSessionChrome`. Wire ids /
+/// on-press stay English (`jump_latest` / `clear_queue` /
+/// `remove_queued:{id}` / `edit_queued:{id}`). Queued message body
+/// text stays data.
+pub const QueueChrome = struct {
+    jump_latest: []const u8,
+    queued: []const u8,
+    dismiss_all: []const u8,
+    remove_queued: []const u8,
+};
+
+const queue_chrome_en: QueueChrome = .{
+    .jump_latest = "Jump to latest",
+    .queued = "Queued",
+    .dismiss_all = "Dismiss all",
+    .remove_queued = "Remove queued",
+};
+
+const queue_chrome_zh_cn: QueueChrome = .{
+    .jump_latest = "跳到最新",
+    .queued = "排队中",
+    .dismiss_all = "全部清除",
+    .remove_queued = "移除排队",
+};
+
+const queue_chrome_ja: QueueChrome = .{
+    .jump_latest = "最新へジャンプ",
+    .queued = "キュー",
+    .dismiss_all = "すべて解除",
+    .remove_queued = "キューを削除",
+};
+
 /// Browser address-field a11y label and placeholder for the resolved
 /// locale. Same resolve path as ComposerChrome. English matches the
 /// former hardcoded copy. Wire ids / on-input / on-submit stay
@@ -3099,6 +3149,23 @@ pub fn transcriptTurnChromeFor(preference: LanguagePreference, system_locale_id:
         .simplified_chinese => transcript_turn_chrome_zh_cn,
         .japanese => transcript_turn_chrome_ja,
         .system, .english => transcript_turn_chrome_en,
+    };
+}
+
+/// Composer queue card Queued / Dismiss all / Remove queued plus
+/// transcript Jump to latest chrome for the resolved locale. Callers
+/// pass Model `language_preference` + `system_locale_id`; this file
+/// does not read process env. Distinct from
+/// EnvironmentChrome.dismiss_all_settled / BackgroundChrome Dismiss* /
+/// TranscriptTurnChrome / HeaderSessionChrome so queue chrome stays
+/// independently evolvable. Wire ids / on-press stay English
+/// (`jump_latest` / `clear_queue` / `remove_queued:{id}` /
+/// `edit_queued:{id}`). Queued message body text stays data.
+pub fn queueChromeFor(preference: LanguagePreference, system_locale_id: []const u8) QueueChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => queue_chrome_zh_cn,
+        .japanese => queue_chrome_ja,
+        .system, .english => queue_chrome_en,
     };
 }
 
@@ -4766,6 +4833,67 @@ test "transcriptTurnChromeFor english default; zh and ja chrome; english ignores
     try testing.expect(!std.mem.eql(u8, transcriptTurnChromeFor(.english, "").copy, transcriptRoleChromeFor(.english, "").you_said));
     try testing.expect(!std.mem.eql(u8, transcriptTurnChromeFor(.simplified_chinese, "").copy, transcriptRoleChromeFor(.simplified_chinese, "").you_said));
     try testing.expect(!std.mem.eql(u8, transcriptTurnChromeFor(.japanese, "").copy, transcriptRoleChromeFor(.japanese, "").you_said));
+}
+
+test "queueChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Jump to latest", queueChromeFor(.english, "ja").jump_latest);
+    try testing.expectEqualStrings("Queued", queueChromeFor(.english, "ja").queued);
+    try testing.expectEqualStrings("Dismiss all", queueChromeFor(.english, "ja").dismiss_all);
+    try testing.expectEqualStrings("Remove queued", queueChromeFor(.english, "ja").remove_queued);
+    try testing.expectEqualStrings("Jump to latest", queueChromeFor(.english, "").jump_latest);
+    try testing.expectEqualStrings("Queued", queueChromeFor(.english, "").queued);
+    try testing.expectEqualStrings("Dismiss all", queueChromeFor(.english, "").dismiss_all);
+    try testing.expectEqualStrings("Remove queued", queueChromeFor(.english, "").remove_queued);
+    try testing.expectEqualStrings("Jump to latest", queueChromeFor(.system, "").jump_latest);
+    try testing.expectEqualStrings("Queued", queueChromeFor(.system, "").queued);
+    try testing.expectEqualStrings("Dismiss all", queueChromeFor(.system, "").dismiss_all);
+    try testing.expectEqualStrings("Remove queued", queueChromeFor(.system, "").remove_queued);
+
+    try testing.expectEqualStrings("跳到最新", queueChromeFor(.simplified_chinese, "").jump_latest);
+    try testing.expectEqualStrings("排队中", queueChromeFor(.simplified_chinese, "").queued);
+    try testing.expectEqualStrings("全部清除", queueChromeFor(.simplified_chinese, "").dismiss_all);
+    try testing.expectEqualStrings("移除排队", queueChromeFor(.simplified_chinese, "").remove_queued);
+    try testing.expectEqualStrings("最新へジャンプ", queueChromeFor(.japanese, "").jump_latest);
+    try testing.expectEqualStrings("キュー", queueChromeFor(.japanese, "").queued);
+    try testing.expectEqualStrings("すべて解除", queueChromeFor(.japanese, "").dismiss_all);
+    try testing.expectEqualStrings("キューを削除", queueChromeFor(.japanese, "").remove_queued);
+
+    try testing.expectEqualStrings("跳到最新", queueChromeFor(.system, "zh_CN.UTF-8").jump_latest);
+    try testing.expectEqualStrings("排队中", queueChromeFor(.system, "zh_CN.UTF-8").queued);
+    try testing.expectEqualStrings("全部清除", queueChromeFor(.system, "zh_CN.UTF-8").dismiss_all);
+    try testing.expectEqualStrings("移除排队", queueChromeFor(.system, "zh_CN.UTF-8").remove_queued);
+    try testing.expectEqualStrings("最新へジャンプ", queueChromeFor(.system, "ja_JP.UTF-8").jump_latest);
+    try testing.expectEqualStrings("キュー", queueChromeFor(.system, "ja_JP.UTF-8").queued);
+    try testing.expectEqualStrings("すべて解除", queueChromeFor(.system, "ja_JP.UTF-8").dismiss_all);
+    try testing.expectEqualStrings("キューを削除", queueChromeFor(.system, "ja_JP.UTF-8").remove_queued);
+    try testing.expectEqualStrings("Jump to latest", queueChromeFor(.english, "ja_JP.UTF-8").jump_latest);
+    try testing.expectEqualStrings("Queued", queueChromeFor(.english, "ja_JP.UTF-8").queued);
+    try testing.expectEqualStrings("Dismiss all", queueChromeFor(.english, "ja_JP.UTF-8").dismiss_all);
+    try testing.expectEqualStrings("Remove queued", queueChromeFor(.english, "ja_JP.UTF-8").remove_queued);
+    try testing.expectEqualStrings("Jump to latest", queueChromeFor(.english, "zh_CN.UTF-8").jump_latest);
+    try testing.expectEqualStrings("Queued", queueChromeFor(.english, "zh_CN.UTF-8").queued);
+    try testing.expectEqualStrings("Dismiss all", queueChromeFor(.english, "zh_CN.UTF-8").dismiss_all);
+    try testing.expectEqualStrings("Remove queued", queueChromeFor(.english, "zh_CN.UTF-8").remove_queued);
+
+    try testing.expect(!std.mem.eql(u8, queueChromeFor(.english, "").dismiss_all, environmentChromeFor(.english, "").dismiss_all_settled));
+    try testing.expect(!std.mem.eql(u8, queueChromeFor(.simplified_chinese, "").dismiss_all, environmentChromeFor(.simplified_chinese, "").dismiss_all_settled));
+    try testing.expect(!std.mem.eql(u8, queueChromeFor(.japanese, "").dismiss_all, environmentChromeFor(.japanese, "").dismiss_all_settled));
+    try testing.expect(!std.mem.eql(u8, queueChromeFor(.english, "").dismiss_all, backgroundChromeFor(.english, "").daemon_dismiss));
+    try testing.expect(!std.mem.eql(u8, queueChromeFor(.simplified_chinese, "").dismiss_all, backgroundChromeFor(.simplified_chinese, "").daemon_dismiss));
+    try testing.expect(!std.mem.eql(u8, queueChromeFor(.japanese, "").dismiss_all, backgroundChromeFor(.japanese, "").daemon_dismiss));
+    try testing.expect(!std.mem.eql(u8, queueChromeFor(.english, "").dismiss_all, backgroundChromeFor(.english, "").monitor_dismiss));
+    try testing.expect(!std.mem.eql(u8, queueChromeFor(.simplified_chinese, "").dismiss_all, backgroundChromeFor(.simplified_chinese, "").monitor_dismiss));
+    try testing.expect(!std.mem.eql(u8, queueChromeFor(.japanese, "").dismiss_all, backgroundChromeFor(.japanese, "").monitor_dismiss));
+    try testing.expect(!std.mem.eql(u8, queueChromeFor(.english, "").dismiss_all, backgroundChromeFor(.english, "").subagent_dismiss));
+    try testing.expect(!std.mem.eql(u8, queueChromeFor(.simplified_chinese, "").dismiss_all, backgroundChromeFor(.simplified_chinese, "").subagent_dismiss));
+    try testing.expect(!std.mem.eql(u8, queueChromeFor(.japanese, "").dismiss_all, backgroundChromeFor(.japanese, "").subagent_dismiss));
+    try testing.expect(!std.mem.eql(u8, queueChromeFor(.english, "").jump_latest, transcriptTurnChromeFor(.english, "").match));
+    try testing.expect(!std.mem.eql(u8, queueChromeFor(.simplified_chinese, "").jump_latest, transcriptTurnChromeFor(.simplified_chinese, "").match));
+    try testing.expect(!std.mem.eql(u8, queueChromeFor(.japanese, "").jump_latest, transcriptTurnChromeFor(.japanese, "").match));
+    try testing.expect(!std.mem.eql(u8, queueChromeFor(.english, "").queued, headerSessionChromeFor(.english, "").fork));
+    try testing.expect(!std.mem.eql(u8, queueChromeFor(.simplified_chinese, "").queued, headerSessionChromeFor(.simplified_chinese, "").fork));
+    try testing.expect(!std.mem.eql(u8, queueChromeFor(.japanese, "").queued, headerSessionChromeFor(.japanese, "").fork));
 }
 
 test "browserAddressChromeFor english default; zh and ja chrome; latin placeholder; english ignores ja LANG" {
