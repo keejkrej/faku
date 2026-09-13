@@ -28020,6 +28020,111 @@ test "Composer Commands chip chrome follows Appearance language" {
     try testing.expect(findByText(tree.root, .button, "Commands") == null);
 }
 
+test "Composer Send and Stop a11y chrome follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "label=\"{composer_send_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{composer_stop_label}\""));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "on-press=\"send\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"stop_turn\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Send\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Stop\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Send\" on-press=\"send\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Stop\" on-press=\"stop_turn\""));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Send", model.composer_send_label());
+    try testing.expectEqualStrings("Stop", model.composer_stop_label());
+    try testing.expectEqualStrings(i18n.composerSendStopChromeFor(.english, "").send, model.composer_send_label());
+    try testing.expectEqualStrings(i18n.composerSendStopChromeFor(.english, "").stop, model.composer_stop_label());
+    try testing.expect(!model.has_draft());
+    try testing.expect(!model.is_streaming());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Send", .send);
+    try testing.expect(findByText(tree.root, .button, "Stop") == null);
+    try testing.expect(findByText(tree.root, .button, "发送") == null);
+    try testing.expect(findByText(tree.root, .button, "送信") == null);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "hello" } }, &fx);
+    try testing.expect(model.has_draft());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Send", .send);
+
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Stop", .stop_turn);
+    try testing.expect(findByText(tree.root, .button, "Send") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("发送", model.composer_send_label());
+    try testing.expectEqualStrings("停止", model.composer_stop_label());
+    try testing.expectEqualStrings(i18n.composerSendStopChromeFor(.simplified_chinese, "").send, model.composer_send_label());
+    try testing.expectEqualStrings(i18n.composerSendStopChromeFor(.simplified_chinese, "").stop, model.composer_stop_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "停止", .stop_turn);
+    try testing.expect(findByText(tree.root, .button, "Stop") == null);
+    try testing.expect(findByText(tree.root, .button, "Send") == null);
+
+    main.update(&model, .stop_turn, &fx);
+    try testing.expect(!model.is_streaming());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "发送", .send);
+    try testing.expect(findByText(tree.root, .button, "Send") == null);
+    try testing.expect(findByText(tree.root, .button, "Stop") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("送信", model.composer_send_label());
+    try testing.expectEqualStrings("停止", model.composer_stop_label());
+    try testing.expectEqualStrings(i18n.composerSendStopChromeFor(.japanese, "").send, model.composer_send_label());
+    try testing.expectEqualStrings(i18n.composerSendStopChromeFor(.japanese, "").stop, model.composer_stop_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "送信", .send);
+    try testing.expect(findByText(tree.root, .button, "发送") == null);
+    try testing.expect(findByText(tree.root, .button, "Send") == null);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "hello ja" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "停止", .stop_turn);
+    try testing.expect(findByText(tree.root, .button, "Send") == null);
+    try testing.expect(findByText(tree.root, .button, "Stop") == null);
+    try testing.expect(findByText(tree.root, .button, "送信") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Send", model.composer_send_label());
+    try testing.expectEqualStrings("Stop", model.composer_stop_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Stop", .stop_turn);
+    try testing.expect(findByText(tree.root, .button, "停止") == null);
+    try testing.expect(findByText(tree.root, .button, "送信") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("发送", model.composer_send_label());
+    try testing.expectEqualStrings("停止", model.composer_stop_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "停止", .stop_turn);
+    try testing.expect(findByText(tree.root, .button, "Stop") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("送信", model.composer_send_label());
+    try testing.expectEqualStrings("停止", model.composer_stop_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "停止", .stop_turn);
+    try testing.expect(findByText(tree.root, .button, "Stop") == null);
+    try testing.expect(findByText(tree.root, .button, "Send") == null);
+}
+
 test "Browser Address field chrome follows Appearance language; placeholder stays Latin" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

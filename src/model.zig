@@ -2108,6 +2108,7 @@ pub const Model = struct {
         "daemonAddressChrome",
         "settingsGeneralChrome",
         "composerChrome",
+        "composerSendStopChrome",
         "browserAddressChrome",
         "browserToolbarChrome",
         "sidebarHistoryChrome",
@@ -4907,6 +4908,10 @@ pub const Model = struct {
         return i18n.composerChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn composerSendStopChrome(model: *const Model) i18n.ComposerSendStopChrome {
+        return i18n.composerSendStopChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn browserAddressChrome(model: *const Model) i18n.BrowserAddressChrome {
         return i18n.browserAddressChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6815,6 +6820,18 @@ pub const Model = struct {
     /// (`i18n.PaletteChrome.commands`); wording matches that header.
     pub fn composer_commands_label(model: *const Model) []const u8 {
         return model.composerChrome().commands;
+    }
+
+    /// Composer primary Send circle a11y. `on-press` stays `send`.
+    /// Distinct from `i18n.ComposerChrome` image/goal/commands chrome.
+    pub fn composer_send_label(model: *const Model) []const u8 {
+        return model.composerSendStopChrome().send;
+    }
+
+    /// Composer Stop turn a11y. `on-press` stays `stop_turn`.
+    /// Distinct from `i18n.BackgroundChrome.daemon_stop`.
+    pub fn composer_stop_label(model: *const Model) []const u8 {
+        return model.composerSendStopChrome().stop;
     }
 
     /// True when last-known `tokensUsed` / `tokenBudget` / `timeUsedSeconds`

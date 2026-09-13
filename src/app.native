@@ -1046,14 +1046,14 @@
                 <button variant="ghost" size="sm" icon="wrench" on-press="cycle_interaction">{interaction_label}</button>
                 <spacer grow="1" />
                 <if test="{is_streaming}">
-                  <button variant="primary" size="icon" icon="app:stop" label="Stop" on-press="stop_turn" width="26" height="26" radius="xl"></button>
+                  <button variant="primary" size="icon" icon="app:stop" label="{composer_stop_label}" on-press="stop_turn" width="26" height="26" radius="xl"></button>
                 </if>
                 <else>
                   <if test="{has_draft}">
-                    <button variant="primary" size="icon" icon="arrow-up" label="Send" on-press="send" width="26" height="26" radius="xl"></button>
+                    <button variant="primary" size="icon" icon="arrow-up" label="{composer_send_label}" on-press="send" width="26" height="26" radius="xl"></button>
                   </if>
                   <else>
-                    <button variant="secondary" size="icon" icon="arrow-up" label="Send" on-press="send" width="26" height="26" radius="xl"></button>
+                    <button variant="secondary" size="icon" icon="arrow-up" label="{composer_send_label}" on-press="send" width="26" height="26" radius="xl"></button>
                   </else>
                 </else>
               </input-group-actions>
