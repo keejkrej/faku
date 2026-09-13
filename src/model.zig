@@ -4916,6 +4916,10 @@ pub const Model = struct {
         return i18n.findBarChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn headerSessionChrome(model: *const Model) i18n.HeaderSessionChrome {
+        return i18n.headerSessionChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn browserAddressChrome(model: *const Model) i18n.BrowserAddressChrome {
         return i18n.browserAddressChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6146,6 +6150,23 @@ pub const Model = struct {
     /// `close_find`. Distinct from `file_preview_close_find_label`.
     pub fn close_find_label(model: *const Model) []const u8 {
         return model.findBarChrome().close_find;
+    }
+
+    /// Header Copy session a11y. `on-press` stays `copy_session`.
+    /// Distinct from `palette_action_label(.copy_session_id)`.
+    pub fn copy_session_label(model: *const Model) []const u8 {
+        return model.headerSessionChrome().copy_session;
+    }
+
+    /// Header Fork button chrome. `on-press` stays `fork`.
+    /// Distinct from per-turn transcript Fork (`fork_turn`).
+    pub fn fork_label(model: *const Model) []const u8 {
+        return model.headerSessionChrome().fork;
+    }
+
+    /// Header Rewind button chrome. `on-press` stays `rewind`.
+    pub fn rewind_label(model: *const Model) []const u8 {
+        return model.headerSessionChrome().rewind;
     }
 
     /// Session title rename placeholders (sidebar + header).
