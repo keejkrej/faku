@@ -100,6 +100,12 @@
 //! `BackgroundChrome.daemon_stop` / `ComposerChrome` so composer
 //! Send/Stop stay independently evolvable; `on-press` stays
 //! `send` / `stop_turn`)
+//! plus composer textarea idle / streaming placeholders (same
+//! `ComposerPlaceholderChrome` strings; distinct from
+//! `QueueChrome` / `ComposerChrome` / `ComposerSendStopChrome` so
+//! composer placeholders stay independently evolvable; `on-input`
+//! / on-submit stay `draft_edit` / `composer_enter`; draft text
+//! stays data)
 //! plus Browser address-field Address label and
 //! `https://example.com` placeholder (same `BrowserAddressChrome`
 //! strings; Latin `https://example.com` in every locale)
@@ -254,7 +260,11 @@
 //! image `on-press` stays English (`pick_image`); Clear image
 //! `on-press` stays English (`clear_image_attach`); Commands chip
 //! `on-press` stays English (`toggle_commands`); composer Send /
-//! Stop `on-press` stay English (`send` / `stop_turn`). Typed path text stays
+//! Stop `on-press` stay English (`send` / `stop_turn`). Composer
+//! textarea idle / streaming placeholders follow the resolved
+//! locale this cut (same `ComposerPlaceholderChrome` strings;
+//! `on-input` / on-submit stay English (`draft_edit` /
+//! `composer_enter`); draft text stays data). Typed path text stays
 //! English (data). ThreadGoalStatus wire names stay English. Browser
 //! address `on-input` / on-submit stay English (`browser_url_edit` /
 //! `browser_navigate`). Browser toolbar `on-press` stays English
@@ -1806,6 +1816,33 @@ const composer_send_stop_chrome_ja: ComposerSendStopChrome = .{
     .stop = "停止",
 };
 
+/// Composer textarea idle / streaming placeholders for the resolved
+/// locale. Same resolve path as ComposerSendStopChrome. English
+/// matches the former hardcoded copy. Distinct from `QueueChrome`
+/// (queue card), `ComposerChrome` (image/goal/commands), and
+/// `ComposerSendStopChrome` so composer placeholders stay independently
+/// evolvable. Wire ids / on-input / on-submit stay English
+/// (`draft_edit` / `composer_enter`). Draft text stays data.
+pub const ComposerPlaceholderChrome = struct {
+    idle: []const u8,
+    streaming: []const u8,
+};
+
+const composer_placeholder_chrome_en: ComposerPlaceholderChrome = .{
+    .idle = "Do anything...",
+    .streaming = "Queue a follow-up...",
+};
+
+const composer_placeholder_chrome_zh_cn: ComposerPlaceholderChrome = .{
+    .idle = "随便做什么...",
+    .streaming = "排队跟进...",
+};
+
+const composer_placeholder_chrome_ja: ComposerPlaceholderChrome = .{
+    .idle = "何でもどうぞ...",
+    .streaming = "フォローアップをキュー...",
+};
+
 /// Transcript find-bar Previous match / Next match / Close find a11y
 /// labels for the resolved locale. Same resolve path as
 /// ComposerSendStopChrome. English matches the former hardcoded copy.
@@ -3089,6 +3126,21 @@ pub fn composerSendStopChromeFor(preference: LanguagePreference, system_locale_i
         .simplified_chinese => composer_send_stop_chrome_zh_cn,
         .japanese => composer_send_stop_chrome_ja,
         .system, .english => composer_send_stop_chrome_en,
+    };
+}
+
+/// Composer textarea idle / streaming placeholders for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from QueueChrome / ComposerChrome / ComposerSendStopChrome so
+/// composer placeholders stay independently evolvable. Wire ids /
+/// on-input / on-submit stay English (`draft_edit` /
+/// `composer_enter`). Draft text stays data.
+pub fn composerPlaceholderChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ComposerPlaceholderChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => composer_placeholder_chrome_zh_cn,
+        .japanese => composer_placeholder_chrome_ja,
+        .system, .english => composer_placeholder_chrome_en,
     };
 }
 
@@ -4690,6 +4742,37 @@ test "composerSendStopChromeFor english default; zh and ja chrome; english ignor
     try testing.expectEqualStrings("Stop", composerSendStopChromeFor(.english, "ja_JP.UTF-8").stop);
     try testing.expectEqualStrings("Send", composerSendStopChromeFor(.english, "zh_CN.UTF-8").send);
     try testing.expectEqualStrings("Stop", composerSendStopChromeFor(.english, "zh_CN.UTF-8").stop);
+}
+
+test "composerPlaceholderChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Do anything...", composerPlaceholderChromeFor(.english, "ja").idle);
+    try testing.expectEqualStrings("Queue a follow-up...", composerPlaceholderChromeFor(.english, "ja").streaming);
+    try testing.expectEqualStrings("Do anything...", composerPlaceholderChromeFor(.english, "").idle);
+    try testing.expectEqualStrings("Queue a follow-up...", composerPlaceholderChromeFor(.english, "").streaming);
+    try testing.expectEqualStrings("Do anything...", composerPlaceholderChromeFor(.system, "").idle);
+    try testing.expectEqualStrings("Queue a follow-up...", composerPlaceholderChromeFor(.system, "").streaming);
+
+    try testing.expectEqualStrings("随便做什么...", composerPlaceholderChromeFor(.simplified_chinese, "").idle);
+    try testing.expectEqualStrings("排队跟进...", composerPlaceholderChromeFor(.simplified_chinese, "").streaming);
+    try testing.expectEqualStrings("何でもどうぞ...", composerPlaceholderChromeFor(.japanese, "").idle);
+    try testing.expectEqualStrings("フォローアップをキュー...", composerPlaceholderChromeFor(.japanese, "").streaming);
+
+    try testing.expectEqualStrings("随便做什么...", composerPlaceholderChromeFor(.system, "zh_CN.UTF-8").idle);
+    try testing.expectEqualStrings("排队跟进...", composerPlaceholderChromeFor(.system, "zh_CN.UTF-8").streaming);
+    try testing.expectEqualStrings("何でもどうぞ...", composerPlaceholderChromeFor(.system, "ja_JP.UTF-8").idle);
+    try testing.expectEqualStrings("フォローアップをキュー...", composerPlaceholderChromeFor(.system, "ja_JP.UTF-8").streaming);
+    try testing.expectEqualStrings("Do anything...", composerPlaceholderChromeFor(.english, "ja_JP.UTF-8").idle);
+    try testing.expectEqualStrings("Queue a follow-up...", composerPlaceholderChromeFor(.english, "ja_JP.UTF-8").streaming);
+    try testing.expectEqualStrings("Do anything...", composerPlaceholderChromeFor(.english, "zh_CN.UTF-8").idle);
+    try testing.expectEqualStrings("Queue a follow-up...", composerPlaceholderChromeFor(.english, "zh_CN.UTF-8").streaming);
+
+    try testing.expect(!std.mem.eql(u8, composerPlaceholderChromeFor(.english, "").idle, composerPlaceholderChromeFor(.english, "").streaming));
+    try testing.expect(!std.mem.eql(u8, composerPlaceholderChromeFor(.english, "").streaming, queueChromeFor(.english, "").queued));
+    try testing.expect(!std.mem.eql(u8, composerPlaceholderChromeFor(.simplified_chinese, "").streaming, queueChromeFor(.simplified_chinese, "").queued));
+    try testing.expect(!std.mem.eql(u8, composerPlaceholderChromeFor(.japanese, "").streaming, queueChromeFor(.japanese, "").queued));
+    try testing.expect(!std.mem.eql(u8, composerPlaceholderChromeFor(.english, "").idle, composerChromeFor(.english, "").image_path));
+    try testing.expect(!std.mem.eql(u8, composerPlaceholderChromeFor(.english, "").idle, composerSendStopChromeFor(.english, "").send));
 }
 
 test "findBarChromeFor english default; zh and ja chrome; english ignores ja LANG" {

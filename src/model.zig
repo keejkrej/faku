@@ -2109,6 +2109,7 @@ pub const Model = struct {
         "settingsGeneralChrome",
         "composerChrome",
         "composerSendStopChrome",
+        "composerPlaceholderChrome",
         "browserAddressChrome",
         "browserToolbarChrome",
         "sidebarHistoryChrome",
@@ -4316,8 +4317,14 @@ pub const Model = struct {
         return out[0..i];
     }
 
+    /// Composer textarea placeholder. Idle vs streaming from
+    /// `i18n.ComposerPlaceholderChrome`. Distinct from `QueueChrome` /
+    /// `ComposerChrome` / `ComposerSendStopChrome`. `on-input` /
+    /// on-submit stay `draft_edit` / `composer_enter`. Draft text
+    /// stays data.
     pub fn composer_placeholder(model: *const Model) []const u8 {
-        return if (model.is_streaming()) "Queue a follow-up..." else "Do anything...";
+        const chrome = model.composerPlaceholderChrome();
+        return if (model.is_streaming()) chrome.streaming else chrome.idle;
     }
 
     pub fn send_label(model: *const Model) []const u8 {
@@ -4910,6 +4917,10 @@ pub const Model = struct {
 
     fn composerSendStopChrome(model: *const Model) i18n.ComposerSendStopChrome {
         return i18n.composerSendStopChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn composerPlaceholderChrome(model: *const Model) i18n.ComposerPlaceholderChrome {
+        return i18n.composerPlaceholderChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     fn findBarChrome(model: *const Model) i18n.FindBarChrome {

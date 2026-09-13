@@ -28864,6 +28864,115 @@ test "Composer Send and Stop a11y chrome follows Appearance language" {
     try testing.expect(findByText(tree.root, .button, "Send") == null);
 }
 
+test "composer textarea placeholders follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"{composer_placeholder}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-input=\"draft_edit\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-submit=\"composer_enter\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Do anything...\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Queue a follow-up...\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Browse\"") != null);
+
+    var model = main.initialModel();
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqualStrings("Do anything...", model.composer_placeholder());
+    try testing.expectEqualStrings(i18n.composerPlaceholderChromeFor(.english, "").idle, model.composer_placeholder());
+    try testing.expectEqualStrings(i18n.composerPlaceholderChromeFor(.english, "").streaming, "Queue a follow-up...");
+    try testing.expect(!std.mem.eql(u8, model.composer_placeholder(), model.queued_header_label()));
+
+    var tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("Do anything...", composer.placeholder);
+    } else return error.WidgetNotFound;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "hello" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqualStrings("Queue a follow-up...", model.composer_placeholder());
+    try testing.expectEqualStrings(i18n.composerPlaceholderChromeFor(.english, "").streaming, model.composer_placeholder());
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("Queue a follow-up...", composer.placeholder);
+    } else return error.WidgetNotFound;
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("排队跟进...", model.composer_placeholder());
+    try testing.expectEqualStrings(i18n.composerPlaceholderChromeFor(.simplified_chinese, "").streaming, model.composer_placeholder());
+    try testing.expect(!std.mem.eql(u8, model.composer_placeholder(), model.queued_header_label()));
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("排队跟进...", composer.placeholder);
+    } else return error.WidgetNotFound;
+    try testing.expect(findByPlaceholder(tree.root, .textarea, "Queue a follow-up...") == null);
+    try testing.expect(findByPlaceholder(tree.root, .textarea, "Do anything...") == null);
+
+    main.update(&model, .stop_turn, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqualStrings("随便做什么...", model.composer_placeholder());
+    try testing.expectEqualStrings(i18n.composerPlaceholderChromeFor(.simplified_chinese, "").idle, model.composer_placeholder());
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("随便做什么...", composer.placeholder);
+    } else return error.WidgetNotFound;
+    try testing.expect(findByPlaceholder(tree.root, .textarea, "Do anything...") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("何でもどうぞ...", model.composer_placeholder());
+    try testing.expectEqualStrings(i18n.composerPlaceholderChromeFor(.japanese, "").idle, model.composer_placeholder());
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("何でもどうぞ...", composer.placeholder);
+    } else return error.WidgetNotFound;
+    try testing.expect(findByPlaceholder(tree.root, .textarea, "随便做什么...") == null);
+    try testing.expect(findByPlaceholder(tree.root, .textarea, "Do anything...") == null);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "hello ja" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqualStrings("フォローアップをキュー...", model.composer_placeholder());
+    try testing.expectEqualStrings(i18n.composerPlaceholderChromeFor(.japanese, "").streaming, model.composer_placeholder());
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("フォローアップをキュー...", composer.placeholder);
+    } else return error.WidgetNotFound;
+    try testing.expect(findByPlaceholder(tree.root, .textarea, "Queue a follow-up...") == null);
+    try testing.expect(findByPlaceholder(tree.root, .textarea, "排队跟进...") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Queue a follow-up...", model.composer_placeholder());
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("Queue a follow-up...", composer.placeholder);
+    } else return error.WidgetNotFound;
+    try testing.expect(findByPlaceholder(tree.root, .textarea, "フォローアップをキュー...") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("排队跟进...", model.composer_placeholder());
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("排队跟进...", composer.placeholder);
+    } else return error.WidgetNotFound;
+    try testing.expect(findByPlaceholder(tree.root, .textarea, "Queue a follow-up...") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("フォローアップをキュー...", model.composer_placeholder());
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("フォローアップをキュー...", composer.placeholder);
+    } else return error.WidgetNotFound;
+    try testing.expect(findByPlaceholder(tree.root, .textarea, "Queue a follow-up...") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Browse\"") != null);
+}
+
 test "Browser Address field chrome follows Appearance language; placeholder stays Latin" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
