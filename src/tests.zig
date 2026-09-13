@@ -29466,6 +29466,129 @@ test "Usage sessions unit and connect-daemon hint follow Appearance language" {
     try testing.expect(findByText(tree.root, .text, "2026-09-01 · 400 · $0.50 · 4 sessions") == null);
 }
 
+test "composer usage meter chrome follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var clock = native_sdk.TestClock{};
+    clock.setWallMs(1_750_000_000_000);
+    fx.clock = clock.clock();
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{usage_meter_hint}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{usage_meter_context_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{usage_meter_plan_header}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{w.resets}"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Connect a daemon for plan usage</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Nothing measured yet</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Plan limits</text>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"refresh_plan_usage\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"refresh_plan_usage\">Refresh</button>"));
+
+    var model = main.initialModel();
+    const claude_id = model.session_store[1].id;
+    try testing.expectEqual(protocol.ProviderId.claude, model.sessionById(claude_id).?.provider);
+    main.update(&model, .{ .select = claude_id }, &fx);
+    model.usage_meter_open = true;
+    try testing.expect(model.has_usage_meter_hint());
+    try testing.expectEqualStrings("Connect a daemon for plan usage", model.usage_meter_hint());
+    try testing.expectEqualStrings(
+        i18n.usageMeterChromeFor(.english, "").connect_hint,
+        model.usage_meter_hint(),
+    );
+    try testing.expectEqualStrings("Nothing measured yet", model.usage_meter_context_label(arena));
+    try testing.expectEqualStrings("Plan limits", model.usage_meter_plan_header(arena));
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Connect a daemon for plan usage");
+    _ = try expectByText(tree.root, .text, "Nothing measured yet");
+    try testing.expect(findByText(tree.root, .text, "连接守护进程以查看套餐用量") == null);
+    try testing.expect(findByText(tree.root, .text, "デーモンに接続してプラン使用量を表示") == null);
+    try testing.expect(findByText(tree.root, .text, "Connect a daemon for usage history") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("连接守护进程以查看套餐用量", model.usage_meter_hint());
+    try testing.expectEqualStrings("尚无用量", model.usage_meter_context_label(arena));
+    try testing.expectEqualStrings("套餐限额", model.usage_meter_plan_header(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "连接守护进程以查看套餐用量");
+    _ = try expectByText(tree.root, .text, "尚无用量");
+    try testing.expect(findByText(tree.root, .text, "Connect a daemon for plan usage") == null);
+    try testing.expect(findByText(tree.root, .text, "Nothing measured yet") == null);
+    try testing.expect(findByText(tree.root, .text, "连接守护进程以查看用量历史") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("デーモンに接続してプラン使用量を表示", model.usage_meter_hint());
+    try testing.expectEqualStrings("まだ計測なし", model.usage_meter_context_label(arena));
+    try testing.expectEqualStrings("プラン上限", model.usage_meter_plan_header(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "デーモンに接続してプラン使用量を表示");
+    _ = try expectByText(tree.root, .text, "まだ計測なし");
+    try testing.expect(findByText(tree.root, .text, "Connect a daemon for plan usage") == null);
+    try testing.expect(findByText(tree.root, .text, "Nothing measured yet") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Connect a daemon for plan usage", model.usage_meter_hint());
+    try testing.expectEqualStrings("Nothing measured yet", model.usage_meter_context_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Connect a daemon for plan usage");
+    try testing.expect(findByText(tree.root, .text, "デーモンに接続してプラン使用量を表示") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("连接守护进程以查看套餐用量", model.usage_meter_hint());
+    try testing.expectEqualStrings("尚无用量", model.usage_meter_context_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "连接守护进程以查看套餐用量");
+    try testing.expect(findByText(tree.root, .text, "Connect a daemon for plan usage") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("");
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    if (model.sessionById(claude_id)) |session| session.setContextUsage(12_400, 200_000);
+    main.update(&model, .refresh_plan_usage, &fx);
+    try testing.expectEqualStrings("Loading plan usage…", model.usage_meter_hint());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Loading plan usage…");
+
+    var spawn_i: usize = 0;
+    const sidecar = while (fx.pendingSpawnAt(spawn_i)) |spawn| : (spawn_i += 1) {
+        if (spawn.key == model.plan_usage.claude.pending_key) break spawn;
+    } else return error.MissingDaemonFetchPlanUsageLocale;
+    main.update(&model, .{ .fx_line = .{
+        .key = sidecar.key,
+        .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000018\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"planUsage\",\"usage\":{\"planLabel\":\"Pro\",\"windows\":[{\"label\":\"5-hour\",\"percent\":42,\"resetsAt\":1750003600}]}}}}",
+    } }, &fx);
+    main.update(&model, .{ .fx_exit = .{ .key = sidecar.key, .reason = .exited, .code = 0 } }, &fx);
+    try testing.expectEqualStrings("Plan limits · Pro", model.usage_meter_plan_header(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Plan limits · Pro");
+    _ = try expectByText(tree.root, .text, "Resets in 1h");
+    _ = try expectByText(tree.root, .text, "5-hour");
+    try testing.expect(findByText(tree.root, .text, "Connect a daemon for plan usage") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("套餐限额 · Pro", model.usage_meter_plan_header(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "套餐限额 · Pro");
+    _ = try expectByText(tree.root, .text, "剩余 1h");
+    _ = try expectByText(tree.root, .text, "5-hour");
+    try testing.expect(findByText(tree.root, .text, "Plan limits") == null);
+    try testing.expect(findByText(tree.root, .text, "Resets in 1h") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("プラン上限 · Pro", model.usage_meter_plan_header(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "プラン上限 · Pro");
+    _ = try expectByText(tree.root, .text, "あと 1h");
+    try testing.expect(findByText(tree.root, .text, "Plan limits") == null);
+}
+
 test "Settings Providers Available Not found Enable Disable Copy First-party follow Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

@@ -112,6 +112,11 @@
 //! keep numbers and ` · `; distinct from UsageScanFooterChrome so
 //! the sessions unit stays independently evolvable; daemon
 //! `errors[]` notice text stays English data this cut)
+//! plus composer Usage meter plan-usage chrome (same
+//! `UsageMeterChrome` strings; distinct from UsageSessionsChrome so
+//! the Settings Usage history connect hint stays independently
+//! evolvable; numbers, Latin `m`/`h`/`d`, and ` · ` stay; daemon
+//! plan window labels / planLabel stay English data this cut)
 //! plus Settings Providers Available / Not found, Enable /
 //! Disable, Use for this session, Copy install command / Copy login
 //! command, and First-party default (same `ProvidersChrome` strings;
@@ -2230,6 +2235,63 @@ const usage_sessions_chrome_ja: UsageSessionsChrome = .{
     .connect_daemon = "デーモンに接続して使用量履歴を表示",
 };
 
+/// Composer Usage meter plan-usage hints, empty context, Plan
+/// limits header, and Resets soon / Resets in {d}m|h|d for the
+/// resolved locale. Same resolve path as UsageSessionsChrome.
+/// English matches the former hardcoded copy (`Connect a daemon for
+/// plan usage`, `Loading plan usage…`, `Plan usage unconfigured`,
+/// `Plan usage unavailable`, `Nothing measured yet`, `Plan limits`,
+/// `Plan limits · {s}`, `Resets soon`, `Resets in {d}m` / `{d}h` /
+/// `{d}d`). Distinct from UsageSessionsChrome so the Settings Usage
+/// history connect hint (`Connect a daemon for usage history`) stays
+/// independently evolvable. Numbers, Latin unit letters `m` / `h` /
+/// `d`, and middle-dot ` · ` stay in every locale. Daemon plan
+/// window labels / planLabel from the wire stay English data this
+/// cut.
+pub const UsageMeterChrome = struct {
+    connect_hint: []const u8,
+    loading_hint: []const u8,
+    unconfigured_hint: []const u8,
+    unavailable_hint: []const u8,
+    nothing_measured: []const u8,
+    plan_limits: []const u8,
+    resets_soon: []const u8,
+    resets_in: []const u8,
+};
+
+const usage_meter_chrome_en: UsageMeterChrome = .{
+    .connect_hint = "Connect a daemon for plan usage",
+    .loading_hint = "Loading plan usage…",
+    .unconfigured_hint = "Plan usage unconfigured",
+    .unavailable_hint = "Plan usage unavailable",
+    .nothing_measured = "Nothing measured yet",
+    .plan_limits = "Plan limits",
+    .resets_soon = "Resets soon",
+    .resets_in = "Resets in",
+};
+
+const usage_meter_chrome_zh_cn: UsageMeterChrome = .{
+    .connect_hint = "连接守护进程以查看套餐用量",
+    .loading_hint = "正在加载套餐用量…",
+    .unconfigured_hint = "套餐用量未配置",
+    .unavailable_hint = "套餐用量不可用",
+    .nothing_measured = "尚无用量",
+    .plan_limits = "套餐限额",
+    .resets_soon = "即将重置",
+    .resets_in = "剩余",
+};
+
+const usage_meter_chrome_ja: UsageMeterChrome = .{
+    .connect_hint = "デーモンに接続してプラン使用量を表示",
+    .loading_hint = "プラン使用量を読み込み中…",
+    .unconfigured_hint = "プラン使用量は未設定",
+    .unavailable_hint = "プラン使用量は利用不可",
+    .nothing_measured = "まだ計測なし",
+    .plan_limits = "プラン上限",
+    .resets_soon = "まもなくリセット",
+    .resets_in = "あと",
+};
+
 /// Settings Providers status, Enable/Disable chip, Apply, Copy
 /// install/login, and First-party default for the resolved locale.
 /// Same resolve path as UsageSessionsChrome. English matches the
@@ -2906,6 +2968,21 @@ pub fn usageSessionsChromeFor(preference: LanguagePreference, system_locale_id: 
         .simplified_chinese => usage_sessions_chrome_zh_cn,
         .japanese => usage_sessions_chrome_ja,
         .system, .english => usage_sessions_chrome_en,
+    };
+}
+
+/// Composer Usage meter plan-usage chrome for the resolved locale.
+/// Callers pass Model `language_preference` + `system_locale_id`;
+/// this file does not read process env. Distinct from
+/// UsageSessionsChrome so the Settings Usage history connect hint
+/// stays independently evolvable. Numbers, Latin `m`/`h`/`d`, and
+/// ` · ` stay. Daemon plan window labels / planLabel stay English
+/// data this cut.
+pub fn usageMeterChromeFor(preference: LanguagePreference, system_locale_id: []const u8) UsageMeterChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => usage_meter_chrome_zh_cn,
+        .japanese => usage_meter_chrome_ja,
+        .system, .english => usage_meter_chrome_en,
     };
 }
 
@@ -4615,6 +4692,55 @@ test "usageSessionsChromeFor english default; zh and ja chrome; english ignores 
     try testing.expectEqualStrings("sessions", usageSessionsChromeFor(.english, "ja_JP.UTF-8").sessions);
     try testing.expectEqualStrings("Connect a daemon for usage history", usageSessionsChromeFor(.english, "zh_CN.UTF-8").connect_daemon);
     try testing.expectEqualStrings("sessions", usageSessionsChromeFor(.english, "zh_CN.UTF-8").sessions);
+}
+
+test "usageMeterChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Connect a daemon for plan usage", usageMeterChromeFor(.english, "ja").connect_hint);
+    try testing.expectEqualStrings("Loading plan usage…", usageMeterChromeFor(.english, "").loading_hint);
+    try testing.expectEqualStrings("Plan usage unconfigured", usageMeterChromeFor(.english, "").unconfigured_hint);
+    try testing.expectEqualStrings("Plan usage unavailable", usageMeterChromeFor(.english, "").unavailable_hint);
+    try testing.expectEqualStrings("Nothing measured yet", usageMeterChromeFor(.english, "").nothing_measured);
+    try testing.expectEqualStrings("Plan limits", usageMeterChromeFor(.english, "").plan_limits);
+    try testing.expectEqualStrings("Resets soon", usageMeterChromeFor(.english, "").resets_soon);
+    try testing.expectEqualStrings("Resets in", usageMeterChromeFor(.english, "").resets_in);
+    try testing.expectEqualStrings("Connect a daemon for plan usage", usageMeterChromeFor(.system, "").connect_hint);
+    try testing.expectEqualStrings("Nothing measured yet", usageMeterChromeFor(.system, "").nothing_measured);
+    try testing.expectEqualStrings("Plan limits", usageMeterChromeFor(.system, "").plan_limits);
+    try testing.expectEqualStrings("Resets soon", usageMeterChromeFor(.system, "").resets_soon);
+
+    try testing.expectEqualStrings("连接守护进程以查看套餐用量", usageMeterChromeFor(.simplified_chinese, "").connect_hint);
+    try testing.expectEqualStrings("正在加载套餐用量…", usageMeterChromeFor(.simplified_chinese, "").loading_hint);
+    try testing.expectEqualStrings("套餐用量未配置", usageMeterChromeFor(.simplified_chinese, "").unconfigured_hint);
+    try testing.expectEqualStrings("套餐用量不可用", usageMeterChromeFor(.simplified_chinese, "").unavailable_hint);
+    try testing.expectEqualStrings("尚无用量", usageMeterChromeFor(.simplified_chinese, "").nothing_measured);
+    try testing.expectEqualStrings("套餐限额", usageMeterChromeFor(.simplified_chinese, "").plan_limits);
+    try testing.expectEqualStrings("即将重置", usageMeterChromeFor(.simplified_chinese, "").resets_soon);
+    try testing.expectEqualStrings("剩余", usageMeterChromeFor(.simplified_chinese, "").resets_in);
+    try testing.expectEqualStrings("デーモンに接続してプラン使用量を表示", usageMeterChromeFor(.japanese, "").connect_hint);
+    try testing.expectEqualStrings("プラン使用量を読み込み中…", usageMeterChromeFor(.japanese, "").loading_hint);
+    try testing.expectEqualStrings("プラン使用量は未設定", usageMeterChromeFor(.japanese, "").unconfigured_hint);
+    try testing.expectEqualStrings("プラン使用量は利用不可", usageMeterChromeFor(.japanese, "").unavailable_hint);
+    try testing.expectEqualStrings("まだ計測なし", usageMeterChromeFor(.japanese, "").nothing_measured);
+    try testing.expectEqualStrings("プラン上限", usageMeterChromeFor(.japanese, "").plan_limits);
+    try testing.expectEqualStrings("まもなくリセット", usageMeterChromeFor(.japanese, "").resets_soon);
+    try testing.expectEqualStrings("あと", usageMeterChromeFor(.japanese, "").resets_in);
+
+    try testing.expectEqualStrings("连接守护进程以查看套餐用量", usageMeterChromeFor(.system, "zh_CN.UTF-8").connect_hint);
+    try testing.expectEqualStrings("尚无用量", usageMeterChromeFor(.system, "zh_CN.UTF-8").nothing_measured);
+    try testing.expectEqualStrings("套餐限额", usageMeterChromeFor(.system, "zh_CN.UTF-8").plan_limits);
+    try testing.expectEqualStrings("即将重置", usageMeterChromeFor(.system, "zh_CN.UTF-8").resets_soon);
+    try testing.expectEqualStrings("剩余", usageMeterChromeFor(.system, "zh_CN.UTF-8").resets_in);
+    try testing.expectEqualStrings("デーモンに接続してプラン使用量を表示", usageMeterChromeFor(.system, "ja_JP.UTF-8").connect_hint);
+    try testing.expectEqualStrings("まだ計測なし", usageMeterChromeFor(.system, "ja_JP.UTF-8").nothing_measured);
+    try testing.expectEqualStrings("プラン上限", usageMeterChromeFor(.system, "ja_JP.UTF-8").plan_limits);
+    try testing.expectEqualStrings("まもなくリセット", usageMeterChromeFor(.system, "ja_JP.UTF-8").resets_soon);
+    try testing.expectEqualStrings("あと", usageMeterChromeFor(.system, "ja_JP.UTF-8").resets_in);
+    try testing.expectEqualStrings("Connect a daemon for plan usage", usageMeterChromeFor(.english, "ja_JP.UTF-8").connect_hint);
+    try testing.expectEqualStrings("Nothing measured yet", usageMeterChromeFor(.english, "zh_CN.UTF-8").nothing_measured);
+    try testing.expectEqualStrings("Plan limits", usageMeterChromeFor(.english, "ja_JP.UTF-8").plan_limits);
+    try testing.expectEqualStrings("Resets soon", usageMeterChromeFor(.english, "zh_CN.UTF-8").resets_soon);
+    try testing.expectEqualStrings("Resets in", usageMeterChromeFor(.english, "ja_JP.UTF-8").resets_in);
 }
 
 test "providersChromeFor english default; zh and ja chrome; english ignores ja LANG" {

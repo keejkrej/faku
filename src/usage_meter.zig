@@ -32,7 +32,10 @@
 //! still fetch that id even if disabled or not yet Available. Still
 //! not a circular GPUI gauge (Native), not LiteLLM rate-table, not a
 //! T3 layered Usage chart. Amend/force and remote `--track` stay
-//! local (not daemon WorkspaceOperation variants).
+//! local (not daemon WorkspaceOperation variants). Plan-usage meter
+//! chrome follows `i18n.UsageMeterChrome` (distinct from Settings
+//! Usage history `UsageSessionsChrome`); daemon plan window labels /
+//! planLabel stay English data.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -41,6 +44,7 @@ const daemon_proxy = @import("daemon_proxy.zig");
 const protocol = @import("protocol.zig");
 const store = @import("store.zig");
 const providers = @import("providers.zig");
+const i18n = @import("i18n.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -60,11 +64,20 @@ pub const plan_usage_refresh_stale_ms: i64 = 30_000;
 /// Waku `PLAN_USAGE_RETRY`. After that provider's fetch error.
 pub const plan_usage_retry_ms: i64 = 90_000;
 
-pub const connect_hint = "Connect a daemon for plan usage";
-pub const loading_hint = "Loading plan usage…";
-pub const unconfigured_hint = "Plan usage unconfigured";
-pub const unavailable_hint = "Plan usage unavailable";
-pub const nothing_measured = "Nothing measured yet";
+/// English defaults from `i18n.UsageMeterChrome`. Tests that still
+/// want the former hardcoded copy use these; hint / contextLabel /
+/// planHeader / formatResets resolve through `meterChrome` for the
+/// Appearance locale.
+const usage_meter_chrome_en = i18n.usageMeterChromeFor(.english, "");
+pub const connect_hint = usage_meter_chrome_en.connect_hint;
+pub const loading_hint = usage_meter_chrome_en.loading_hint;
+pub const unconfigured_hint = usage_meter_chrome_en.unconfigured_hint;
+pub const unavailable_hint = usage_meter_chrome_en.unavailable_hint;
+pub const nothing_measured = usage_meter_chrome_en.nothing_measured;
+
+fn meterChrome(model: *const Model) i18n.UsageMeterChrome {
+    return i18n.usageMeterChromeFor(model.language_preference, model.systemLocaleId());
+}
 
 pub const Row = struct {
     id: u32,
@@ -461,38 +474,40 @@ fn clampShare(value: f64) f32 {
     return @floatCast(fraction);
 }
 
-fn resetLabel(buf: []u8, resets_at: i64, now_ms: i64) []const u8 {
+fn formatResets(buf: []u8, resets_at: i64, now_ms: i64, chrome: i18n.UsageMeterChrome) []const u8 {
     const now_s: i64 = @divTrunc(now_ms, 1000);
     const delta = resets_at - now_s;
-    if (delta <= 0) return "Resets soon";
+    if (delta <= 0) return chrome.resets_soon;
     const minutes = @divTrunc(delta + 59, 60);
     if (minutes < 60) {
-        return std.fmt.bufPrint(buf, "Resets in {d}m", .{minutes}) catch "Resets soon";
+        return std.fmt.bufPrint(buf, "{s} {d}m", .{ chrome.resets_in, minutes }) catch chrome.resets_soon;
     }
     if (minutes < 24 * 60) {
         const hours = @divTrunc(minutes, 60);
-        return std.fmt.bufPrint(buf, "Resets in {d}h", .{hours}) catch "Resets soon";
+        return std.fmt.bufPrint(buf, "{s} {d}h", .{ chrome.resets_in, hours }) catch chrome.resets_soon;
     }
     const days = @divTrunc(minutes, 24 * 60);
-    return std.fmt.bufPrint(buf, "Resets in {d}d", .{days}) catch "Resets soon";
+    return std.fmt.bufPrint(buf, "{s} {d}d", .{ chrome.resets_in, days }) catch chrome.resets_soon;
 }
 
 pub fn contextLabel(model: *const Model, arena: std.mem.Allocator) []const u8 {
     const session = model.sessionByIdConst(model.selected) orelse return "";
-    if (session.context_size == 0) return nothing_measured;
+    const chrome = meterChrome(model);
+    if (session.context_size == 0) return chrome.nothing_measured;
     var buf: [48]u8 = undefined;
     const label = session.contextUsageLabel(&buf);
-    if (label.len == 0) return nothing_measured;
+    if (label.len == 0) return chrome.nothing_measured;
     return copyArena(arena, label);
 }
 
 pub fn planHeader(model: *const Model, arena: std.mem.Allocator) []const u8 {
-    const cache = selectedCache(model) orelse return "Plan limits";
-    if (!cacheMatches(model) or !cache.present) return "Plan limits";
+    const chrome = meterChrome(model);
+    const cache = selectedCache(model) orelse return chrome.plan_limits;
+    if (!cacheMatches(model) or !cache.present) return chrome.plan_limits;
     const label = cache.planLabel();
-    if (label.len == 0) return "Plan limits";
+    if (label.len == 0) return chrome.plan_limits;
     var buf: [max_line]u8 = undefined;
-    const text = std.fmt.bufPrint(&buf, "Plan limits · {s}", .{label}) catch return "Plan limits";
+    const text = std.fmt.bufPrint(&buf, "{s} · {s}", .{ chrome.plan_limits, label }) catch return chrome.plan_limits;
     return copyArena(arena, text);
 }
 
@@ -501,6 +516,7 @@ pub fn planRows(model: *const Model, arena: std.mem.Allocator) []Row {
     if (!cacheMatches(model) or !cache.present) return &.{};
     const count = cache.window_count;
     if (count == 0) return &.{};
+    const chrome = meterChrome(model);
     const rows = arena.alloc(Row, count) catch return &.{};
     var i: usize = 0;
     while (i < count) : (i += 1) {
@@ -508,8 +524,8 @@ pub fn planRows(model: *const Model, arena: std.mem.Allocator) []Row {
         const share = clampShare(window.percent);
         var percent_buf: [16]u8 = undefined;
         const percent = std.fmt.bufPrint(&percent_buf, "{d:.0}%", .{window.percent}) catch "";
-        var reset_buf: [32]u8 = undefined;
-        const resets = if (window.resets_at) |at| resetLabel(&reset_buf, at, model.now_ms) else "";
+        var reset_buf: [48]u8 = undefined;
+        const resets = if (window.resets_at) |at| formatResets(&reset_buf, at, model.now_ms, chrome) else "";
         rows[i] = .{
             .id = @intCast(i + 1),
             .line = copyArena(arena, window.label()),
@@ -525,15 +541,16 @@ pub fn planRows(model: *const Model, arena: std.mem.Allocator) []Row {
 pub fn hint(model: *const Model) []const u8 {
     const provider = selectedProvider(model) orelse return "";
     if (!isPlanUsageProvider(provider)) return "";
-    if (store.resolveDaemonMirrorAddress(model).len == 0) return connect_hint;
+    const chrome = meterChrome(model);
+    if (store.resolveDaemonMirrorAddress(model).len == 0) return chrome.connect_hint;
     const cache = selectedCache(model) orelse return "";
     if (pendingKey(model, provider) != 0) {
         if (!(cache.present or cache.unconfigured)) {
-            return loading_hint;
+            return chrome.loading_hint;
         }
     }
-    if (cache.unconfigured) return unconfigured_hint;
-    if (cache.errored and !cache.present) return unavailable_hint;
+    if (cache.unconfigured) return chrome.unconfigured_hint;
+    if (cache.errored and !cache.present) return chrome.unavailable_hint;
     return "";
 }
 
@@ -678,6 +695,7 @@ test "FetchPlanUsage sidecar paints lanes; null usage is unconfigured; miss keep
     try std.testing.expectEqualStrings("Session", rows[0].line);
     try std.testing.expectEqualStrings("42%", rows[0].percent);
     try std.testing.expect(rows[0].has_resets);
+    try std.testing.expectEqualStrings("Resets in 1h", rows[0].resets);
     try std.testing.expectEqualStrings("Weekly", rows[1].line);
     try std.testing.expectEqualStrings("80%", rows[1].percent);
     try std.testing.expectApproxEqAbs(@as(f32, 0.42), rows[0].share, 0.0001);
@@ -1288,4 +1306,106 @@ test "open and Refresh still fetch selected when disabled" {
     try std.testing.expect(forced.key != opened.key);
     try std.testing.expect(std.mem.indexOf(u8, forced.stdin, "\"provider\":\"claude\"") != null);
     try std.testing.expectEqual(@as(u64, 0), pendingKey(&model, .grok));
+}
+
+test "hint, contextLabel, planHeader, and formatResets follow Appearance language; english default matches former copy" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    const id = model.addSession("usage locale", .claude);
+    model.selected = id;
+    open(&model, &fx);
+
+    try std.testing.expectEqualStrings(connect_hint, hint(&model));
+    try std.testing.expectEqualStrings(
+        i18n.usageMeterChromeFor(.english, "").connect_hint,
+        hint(&model),
+    );
+    try std.testing.expectEqualStrings(nothing_measured, contextLabel(&model, arena));
+    try std.testing.expectEqualStrings("Plan limits", planHeader(&model, arena));
+    try std.testing.expect(std.mem.indexOf(u8, hint(&model), "usage history") == null);
+
+    model.language_preference = .simplified_chinese;
+    try std.testing.expectEqualStrings("连接守护进程以查看套餐用量", hint(&model));
+    try std.testing.expectEqualStrings("尚无用量", contextLabel(&model, arena));
+    try std.testing.expectEqualStrings("套餐限额", planHeader(&model, arena));
+    try std.testing.expect(std.mem.indexOf(u8, hint(&model), "Connect") == null);
+    try std.testing.expect(std.mem.indexOf(u8, hint(&model), "用量历史") == null);
+
+    model.language_preference = .japanese;
+    try std.testing.expectEqualStrings("デーモンに接続してプラン使用量を表示", hint(&model));
+    try std.testing.expectEqualStrings("まだ計測なし", contextLabel(&model, arena));
+    try std.testing.expectEqualStrings("プラン上限", planHeader(&model, arena));
+    try std.testing.expect(std.mem.indexOf(u8, hint(&model), "Connect") == null);
+    try std.testing.expect(std.mem.indexOf(u8, hint(&model), "使用量履歴") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try std.testing.expectEqualStrings(connect_hint, hint(&model));
+    try std.testing.expectEqualStrings(nothing_measured, contextLabel(&model, arena));
+
+    model.language_preference = .system;
+    try std.testing.expectEqualStrings("デーモンに接続してプラン使用量を表示", hint(&model));
+    try std.testing.expectEqualStrings("まだ計測なし", contextLabel(&model, arena));
+
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try std.testing.expectEqualStrings("连接守护进程以查看套餐用量", hint(&model));
+    try std.testing.expectEqualStrings("尚无用量", contextLabel(&model, arena));
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("");
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.now_ms = 1_750_000_000_000;
+    open(&model, &fx);
+    try std.testing.expectEqualStrings(loading_hint, hint(&model));
+    finishPlanUsageOk(&model);
+    try std.testing.expectEqualStrings("Plan limits · Max (5x)", planHeader(&model, arena));
+    const en_rows = planRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 2), en_rows.len);
+    try std.testing.expectEqualStrings("Resets in 1h", en_rows[0].resets);
+    try std.testing.expectEqualStrings("Session", en_rows[0].line);
+
+    var reset_buf: [48]u8 = undefined;
+    const en = i18n.usageMeterChromeFor(.english, "");
+    try std.testing.expectEqualStrings("Resets soon", formatResets(&reset_buf, 1_750_000_000, 1_750_000_000_000, en));
+    try std.testing.expectEqualStrings("Resets in 5m", formatResets(&reset_buf, 1_750_000_300, 1_750_000_000_000, en));
+    try std.testing.expectEqualStrings("Resets in 2h", formatResets(&reset_buf, 1_750_007_200, 1_750_000_000_000, en));
+    try std.testing.expectEqualStrings("Resets in 3d", formatResets(&reset_buf, 1_750_259_200, 1_750_000_000_000, en));
+
+    model.language_preference = .simplified_chinese;
+    try std.testing.expectEqualStrings("套餐限额 · Max (5x)", planHeader(&model, arena));
+    try std.testing.expectEqualStrings("剩余 1h", planRows(&model, arena)[0].resets);
+    const zh = i18n.usageMeterChromeFor(.simplified_chinese, "");
+    try std.testing.expectEqualStrings("即将重置", formatResets(&reset_buf, 1_750_000_000, 1_750_000_000_000, zh));
+    try std.testing.expectEqualStrings("剩余 5m", formatResets(&reset_buf, 1_750_000_300, 1_750_000_000_000, zh));
+    try std.testing.expectEqualStrings("剩余 2h", formatResets(&reset_buf, 1_750_007_200, 1_750_000_000_000, zh));
+    try std.testing.expectEqualStrings("剩余 3d", formatResets(&reset_buf, 1_750_259_200, 1_750_000_000_000, zh));
+    try std.testing.expect(std.mem.indexOf(u8, planHeader(&model, arena), " · ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, planRows(&model, arena)[0].resets, "1h") != null);
+    try std.testing.expect(std.mem.indexOf(u8, planHeader(&model, arena), "Plan limits") == null);
+
+    model.language_preference = .japanese;
+    try std.testing.expectEqualStrings("プラン上限 · Max (5x)", planHeader(&model, arena));
+    try std.testing.expectEqualStrings("あと 1h", planRows(&model, arena)[0].resets);
+    const ja = i18n.usageMeterChromeFor(.japanese, "");
+    try std.testing.expectEqualStrings("まもなくリセット", formatResets(&reset_buf, 1_750_000_000, 1_750_000_000_000, ja));
+    try std.testing.expectEqualStrings("あと 5m", formatResets(&reset_buf, 1_750_000_300, 1_750_000_000_000, ja));
+    try std.testing.expectEqualStrings("あと 2h", formatResets(&reset_buf, 1_750_007_200, 1_750_000_000_000, ja));
+    try std.testing.expectEqualStrings("あと 3d", formatResets(&reset_buf, 1_750_259_200, 1_750_000_000_000, ja));
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try std.testing.expectEqualStrings("Plan limits · Max (5x)", planHeader(&model, arena));
+    try std.testing.expectEqualStrings("Resets in 1h", planRows(&model, arena)[0].resets);
+
+    model.language_preference = .system;
+    try std.testing.expectEqualStrings("プラン上限 · Max (5x)", planHeader(&model, arena));
+    try std.testing.expectEqualStrings("あと 1h", planRows(&model, arena)[0].resets);
 }

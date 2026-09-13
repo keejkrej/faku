@@ -6325,11 +6325,14 @@ pub const Model = struct {
         return cache.present and cache.window_count > 0;
     }
 
+    /// Localized via `i18n.UsageMeterChrome` when nothing is measured.
     pub fn usage_meter_context_label(model: *const Model, arena: std.mem.Allocator) []const u8 {
         if (!model.usage_meter_open) return "";
         return usage_meter.contextLabel(model, arena);
     }
 
+    /// Localized via `i18n.UsageMeterChrome`. Daemon `planLabel` stays
+    /// English data after ` · `.
     pub fn usage_meter_plan_header(model: *const Model, arena: std.mem.Allocator) []const u8 {
         if (!model.usage_meter_open) return "";
         return usage_meter.planHeader(model, arena);
@@ -6344,6 +6347,8 @@ pub const Model = struct {
         return model.usage_meter_open and usage_meter.hint(model).len > 0;
     }
 
+    /// Localized via `i18n.UsageMeterChrome`. Distinct from Settings
+    /// Usage history `usage_history_hint`.
     pub fn usage_meter_hint(model: *const Model) []const u8 {
         if (!model.has_usage_meter_hint()) return "";
         return usage_meter.hint(model);
