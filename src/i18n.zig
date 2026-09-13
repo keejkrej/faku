@@ -101,8 +101,12 @@
 //! five-tile metric-strip labels (same `UsageCostQualityChrome`
 //! strings; distinct from UsageViewChrome Cost|Tokens chips so
 //! quality / rates / tile labels stay independently evolvable;
-//! `token` stays Latin in zh-CN; scan footer and daemon error
-//! notice text stay English data this cut)
+//! `token` stays Latin in zh-CN; daemon `errors[]` notice text
+//! stays English data this cut)
+//! plus Settings Usage Daily scan-footer unit labels (same
+//! `UsageScanFooterChrome` strings; ` · ` separators and Latin
+//! `{d:.1}s` stay; distinct from UsageCostQualityChrome so the
+//! footer units stay independently evolvable)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -2052,8 +2056,8 @@ const goal_action_chrome_ja: GoalActionChrome = .{
 /// chips stay independently evolvable from quality / rates /
 /// tile labels. One `cache_savings` field is shared by the quality
 /// row and the metric tile. `token` stays Latin in zh-CN (same
-/// rule as UsageViewChrome Tokens). Scan footer and daemon error
-/// notice text stay English data this cut. Wire / status enums stay
+/// rule as UsageViewChrome Tokens). Daemon `errors[]` notice text
+/// stays English data this cut. Wire / status enums stay
 /// English (`fresh` / `cached` / `unavailable`).
 pub const UsageCostQualityChrome = struct {
     cost_quality: []const u8,
@@ -2145,6 +2149,37 @@ const usage_cost_quality_chrome_ja: UsageCostQualityChrome = .{
     .includes_reasoning_suffix = " の推論を含む",
     .raw_cost = "生コスト",
     .vs_full_input_rates = "全入力レート比",
+};
+
+/// Settings Usage Daily scan-footer unit labels for the resolved
+/// locale. Same resolve path as UsageCostQualityChrome. English
+/// matches the former hardcoded copy (`{d} files`, `{d} skipped`,
+/// `{d} records`). Distinct from UsageCostQualityChrome so the
+/// footer units stay independently evolvable. ` · ` separators and
+/// Latin `{d:.1}s` stay in every locale. Daemon `errors[]` notice
+/// text stays English data this cut.
+pub const UsageScanFooterChrome = struct {
+    files: []const u8,
+    skipped: []const u8,
+    records: []const u8,
+};
+
+const usage_scan_footer_chrome_en: UsageScanFooterChrome = .{
+    .files = "files",
+    .skipped = "skipped",
+    .records = "records",
+};
+
+const usage_scan_footer_chrome_zh_cn: UsageScanFooterChrome = .{
+    .files = "文件",
+    .skipped = "已跳过",
+    .records = "记录",
+};
+
+const usage_scan_footer_chrome_ja: UsageScanFooterChrome = .{
+    .files = "ファイル",
+    .skipped = "スキップ",
+    .records = "レコード",
 };
 
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
@@ -2671,14 +2706,28 @@ pub fn goalActionChromeFor(preference: LanguagePreference, system_locale_id: []c
 /// metric-strip labels for the resolved locale. Callers pass Model
 /// `language_preference` + `system_locale_id`; this file does not
 /// read process env. Distinct from UsageViewChrome so Cost|Tokens
-/// chips stay independently evolvable. Scan footer and daemon error
-/// notice text stay English data this cut. Wire / status enums stay
+/// chips stay independently evolvable. Daemon `errors[]` notice
+/// text stays English data this cut. Wire / status enums stay
 /// English.
 pub fn usageCostQualityChromeFor(preference: LanguagePreference, system_locale_id: []const u8) UsageCostQualityChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => usage_cost_quality_chrome_zh_cn,
         .japanese => usage_cost_quality_chrome_ja,
         .system, .english => usage_cost_quality_chrome_en,
+    };
+}
+
+/// Settings Usage Daily scan-footer unit labels for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from UsageCostQualityChrome so the footer units stay independently
+/// evolvable. ` · ` separators and Latin `{d:.1}s` stay. Daemon
+/// `errors[]` notice text stays English data this cut.
+pub fn usageScanFooterChromeFor(preference: LanguagePreference, system_locale_id: []const u8) UsageScanFooterChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => usage_scan_footer_chrome_zh_cn,
+        .japanese => usage_scan_footer_chrome_ja,
+        .system, .english => usage_scan_footer_chrome_en,
     };
 }
 
@@ -4310,5 +4359,32 @@ test "usageCostQualityChromeFor english default; zh and ja chrome; english ignor
     try testing.expectEqualStrings("Rates unavailable", usageCostQualityChromeFor(.english, "zh_CN.UTF-8").rates_unavailable);
     try testing.expectEqualStrings("Processed tokens", usageCostQualityChromeFor(.english, "ja_JP.UTF-8").processed_tokens);
     try testing.expectEqualStrings("Cache savings", usageCostQualityChromeFor(.english, "zh_CN.UTF-8").cache_savings);
+}
+
+test "usageScanFooterChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("files", usageScanFooterChromeFor(.english, "ja").files);
+    try testing.expectEqualStrings("skipped", usageScanFooterChromeFor(.english, "").skipped);
+    try testing.expectEqualStrings("records", usageScanFooterChromeFor(.english, "").records);
+    try testing.expectEqualStrings("files", usageScanFooterChromeFor(.system, "").files);
+    try testing.expectEqualStrings("skipped", usageScanFooterChromeFor(.system, "").skipped);
+    try testing.expectEqualStrings("records", usageScanFooterChromeFor(.system, "").records);
+
+    try testing.expectEqualStrings("文件", usageScanFooterChromeFor(.simplified_chinese, "").files);
+    try testing.expectEqualStrings("已跳过", usageScanFooterChromeFor(.simplified_chinese, "").skipped);
+    try testing.expectEqualStrings("记录", usageScanFooterChromeFor(.simplified_chinese, "").records);
+    try testing.expectEqualStrings("ファイル", usageScanFooterChromeFor(.japanese, "").files);
+    try testing.expectEqualStrings("スキップ", usageScanFooterChromeFor(.japanese, "").skipped);
+    try testing.expectEqualStrings("レコード", usageScanFooterChromeFor(.japanese, "").records);
+
+    try testing.expectEqualStrings("文件", usageScanFooterChromeFor(.system, "zh_CN.UTF-8").files);
+    try testing.expectEqualStrings("已跳过", usageScanFooterChromeFor(.system, "zh_CN.UTF-8").skipped);
+    try testing.expectEqualStrings("记录", usageScanFooterChromeFor(.system, "zh_CN.UTF-8").records);
+    try testing.expectEqualStrings("ファイル", usageScanFooterChromeFor(.system, "ja_JP.UTF-8").files);
+    try testing.expectEqualStrings("スキップ", usageScanFooterChromeFor(.system, "ja_JP.UTF-8").skipped);
+    try testing.expectEqualStrings("レコード", usageScanFooterChromeFor(.system, "ja_JP.UTF-8").records);
+    try testing.expectEqualStrings("files", usageScanFooterChromeFor(.english, "ja_JP.UTF-8").files);
+    try testing.expectEqualStrings("skipped", usageScanFooterChromeFor(.english, "zh_CN.UTF-8").skipped);
+    try testing.expectEqualStrings("records", usageScanFooterChromeFor(.english, "ja_JP.UTF-8").records);
 }
 
