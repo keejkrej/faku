@@ -130,6 +130,11 @@
 //! so status / Enable / Apply stay independently evolvable; wire
 //! names / binary paths / install/login commands stay English;
 //! `Binary:` / `Path:` prefixes in detailText stay English this cut)
+//! plus Settings Skills empty-state Open a project / No skills
+//! found (same `SkillsEmptyChrome` strings; distinct from
+//! FilterChrome / RightPanelChrome so Skills empty stays
+//! independently evolvable; composer `$` insert empty reuses the
+//! same hint; wire ids stay English)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -2408,6 +2413,34 @@ const providers_detail_chrome_ja: ProvidersDetailChrome = .{
     .other_install_hint = "その CLI を PATH にインストールしてから更新してください。",
 };
 
+/// Settings Skills empty-state Open a project / No skills found for
+/// the resolved locale. Same resolve path as ProvidersDetailChrome.
+/// English matches the former hardcoded copy. Distinct from
+/// FilterChrome (filter placeholder / Usage Projects empty) and
+/// RightPanelChrome (`Open a project to browse its files` / `No
+/// project open`) so Skills empty stays independently evolvable.
+/// Composer `$` insert empty reuses the same strings via
+/// `skills.emptyHint`. Wire ids stay English.
+pub const SkillsEmptyChrome = struct {
+    open_project: []const u8,
+    no_skills_found: []const u8,
+};
+
+const skills_empty_chrome_en: SkillsEmptyChrome = .{
+    .open_project = "Open a project",
+    .no_skills_found = "No skills found",
+};
+
+const skills_empty_chrome_zh_cn: SkillsEmptyChrome = .{
+    .open_project = "打开项目",
+    .no_skills_found = "未找到技能",
+};
+
+const skills_empty_chrome_ja: SkillsEmptyChrome = .{
+    .open_project = "プロジェクトを開く",
+    .no_skills_found = "スキルが見つかりません",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -3013,6 +3046,20 @@ pub fn providersDetailChromeFor(preference: LanguagePreference, system_locale_id
         .simplified_chinese => providers_detail_chrome_zh_cn,
         .japanese => providers_detail_chrome_ja,
         .system, .english => providers_detail_chrome_en,
+    };
+}
+
+/// Settings Skills empty-state Open a project / No skills found for
+/// the resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from FilterChrome / RightPanelChrome so Skills empty stays
+/// independently evolvable. Composer `$` insert empty reuses the
+/// same strings. Wire ids stay English.
+pub fn skillsEmptyChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsEmptyChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_empty_chrome_zh_cn,
+        .japanese => skills_empty_chrome_ja,
+        .system, .english => skills_empty_chrome_en,
     };
 }
 
@@ -4894,5 +4941,30 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("Install that CLI on PATH, then Refresh.", providersDetailChromeFor(.english, "zh_CN.UTF-8").other_install_hint);
     try testing.expectEqualStrings("Faku does not detect auth state from the --help probe. Copy is a convenience, not sign-in UI or OAuth.", providersDetailChromeFor(.english, "ja_JP.UTF-8").fx_login_note);
     try testing.expectEqualStrings("Optional: fx login grok / fx login codex (no Gateway required).", providersDetailChromeFor(.english, "zh_CN.UTF-8").fx_login_codex_note);
+}
+
+test "skillsEmptyChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Open a project", skillsEmptyChromeFor(.english, "ja").open_project);
+    try testing.expectEqualStrings("No skills found", skillsEmptyChromeFor(.english, "").no_skills_found);
+    try testing.expectEqualStrings("Open a project", skillsEmptyChromeFor(.system, "").open_project);
+    try testing.expectEqualStrings("No skills found", skillsEmptyChromeFor(.system, "").no_skills_found);
+
+    try testing.expectEqualStrings("打开项目", skillsEmptyChromeFor(.simplified_chinese, "").open_project);
+    try testing.expectEqualStrings("未找到技能", skillsEmptyChromeFor(.simplified_chinese, "").no_skills_found);
+    try testing.expectEqualStrings("プロジェクトを開く", skillsEmptyChromeFor(.japanese, "").open_project);
+    try testing.expectEqualStrings("スキルが見つかりません", skillsEmptyChromeFor(.japanese, "").no_skills_found);
+
+    try testing.expectEqualStrings("打开项目", skillsEmptyChromeFor(.system, "zh_CN.UTF-8").open_project);
+    try testing.expectEqualStrings("未找到技能", skillsEmptyChromeFor(.system, "zh_CN.UTF-8").no_skills_found);
+    try testing.expectEqualStrings("プロジェクトを開く", skillsEmptyChromeFor(.system, "ja_JP.UTF-8").open_project);
+    try testing.expectEqualStrings("スキルが見つかりません", skillsEmptyChromeFor(.system, "ja_JP.UTF-8").no_skills_found);
+    try testing.expectEqualStrings("Open a project", skillsEmptyChromeFor(.english, "ja_JP.UTF-8").open_project);
+    try testing.expectEqualStrings("No skills found", skillsEmptyChromeFor(.english, "zh_CN.UTF-8").no_skills_found);
+
+    try testing.expect(!std.mem.eql(u8, skillsEmptyChromeFor(.english, "").open_project, rightPanelChromeFor(.english, "").open_project_to_browse_files));
+    try testing.expect(!std.mem.eql(u8, skillsEmptyChromeFor(.english, "").open_project, rightPanelChromeFor(.english, "").no_project_open));
+    try testing.expect(!std.mem.eql(u8, skillsEmptyChromeFor(.simplified_chinese, "").open_project, rightPanelChromeFor(.simplified_chinese, "").open_project_to_browse_files));
+    try testing.expect(!std.mem.eql(u8, skillsEmptyChromeFor(.japanese, "").open_project, rightPanelChromeFor(.japanese, "").open_project_to_browse_files));
 }
 

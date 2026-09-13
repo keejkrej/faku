@@ -12,7 +12,10 @@
 //! Settings selecting a row shows the body with frontmatter stripped.
 //! Composer `$` inserts `$name ` into the draft; Send still ships that
 //! composer text as-is (fx loads the skill). Runtime-only (not
-//! `sessions.json`). Not SKILL.md body stuffing, not enable/disable,
+//! `sessions.json`). Empty-state Open a project / No skills found
+//! follow `i18n.SkillsEmptyChrome` (distinct from FilterChrome /
+//! RightPanelChrome; composer `$` insert empty reuses the same hint).
+//! Not SKILL.md body stuffing, not enable/disable,
 //! not a daemon SkillsCatalog / WorkspaceOperation, not ACP `/name`
 //! slash rows. Windows stays empty this cut.
 //!
@@ -24,6 +27,7 @@ const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
 const file_mention = @import("file_mention.zig");
+const i18n = @import("i18n.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -410,10 +414,24 @@ fn loadBody(model: *Model, index: usize) void {
     writeFixed(&model.skill_body_storage, &model.skill_body_len, stripFrontmatter(source));
 }
 
+/// English defaults from `i18n.SkillsEmptyChrome`. Tests that still
+/// want the former hardcoded copy use these; `emptyHint` resolves
+/// through `skillsEmptyChrome` for the Appearance locale.
+const skills_empty_chrome_en = i18n.skillsEmptyChromeFor(.english, "");
+pub const open_project = skills_empty_chrome_en.open_project;
+pub const no_skills_found = skills_empty_chrome_en.no_skills_found;
+
+fn skillsEmptyChrome(model: *const Model) i18n.SkillsEmptyChrome {
+    return i18n.skillsEmptyChromeFor(model.language_preference, model.systemLocaleId());
+}
+
+/// Settings Skills empty hint and composer `$` insert empty. Localized
+/// via `i18n.SkillsEmptyChrome`. Empty while a scan is in flight.
 pub fn emptyHint(model: *const Model) []const u8 {
-    if (probePath(model).len == 0) return "Open a project";
+    const chrome = skillsEmptyChrome(model);
+    if (probePath(model).len == 0) return chrome.open_project;
     if (model.skill_key != 0 and model.skill_count == 0) return "";
-    return "No skills found";
+    return chrome.no_skills_found;
 }
 
 test "argv is chdir script plus find SKILL.md skips; not file-mention walk" {
@@ -512,6 +530,52 @@ test "empty scan; list cap; parent folder name" {
     clearCache(&model);
     applyStdoutPaths(&model, overflow[0..n]);
     try std.testing.expectEqual(@as(u32, max_skills), cachedCount(&model));
+}
+
+test "emptyHint follows Appearance language; No skills found with a project" {
+    const testing = std.testing;
+    var model = Model{};
+    try testing.expectEqualStrings("Open a project", emptyHint(&model));
+    try testing.expectEqualStrings(open_project, emptyHint(&model));
+    try testing.expectEqualStrings("Open a project", i18n.skillsEmptyChromeFor(.english, "").open_project);
+    try testing.expectEqualStrings("No skills found", no_skills_found);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("打开项目", emptyHint(&model));
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("プロジェクトを開く", emptyHint(&model));
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Open a project", emptyHint(&model));
+    model.language_preference = .system;
+    try testing.expectEqualStrings("プロジェクトを開く", emptyHint(&model));
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("打开项目", emptyHint(&model));
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Open a project", emptyHint(&model));
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-empty", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, root);
+    model.store_io = testing.io;
+    model.setLastProjectPath(root);
+    model.language_preference = .english;
+    try testing.expectEqualStrings("No skills found", emptyHint(&model));
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("未找到技能", emptyHint(&model));
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("スキルが見つかりません", emptyHint(&model));
+    model.language_preference = .english;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("No skills found", emptyHint(&model));
+    model.language_preference = .system;
+    try testing.expectEqualStrings("未找到技能", emptyHint(&model));
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("スキルが見つかりません", emptyHint(&model));
+    model.skill_key = 1;
+    try testing.expectEqualStrings("", emptyHint(&model));
 }
 
 test "hydrate name from SKILL.md frontmatter in a temp project" {
