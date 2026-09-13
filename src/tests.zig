@@ -28715,8 +28715,8 @@ test "Settings Providers Skills Usage Refresh follow Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"refresh_skills\">Refresh</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"refresh_providers\">Refresh</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"refresh_usage_history\">Refresh</button>"));
-    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"refresh_plan_usage\">Refresh</button>"));
-    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"goal_refresh\">Refresh goal</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"refresh_plan_usage\">Refresh</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"goal_refresh\">Refresh goal</button>"));
 
     var model = main.initialModel();
     try testing.expectEqualStrings("Refresh", model.settings_refresh_label());
@@ -28786,6 +28786,106 @@ test "Settings Providers Skills Usage Refresh follow Appearance language" {
     tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "更新", .refresh_providers);
     try testing.expect(findByText(tree.root, .button, "Refresh") == null);
+}
+
+test "composer Refresh goal and plan Refresh follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{refresh_goal_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{plan_refresh_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"goal_refresh\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"refresh_plan_usage\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"goal_refresh\">Refresh goal</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"refresh_plan_usage\">Refresh</button>"));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Refresh goal", model.refresh_goal_label());
+    try testing.expectEqualStrings("Refresh", model.plan_refresh_label());
+    try testing.expectEqualStrings(i18n.goalPlanRefreshChromeFor(.english, "").refresh_goal, model.refresh_goal_label());
+    try testing.expectEqualStrings(i18n.goalPlanRefreshChromeFor(.english, "").plan_refresh, model.plan_refresh_label());
+
+    const claude_id = model.session_store[1].id;
+    try testing.expectEqual(protocol.ProviderId.claude, model.sessionById(claude_id).?.provider);
+    main.update(&model, .{ .select = claude_id }, &fx);
+    try testing.expectEqual(claude_id, model.selected);
+    model.usage_meter_open = true;
+    try testing.expect(model.usage_meter_plan_visible());
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    if (model.sessionById(claude_id)) |session| session.setThreadGoal("Ship the feature", "active");
+    try testing.expect(model.show_goal());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Refresh", .refresh_plan_usage);
+    _ = try expectButtonMsg(tree, "Refresh goal", .goal_refresh);
+    _ = try expectButtonMsg(tree, "Set goal", .goal_set);
+    _ = try expectButtonMsg(tree, "Clear goal", .goal_clear);
+    try testing.expect(findByText(tree.root, .button, "刷新") == null);
+    try testing.expect(findByText(tree.root, .button, "刷新目标") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("刷新目标", model.refresh_goal_label());
+    try testing.expectEqualStrings("刷新", model.plan_refresh_label());
+    try testing.expectEqualStrings(i18n.goalPlanRefreshChromeFor(.simplified_chinese, "").refresh_goal, model.refresh_goal_label());
+    try testing.expectEqualStrings(i18n.goalPlanRefreshChromeFor(.simplified_chinese, "").plan_refresh, model.plan_refresh_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "刷新", .refresh_plan_usage);
+    _ = try expectButtonMsg(tree, "刷新目标", .goal_refresh);
+    _ = try expectButtonMsg(tree, "Set goal", .goal_set);
+    _ = try expectButtonMsg(tree, "Clear goal", .goal_clear);
+    try testing.expect(findByText(tree.root, .button, "Refresh") == null);
+    try testing.expect(findByText(tree.root, .button, "Refresh goal") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("目標を更新", model.refresh_goal_label());
+    try testing.expectEqualStrings("更新", model.plan_refresh_label());
+    try testing.expectEqualStrings(i18n.goalPlanRefreshChromeFor(.japanese, "").refresh_goal, model.refresh_goal_label());
+    try testing.expectEqualStrings(i18n.goalPlanRefreshChromeFor(.japanese, "").plan_refresh, model.plan_refresh_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "更新", .refresh_plan_usage);
+    _ = try expectButtonMsg(tree, "目標を更新", .goal_refresh);
+    _ = try expectButtonMsg(tree, "Set goal", .goal_set);
+    _ = try expectButtonMsg(tree, "Clear goal", .goal_clear);
+    try testing.expect(findByText(tree.root, .button, "Refresh") == null);
+    try testing.expect(findByText(tree.root, .button, "Refresh goal") == null);
+    try testing.expect(findByText(tree.root, .button, "刷新") == null);
+    try testing.expect(findByText(tree.root, .button, "刷新目标") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Refresh goal", model.refresh_goal_label());
+    try testing.expectEqualStrings("Refresh", model.plan_refresh_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Refresh", .refresh_plan_usage);
+    _ = try expectButtonMsg(tree, "Refresh goal", .goal_refresh);
+    try testing.expect(findByText(tree.root, .button, "更新") == null);
+    try testing.expect(findByText(tree.root, .button, "目標を更新") == null);
+    try testing.expect(findByText(tree.root, .button, "刷新") == null);
+    try testing.expect(findByText(tree.root, .button, "刷新目标") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("刷新目标", model.refresh_goal_label());
+    try testing.expectEqualStrings("刷新", model.plan_refresh_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "刷新", .refresh_plan_usage);
+    _ = try expectButtonMsg(tree, "刷新目标", .goal_refresh);
+    try testing.expect(findByText(tree.root, .button, "Refresh") == null);
+    try testing.expect(findByText(tree.root, .button, "Refresh goal") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("目標を更新", model.refresh_goal_label());
+    try testing.expectEqualStrings("更新", model.plan_refresh_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "更新", .refresh_plan_usage);
+    _ = try expectButtonMsg(tree, "目標を更新", .goal_refresh);
+    try testing.expect(findByText(tree.root, .button, "Refresh") == null);
+    try testing.expect(findByText(tree.root, .button, "Refresh goal") == null);
 }
 
 test "DateBucket.title english default; zh and ja follow datesFor" {

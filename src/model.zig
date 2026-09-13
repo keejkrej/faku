@@ -2115,6 +2115,7 @@ pub const Model = struct {
         "terminalRestartChrome",
         "usageViewChrome",
         "settingsRefreshChrome",
+        "goalPlanRefreshChrome",
         "palette_action_label",
         "show_right_panel_label",
         "sidebarDates",
@@ -4648,9 +4649,23 @@ pub const Model = struct {
     /// shared by all three Settings pages. `on-press` stays
     /// `refresh_providers` / `refresh_skills` /
     /// `refresh_usage_history`. Distinct from Refresh goal /
-    /// plan Refresh (English this cut).
+    /// plan Refresh (`refresh_goal_label` / `plan_refresh_label`).
     pub fn settings_refresh_label(model: *const Model) []const u8 {
         return model.settingsRefreshChrome().refresh;
+    }
+
+    /// Composer goal-row Refresh goal. `on-press` stays
+    /// `goal_refresh`. Distinct from Settings Refresh and from
+    /// plan-meter Refresh.
+    pub fn refresh_goal_label(model: *const Model) []const u8 {
+        return model.goalPlanRefreshChrome().refresh_goal;
+    }
+
+    /// Composer usage-meter plan Refresh. `on-press` stays
+    /// `refresh_plan_usage`. Distinct from Settings Refresh so the
+    /// short verb stays independently evolvable.
+    pub fn plan_refresh_label(model: *const Model) []const u8 {
+        return model.goalPlanRefreshChrome().plan_refresh;
     }
 
     /// Settings Computer Use page title. Wording matches
@@ -4884,6 +4899,10 @@ pub const Model = struct {
 
     fn settingsRefreshChrome(model: *const Model) i18n.SettingsRefreshChrome {
         return i18n.settingsRefreshChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn goalPlanRefreshChrome(model: *const Model) i18n.GoalPlanRefreshChrome {
+        return i18n.goalPlanRefreshChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Palette row display label for `action`. New Task / Settings /

@@ -87,6 +87,10 @@
 //! plus Settings Providers / Skills / Usage Refresh (same
 //! `SettingsRefreshChrome` strings; one Refresh field shared by all
 //! three Settings pages; wire ids / on-press stay English)
+//! plus composer Refresh goal / plan Refresh (same
+//! `GoalPlanRefreshChrome` strings; distinct from Settings Refresh
+//! so the plan-meter short verb and Refresh goal stay independently
+//! evolvable; wire ids / on-press stay English)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -174,8 +178,8 @@
 //! `set_usage_window_this_month` / `set_usage_window_last_month`).
 //! Settings Providers / Skills / Usage Refresh `on-press` stay
 //! English (`refresh_providers` / `refresh_skills` /
-//! `refresh_usage_history`). Refresh goal / plan Refresh stay
-//! English this cut.
+//! `refresh_usage_history`). Refresh goal / plan Refresh `on-press`
+//! stay English (`goal_refresh` / `refresh_plan_usage`).
 //! Typed URL text
 //! stays data. Parked `home_url`
 //! / scene URLs stay data. OS
@@ -1931,8 +1935,7 @@ const usage_view_chrome_ja: UsageViewChrome = .{
 /// Same resolve path as UsageViewChrome. English matches the former
 /// hardcoded copy. One Refresh field is shared by all three Settings
 /// pages so Providers / Skills / Usage stay one chrome table. Distinct
-/// from Refresh goal (`goal_refresh`) and plan Refresh
-/// (`refresh_plan_usage`), which stay English this cut, and from
+/// from Refresh goal / plan Refresh (`GoalPlanRefreshChrome`) and from
 /// Browser toolbar Reload (`BrowserToolbarChrome.reload`). Wire ids /
 /// on-press stay English (`refresh_providers` / `refresh_skills` /
 /// `refresh_usage_history`).
@@ -1950,6 +1953,35 @@ const settings_refresh_chrome_zh_cn: SettingsRefreshChrome = .{
 
 const settings_refresh_chrome_ja: SettingsRefreshChrome = .{
     .refresh = "更新",
+};
+
+/// Composer Refresh goal and plan-meter Refresh for the resolved
+/// locale. Same resolve path as SettingsRefreshChrome. English matches
+/// the former hardcoded copy. Distinct from Settings Refresh
+/// (`SettingsRefreshChrome.refresh`) so the plan-meter short verb
+/// and Refresh goal stay independently evolvable (same pattern as
+/// TerminalRestartChrome vs BrowserToolbarChrome.reload). The plan
+/// meter may share the short Refresh verb with Settings in English /
+/// zh-CN / ja, but the field stays here. Wire ids / on-press stay
+/// English (`goal_refresh` / `refresh_plan_usage`).
+pub const GoalPlanRefreshChrome = struct {
+    refresh_goal: []const u8,
+    plan_refresh: []const u8,
+};
+
+const goal_plan_refresh_chrome_en: GoalPlanRefreshChrome = .{
+    .refresh_goal = "Refresh goal",
+    .plan_refresh = "Refresh",
+};
+
+const goal_plan_refresh_chrome_zh_cn: GoalPlanRefreshChrome = .{
+    .refresh_goal = "刷新目标",
+    .plan_refresh = "刷新",
+};
+
+const goal_plan_refresh_chrome_ja: GoalPlanRefreshChrome = .{
+    .refresh_goal = "目標を更新",
+    .plan_refresh = "更新",
 };
 
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
@@ -2435,13 +2467,26 @@ pub fn usageViewChromeFor(preference: LanguagePreference, system_locale_id: []co
 /// Callers pass Model `language_preference` + `system_locale_id`;
 /// this file does not read process env. One Refresh field is shared
 /// by all three Settings pages. Wire ids / on-press stay English.
-/// Distinct from Refresh goal / plan Refresh (English this cut) and
-/// from Browser toolbar Reload.
+/// Distinct from Refresh goal / plan Refresh
+/// (`goalPlanRefreshChromeFor`) and from Browser toolbar Reload.
 pub fn settingsRefreshChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SettingsRefreshChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => settings_refresh_chrome_zh_cn,
         .japanese => settings_refresh_chrome_ja,
         .system, .english => settings_refresh_chrome_en,
+    };
+}
+
+/// Composer Refresh goal and plan-meter Refresh for the resolved
+/// locale. Callers pass Model `language_preference` + `system_locale_id`;
+/// this file does not read process env. Distinct from Settings Refresh
+/// so the plan-meter short verb and Refresh goal stay independently
+/// evolvable. Wire ids / on-press stay English.
+pub fn goalPlanRefreshChromeFor(preference: LanguagePreference, system_locale_id: []const u8) GoalPlanRefreshChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => goal_plan_refresh_chrome_zh_cn,
+        .japanese => goal_plan_refresh_chrome_ja,
+        .system, .english => goal_plan_refresh_chrome_en,
     };
 }
 
@@ -3927,5 +3972,29 @@ test "settingsRefreshChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("更新", settingsRefreshChromeFor(.system, "ja_JP.UTF-8").refresh);
     try testing.expectEqualStrings("Refresh", settingsRefreshChromeFor(.english, "ja_JP.UTF-8").refresh);
     try testing.expectEqualStrings("Refresh", settingsRefreshChromeFor(.english, "zh_CN.UTF-8").refresh);
+}
+
+test "goalPlanRefreshChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Refresh goal", goalPlanRefreshChromeFor(.english, "ja").refresh_goal);
+    try testing.expectEqualStrings("Refresh", goalPlanRefreshChromeFor(.english, "ja").plan_refresh);
+    try testing.expectEqualStrings("Refresh goal", goalPlanRefreshChromeFor(.english, "").refresh_goal);
+    try testing.expectEqualStrings("Refresh", goalPlanRefreshChromeFor(.english, "").plan_refresh);
+    try testing.expectEqualStrings("Refresh goal", goalPlanRefreshChromeFor(.system, "").refresh_goal);
+    try testing.expectEqualStrings("Refresh", goalPlanRefreshChromeFor(.system, "").plan_refresh);
+
+    try testing.expectEqualStrings("刷新目标", goalPlanRefreshChromeFor(.simplified_chinese, "").refresh_goal);
+    try testing.expectEqualStrings("刷新", goalPlanRefreshChromeFor(.simplified_chinese, "").plan_refresh);
+    try testing.expectEqualStrings("目標を更新", goalPlanRefreshChromeFor(.japanese, "").refresh_goal);
+    try testing.expectEqualStrings("更新", goalPlanRefreshChromeFor(.japanese, "").plan_refresh);
+
+    try testing.expectEqualStrings("刷新目标", goalPlanRefreshChromeFor(.system, "zh_CN.UTF-8").refresh_goal);
+    try testing.expectEqualStrings("刷新", goalPlanRefreshChromeFor(.system, "zh_CN.UTF-8").plan_refresh);
+    try testing.expectEqualStrings("目標を更新", goalPlanRefreshChromeFor(.system, "ja_JP.UTF-8").refresh_goal);
+    try testing.expectEqualStrings("更新", goalPlanRefreshChromeFor(.system, "ja_JP.UTF-8").plan_refresh);
+    try testing.expectEqualStrings("Refresh goal", goalPlanRefreshChromeFor(.english, "ja_JP.UTF-8").refresh_goal);
+    try testing.expectEqualStrings("Refresh", goalPlanRefreshChromeFor(.english, "ja_JP.UTF-8").plan_refresh);
+    try testing.expectEqualStrings("Refresh goal", goalPlanRefreshChromeFor(.english, "zh_CN.UTF-8").refresh_goal);
+    try testing.expectEqualStrings("Refresh", goalPlanRefreshChromeFor(.english, "zh_CN.UTF-8").plan_refresh);
 }
 
