@@ -93,6 +93,10 @@
 //! `GoalPlanRefreshChrome` strings; distinct from Settings Refresh
 //! so the plan-meter short verb and Refresh goal stay independently
 //! evolvable; wire ids / on-press stay English)
+//! plus composer Set goal / Clear goal (same
+//! `GoalActionChrome` strings; distinct from Refresh goal /
+//! plan Refresh so the set/clear verbs stay independently
+//! evolvable; wire ids / on-press stay English)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -184,7 +188,8 @@
 //! Settings Providers / Skills / Usage Refresh `on-press` stay
 //! English (`refresh_providers` / `refresh_skills` /
 //! `refresh_usage_history`). Refresh goal / plan Refresh `on-press`
-//! stay English (`goal_refresh` / `refresh_plan_usage`).
+//! stay English (`goal_refresh` / `refresh_plan_usage`). Set goal /
+//! Clear goal `on-press` stay English (`goal_set` / `goal_clear`).
 //! Typed URL text
 //! stays data. Parked `home_url`
 //! / scene URLs stay data. OS
@@ -2008,6 +2013,32 @@ const goal_plan_refresh_chrome_ja: GoalPlanRefreshChrome = .{
     .plan_refresh = "更新",
 };
 
+/// Composer Set goal and Clear goal for the resolved locale. Same
+/// resolve path as GoalPlanRefreshChrome. English matches the former
+/// hardcoded copy. Distinct from Refresh goal / plan Refresh
+/// (`GoalPlanRefreshChrome`) so the set/clear verbs stay independently
+/// evolvable. Wire ids / on-press stay English (`goal_set` /
+/// `goal_clear`).
+pub const GoalActionChrome = struct {
+    set_goal: []const u8,
+    clear_goal: []const u8,
+};
+
+const goal_action_chrome_en: GoalActionChrome = .{
+    .set_goal = "Set goal",
+    .clear_goal = "Clear goal",
+};
+
+const goal_action_chrome_zh_cn: GoalActionChrome = .{
+    .set_goal = "设置目标",
+    .clear_goal = "清除目标",
+};
+
+const goal_action_chrome_ja: GoalActionChrome = .{
+    .set_goal = "目標を設定",
+    .clear_goal = "目標をクリア",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -2512,6 +2543,19 @@ pub fn goalPlanRefreshChromeFor(preference: LanguagePreference, system_locale_id
         .simplified_chinese => goal_plan_refresh_chrome_zh_cn,
         .japanese => goal_plan_refresh_chrome_ja,
         .system, .english => goal_plan_refresh_chrome_en,
+    };
+}
+
+/// Composer Set goal and Clear goal for the resolved locale.
+/// Callers pass Model `language_preference` + `system_locale_id`;
+/// this file does not read process env. Distinct from Refresh goal /
+/// plan Refresh so the set/clear verbs stay independently evolvable.
+/// Wire ids / on-press stay English.
+pub fn goalActionChromeFor(preference: LanguagePreference, system_locale_id: []const u8) GoalActionChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => goal_action_chrome_zh_cn,
+        .japanese => goal_action_chrome_ja,
+        .system, .english => goal_action_chrome_en,
     };
 }
 
@@ -4041,5 +4085,29 @@ test "goalPlanRefreshChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("Refresh", goalPlanRefreshChromeFor(.english, "ja_JP.UTF-8").plan_refresh);
     try testing.expectEqualStrings("Refresh goal", goalPlanRefreshChromeFor(.english, "zh_CN.UTF-8").refresh_goal);
     try testing.expectEqualStrings("Refresh", goalPlanRefreshChromeFor(.english, "zh_CN.UTF-8").plan_refresh);
+}
+
+test "goalActionChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Set goal", goalActionChromeFor(.english, "ja").set_goal);
+    try testing.expectEqualStrings("Clear goal", goalActionChromeFor(.english, "ja").clear_goal);
+    try testing.expectEqualStrings("Set goal", goalActionChromeFor(.english, "").set_goal);
+    try testing.expectEqualStrings("Clear goal", goalActionChromeFor(.english, "").clear_goal);
+    try testing.expectEqualStrings("Set goal", goalActionChromeFor(.system, "").set_goal);
+    try testing.expectEqualStrings("Clear goal", goalActionChromeFor(.system, "").clear_goal);
+
+    try testing.expectEqualStrings("设置目标", goalActionChromeFor(.simplified_chinese, "").set_goal);
+    try testing.expectEqualStrings("清除目标", goalActionChromeFor(.simplified_chinese, "").clear_goal);
+    try testing.expectEqualStrings("目標を設定", goalActionChromeFor(.japanese, "").set_goal);
+    try testing.expectEqualStrings("目標をクリア", goalActionChromeFor(.japanese, "").clear_goal);
+
+    try testing.expectEqualStrings("设置目标", goalActionChromeFor(.system, "zh_CN.UTF-8").set_goal);
+    try testing.expectEqualStrings("清除目标", goalActionChromeFor(.system, "zh_CN.UTF-8").clear_goal);
+    try testing.expectEqualStrings("目標を設定", goalActionChromeFor(.system, "ja_JP.UTF-8").set_goal);
+    try testing.expectEqualStrings("目標をクリア", goalActionChromeFor(.system, "ja_JP.UTF-8").clear_goal);
+    try testing.expectEqualStrings("Set goal", goalActionChromeFor(.english, "ja_JP.UTF-8").set_goal);
+    try testing.expectEqualStrings("Clear goal", goalActionChromeFor(.english, "ja_JP.UTF-8").clear_goal);
+    try testing.expectEqualStrings("Set goal", goalActionChromeFor(.english, "zh_CN.UTF-8").set_goal);
+    try testing.expectEqualStrings("Clear goal", goalActionChromeFor(.english, "zh_CN.UTF-8").clear_goal);
 }
 

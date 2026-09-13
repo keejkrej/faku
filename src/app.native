@@ -1112,8 +1112,8 @@
                     </dropdown-menu>
                   </if>
                 </stack>
-                <button variant="ghost" size="sm" on-press="goal_set">Set goal</button>
-                <button variant="ghost" size="sm" on-press="goal_clear">Clear goal</button>
+                <button variant="ghost" size="sm" on-press="goal_set">{set_goal_label}</button>
+                <button variant="ghost" size="sm" on-press="goal_clear">{clear_goal_label}</button>
                 <button variant="ghost" size="sm" on-press="goal_refresh">{refresh_goal_label}</button>
               </row>
             </if>

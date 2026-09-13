@@ -2116,6 +2116,7 @@ pub const Model = struct {
         "usageViewChrome",
         "settingsRefreshChrome",
         "goalPlanRefreshChrome",
+        "goalActionChrome",
         "palette_action_label",
         "show_right_panel_label",
         "sidebarDates",
@@ -4668,6 +4669,20 @@ pub const Model = struct {
         return model.goalPlanRefreshChrome().plan_refresh;
     }
 
+    /// Composer goal-row Set goal. `on-press` stays `goal_set`.
+    /// Distinct from Refresh goal so the set verb stays independently
+    /// evolvable.
+    pub fn set_goal_label(model: *const Model) []const u8 {
+        return model.goalActionChrome().set_goal;
+    }
+
+    /// Composer goal-row Clear goal. `on-press` stays `goal_clear`.
+    /// Distinct from Refresh goal so the clear verb stays independently
+    /// evolvable.
+    pub fn clear_goal_label(model: *const Model) []const u8 {
+        return model.goalActionChrome().clear_goal;
+    }
+
     /// Settings Computer Use page title. Wording matches
     /// `settings_nav_computer_use` but stays a dedicated getter so the
     /// page title does not couple to Settings nav.
@@ -4903,6 +4918,10 @@ pub const Model = struct {
 
     fn goalPlanRefreshChrome(model: *const Model) i18n.GoalPlanRefreshChrome {
         return i18n.goalPlanRefreshChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn goalActionChrome(model: *const Model) i18n.GoalActionChrome {
+        return i18n.goalActionChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Palette row display label for `action`. New Task / Settings /
