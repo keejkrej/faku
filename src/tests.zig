@@ -27954,6 +27954,101 @@ test "Composer Pick image and Attach image chrome follow Appearance language" {
     _ = try expectButtonMsg(tree, "画像を選択", .pick_image);
 }
 
+test "Composer Clear image and Attached image chrome follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{clear_image_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{attached_image_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"clear_image_attach\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Clear image\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Attached image\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Clear image\" on-press=\"clear_image_attach\""));
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/clear-attach.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+
+    var model = main.initialModel();
+    model.store_io = testing.io;
+    try testing.expectEqualStrings("Clear image", model.clear_image_label());
+    try testing.expectEqualStrings("Attached image", model.attached_image_label());
+    try testing.expectEqualStrings(i18n.composerChromeFor(.english, "").clear_image, model.clear_image_label());
+    try testing.expectEqualStrings(i18n.composerChromeFor(.english, "").attached_image, model.attached_image_label());
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Clear image") == null);
+    try testing.expect(findByText(tree.root, .image, "Attached image") == null);
+
+    main.update(&model, .start_image_attach, &fx);
+    main.update(&model, .{ .image_path_edit = .{ .insert_text = image } }, &fx);
+    try testing.expect(model.has_image_attach());
+    try testing.expect(model.has_image_preview());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Clear image", .clear_image_attach);
+    _ = try expectByText(tree.root, .image, "Attached image");
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("清除图片", model.clear_image_label());
+    try testing.expectEqualStrings("已附加图片", model.attached_image_label());
+    try testing.expectEqualStrings(i18n.composerChromeFor(.simplified_chinese, "").clear_image, model.clear_image_label());
+    try testing.expectEqualStrings(i18n.composerChromeFor(.simplified_chinese, "").attached_image, model.attached_image_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "清除图片", .clear_image_attach);
+    _ = try expectByText(tree.root, .image, "已附加图片");
+    try testing.expect(findByText(tree.root, .button, "Clear image") == null);
+    try testing.expect(findByText(tree.root, .image, "Attached image") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("画像をクリア", model.clear_image_label());
+    try testing.expectEqualStrings("添付画像", model.attached_image_label());
+    try testing.expectEqualStrings(i18n.composerChromeFor(.japanese, "").clear_image, model.clear_image_label());
+    try testing.expectEqualStrings(i18n.composerChromeFor(.japanese, "").attached_image, model.attached_image_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "画像をクリア", .clear_image_attach);
+    _ = try expectByText(tree.root, .image, "添付画像");
+    try testing.expect(findByText(tree.root, .button, "清除图片") == null);
+    try testing.expect(findByText(tree.root, .image, "已附加图片") == null);
+    try testing.expect(findByText(tree.root, .button, "Clear image") == null);
+    try testing.expect(findByText(tree.root, .image, "Attached image") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Clear image", model.clear_image_label());
+    try testing.expectEqualStrings("Attached image", model.attached_image_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Clear image", .clear_image_attach);
+    _ = try expectByText(tree.root, .image, "Attached image");
+    try testing.expect(findByText(tree.root, .button, "画像をクリア") == null);
+    try testing.expect(findByText(tree.root, .image, "添付画像") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("清除图片", model.clear_image_label());
+    try testing.expectEqualStrings("已附加图片", model.attached_image_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "清除图片", .clear_image_attach);
+    _ = try expectByText(tree.root, .image, "已附加图片");
+    try testing.expect(findByText(tree.root, .button, "Clear image") == null);
+    try testing.expect(findByText(tree.root, .image, "Attached image") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("画像をクリア", model.clear_image_label());
+    try testing.expectEqualStrings("添付画像", model.attached_image_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "画像をクリア", .clear_image_attach);
+    _ = try expectByText(tree.root, .image, "添付画像");
+    try testing.expect(findByText(tree.root, .button, "Clear image") == null);
+    try testing.expect(findByText(tree.root, .image, "Attached image") == null);
+}
+
 test "Composer Commands chip chrome follows Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

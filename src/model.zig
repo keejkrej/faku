@@ -6815,6 +6815,18 @@ pub const Model = struct {
         return model.composerChrome().attach_image;
     }
 
+    /// Composer Clear image icon-button a11y. `on-press` stays
+    /// `clear_image_attach`. Distinct from Attach image a11y.
+    pub fn clear_image_label(model: *const Model) []const u8 {
+        return model.composerChrome().clear_image;
+    }
+
+    /// Composer attached-image preview a11y. Distinct from Attach
+    /// image / Clear image a11y. Path chip text stays data.
+    pub fn attached_image_label(model: *const Model) []const u8 {
+        return model.composerChrome().attached_image;
+    }
+
     /// Composer Commands toggle chip. `on-press` stays
     /// `toggle_commands`. Distinct from palette overlay Commands
     /// (`i18n.PaletteChrome.commands`); wording matches that header.
