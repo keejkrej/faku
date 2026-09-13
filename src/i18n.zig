@@ -125,11 +125,11 @@
 //! names, binary paths, install/login commands, and on-press ids
 //! stay English)
 //! plus Settings Providers detail transport notes /
-//! fx_login_note / fx_login_codex_note / other_install_hint (same
-//! `ProvidersDetailChrome` strings; distinct from `ProvidersChrome`
-//! so status / Enable / Apply stay independently evolvable; wire
-//! names / binary paths / install/login commands stay English;
-//! `Binary:` / `Path:` prefixes in detailText stay English this cut)
+//! fx_login_note / fx_login_codex_note / other_install_hint and
+//! `Binary:` / `Path:` prefixes (same `ProvidersDetailChrome`
+//! strings; distinct from `ProvidersChrome` so status / Enable /
+//! Apply stay independently evolvable; wire names / binary paths /
+//! install/login commands stay English)
 //! plus Settings Skills empty-state Open a project / No skills
 //! found (same `SkillsEmptyChrome` strings; distinct from
 //! FilterChrome / RightPanelChrome so Skills empty stays
@@ -2304,8 +2304,8 @@ const usage_meter_chrome_ja: UsageMeterChrome = .{
 /// Off so Providers Enable/Disable stay independently evolvable.
 /// Provider wire names, binary paths, install/login *commands*, and
 /// on-press ids stay English. Longer detail transport notes /
-/// `fx_login_note` / `other_install_hint` live in
-/// `ProvidersDetailChrome`.
+/// `fx_login_note` / `other_install_hint` and `Binary:` / `Path:`
+/// prefixes live in `ProvidersDetailChrome`.
 pub const ProvidersChrome = struct {
     available: []const u8,
     not_found: []const u8,
@@ -2351,12 +2351,13 @@ const providers_chrome_ja: ProvidersChrome = .{
 };
 
 /// Settings Providers muted detail transport notes, fx login notes,
-/// and other-CLI PATH hint for the resolved locale. Same resolve path
-/// as ProvidersChrome. English matches the former hardcoded copy.
-/// Distinct from ProvidersChrome so status / Enable / Apply /
-/// Copy / First-party stay independently evolvable. CLI flags, wire
-/// names, binary paths, and install/login *commands* stay English.
-/// `Binary:` / `Path:` prefixes in `detailText` stay English this cut.
+/// other-CLI PATH hint, and `Binary:` / `Path:` prefixes for the
+/// resolved locale. Same resolve path as ProvidersChrome. English
+/// matches the former hardcoded copy. Distinct from ProvidersChrome
+/// so status / Enable / Apply / Copy / First-party stay independently
+/// evolvable. CLI flags, wire names, binary paths, and install/login
+/// *commands* stay English. Prefix values keep the trailing colon; the
+/// space after the colon stays in the `detailText` format string.
 pub const ProvidersDetailChrome = struct {
     catalog_detail_note: []const u8,
     fx_transport_note: []const u8,
@@ -2369,6 +2370,8 @@ pub const ProvidersDetailChrome = struct {
     fx_login_note: []const u8,
     fx_login_codex_note: []const u8,
     other_install_hint: []const u8,
+    binary_prefix: []const u8,
+    path_prefix: []const u8,
 };
 
 const providers_detail_chrome_en: ProvidersDetailChrome = .{
@@ -2383,6 +2386,8 @@ const providers_detail_chrome_en: ProvidersDetailChrome = .{
     .fx_login_note = "Faku does not detect auth state from the --help probe. Copy is a convenience, not sign-in UI or OAuth.",
     .fx_login_codex_note = "Optional: fx login grok / fx login codex (no Gateway required).",
     .other_install_hint = "Install that CLI on PATH, then Refresh.",
+    .binary_prefix = "Binary:",
+    .path_prefix = "Path:",
 };
 
 const providers_detail_chrome_zh_cn: ProvidersDetailChrome = .{
@@ -2397,6 +2402,8 @@ const providers_detail_chrome_zh_cn: ProvidersDetailChrome = .{
     .fx_login_note = "Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。",
     .fx_login_codex_note = "可选：fx login grok / fx login codex（无需 Gateway）。",
     .other_install_hint = "将该 CLI 安装到 PATH，然后刷新。",
+    .binary_prefix = "二进制:",
+    .path_prefix = "路径:",
 };
 
 const providers_detail_chrome_ja: ProvidersDetailChrome = .{
@@ -2411,6 +2418,8 @@ const providers_detail_chrome_ja: ProvidersDetailChrome = .{
     .fx_login_note = "Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。",
     .fx_login_codex_note = "任意: fx login grok / fx login codex（Gateway は不要）。",
     .other_install_hint = "その CLI を PATH にインストールしてから更新してください。",
+    .binary_prefix = "バイナリ:",
+    .path_prefix = "パス:",
 };
 
 /// Settings Skills empty-state Open a project / No skills found for
@@ -3025,7 +3034,8 @@ pub fn usageMeterChromeFor(preference: LanguagePreference, system_locale_id: []c
 /// not read process env. Distinct from ComputerUseChrome so Enable /
 /// Off stay independently evolvable. Provider wire names, binary
 /// paths, install/login commands, and on-press stay English. Longer
-/// detail notes live in `providersDetailChromeFor`.
+/// detail notes and `Binary:` / `Path:` prefixes live in
+/// `providersDetailChromeFor`.
 pub fn providersChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ProvidersChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => providers_chrome_zh_cn,
@@ -3035,12 +3045,12 @@ pub fn providersChromeFor(preference: LanguagePreference, system_locale_id: []co
 }
 
 /// Settings Providers muted detail transport notes, fx login
-/// notes, and other-CLI PATH hint for the resolved locale. Callers
-/// pass Model `language_preference` + `system_locale_id`; this file
-/// does not read process env. Distinct from ProvidersChrome so status
-/// / Enable / Apply stay independently evolvable. CLI flags, wire
-/// names, binary paths, and install/login commands stay English.
-/// `Binary:` / `Path:` prefixes stay English this cut.
+/// notes, other-CLI PATH hint, and `Binary:` / `Path:` prefixes for
+/// the resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from ProvidersChrome so status / Enable / Apply stay independently
+/// evolvable. CLI flags, wire names, binary paths, and install/login
+/// commands stay English.
 pub fn providersDetailChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ProvidersDetailChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => providers_detail_chrome_zh_cn,
@@ -4898,6 +4908,8 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
         "Install that CLI on PATH, then Refresh.",
         providersDetailChromeFor(.english, "").other_install_hint,
     );
+    try testing.expectEqualStrings("Binary:", providersDetailChromeFor(.english, "ja").binary_prefix);
+    try testing.expectEqualStrings("Path:", providersDetailChromeFor(.english, "").path_prefix);
     try testing.expectEqualStrings(
         "Live path is one-shot fx acp via acp-proxy.",
         providersDetailChromeFor(.system, "").fx_transport_note,
@@ -4906,6 +4918,8 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
         "Install that CLI on PATH, then Refresh.",
         providersDetailChromeFor(.system, "").other_install_hint,
     );
+    try testing.expectEqualStrings("Binary:", providersDetailChromeFor(.system, "").binary_prefix);
+    try testing.expectEqualStrings("Path:", providersDetailChromeFor(.system, "").path_prefix);
 
     try testing.expectEqualStrings("状态来自 PATH --help 探测。本轮 Send 仍为演示。", providersDetailChromeFor(.simplified_chinese, "").catalog_detail_note);
     try testing.expectEqualStrings("实际路径是通过 acp-proxy 的一次性 fx acp。", providersDetailChromeFor(.simplified_chinese, "").fx_transport_note);
@@ -4918,6 +4932,8 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。", providersDetailChromeFor(.simplified_chinese, "").fx_login_note);
     try testing.expectEqualStrings("可选：fx login grok / fx login codex（无需 Gateway）。", providersDetailChromeFor(.simplified_chinese, "").fx_login_codex_note);
     try testing.expectEqualStrings("将该 CLI 安装到 PATH，然后刷新。", providersDetailChromeFor(.simplified_chinese, "").other_install_hint);
+    try testing.expectEqualStrings("二进制:", providersDetailChromeFor(.simplified_chinese, "").binary_prefix);
+    try testing.expectEqualStrings("路径:", providersDetailChromeFor(.simplified_chinese, "").path_prefix);
 
     try testing.expectEqualStrings("状態は PATH --help のプローブです。現状の Send はデモのままです。", providersDetailChromeFor(.japanese, "").catalog_detail_note);
     try testing.expectEqualStrings("実経路は acp-proxy 経由のワンショット fx acp です。", providersDetailChromeFor(.japanese, "").fx_transport_note);
@@ -4930,17 +4946,25 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。", providersDetailChromeFor(.japanese, "").fx_login_note);
     try testing.expectEqualStrings("任意: fx login grok / fx login codex（Gateway は不要）。", providersDetailChromeFor(.japanese, "").fx_login_codex_note);
     try testing.expectEqualStrings("その CLI を PATH にインストールしてから更新してください。", providersDetailChromeFor(.japanese, "").other_install_hint);
+    try testing.expectEqualStrings("バイナリ:", providersDetailChromeFor(.japanese, "").binary_prefix);
+    try testing.expectEqualStrings("パス:", providersDetailChromeFor(.japanese, "").path_prefix);
 
     try testing.expectEqualStrings("实际路径是通过 acp-proxy 的一次性 fx acp。", providersDetailChromeFor(.system, "zh_CN.UTF-8").fx_transport_note);
     try testing.expectEqualStrings("将该 CLI 安装到 PATH，然后刷新。", providersDetailChromeFor(.system, "zh_CN.UTF-8").other_install_hint);
     try testing.expectEqualStrings("Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。", providersDetailChromeFor(.system, "zh_CN.UTF-8").fx_login_note);
+    try testing.expectEqualStrings("二进制:", providersDetailChromeFor(.system, "zh_CN.UTF-8").binary_prefix);
+    try testing.expectEqualStrings("路径:", providersDetailChromeFor(.system, "zh_CN.UTF-8").path_prefix);
     try testing.expectEqualStrings("実経路は acp-proxy 経由のワンショット fx acp です。", providersDetailChromeFor(.system, "ja_JP.UTF-8").fx_transport_note);
     try testing.expectEqualStrings("その CLI を PATH にインストールしてから更新してください。", providersDetailChromeFor(.system, "ja_JP.UTF-8").other_install_hint);
     try testing.expectEqualStrings("Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。", providersDetailChromeFor(.system, "ja_JP.UTF-8").fx_login_note);
+    try testing.expectEqualStrings("バイナリ:", providersDetailChromeFor(.system, "ja_JP.UTF-8").binary_prefix);
+    try testing.expectEqualStrings("パス:", providersDetailChromeFor(.system, "ja_JP.UTF-8").path_prefix);
     try testing.expectEqualStrings("Live path is one-shot fx acp via acp-proxy.", providersDetailChromeFor(.english, "ja_JP.UTF-8").fx_transport_note);
     try testing.expectEqualStrings("Install that CLI on PATH, then Refresh.", providersDetailChromeFor(.english, "zh_CN.UTF-8").other_install_hint);
     try testing.expectEqualStrings("Faku does not detect auth state from the --help probe. Copy is a convenience, not sign-in UI or OAuth.", providersDetailChromeFor(.english, "ja_JP.UTF-8").fx_login_note);
     try testing.expectEqualStrings("Optional: fx login grok / fx login codex (no Gateway required).", providersDetailChromeFor(.english, "zh_CN.UTF-8").fx_login_codex_note);
+    try testing.expectEqualStrings("Binary:", providersDetailChromeFor(.english, "ja_JP.UTF-8").binary_prefix);
+    try testing.expectEqualStrings("Path:", providersDetailChromeFor(.english, "zh_CN.UTF-8").path_prefix);
 }
 
 test "skillsEmptyChromeFor english default; zh and ja chrome; english ignores ja LANG" {

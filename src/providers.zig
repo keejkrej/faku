@@ -48,8 +48,8 @@
 //! or OAuth UI. Other missing CLIs get a muted PATH hint only (no
 //! invented install URLs). Status / Enable / Apply / Copy / First-party
 //! follow `i18n.ProvidersChrome`. Detail transport notes, fx login notes,
-//! and the other-CLI PATH hint follow `i18n.ProvidersDetailChrome`.
-//! `Binary:` / `Path:` prefixes stay English this cut. Tests do not
+//! the other-CLI PATH hint, and `Binary:` / `Path:` prefixes follow
+//! `i18n.ProvidersDetailChrome`. Tests do not
 //! need a live daemon or any real CLI install.
 //!
 //! Leftovers: full onboarding / OAuth / auto-install; Pi ACP /
@@ -244,17 +244,20 @@ pub fn detailText(model: *const Model, arena: std.mem.Allocator) []const u8 {
     if (id == .fx) {
         const path = model.fxPath();
         if (model.fx_available and path.len > 0) {
-            return std.fmt.allocPrint(arena, "{s}\n{s}\nBinary: {s}\nPath: {s}\n{s}", .{
+            return std.fmt.allocPrint(arena, "{s}\n{s}\n{s} {s}\n{s} {s}\n{s}", .{
                 id.wireName(),
                 pack.first_party,
+                notes.binary_prefix,
                 id.defaultBinary(),
+                notes.path_prefix,
                 path,
                 notes.fx_transport_note,
             }) catch "";
         }
-        return std.fmt.allocPrint(arena, "{s}\n{s}\nBinary: {s}\n{s}\n{s}", .{
+        return std.fmt.allocPrint(arena, "{s}\n{s}\n{s} {s}\n{s}\n{s}", .{
             id.wireName(),
             pack.first_party,
+            notes.binary_prefix,
             id.defaultBinary(),
             pack.not_found,
             notes.fx_transport_note,
@@ -274,8 +277,9 @@ pub fn detailText(model: *const Model, arena: std.mem.Allocator) []const u8 {
         notes.acp_transport_note
     else
         notes.catalog_detail_note;
-    return std.fmt.allocPrint(arena, "{s}\nBinary: {s}\n{s}\n{s}", .{
+    return std.fmt.allocPrint(arena, "{s}\n{s} {s}\n{s}\n{s}", .{
         id.wireName(),
+        notes.binary_prefix,
         id.defaultBinary(),
         statusFor(model, id),
         note,
@@ -444,6 +448,8 @@ test "selectProvider; detail names binary, fx path, probe status, and one-shot a
     defer if (fx_detail.len > 0) testing.allocator.free(fx_detail);
     try testing.expect(std.mem.indexOf(u8, fx_detail, "fx") != null);
     try testing.expect(std.mem.indexOf(u8, fx_detail, first_party_label) != null);
+    try testing.expect(std.mem.indexOf(u8, fx_detail, "Binary: fx") != null);
+    try testing.expect(std.mem.indexOf(u8, fx_detail, "Path: /home/probe/.local/bin/fx") != null);
     try testing.expect(std.mem.indexOf(u8, fx_detail, "/home/probe/.local/bin/fx") != null);
     try testing.expect(std.mem.indexOf(u8, fx_detail, fx_transport_note) != null);
     try testing.expect(std.mem.indexOf(u8, fx_detail, catalog_detail_note) == null);
@@ -453,6 +459,7 @@ test "selectProvider; detail names binary, fx path, probe status, and one-shot a
     const claude_detail = detailText(&model, testing.allocator);
     defer if (claude_detail.len > 0) testing.allocator.free(claude_detail);
     try testing.expect(std.mem.indexOf(u8, claude_detail, "claude") != null);
+    try testing.expect(std.mem.indexOf(u8, claude_detail, "Binary: claude") != null);
     try testing.expect(std.mem.indexOf(u8, claude_detail, missing_status) != null);
     try testing.expect(std.mem.indexOf(u8, claude_detail, claude_transport_note) != null);
     try testing.expect(std.mem.indexOf(u8, claude_detail, catalog_detail_note) == null);
@@ -999,3 +1006,99 @@ test "statusFor / rowFor english default matches former copy; zh-CN / ja localiz
     try testing.expectEqualStrings("無効", rowFor(&model, .fx).enable_label);
     try testing.expectEqualStrings("ファーストパーティ既定", rowFor(&model, .fx).first_party_label);
 }
+
+test "detailText english default matches former Binary/Path prefixes; zh-CN / ja localize prefixes; english ignores LANG" {
+    const testing = std.testing;
+    var model = Model{};
+    model.fx_available = true;
+    model.setFxPath("/home/probe/.local/bin/fx");
+    selectProvider(&model, rowId(.fx));
+    const en_fx = detailText(&model, testing.allocator);
+    defer if (en_fx.len > 0) testing.allocator.free(en_fx);
+    try testing.expect(std.mem.indexOf(u8, en_fx, "Binary: fx") != null);
+    try testing.expect(std.mem.indexOf(u8, en_fx, "Path: /home/probe/.local/bin/fx") != null);
+    try testing.expect(std.mem.indexOf(u8, en_fx, first_party_label) != null);
+    try testing.expect(std.mem.indexOf(u8, en_fx, fx_transport_note) != null);
+
+    selectProvider(&model, rowId(.claude));
+    const en_claude = detailText(&model, testing.allocator);
+    defer if (en_claude.len > 0) testing.allocator.free(en_claude);
+    try testing.expect(std.mem.indexOf(u8, en_claude, "Binary: claude") != null);
+    try testing.expect(std.mem.indexOf(u8, en_claude, "Path:") == null);
+    try testing.expect(std.mem.indexOf(u8, en_claude, "claude") != null);
+
+    model.fx_available = false;
+    selectProvider(&model, rowId(.fx));
+    const en_fx_missing = detailText(&model, testing.allocator);
+    defer if (en_fx_missing.len > 0) testing.allocator.free(en_fx_missing);
+    try testing.expect(std.mem.indexOf(u8, en_fx_missing, "Binary: fx") != null);
+    try testing.expect(std.mem.indexOf(u8, en_fx_missing, "Path:") == null);
+    try testing.expect(std.mem.indexOf(u8, en_fx_missing, missing_status) != null);
+
+    model.fx_available = true;
+    model.language_preference = .simplified_chinese;
+    const zh_fx = detailText(&model, testing.allocator);
+    defer if (zh_fx.len > 0) testing.allocator.free(zh_fx);
+    try testing.expect(std.mem.indexOf(u8, zh_fx, "二进制: fx") != null);
+    try testing.expect(std.mem.indexOf(u8, zh_fx, "路径: /home/probe/.local/bin/fx") != null);
+    try testing.expect(std.mem.indexOf(u8, zh_fx, "/home/probe/.local/bin/fx") != null);
+    try testing.expect(std.mem.indexOf(u8, zh_fx, "Binary:") == null);
+    try testing.expect(std.mem.indexOf(u8, zh_fx, "Path:") == null);
+    try testing.expect(std.mem.indexOf(u8, zh_fx, "fx") != null);
+    try testing.expect(std.mem.indexOf(u8, zh_fx, "第一方默认") != null);
+
+    selectProvider(&model, rowId(.claude));
+    const zh_claude = detailText(&model, testing.allocator);
+    defer if (zh_claude.len > 0) testing.allocator.free(zh_claude);
+    try testing.expect(std.mem.indexOf(u8, zh_claude, "二进制: claude") != null);
+    try testing.expect(std.mem.indexOf(u8, zh_claude, "claude") != null);
+    try testing.expect(std.mem.indexOf(u8, zh_claude, "Binary:") == null);
+    try testing.expect(std.mem.indexOf(u8, zh_claude, "Path:") == null);
+
+    model.language_preference = .japanese;
+    selectProvider(&model, rowId(.fx));
+    const ja_fx = detailText(&model, testing.allocator);
+    defer if (ja_fx.len > 0) testing.allocator.free(ja_fx);
+    try testing.expect(std.mem.indexOf(u8, ja_fx, "バイナリ: fx") != null);
+    try testing.expect(std.mem.indexOf(u8, ja_fx, "パス: /home/probe/.local/bin/fx") != null);
+    try testing.expect(std.mem.indexOf(u8, ja_fx, "/home/probe/.local/bin/fx") != null);
+    try testing.expect(std.mem.indexOf(u8, ja_fx, "Binary:") == null);
+    try testing.expect(std.mem.indexOf(u8, ja_fx, "Path:") == null);
+    try testing.expect(std.mem.indexOf(u8, ja_fx, "ファーストパーティ既定") != null);
+
+    selectProvider(&model, rowId(.claude));
+    const ja_claude = detailText(&model, testing.allocator);
+    defer if (ja_claude.len > 0) testing.allocator.free(ja_claude);
+    try testing.expect(std.mem.indexOf(u8, ja_claude, "バイナリ: claude") != null);
+    try testing.expect(std.mem.indexOf(u8, ja_claude, "claude") != null);
+    try testing.expect(std.mem.indexOf(u8, ja_claude, "Binary:") == null);
+    try testing.expect(std.mem.indexOf(u8, ja_claude, "Path:") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    selectProvider(&model, rowId(.fx));
+    const en_ignores_ja = detailText(&model, testing.allocator);
+    defer if (en_ignores_ja.len > 0) testing.allocator.free(en_ignores_ja);
+    try testing.expect(std.mem.indexOf(u8, en_ignores_ja, "Binary: fx") != null);
+    try testing.expect(std.mem.indexOf(u8, en_ignores_ja, "Path: /home/probe/.local/bin/fx") != null);
+    try testing.expect(std.mem.indexOf(u8, en_ignores_ja, "バイナリ:") == null);
+    try testing.expect(std.mem.indexOf(u8, en_ignores_ja, "パス:") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    const sys_zh = detailText(&model, testing.allocator);
+    defer if (sys_zh.len > 0) testing.allocator.free(sys_zh);
+    try testing.expect(std.mem.indexOf(u8, sys_zh, "二进制: fx") != null);
+    try testing.expect(std.mem.indexOf(u8, sys_zh, "路径: /home/probe/.local/bin/fx") != null);
+    try testing.expect(std.mem.indexOf(u8, sys_zh, "Binary:") == null);
+    try testing.expect(std.mem.indexOf(u8, sys_zh, "Path:") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    const sys_ja = detailText(&model, testing.allocator);
+    defer if (sys_ja.len > 0) testing.allocator.free(sys_ja);
+    try testing.expect(std.mem.indexOf(u8, sys_ja, "バイナリ: fx") != null);
+    try testing.expect(std.mem.indexOf(u8, sys_ja, "パス: /home/probe/.local/bin/fx") != null);
+    try testing.expect(std.mem.indexOf(u8, sys_ja, "Binary:") == null);
+    try testing.expect(std.mem.indexOf(u8, sys_ja, "Path:") == null);
+}
+
