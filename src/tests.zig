@@ -28888,6 +28888,171 @@ test "composer Refresh goal and plan Refresh follow Appearance language" {
     try testing.expect(findByText(tree.root, .button, "Refresh goal") == null);
 }
 
+test "Usage Cost Tokens Model Days chips follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, main.app_markup, "{usage_share_cost_label}"));
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, main.app_markup, "{usage_share_tokens_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{usage_breakdown_model_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{usage_breakdown_days_label}"));
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_share_cost\""));
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_share_tokens\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_breakdown_model\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_breakdown_days\""));
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, main.app_markup, "selected=\"{usage_share_cost}\""));
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, main.app_markup, "selected=\"{usage_share_tokens}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "selected=\"{usage_breakdown_model}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "selected=\"{usage_breakdown_days}\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_share_cost\">Cost</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_share_tokens\">Tokens</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_breakdown_model\">Model</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_breakdown_days\">Days</button>"));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Cost", model.usage_share_cost_label());
+    try testing.expectEqualStrings(i18n.usageViewChromeFor(.english, "").cost, model.usage_share_cost_label());
+    try testing.expectEqualStrings("Tokens", model.usage_share_tokens_label());
+    try testing.expectEqualStrings(i18n.usageViewChromeFor(.english, "").tokens, model.usage_share_tokens_label());
+    try testing.expectEqualStrings("Model", model.usage_breakdown_model_label());
+    try testing.expectEqualStrings(i18n.usageViewChromeFor(.english, "").model, model.usage_breakdown_model_label());
+    try testing.expectEqualStrings("Days", model.usage_breakdown_days_label());
+    try testing.expectEqualStrings(i18n.usageViewChromeFor(.english, "").days, model.usage_breakdown_days_label());
+    try testing.expect(model.usage_share_cost());
+    try testing.expect(!model.usage_share_tokens());
+    try testing.expect(model.usage_breakdown_model());
+    try testing.expect(!model.usage_breakdown_days());
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_usage, &fx);
+    try testing.expect(model.settings_page_usage());
+    try testing.expect(model.usage_view_daily());
+    model.usage_history.present = true;
+    model.usage_history.window = .{ .trailing_days = 30 };
+    try testing.expect(model.has_usage_history());
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Cost", .set_usage_share_cost)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Tokens", .set_usage_share_tokens)).state.selected);
+    try testing.expect((try expectButtonMsg(tree, "Model", .set_usage_breakdown_model)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Days", .set_usage_breakdown_days)).state.selected);
+
+    main.update(&model, .set_usage_view_monthly, &fx);
+    model.usage_history.window = .{ .months = 12 };
+    try testing.expect(model.usage_view_monthly());
+    try testing.expect(model.has_usage_history());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Cost", .set_usage_share_cost)).state.selected);
+    _ = try expectButtonMsg(tree, "Tokens", .set_usage_share_tokens);
+    try testing.expect(findByText(tree.root, .button, "Model") == null);
+    try testing.expect(findByText(tree.root, .button, "Days") == null);
+
+    main.update(&model, .set_usage_view_projects, &fx);
+    model.usage_history.window = .{ .trailing_days = 30 };
+    try testing.expect(model.usage_view_projects());
+    try testing.expect(model.has_usage_history());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Cost", .set_usage_share_cost)).state.selected);
+    _ = try expectButtonMsg(tree, "Tokens", .set_usage_share_tokens);
+    try testing.expect(findByText(tree.root, .button, "Model") == null);
+    try testing.expect(findByText(tree.root, .button, "Days") == null);
+
+    main.update(&model, .set_usage_view_daily, &fx);
+    try testing.expect(model.usage_view_daily());
+    try testing.expect(model.has_usage_history());
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("费用", model.usage_share_cost_label());
+    try testing.expectEqualStrings(i18n.usageViewChromeFor(.simplified_chinese, "").cost, model.usage_share_cost_label());
+    try testing.expectEqualStrings("Token", model.usage_share_tokens_label());
+    try testing.expectEqualStrings(i18n.usageViewChromeFor(.simplified_chinese, "").tokens, model.usage_share_tokens_label());
+    try testing.expectEqualStrings("模型", model.usage_breakdown_model_label());
+    try testing.expectEqualStrings(i18n.usageViewChromeFor(.simplified_chinese, "").model, model.usage_breakdown_model_label());
+    try testing.expectEqualStrings("按日", model.usage_breakdown_days_label());
+    try testing.expectEqualStrings(i18n.usageViewChromeFor(.simplified_chinese, "").days, model.usage_breakdown_days_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "费用", .set_usage_share_cost)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Token", .set_usage_share_tokens)).state.selected);
+    try testing.expect((try expectButtonMsg(tree, "模型", .set_usage_breakdown_model)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "按日", .set_usage_breakdown_days)).state.selected);
+    try testing.expect(findByText(tree.root, .button, "Cost") == null);
+    try testing.expect(findByText(tree.root, .button, "Tokens") == null);
+    try testing.expect(findByText(tree.root, .button, "Model") == null);
+    try testing.expect(findByText(tree.root, .button, "Days") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("コスト", model.usage_share_cost_label());
+    try testing.expectEqualStrings(i18n.usageViewChromeFor(.japanese, "").cost, model.usage_share_cost_label());
+    try testing.expectEqualStrings("トークン", model.usage_share_tokens_label());
+    try testing.expectEqualStrings(i18n.usageViewChromeFor(.japanese, "").tokens, model.usage_share_tokens_label());
+    try testing.expectEqualStrings("モデル", model.usage_breakdown_model_label());
+    try testing.expectEqualStrings(i18n.usageViewChromeFor(.japanese, "").model, model.usage_breakdown_model_label());
+    try testing.expectEqualStrings("日別", model.usage_breakdown_days_label());
+    try testing.expectEqualStrings(i18n.usageViewChromeFor(.japanese, "").days, model.usage_breakdown_days_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "コスト", .set_usage_share_cost)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "トークン", .set_usage_share_tokens)).state.selected);
+    try testing.expect((try expectButtonMsg(tree, "モデル", .set_usage_breakdown_model)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "日別", .set_usage_breakdown_days)).state.selected);
+    try testing.expect(findByText(tree.root, .button, "Cost") == null);
+    try testing.expect(findByText(tree.root, .button, "Tokens") == null);
+    try testing.expect(findByText(tree.root, .button, "Model") == null);
+    try testing.expect(findByText(tree.root, .button, "Days") == null);
+    try testing.expect(findByText(tree.root, .button, "费用") == null);
+    try testing.expect(findByText(tree.root, .button, "Token") == null);
+    try testing.expect(findByText(tree.root, .button, "模型") == null);
+    try testing.expect(findByText(tree.root, .button, "按日") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Cost", model.usage_share_cost_label());
+    try testing.expectEqualStrings("Tokens", model.usage_share_tokens_label());
+    try testing.expectEqualStrings("Model", model.usage_breakdown_model_label());
+    try testing.expectEqualStrings("Days", model.usage_breakdown_days_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Cost", .set_usage_share_cost)).state.selected);
+    _ = try expectButtonMsg(tree, "Tokens", .set_usage_share_tokens);
+    try testing.expect((try expectButtonMsg(tree, "Model", .set_usage_breakdown_model)).state.selected);
+    _ = try expectButtonMsg(tree, "Days", .set_usage_breakdown_days);
+    try testing.expect(findByText(tree.root, .button, "コスト") == null);
+    try testing.expect(findByText(tree.root, .button, "トークン") == null);
+    try testing.expect(findByText(tree.root, .button, "モデル") == null);
+    try testing.expect(findByText(tree.root, .button, "日別") == null);
+    try testing.expect(findByText(tree.root, .button, "费用") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("费用", model.usage_share_cost_label());
+    try testing.expectEqualStrings("Token", model.usage_share_tokens_label());
+    try testing.expectEqualStrings("模型", model.usage_breakdown_model_label());
+    try testing.expectEqualStrings("按日", model.usage_breakdown_days_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "费用", .set_usage_share_cost)).state.selected);
+    _ = try expectButtonMsg(tree, "Token", .set_usage_share_tokens);
+    try testing.expect((try expectButtonMsg(tree, "模型", .set_usage_breakdown_model)).state.selected);
+    _ = try expectButtonMsg(tree, "按日", .set_usage_breakdown_days);
+    try testing.expect(findByText(tree.root, .button, "Cost") == null);
+    try testing.expect(findByText(tree.root, .button, "Tokens") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("コスト", model.usage_share_cost_label());
+    try testing.expectEqualStrings("トークン", model.usage_share_tokens_label());
+    try testing.expectEqualStrings("モデル", model.usage_breakdown_model_label());
+    try testing.expectEqualStrings("日別", model.usage_breakdown_days_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "コスト", .set_usage_share_cost)).state.selected);
+    _ = try expectButtonMsg(tree, "トークン", .set_usage_share_tokens);
+    try testing.expect((try expectButtonMsg(tree, "モデル", .set_usage_breakdown_model)).state.selected);
+    _ = try expectButtonMsg(tree, "日別", .set_usage_breakdown_days);
+    try testing.expect(findByText(tree.root, .button, "Cost") == null);
+    try testing.expect(findByText(tree.root, .button, "Days") == null);
+}
+
 test "DateBucket.title english default; zh and ja follow datesFor" {
     try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
     try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());

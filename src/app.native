@@ -492,12 +492,12 @@
                         <text wrap="false" overflow="ellipsis">{usage_headline}</text>
                         <text wrap="false" overflow="ellipsis" foreground="text_muted">{usage_sessions_label}</text>
                         <row gap="8">
-                          <button variant="ghost" size="sm" selected="{usage_share_cost}" on-press="set_usage_share_cost">Cost</button>
-                          <button variant="ghost" size="sm" selected="{usage_share_tokens}" on-press="set_usage_share_tokens">Tokens</button>
+                          <button variant="ghost" size="sm" selected="{usage_share_cost}" on-press="set_usage_share_cost">{usage_share_cost_label}</button>
+                          <button variant="ghost" size="sm" selected="{usage_share_tokens}" on-press="set_usage_share_tokens">{usage_share_tokens_label}</button>
                         </row>
                         <row gap="8">
-                          <button variant="ghost" size="sm" selected="{usage_breakdown_model}" on-press="set_usage_breakdown_model">Model</button>
-                          <button variant="ghost" size="sm" selected="{usage_breakdown_days}" on-press="set_usage_breakdown_days">Days</button>
+                          <button variant="ghost" size="sm" selected="{usage_breakdown_model}" on-press="set_usage_breakdown_model">{usage_breakdown_model_label}</button>
+                          <button variant="ghost" size="sm" selected="{usage_breakdown_days}" on-press="set_usage_breakdown_days">{usage_breakdown_days_label}</button>
                         </row>
                         <for each="usage_provider_rows" key="id" as="p">
                           <column gap="4">
@@ -601,8 +601,8 @@
                     <card size="sm" padding="10">
                       <column gap="8">
                         <row gap="8">
-                          <button variant="ghost" size="sm" selected="{usage_share_cost}" on-press="set_usage_share_cost">Cost</button>
-                          <button variant="ghost" size="sm" selected="{usage_share_tokens}" on-press="set_usage_share_tokens">Tokens</button>
+                          <button variant="ghost" size="sm" selected="{usage_share_cost}" on-press="set_usage_share_cost">{usage_share_cost_label}</button>
+                          <button variant="ghost" size="sm" selected="{usage_share_tokens}" on-press="set_usage_share_tokens">{usage_share_tokens_label}</button>
                         </row>
                         <if test="{usage_months_empty}">
                           <text wrap="true" foreground="text_muted">No monthly usage</text>
@@ -675,8 +675,8 @@
                     <card size="sm" padding="10">
                       <column gap="8">
                         <row gap="8">
-                          <button variant="ghost" size="sm" selected="{usage_share_cost}" on-press="set_usage_share_cost">Cost</button>
-                          <button variant="ghost" size="sm" selected="{usage_share_tokens}" on-press="set_usage_share_tokens">Tokens</button>
+                          <button variant="ghost" size="sm" selected="{usage_share_cost}" on-press="set_usage_share_cost">{usage_share_cost_label}</button>
+                          <button variant="ghost" size="sm" selected="{usage_share_tokens}" on-press="set_usage_share_tokens">{usage_share_tokens_label}</button>
                         </row>
                         <search-field grow="1" height="24" placeholder="{usage_project_filter_placeholder}" text="{usage_project_filter}" on-input="usage_project_filter_edit" label="{usage_project_filter_label}" />
                         <if test="{usage_projects_empty}">
