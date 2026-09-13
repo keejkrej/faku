@@ -766,26 +766,26 @@
           <if test="{settings_page_computer_use}">
             <row grow="1" main="center">
               <column grow="1" max-width="720" gap="10" padding="14">
-                <text>Computer Use</text>
+                <text>{computer_use_title}</text>
                 <card size="sm" padding="10">
                   <column gap="8">
-                    <text>Availability</text>
+                    <text>{computer_use_availability_title}</text>
                     <text wrap="false" overflow="ellipsis">{computer_use_availability_label}</text>
                     <text wrap="true" foreground="text_muted">{computer_use_availability_caption}</text>
                   </column>
                 </card>
                 <card size="sm" padding="10">
                   <column gap="8">
-                    <text>Enable</text>
+                    <text>{computer_use_enable_label}</text>
                     <row gap="8">
-                      <button variant="ghost" size="sm" selected="{computer_use_off}">Off</button>
+                      <button variant="ghost" size="sm" selected="{computer_use_off}">{computer_use_off_label}</button>
                     </row>
                   </column>
                 </card>
                 <card size="sm" padding="10">
                   <column gap="8">
-                    <text>Always-allowed apps</text>
-                    <text wrap="true" foreground="text_muted">No always-allowed apps</text>
+                    <text>{computer_use_always_allowed_apps_label}</text>
+                    <text wrap="true" foreground="text_muted">{computer_use_no_always_allowed_apps_label}</text>
                   </column>
                 </card>
               </column>
