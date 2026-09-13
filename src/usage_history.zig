@@ -85,9 +85,11 @@
 //! and Daily paints a first-cut Cost quality panel from
 //! `quality` (Provider reported / Model priced / Unpriced percents
 //! plus Cache savings USD) and muted notices when `errors` are
-//! non-empty or `pricing` is `unavailable`. A tiny scan-summary
-//! footer uses `records` / `scannedFiles` / `skippedFiles` /
-//! `scanDuration` when present. First-cut Daily Days, Monthly, and
+//! non-empty or `pricing` is `unavailable` (daemon `errors[]` text
+//! stays English data this cut). A tiny scan-summary footer uses
+//! `records` / `scannedFiles` / `skippedFiles` / `scanDuration` when
+//! present (unit labels follow the resolved locale this cut; ` · `
+//! separators and Latin `{d:.1}s` stay). First-cut Daily Days, Monthly, and
 //! Projects layered Native `<chart>` ship (Claude / Codex area
 //! series from zero, not stacked; documented `stroke-width` 2 and
 //! paint-order by period total). Projects nested byProvider bars stay Native `<progress>`. Daily Model rows
@@ -1594,6 +1596,10 @@ fn costQualityChrome(model: *const Model) i18n.UsageCostQualityChrome {
     return i18n.usageCostQualityChromeFor(model.language_preference, model.systemLocaleId());
 }
 
+fn scanFooterChrome(model: *const Model) i18n.UsageScanFooterChrome {
+    return i18n.usageScanFooterChromeFor(model.language_preference, model.systemLocaleId());
+}
+
 pub fn noticeRows(model: *const Model, arena: std.mem.Allocator) []const Row {
     if (!hasNotice(model)) return &.{};
     const cache = model.usage_history;
@@ -1773,16 +1779,17 @@ pub fn metricRows(model: *const Model, arena: std.mem.Allocator) []const Row {
 pub fn scanFooter(model: *const Model, arena: std.mem.Allocator) []const u8 {
     if (!hasScanFooter(model)) return "";
     const cache = model.usage_history;
+    const chrome = scanFooterChrome(model);
     var buf: [max_line]u8 = undefined;
     var pos: usize = 0;
-    const files = std.fmt.bufPrint(buf[pos..], "{d} files", .{cache.scanned_files}) catch return "";
+    const files = std.fmt.bufPrint(buf[pos..], "{d} {s}", .{ cache.scanned_files, chrome.files }) catch return "";
     pos += files.len;
     if (cache.skipped_files > 0) {
-        const skipped = std.fmt.bufPrint(buf[pos..], " · {d} skipped", .{cache.skipped_files}) catch
+        const skipped = std.fmt.bufPrint(buf[pos..], " · {d} {s}", .{ cache.skipped_files, chrome.skipped }) catch
             return copyArena(arena, buf[0..pos]);
         pos += skipped.len;
     }
-    const rec = std.fmt.bufPrint(buf[pos..], " · {d} records", .{cache.records}) catch
+    const rec = std.fmt.bufPrint(buf[pos..], " · {d} {s}", .{ cache.records, chrome.records }) catch
         return copyArena(arena, buf[0..pos]);
     pos += rec.len;
     if (cache.scan_duration_secs > 0) {
@@ -3733,6 +3740,55 @@ test "quality metric rates chrome follow Appearance language; english default ma
 
     model.usage_history.cost_usd = 0;
     try std.testing.expectEqualStrings("全入力レート比", metricRows(&model, arena)[4].detail);
+}
+
+test "scan footer chrome follow Appearance language; english default matches former copy" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model = Model{};
+    model.settings_page = .usage;
+    model.usage_history.present = true;
+    model.usage_history.scanned_files = 3;
+    model.usage_history.skipped_files = 1;
+    model.usage_history.records = 9;
+    model.usage_history.scan_duration_secs = 1.0;
+
+    try std.testing.expectEqualStrings("3 files · 1 skipped · 9 records · 1.0s", scanFooter(&model, arena));
+    try std.testing.expectEqualStrings(
+        i18n.usageScanFooterChromeFor(.english, "").files,
+        "files",
+    );
+
+    model.language_preference = .simplified_chinese;
+    const zh = scanFooter(&model, arena);
+    try std.testing.expectEqualStrings("3 文件 · 1 已跳过 · 9 记录 · 1.0s", zh);
+    try std.testing.expect(std.mem.indexOf(u8, zh, "3 ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, zh, "1 ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, zh, "9 ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, zh, "1.0s") != null);
+    try std.testing.expect(std.mem.indexOf(u8, zh, " · ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, zh, "files") == null);
+    try std.testing.expect(std.mem.indexOf(u8, zh, "skipped") == null);
+    try std.testing.expect(std.mem.indexOf(u8, zh, "records") == null);
+
+    model.language_preference = .japanese;
+    const ja = scanFooter(&model, arena);
+    try std.testing.expectEqualStrings("3 ファイル · 1 スキップ · 9 レコード · 1.0s", ja);
+    try std.testing.expect(std.mem.indexOf(u8, ja, "3 ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ja, "1.0s") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ja, "files") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try std.testing.expectEqualStrings("3 files · 1 skipped · 9 records · 1.0s", scanFooter(&model, arena));
+
+    model.language_preference = .system;
+    try std.testing.expectEqualStrings("3 ファイル · 1 スキップ · 9 レコード · 1.0s", scanFooter(&model, arena));
+
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try std.testing.expectEqualStrings("3 文件 · 1 已跳过 · 9 记录 · 1.0s", scanFooter(&model, arena));
 }
 
 

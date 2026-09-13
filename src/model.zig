@@ -6687,6 +6687,10 @@ pub const Model = struct {
         return usage_history.hasScanFooter(model);
     }
 
+    /// Settings Usage Daily scan-summary footer. Unit labels follow
+    /// the resolved locale this cut; ` · ` separators and Latin
+    /// `{d:.1}s` stay. Daemon `errors[]` notice text stays English
+    /// data.
     pub fn usage_scan_footer(model: *const Model, arena: std.mem.Allocator) []const u8 {
         if (!model.has_usage_scan_footer()) return "";
         return usage_history.scanFooter(model, arena);

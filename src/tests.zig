@@ -29213,12 +29213,18 @@ test "Usage Cost quality Rates metric-strip chrome follow Appearance language" {
     model.usage_history.daily_count = 2;
     model.usage_history.daily[0].total_tokens = 4100;
     model.usage_history.daily[1].total_tokens = 8200;
+    model.usage_history.scanned_files = 3;
+    model.usage_history.skipped_files = 1;
+    model.usage_history.records = 9;
+    model.usage_history.scan_duration_secs = 1.0;
     model.litellm_rates.status = .cached;
     try testing.expect(model.has_usage_history());
     try testing.expect(model.has_usage_quality());
     try testing.expect(model.has_usage_notice());
     try testing.expect(model.has_usage_rates_status());
+    try testing.expect(model.has_usage_scan_footer());
     try testing.expectEqualStrings("Rates cached", model.usage_rates_status());
+    try testing.expectEqualStrings("3 files · 1 skipped · 9 records · 1.0s", model.usage_scan_footer(arena));
 
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Cost quality");
@@ -29237,8 +29243,11 @@ test "Usage Cost quality Rates metric-strip chrome follow Appearance language" {
     _ = try expectByText(tree.root, .text, "500 cache writes");
     _ = try expectByText(tree.root, .text, "includes 300 reasoning");
     _ = try expectByText(tree.root, .text, "1.0x raw cost");
+    _ = try expectByText(tree.root, .text, "3 files · 1 skipped · 9 records · 1.0s");
     try testing.expect(findByText(tree.root, .text, "费用质量") == null);
     try testing.expect(findByText(tree.root, .text, "コスト品質") == null);
+    try testing.expect(findByText(tree.root, .text, "3 文件") == null);
+    try testing.expect(findByText(tree.root, .text, "3 ファイル") == null);
 
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("费用质量", model.usage_cost_quality_label());
@@ -29261,11 +29270,14 @@ test "Usage Cost quality Rates metric-strip chrome follow Appearance language" {
     _ = try expectByText(tree.root, .text, "500 缓存写入");
     _ = try expectByText(tree.root, .text, "含 300 推理");
     _ = try expectByText(tree.root, .text, "1.0x 原始费用");
+    _ = try expectByText(tree.root, .text, "3 文件 · 1 已跳过 · 9 记录 · 1.0s");
+    try testing.expectEqualStrings("3 文件 · 1 已跳过 · 9 记录 · 1.0s", model.usage_scan_footer(arena));
     try testing.expect(findByText(tree.root, .text, "Cost quality") == null);
     try testing.expect(findByText(tree.root, .text, "Provider reported") == null);
     try testing.expect(findByText(tree.root, .text, "Processed tokens") == null);
     try testing.expect(findByText(tree.root, .text, "Rates cached") == null);
     try testing.expect(findByText(tree.root, .text, "Rates unavailable") == null);
+    try testing.expect(findByText(tree.root, .text, "3 files · 1 skipped · 9 records · 1.0s") == null);
 
     model.language_preference = .japanese;
     try testing.expectEqualStrings("コスト品質", model.usage_cost_quality_label());
@@ -29288,10 +29300,13 @@ test "Usage Cost quality Rates metric-strip chrome follow Appearance language" {
     _ = try expectByText(tree.root, .text, "500 キャッシュ書き込み");
     _ = try expectByText(tree.root, .text, "300 の推論を含む");
     _ = try expectByText(tree.root, .text, "1.0x 生コスト");
+    _ = try expectByText(tree.root, .text, "3 ファイル · 1 スキップ · 9 レコード · 1.0s");
+    try testing.expectEqualStrings("3 ファイル · 1 スキップ · 9 レコード · 1.0s", model.usage_scan_footer(arena));
     try testing.expect(findByText(tree.root, .text, "Cost quality") == null);
     try testing.expect(findByText(tree.root, .text, "费用质量") == null);
     try testing.expect(findByText(tree.root, .text, "Processed tokens") == null);
     try testing.expect(findByText(tree.root, .text, "Rates cached") == null);
+    try testing.expect(findByText(tree.root, .text, "3 files · 1 skipped · 9 records · 1.0s") == null);
 
     model.language_preference = .english;
     model.setSystemLocaleId("ja_JP.UTF-8");
@@ -29300,8 +29315,10 @@ test "Usage Cost quality Rates metric-strip chrome follow Appearance language" {
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Cost quality");
     _ = try expectByText(tree.root, .text, "Rates cached");
+    _ = try expectByText(tree.root, .text, "3 files · 1 skipped · 9 records · 1.0s");
     try testing.expect(findByText(tree.root, .text, "コスト品質") == null);
     try testing.expect(findByText(tree.root, .text, "レートキャッシュ") == null);
+    try testing.expect(findByText(tree.root, .text, "3 ファイル") == null);
 
     model.language_preference = .system;
     model.setSystemLocaleId("zh_CN.UTF-8");
@@ -29311,7 +29328,9 @@ test "Usage Cost quality Rates metric-strip chrome follow Appearance language" {
     _ = try expectByText(tree.root, .text, "费用质量");
     _ = try expectByText(tree.root, .text, "已处理 token");
     _ = try expectByText(tree.root, .text, "费率缓存");
+    _ = try expectByText(tree.root, .text, "3 文件 · 1 已跳过 · 9 记录 · 1.0s");
     try testing.expect(findByText(tree.root, .text, "Cost quality") == null);
+    try testing.expect(findByText(tree.root, .text, "3 files · 1 skipped · 9 records · 1.0s") == null);
 
     model.setSystemLocaleId("ja_JP.UTF-8");
     try testing.expectEqualStrings("コスト品質", model.usage_cost_quality_label());
@@ -29320,8 +29339,10 @@ test "Usage Cost quality Rates metric-strip chrome follow Appearance language" {
     _ = try expectByText(tree.root, .text, "コスト品質");
     _ = try expectByText(tree.root, .text, "処理済みトークン");
     _ = try expectByText(tree.root, .text, "レートキャッシュ");
+    _ = try expectByText(tree.root, .text, "3 ファイル · 1 スキップ · 9 レコード · 1.0s");
     try testing.expect(findByText(tree.root, .text, "Cost quality") == null);
     try testing.expect(findByText(tree.root, .text, "费用质量") == null);
+    try testing.expect(findByText(tree.root, .text, "3 files · 1 skipped · 9 records · 1.0s") == null);
 }
 
 test "DateBucket.title english default; zh and ja follow datesFor" {
