@@ -28379,6 +28379,172 @@ test "Terminal Restart chrome follows Appearance language" {
     try testing.expect(findByText(tree.root, .button, "Restart") == null);
 }
 
+test "Computer Use page chrome follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{computer_use_title}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{computer_use_availability_title}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{computer_use_availability_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{computer_use_availability_caption}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{computer_use_enable_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{computer_use_off_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "selected=\"{computer_use_off}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{computer_use_always_allowed_apps_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{computer_use_no_always_allowed_apps_label}"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Computer Use</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Availability</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Enable</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "selected=\"{computer_use_off}\">Off</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Always-allowed apps</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No always-allowed apps</text>"));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Computer Use", model.computer_use_title());
+    try testing.expectEqualStrings(i18n.computerUseChromeFor(.english, "").title, model.computer_use_title());
+    try testing.expectEqualStrings(i18n.chromeFor(.english, "").computer_use, model.computer_use_title());
+    try testing.expectEqualStrings(model.settings_nav_computer_use(), model.computer_use_title());
+    try testing.expectEqualStrings("Availability", model.computer_use_availability_title());
+    try testing.expectEqualStrings("Unavailable", model.computer_use_availability_label());
+    try testing.expectEqualStrings(
+        "Native has no Screen Recording or Accessibility APIs this cut. Waku's helper is macOS-only.",
+        model.computer_use_availability_caption(),
+    );
+    try testing.expectEqualStrings("Enable", model.computer_use_enable_label());
+    try testing.expectEqualStrings("Off", model.computer_use_off_label());
+    try testing.expectEqualStrings("Always-allowed apps", model.computer_use_always_allowed_apps_label());
+    try testing.expectEqualStrings("No always-allowed apps", model.computer_use_no_always_allowed_apps_label());
+    try testing.expect(!model.computer_use_enabled());
+    try testing.expect(model.computer_use_off());
+    try testing.expect(!model.computer_use_has_allowed_apps());
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_computer_use, &fx);
+    try testing.expect(model.settings_page_computer_use());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Computer Use");
+    _ = try expectByText(tree.root, .text, "Availability");
+    _ = try expectByText(tree.root, .text, "Unavailable");
+    try testing.expect(findTextContaining(tree.root, "Screen Recording") != null);
+    _ = try expectByText(tree.root, .text, "Enable");
+    const off_en = try expectByText(tree.root, .button, "Off");
+    try testing.expect(off_en.state.selected);
+    try testing.expect(tree.msgForPointer(off_en.id, .up) == null);
+    _ = try expectByText(tree.root, .text, "Always-allowed apps");
+    _ = try expectByText(tree.root, .text, "No always-allowed apps");
+    try testing.expect((try expectButtonMsg(tree, "Computer Use", .set_settings_page_computer_use)).state.selected);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("电脑使用", model.computer_use_title());
+    try testing.expectEqualStrings(i18n.computerUseChromeFor(.simplified_chinese, "").title, model.computer_use_title());
+    try testing.expectEqualStrings(i18n.computerUseChromeFor(.simplified_chinese, "").unavailable, model.computer_use_availability_label());
+    try testing.expectEqualStrings(i18n.computerUseChromeFor(.simplified_chinese, "").unavailable_caption, model.computer_use_availability_caption());
+    try testing.expectEqualStrings("可用性", model.computer_use_availability_title());
+    try testing.expectEqualStrings("不可用", model.computer_use_availability_label());
+    try testing.expectEqualStrings("启用", model.computer_use_enable_label());
+    try testing.expectEqualStrings("关", model.computer_use_off_label());
+    try testing.expectEqualStrings("始终允许的应用", model.computer_use_always_allowed_apps_label());
+    try testing.expectEqualStrings("没有始终允许的应用", model.computer_use_no_always_allowed_apps_label());
+    try testing.expect(model.computer_use_off());
+    try testing.expect(!model.computer_use_enabled());
+    try testing.expect(!model.computer_use_has_allowed_apps());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "电脑使用");
+    _ = try expectByText(tree.root, .text, "可用性");
+    _ = try expectByText(tree.root, .text, "不可用");
+    _ = try expectByText(tree.root, .text, "启用");
+    const off_zh = try expectByText(tree.root, .button, "关");
+    try testing.expect(off_zh.state.selected);
+    try testing.expect(tree.msgForPointer(off_zh.id, .up) == null);
+    _ = try expectByText(tree.root, .text, "始终允许的应用");
+    _ = try expectByText(tree.root, .text, "没有始终允许的应用");
+    try testing.expect((try expectButtonMsg(tree, "电脑使用", .set_settings_page_computer_use)).state.selected);
+    try testing.expect(findByText(tree.root, .text, "Computer Use") == null);
+    try testing.expect(findByText(tree.root, .text, "Availability") == null);
+    try testing.expect(findByText(tree.root, .text, "Unavailable") == null);
+    try testing.expect(findByText(tree.root, .text, "Enable") == null);
+    try testing.expect(findByText(tree.root, .button, "Off") == null);
+    try testing.expect(findByText(tree.root, .text, "Always-allowed apps") == null);
+    try testing.expect(findByText(tree.root, .text, "No always-allowed apps") == null);
+    try testing.expect(findTextContaining(tree.root, "Screen Recording") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("コンピュータ使用", model.computer_use_title());
+    try testing.expectEqualStrings(i18n.computerUseChromeFor(.japanese, "").title, model.computer_use_title());
+    try testing.expectEqualStrings(i18n.computerUseChromeFor(.japanese, "").unavailable, model.computer_use_availability_label());
+    try testing.expectEqualStrings(i18n.computerUseChromeFor(.japanese, "").unavailable_caption, model.computer_use_availability_caption());
+    try testing.expectEqualStrings("可用性", model.computer_use_availability_title());
+    try testing.expectEqualStrings("利用不可", model.computer_use_availability_label());
+    try testing.expectEqualStrings("有効", model.computer_use_enable_label());
+    try testing.expectEqualStrings("オフ", model.computer_use_off_label());
+    try testing.expectEqualStrings("常に許可するアプリ", model.computer_use_always_allowed_apps_label());
+    try testing.expectEqualStrings("常に許可するアプリはありません", model.computer_use_no_always_allowed_apps_label());
+    try testing.expect(model.computer_use_off());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "コンピュータ使用");
+    _ = try expectByText(tree.root, .text, "可用性");
+    _ = try expectByText(tree.root, .text, "利用不可");
+    _ = try expectByText(tree.root, .text, "有効");
+    const off_ja = try expectByText(tree.root, .button, "オフ");
+    try testing.expect(off_ja.state.selected);
+    try testing.expect(tree.msgForPointer(off_ja.id, .up) == null);
+    _ = try expectByText(tree.root, .text, "常に許可するアプリ");
+    _ = try expectByText(tree.root, .text, "常に許可するアプリはありません");
+    try testing.expect((try expectButtonMsg(tree, "コンピュータ使用", .set_settings_page_computer_use)).state.selected);
+    try testing.expect(findByText(tree.root, .text, "电脑使用") == null);
+    try testing.expect(findByText(tree.root, .text, "不可用") == null);
+    try testing.expect(findByText(tree.root, .button, "关") == null);
+    try testing.expect(findByText(tree.root, .button, "Off") == null);
+    try testing.expect(findByText(tree.root, .text, "Always-allowed apps") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Computer Use", model.computer_use_title());
+    try testing.expectEqualStrings("Unavailable", model.computer_use_availability_label());
+    try testing.expectEqualStrings("Off", model.computer_use_off_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Computer Use");
+    _ = try expectByText(tree.root, .text, "Unavailable");
+    const off_en_ignore = try expectByText(tree.root, .button, "Off");
+    try testing.expect(off_en_ignore.state.selected);
+    try testing.expect(tree.msgForPointer(off_en_ignore.id, .up) == null);
+    try testing.expect(findByText(tree.root, .text, "コンピュータ使用") == null);
+    try testing.expect(findByText(tree.root, .text, "电脑使用") == null);
+    try testing.expect(findByText(tree.root, .button, "オフ") == null);
+    try testing.expect(findByText(tree.root, .button, "关") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("电脑使用", model.computer_use_title());
+    try testing.expectEqualStrings("不可用", model.computer_use_availability_label());
+    try testing.expectEqualStrings("关", model.computer_use_off_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "电脑使用");
+    _ = try expectByText(tree.root, .text, "不可用");
+    const off_sys_zh = try expectByText(tree.root, .button, "关");
+    try testing.expect(off_sys_zh.state.selected);
+    try testing.expect(tree.msgForPointer(off_sys_zh.id, .up) == null);
+    try testing.expect(findByText(tree.root, .button, "Off") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("コンピュータ使用", model.computer_use_title());
+    try testing.expectEqualStrings("利用不可", model.computer_use_availability_label());
+    try testing.expectEqualStrings("オフ", model.computer_use_off_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "コンピュータ使用");
+    _ = try expectByText(tree.root, .text, "利用不可");
+    const off_sys_ja = try expectByText(tree.root, .button, "オフ");
+    try testing.expect(off_sys_ja.state.selected);
+    try testing.expect(tree.msgForPointer(off_sys_ja.id, .up) == null);
+    try testing.expect(findByText(tree.root, .button, "Off") == null);
+}
+
 test "DateBucket.title english default; zh and ja follow datesFor" {
     try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
     try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());

@@ -4642,16 +4642,47 @@ pub const Model = struct {
         return model.settings_page == .computer_use;
     }
 
+    /// Settings Computer Use page title. Wording matches
+    /// `settings_nav_computer_use` but stays a dedicated getter so the
+    /// page title does not couple to Settings nav.
+    pub fn computer_use_title(model: *const Model) []const u8 {
+        return model.computerUseChrome().title;
+    }
+
+    /// Settings Computer Use Availability section heading.
+    pub fn computer_use_availability_title(model: *const Model) []const u8 {
+        return model.computerUseChrome().availability;
+    }
+
     /// Settings Computer Use availability. Always Unavailable this cut:
     /// Native has no Screen Recording / Accessibility APIs.
     pub fn computer_use_availability_label(model: *const Model) []const u8 {
-        _ = model;
-        return "Unavailable";
+        return model.computerUseChrome().unavailable;
     }
 
     pub fn computer_use_availability_caption(model: *const Model) []const u8 {
-        _ = model;
-        return "Native has no Screen Recording or Accessibility APIs this cut. Waku's helper is macOS-only.";
+        return model.computerUseChrome().unavailable_caption;
+    }
+
+    /// Settings Computer Use Enable section heading. No on-press /
+    /// persist this cut.
+    pub fn computer_use_enable_label(model: *const Model) []const u8 {
+        return model.computerUseChrome().enable;
+    }
+
+    /// Locked Off chip text. Distinct from `computer_use_off` (selected).
+    pub fn computer_use_off_label(model: *const Model) []const u8 {
+        return model.computerUseChrome().off;
+    }
+
+    /// Always-allowed apps section heading. Empty picker this cut.
+    pub fn computer_use_always_allowed_apps_label(model: *const Model) []const u8 {
+        return model.computerUseChrome().always_allowed_apps;
+    }
+
+    /// Always-allowed apps empty-state. Always shown this cut.
+    pub fn computer_use_no_always_allowed_apps_label(model: *const Model) []const u8 {
+        return model.computerUseChrome().no_always_allowed_apps;
     }
 
     /// Always false this cut. Not persisted. Do not invent a toggle.
@@ -4830,6 +4861,10 @@ pub const Model = struct {
 
     fn terminalRestartChrome(model: *const Model) i18n.TerminalRestartChrome {
         return i18n.terminalRestartChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn computerUseChrome(model: *const Model) i18n.ComputerUseChrome {
+        return i18n.computerUseChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Palette row display label for `action`. New Task / Settings /

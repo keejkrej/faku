@@ -75,6 +75,10 @@
 //! plus Browser / Terminal multi-session New / Close chips
 //! (same `SessionChipsChrome` strings)
 //! plus Terminal Restart (same `TerminalRestartChrome` strings)
+//! plus Settings Computer Use page body chrome (same
+//! `ComputerUseChrome` strings; title wording matches `Chrome.computer_use`
+//! but stays a dedicated field so the page title does not couple to
+//! Settings nav; wire ids stay English)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -1798,6 +1802,58 @@ const terminal_restart_chrome_ja: TerminalRestartChrome = .{
     .restart = "再起動",
 };
 
+/// Settings Computer Use page body chrome for the resolved locale.
+/// Same resolve path as TerminalRestartChrome. English matches the
+/// former hardcoded copy. Title wording matches `Chrome.computer_use`
+/// (电脑使用 / コンピュータ使用) but lives here so the page title
+/// does not couple to Settings nav. Availability stays Unavailable this
+/// cut; Enable stays locked Off; Always-allowed apps stays the empty
+/// state. Wire ids / selected stay English (`computer_use_off`). No
+/// Enable on-press / persist / permission probe / app picker.
+pub const ComputerUseChrome = struct {
+    title: []const u8,
+    availability: []const u8,
+    unavailable: []const u8,
+    unavailable_caption: []const u8,
+    enable: []const u8,
+    off: []const u8,
+    always_allowed_apps: []const u8,
+    no_always_allowed_apps: []const u8,
+};
+
+const computer_use_chrome_en: ComputerUseChrome = .{
+    .title = "Computer Use",
+    .availability = "Availability",
+    .unavailable = "Unavailable",
+    .unavailable_caption = "Native has no Screen Recording or Accessibility APIs this cut. Waku's helper is macOS-only.",
+    .enable = "Enable",
+    .off = "Off",
+    .always_allowed_apps = "Always-allowed apps",
+    .no_always_allowed_apps = "No always-allowed apps",
+};
+
+const computer_use_chrome_zh_cn: ComputerUseChrome = .{
+    .title = "电脑使用",
+    .availability = "可用性",
+    .unavailable = "不可用",
+    .unavailable_caption = "Native 本轮没有屏幕录制或辅助功能 API。Waku 的助手仅限 macOS。",
+    .enable = "启用",
+    .off = "关",
+    .always_allowed_apps = "始终允许的应用",
+    .no_always_allowed_apps = "没有始终允许的应用",
+};
+
+const computer_use_chrome_ja: ComputerUseChrome = .{
+    .title = "コンピュータ使用",
+    .availability = "可用性",
+    .unavailable = "利用不可",
+    .unavailable_caption = "Native には現状、画面収録やアクセシビリティの API がありません。Waku のヘルパーは macOS 専用です。",
+    .enable = "有効",
+    .off = "オフ",
+    .always_allowed_apps = "常に許可するアプリ",
+    .no_always_allowed_apps = "常に許可するアプリはありません",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -2246,6 +2302,19 @@ pub fn terminalRestartChromeFor(preference: LanguagePreference, system_locale_id
         .simplified_chinese => terminal_restart_chrome_zh_cn,
         .japanese => terminal_restart_chrome_ja,
         .system, .english => terminal_restart_chrome_en,
+    };
+}
+
+/// Settings Computer Use page body chrome for the resolved locale.
+/// Callers pass Model `language_preference` + `system_locale_id`;
+/// this file does not read process env. Title wording matches
+/// `chromeFor` Computer Use but stays a dedicated field. Wire ids /
+/// selected stay English. No Enable on-press / persist.
+pub fn computerUseChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ComputerUseChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => computer_use_chrome_zh_cn,
+        .japanese => computer_use_chrome_ja,
+        .system, .english => computer_use_chrome_en,
     };
 }
 
@@ -3621,5 +3690,57 @@ test "terminalRestartChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("再起動", terminalRestartChromeFor(.system, "ja_JP.UTF-8").restart);
     try testing.expectEqualStrings("Restart", terminalRestartChromeFor(.english, "ja_JP.UTF-8").restart);
     try testing.expectEqualStrings("Restart", terminalRestartChromeFor(.english, "zh_CN.UTF-8").restart);
+}
+
+test "computerUseChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Computer Use", computerUseChromeFor(.english, "ja").title);
+    try testing.expectEqualStrings("Computer Use", computerUseChromeFor(.english, "").title);
+    try testing.expectEqualStrings("Computer Use", computerUseChromeFor(.system, "").title);
+    try testing.expectEqualStrings("Availability", computerUseChromeFor(.english, "").availability);
+    try testing.expectEqualStrings("Unavailable", computerUseChromeFor(.english, "").unavailable);
+    try testing.expectEqualStrings(
+        "Native has no Screen Recording or Accessibility APIs this cut. Waku's helper is macOS-only.",
+        computerUseChromeFor(.english, "").unavailable_caption,
+    );
+    try testing.expectEqualStrings("Enable", computerUseChromeFor(.english, "").enable);
+    try testing.expectEqualStrings("Off", computerUseChromeFor(.english, "").off);
+    try testing.expectEqualStrings("Always-allowed apps", computerUseChromeFor(.english, "").always_allowed_apps);
+    try testing.expectEqualStrings("No always-allowed apps", computerUseChromeFor(.english, "").no_always_allowed_apps);
+    try testing.expectEqualStrings(chromeFor(.english, "").computer_use, computerUseChromeFor(.english, "").title);
+
+    try testing.expectEqualStrings("电脑使用", computerUseChromeFor(.simplified_chinese, "").title);
+    try testing.expectEqualStrings("可用性", computerUseChromeFor(.simplified_chinese, "").availability);
+    try testing.expectEqualStrings("不可用", computerUseChromeFor(.simplified_chinese, "").unavailable);
+    try testing.expectEqualStrings(
+        "Native 本轮没有屏幕录制或辅助功能 API。Waku 的助手仅限 macOS。",
+        computerUseChromeFor(.simplified_chinese, "").unavailable_caption,
+    );
+    try testing.expectEqualStrings("启用", computerUseChromeFor(.simplified_chinese, "").enable);
+    try testing.expectEqualStrings("关", computerUseChromeFor(.simplified_chinese, "").off);
+    try testing.expectEqualStrings("始终允许的应用", computerUseChromeFor(.simplified_chinese, "").always_allowed_apps);
+    try testing.expectEqualStrings("没有始终允许的应用", computerUseChromeFor(.simplified_chinese, "").no_always_allowed_apps);
+    try testing.expectEqualStrings(chromeFor(.simplified_chinese, "").computer_use, computerUseChromeFor(.simplified_chinese, "").title);
+
+    try testing.expectEqualStrings("コンピュータ使用", computerUseChromeFor(.japanese, "").title);
+    try testing.expectEqualStrings("可用性", computerUseChromeFor(.japanese, "").availability);
+    try testing.expectEqualStrings("利用不可", computerUseChromeFor(.japanese, "").unavailable);
+    try testing.expectEqualStrings(
+        "Native には現状、画面収録やアクセシビリティの API がありません。Waku のヘルパーは macOS 専用です。",
+        computerUseChromeFor(.japanese, "").unavailable_caption,
+    );
+    try testing.expectEqualStrings("有効", computerUseChromeFor(.japanese, "").enable);
+    try testing.expectEqualStrings("オフ", computerUseChromeFor(.japanese, "").off);
+    try testing.expectEqualStrings("常に許可するアプリ", computerUseChromeFor(.japanese, "").always_allowed_apps);
+    try testing.expectEqualStrings("常に許可するアプリはありません", computerUseChromeFor(.japanese, "").no_always_allowed_apps);
+    try testing.expectEqualStrings(chromeFor(.japanese, "").computer_use, computerUseChromeFor(.japanese, "").title);
+
+    try testing.expectEqualStrings("电脑使用", computerUseChromeFor(.system, "zh_CN.UTF-8").title);
+    try testing.expectEqualStrings("不可用", computerUseChromeFor(.system, "zh_CN.UTF-8").unavailable);
+    try testing.expectEqualStrings("コンピュータ使用", computerUseChromeFor(.system, "ja_JP.UTF-8").title);
+    try testing.expectEqualStrings("利用不可", computerUseChromeFor(.system, "ja_JP.UTF-8").unavailable);
+    try testing.expectEqualStrings("Computer Use", computerUseChromeFor(.english, "ja_JP.UTF-8").title);
+    try testing.expectEqualStrings("Unavailable", computerUseChromeFor(.english, "zh_CN.UTF-8").unavailable);
+    try testing.expectEqualStrings("Off", computerUseChromeFor(.english, "zh_CN.UTF-8").off);
 }
 
