@@ -29425,6 +29425,19 @@ test "Usage sessions unit and connect-daemon hint follow Appearance language" {
     _ = try expectByText(tree.root, .text, "4 セッション");
     try testing.expect(findByText(tree.root, .text, "4 sessions") == null);
 
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("4 sessions", model.usage_sessions_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "4 sessions");
+    try testing.expect(findByText(tree.root, .text, "4 セッション") == null);
+
+    model.language_preference = .system;
+    try testing.expectEqualStrings("4 セッション", model.usage_sessions_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "4 セッション");
+    try testing.expect(findByText(tree.root, .text, "4 sessions") == null);
+
     const day = "2026-09-01";
     model.usage_view = .monthly;
     model.usage_history.window = .{ .months = 12 };
@@ -29437,22 +29450,20 @@ test "Usage sessions unit and connect-daemon hint follow Appearance language" {
     try testing.expectEqualStrings("4 セッション", model.usage_sessions_label(arena));
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "2026-09-01 · 400 · $0.50 · 4 セッション");
-    try testing.expect(findByText(tree.root, .text, " · 4 sessions") == null);
+    try testing.expect(findByText(tree.root, .text, "2026-09-01 · 400 · $0.50 · 4 sessions") == null);
 
     model.language_preference = .english;
     model.setSystemLocaleId("zh_CN.UTF-8");
     try testing.expectEqualStrings("4 sessions", model.usage_sessions_label(arena));
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .text, "4 sessions");
     _ = try expectByText(tree.root, .text, "2026-09-01 · 400 · $0.50 · 4 sessions");
-    try testing.expect(findByText(tree.root, .text, "4 会话") == null);
+    try testing.expect(findByText(tree.root, .text, "2026-09-01 · 400 · $0.50 · 4 会话") == null);
 
     model.language_preference = .system;
     try testing.expectEqualStrings("4 会话", model.usage_sessions_label(arena));
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .text, "4 会话");
     _ = try expectByText(tree.root, .text, "2026-09-01 · 400 · $0.50 · 4 会话");
-    try testing.expect(findByText(tree.root, .text, "4 sessions") == null);
+    try testing.expect(findByText(tree.root, .text, "2026-09-01 · 400 · $0.50 · 4 sessions") == null);
 }
 
 test "DateBucket.title english default; zh and ja follow datesFor" {
