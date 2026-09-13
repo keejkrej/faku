@@ -2114,6 +2114,7 @@ pub const Model = struct {
         "sessionChipsChrome",
         "terminalRestartChrome",
         "usageViewChrome",
+        "settingsRefreshChrome",
         "palette_action_label",
         "show_right_panel_label",
         "sidebarDates",
@@ -4643,6 +4644,15 @@ pub const Model = struct {
         return model.settings_page == .computer_use;
     }
 
+    /// Settings Providers / Skills / Usage Refresh. One string is
+    /// shared by all three Settings pages. `on-press` stays
+    /// `refresh_providers` / `refresh_skills` /
+    /// `refresh_usage_history`. Distinct from Refresh goal /
+    /// plan Refresh (English this cut).
+    pub fn settings_refresh_label(model: *const Model) []const u8 {
+        return model.settingsRefreshChrome().refresh;
+    }
+
     /// Settings Computer Use page title. Wording matches
     /// `settings_nav_computer_use` but stays a dedicated getter so the
     /// page title does not couple to Settings nav.
@@ -4870,6 +4880,10 @@ pub const Model = struct {
 
     fn usageViewChrome(model: *const Model) i18n.UsageViewChrome {
         return i18n.usageViewChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn settingsRefreshChrome(model: *const Model) i18n.SettingsRefreshChrome {
+        return i18n.settingsRefreshChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Palette row display label for `action`. New Task / Settings /

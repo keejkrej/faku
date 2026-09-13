@@ -28637,7 +28637,8 @@ test "Usage view and window chips follow Appearance language" {
     try testing.expect(findByText(tree.root, .button, "Projects") == null);
     try testing.expect(findByText(tree.root, .button, "This month") == null);
     try testing.expect(findByText(tree.root, .button, "Last month") == null);
-    _ = try expectButtonMsg(tree, "Refresh", .refresh_usage_history);
+    _ = try expectButtonMsg(tree, "刷新", .refresh_usage_history);
+    try testing.expect(findByText(tree.root, .button, "Refresh") == null);
 
     model.language_preference = .japanese;
     try testing.expectEqualStrings("日次", model.usage_view_daily_label());
@@ -28660,6 +28661,9 @@ test "Usage view and window chips follow Appearance language" {
     try testing.expect(findByText(tree.root, .button, "每日") == null);
     try testing.expect(findByText(tree.root, .button, "This month") == null);
     try testing.expect(findByText(tree.root, .button, "本月") == null);
+    _ = try expectButtonMsg(tree, "更新", .refresh_usage_history);
+    try testing.expect(findByText(tree.root, .button, "Refresh") == null);
+    try testing.expect(findByText(tree.root, .button, "刷新") == null);
 
     model.language_preference = .english;
     model.setSystemLocaleId("ja_JP.UTF-8");
@@ -28693,6 +28697,95 @@ test "Usage view and window chips follow Appearance language" {
     try testing.expect((try expectButtonMsg(tree, "30d", .set_usage_window_30d)).state.selected);
     _ = try expectButtonMsg(tree, "先月", .set_usage_window_last_month);
     try testing.expect(findByText(tree.root, .button, "Daily") == null);
+}
+
+test "Settings Providers Skills Usage Refresh follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, main.app_markup, "{settings_refresh_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"refresh_skills\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"refresh_providers\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"refresh_usage_history\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"refresh_skills\">Refresh</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"refresh_providers\">Refresh</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"refresh_usage_history\">Refresh</button>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"refresh_plan_usage\">Refresh</button>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"goal_refresh\">Refresh goal</button>"));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Refresh", model.settings_refresh_label());
+    try testing.expectEqualStrings(i18n.settingsRefreshChromeFor(.english, "").refresh, model.settings_refresh_label());
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_providers, &fx);
+    try testing.expect(model.settings_page_providers());
+    var tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Refresh", .refresh_providers);
+    try testing.expect(findByText(tree.root, .button, "刷新") == null);
+
+    main.update(&model, .set_settings_page_skills, &fx);
+    try testing.expect(model.settings_page_skills());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Refresh", .refresh_skills);
+
+    main.update(&model, .set_settings_page_usage, &fx);
+    try testing.expect(model.settings_page_usage());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Refresh", .refresh_usage_history);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("刷新", model.settings_refresh_label());
+    try testing.expectEqualStrings(i18n.settingsRefreshChromeFor(.simplified_chinese, "").refresh, model.settings_refresh_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "刷新", .refresh_usage_history);
+    try testing.expect(findByText(tree.root, .button, "Refresh") == null);
+    main.update(&model, .set_settings_page_providers, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "刷新", .refresh_providers);
+    main.update(&model, .set_settings_page_skills, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "刷新", .refresh_skills);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("更新", model.settings_refresh_label());
+    try testing.expectEqualStrings(i18n.settingsRefreshChromeFor(.japanese, "").refresh, model.settings_refresh_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "更新", .refresh_skills);
+    try testing.expect(findByText(tree.root, .button, "Refresh") == null);
+    try testing.expect(findByText(tree.root, .button, "刷新") == null);
+    main.update(&model, .set_settings_page_usage, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "更新", .refresh_usage_history);
+    main.update(&model, .set_settings_page_providers, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "更新", .refresh_providers);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Refresh", model.settings_refresh_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Refresh", .refresh_providers);
+    try testing.expect(findByText(tree.root, .button, "更新") == null);
+    try testing.expect(findByText(tree.root, .button, "刷新") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("刷新", model.settings_refresh_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "刷新", .refresh_providers);
+    try testing.expect(findByText(tree.root, .button, "Refresh") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("更新", model.settings_refresh_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "更新", .refresh_providers);
+    try testing.expect(findByText(tree.root, .button, "Refresh") == null);
 }
 
 test "DateBucket.title english default; zh and ja follow datesFor" {
