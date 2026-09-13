@@ -65,6 +65,11 @@
 //! Commands wording matches `PaletteChrome.commands` but stays a
 //! separate field so the composer chip does not couple to the
 //! palette overlay header)
+//! plus composer primary Send / Stop a11y labels (same
+//! `ComposerSendStopChrome` strings; distinct from
+//! `BackgroundChrome.daemon_stop` / `ComposerChrome` so composer
+//! Send/Stop stay independently evolvable; `on-press` stays
+//! `send` / `stop_turn`)
 //! plus Browser address-field Address label and
 //! `https://example.com` placeholder (same `BrowserAddressChrome`
 //! strings; Latin `https://example.com` in every locale)
@@ -205,7 +210,8 @@
 //! stays English (`image_path_edit`); Goal Status picker `on-press`
 //! stays English (`toggle_goal_status_picker`); Pick image / Attach
 //! image `on-press` stays English (`pick_image`); Commands chip
-//! `on-press` stays English (`toggle_commands`). Typed path text stays
+//! `on-press` stays English (`toggle_commands`); composer Send /
+//! Stop `on-press` stay English (`send` / `stop_turn`). Typed path text stays
 //! English (data). ThreadGoalStatus wire names stay English. Browser
 //! address `on-input` / on-submit stay English (`browser_url_edit` /
 //! `browser_navigate`). Browser toolbar `on-press` stays English
@@ -1722,6 +1728,32 @@ const composer_chrome_ja: ComposerChrome = .{
     .commands = "コマンド",
 };
 
+/// Composer primary Send / Stop a11y labels for the resolved locale.
+/// Same resolve path as ComposerChrome. English matches the former
+/// hardcoded copy. Distinct from `BackgroundChrome.daemon_stop` and
+/// from `ComposerChrome` (image/goal/commands) so composer Send/Stop
+/// stay independently evolvable. Wire ids / on-press stay English
+/// (`send` / `stop_turn`).
+pub const ComposerSendStopChrome = struct {
+    send: []const u8,
+    stop: []const u8,
+};
+
+const composer_send_stop_chrome_en: ComposerSendStopChrome = .{
+    .send = "Send",
+    .stop = "Stop",
+};
+
+const composer_send_stop_chrome_zh_cn: ComposerSendStopChrome = .{
+    .send = "发送",
+    .stop = "停止",
+};
+
+const composer_send_stop_chrome_ja: ComposerSendStopChrome = .{
+    .send = "送信",
+    .stop = "停止",
+};
+
 /// Browser address-field a11y label and placeholder for the resolved
 /// locale. Same resolve path as ComposerChrome. English matches the
 /// former hardcoded copy. Wire ids / on-input / on-submit stay
@@ -2831,6 +2863,20 @@ pub fn composerChromeFor(preference: LanguagePreference, system_locale_id: []con
         .simplified_chinese => composer_chrome_zh_cn,
         .japanese => composer_chrome_ja,
         .system, .english => composer_chrome_en,
+    };
+}
+
+/// Composer primary Send / Stop a11y labels for the resolved locale.
+/// Callers pass Model `language_preference` + `system_locale_id`;
+/// this file does not read process env. Distinct from
+/// BackgroundChrome.daemon_stop / ComposerChrome so composer
+/// Send/Stop stay independently evolvable. Wire ids / on-press stay
+/// English (`send` / `stop_turn`).
+pub fn composerSendStopChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ComposerSendStopChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => composer_send_stop_chrome_zh_cn,
+        .japanese => composer_send_stop_chrome_ja,
+        .system, .english => composer_send_stop_chrome_en,
     };
 }
 
@@ -4315,6 +4361,30 @@ test "composerChromeFor english default; zh and ja chrome; english ignores ja LA
     try testing.expectEqualStrings("Pick image", composerChromeFor(.english, "zh_CN.UTF-8").pick_image);
     try testing.expectEqualStrings("Attach image", composerChromeFor(.english, "ja_JP.UTF-8").attach_image);
     try testing.expectEqualStrings("Commands", composerChromeFor(.english, "zh_CN.UTF-8").commands);
+}
+
+test "composerSendStopChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Send", composerSendStopChromeFor(.english, "ja").send);
+    try testing.expectEqualStrings("Stop", composerSendStopChromeFor(.english, "ja").stop);
+    try testing.expectEqualStrings("Send", composerSendStopChromeFor(.english, "").send);
+    try testing.expectEqualStrings("Stop", composerSendStopChromeFor(.english, "").stop);
+    try testing.expectEqualStrings("Send", composerSendStopChromeFor(.system, "").send);
+    try testing.expectEqualStrings("Stop", composerSendStopChromeFor(.system, "").stop);
+
+    try testing.expectEqualStrings("发送", composerSendStopChromeFor(.simplified_chinese, "").send);
+    try testing.expectEqualStrings("停止", composerSendStopChromeFor(.simplified_chinese, "").stop);
+    try testing.expectEqualStrings("送信", composerSendStopChromeFor(.japanese, "").send);
+    try testing.expectEqualStrings("停止", composerSendStopChromeFor(.japanese, "").stop);
+
+    try testing.expectEqualStrings("发送", composerSendStopChromeFor(.system, "zh_CN.UTF-8").send);
+    try testing.expectEqualStrings("停止", composerSendStopChromeFor(.system, "zh_CN.UTF-8").stop);
+    try testing.expectEqualStrings("送信", composerSendStopChromeFor(.system, "ja_JP.UTF-8").send);
+    try testing.expectEqualStrings("停止", composerSendStopChromeFor(.system, "ja_JP.UTF-8").stop);
+    try testing.expectEqualStrings("Send", composerSendStopChromeFor(.english, "ja_JP.UTF-8").send);
+    try testing.expectEqualStrings("Stop", composerSendStopChromeFor(.english, "ja_JP.UTF-8").stop);
+    try testing.expectEqualStrings("Send", composerSendStopChromeFor(.english, "zh_CN.UTF-8").send);
+    try testing.expectEqualStrings("Stop", composerSendStopChromeFor(.english, "zh_CN.UTF-8").stop);
 }
 
 test "browserAddressChromeFor english default; zh and ja chrome; latin placeholder; english ignores ja LANG" {
