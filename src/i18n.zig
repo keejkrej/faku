@@ -84,6 +84,9 @@
 //! `7d` / `30d` / `90d` stay Latin in every locale; Projects stays a
 //! dedicated field so the view chip does not couple to other Projects
 //! wording; wire ids stay English)
+//! plus Settings Providers / Skills / Usage Refresh (same
+//! `SettingsRefreshChrome` strings; one Refresh field shared by all
+//! three Settings pages; wire ids / on-press stay English)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -169,6 +172,10 @@
 //! `set_usage_view_projects` / `set_usage_window_7d` /
 //! `set_usage_window_30d` / `set_usage_window_90d` /
 //! `set_usage_window_this_month` / `set_usage_window_last_month`).
+//! Settings Providers / Skills / Usage Refresh `on-press` stay
+//! English (`refresh_providers` / `refresh_skills` /
+//! `refresh_usage_history`). Refresh goal / plan Refresh stay
+//! English this cut.
 //! Typed URL text
 //! stays data. Parked `home_url`
 //! / scene URLs stay data. OS
@@ -1873,8 +1880,9 @@ const computer_use_chrome_ja: ComputerUseChrome = .{
 /// `30d` / `90d` stay Latin in every locale (same rule as `host:port`).
 /// Wire ids / on-press / selected stay English (`set_usage_view_daily` /
 /// `usage_view_daily` / `set_usage_window_7d` /
-/// `usage_window_this_month` / …). Refresh / Cost|Tokens / Model|Days
-/// stay English this cut.
+/// `usage_window_this_month` / …). Settings Refresh lives in
+/// `SettingsRefreshChrome`. Cost|Tokens / Model|Days stay English
+/// this cut.
 pub const UsageViewChrome = struct {
     daily: []const u8,
     monthly: []const u8,
@@ -1917,6 +1925,31 @@ const usage_view_chrome_ja: UsageViewChrome = .{
     .window_90d = "90d",
     .this_month = "今月",
     .last_month = "先月",
+};
+
+/// Settings Providers / Skills / Usage Refresh for the resolved locale.
+/// Same resolve path as UsageViewChrome. English matches the former
+/// hardcoded copy. One Refresh field is shared by all three Settings
+/// pages so Providers / Skills / Usage stay one chrome table. Distinct
+/// from Refresh goal (`goal_refresh`) and plan Refresh
+/// (`refresh_plan_usage`), which stay English this cut, and from
+/// Browser toolbar Reload (`BrowserToolbarChrome.reload`). Wire ids /
+/// on-press stay English (`refresh_providers` / `refresh_skills` /
+/// `refresh_usage_history`).
+pub const SettingsRefreshChrome = struct {
+    refresh: []const u8,
+};
+
+const settings_refresh_chrome_en: SettingsRefreshChrome = .{
+    .refresh = "Refresh",
+};
+
+const settings_refresh_chrome_zh_cn: SettingsRefreshChrome = .{
+    .refresh = "刷新",
+};
+
+const settings_refresh_chrome_ja: SettingsRefreshChrome = .{
+    .refresh = "更新",
 };
 
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
@@ -2388,12 +2421,27 @@ pub fn computerUseChromeFor(preference: LanguagePreference, system_locale_id: []
 /// `language_preference` + `system_locale_id`; this file does not read
 /// process env. Projects stays a dedicated field. `7d` / `30d` / `90d`
 /// stay Latin in every locale. Wire ids / on-press / selected stay
-/// English. Refresh / Cost|Tokens / Model|Days stay English this cut.
+/// English. Settings Refresh lives in `settingsRefreshChromeFor`.
+/// Cost|Tokens / Model|Days stay English this cut.
 pub fn usageViewChromeFor(preference: LanguagePreference, system_locale_id: []const u8) UsageViewChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => usage_view_chrome_zh_cn,
         .japanese => usage_view_chrome_ja,
         .system, .english => usage_view_chrome_en,
+    };
+}
+
+/// Settings Providers / Skills / Usage Refresh for the resolved locale.
+/// Callers pass Model `language_preference` + `system_locale_id`;
+/// this file does not read process env. One Refresh field is shared
+/// by all three Settings pages. Wire ids / on-press stay English.
+/// Distinct from Refresh goal / plan Refresh (English this cut) and
+/// from Browser toolbar Reload.
+pub fn settingsRefreshChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SettingsRefreshChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => settings_refresh_chrome_zh_cn,
+        .japanese => settings_refresh_chrome_ja,
+        .system, .english => settings_refresh_chrome_en,
     };
 }
 
@@ -3864,5 +3912,20 @@ test "usageViewChromeFor english default; zh and ja chrome; latin day chips; eng
     try testing.expectEqualStrings("7d", usageViewChromeFor(.system, "zh_CN.UTF-8").window_7d);
     try testing.expectEqualStrings("30d", usageViewChromeFor(.system, "ja_JP.UTF-8").window_30d);
     try testing.expectEqualStrings("90d", usageViewChromeFor(.japanese, "zh_CN.UTF-8").window_90d);
+}
+
+test "settingsRefreshChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Refresh", settingsRefreshChromeFor(.english, "ja").refresh);
+    try testing.expectEqualStrings("Refresh", settingsRefreshChromeFor(.english, "").refresh);
+    try testing.expectEqualStrings("Refresh", settingsRefreshChromeFor(.system, "").refresh);
+
+    try testing.expectEqualStrings("刷新", settingsRefreshChromeFor(.simplified_chinese, "").refresh);
+    try testing.expectEqualStrings("更新", settingsRefreshChromeFor(.japanese, "").refresh);
+
+    try testing.expectEqualStrings("刷新", settingsRefreshChromeFor(.system, "zh_CN.UTF-8").refresh);
+    try testing.expectEqualStrings("更新", settingsRefreshChromeFor(.system, "ja_JP.UTF-8").refresh);
+    try testing.expectEqualStrings("Refresh", settingsRefreshChromeFor(.english, "ja_JP.UTF-8").refresh);
+    try testing.expectEqualStrings("Refresh", settingsRefreshChromeFor(.english, "zh_CN.UTF-8").refresh);
 }
 
