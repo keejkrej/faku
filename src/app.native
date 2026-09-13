@@ -1088,7 +1088,7 @@
                           <if test="{has_usage_meter_hint}">
                             <text wrap="true" foreground="text_muted">{usage_meter_hint}</text>
                           </if>
-                          <button variant="ghost" size="sm" on-press="refresh_plan_usage">Refresh</button>
+                          <button variant="ghost" size="sm" on-press="refresh_plan_usage">{plan_refresh_label}</button>
                         </if>
                       </column>
                     </card>
@@ -1114,7 +1114,7 @@
                 </stack>
                 <button variant="ghost" size="sm" on-press="goal_set">Set goal</button>
                 <button variant="ghost" size="sm" on-press="goal_clear">Clear goal</button>
-                <button variant="ghost" size="sm" on-press="goal_refresh">Refresh goal</button>
+                <button variant="ghost" size="sm" on-press="goal_refresh">{refresh_goal_label}</button>
               </row>
             </if>
             <if test="{image_attach_active}">
