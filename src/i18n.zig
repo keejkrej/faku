@@ -112,6 +112,14 @@
 //! keep numbers and ` · `; distinct from UsageScanFooterChrome so
 //! the sessions unit stays independently evolvable; daemon
 //! `errors[]` notice text stays English data this cut)
+//! plus Settings Providers Available / Not found, Enable /
+//! Disable, Use for this session, Copy install command / Copy login
+//! command, and First-party default (same `ProvidersChrome` strings;
+//! distinct from `ComputerUseChrome` Enable / Off so Providers
+//! Enable/Disable stay independently evolvable; provider wire
+//! names, binary paths, install/login commands, and on-press ids
+//! stay English; longer detail transport notes / fx_login_note /
+//! other_install_hint stay English this cut)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -202,7 +210,9 @@
 //! `set_usage_breakdown_model` / `set_usage_breakdown_days`).
 //! Settings Providers / Skills / Usage Refresh `on-press` stay
 //! English (`refresh_providers` / `refresh_skills` /
-//! `refresh_usage_history`). Refresh goal / plan Refresh `on-press`
+//! `refresh_usage_history`). Settings Providers Apply / Copy install /
+//! Copy login `on-press` stay English (`apply_session_provider` /
+//! `copy_fx_install` / `copy_fx_login`). Refresh goal / plan Refresh `on-press`
 //! stay English (`goal_refresh` / `refresh_plan_usage`). Set goal /
 //! Clear goal `on-press` stay English (`goal_set` / `goal_clear`).
 //! Typed URL text
@@ -2215,6 +2225,58 @@ const usage_sessions_chrome_ja: UsageSessionsChrome = .{
     .connect_daemon = "デーモンに接続して使用量履歴を表示",
 };
 
+/// Settings Providers status, Enable/Disable chip, Apply, Copy
+/// install/login, and First-party default for the resolved locale.
+/// Same resolve path as UsageSessionsChrome. English matches the
+/// former hardcoded copy. Distinct from ComputerUseChrome Enable /
+/// Off so Providers Enable/Disable stay independently evolvable.
+/// Provider wire names, binary paths, install/login *commands*, and
+/// on-press ids stay English. Longer detail transport notes /
+/// `fx_login_note` / `other_install_hint` stay English this cut.
+pub const ProvidersChrome = struct {
+    available: []const u8,
+    not_found: []const u8,
+    first_party: []const u8,
+    enable: []const u8,
+    disable: []const u8,
+    apply: []const u8,
+    copy_install: []const u8,
+    copy_login: []const u8,
+};
+
+const providers_chrome_en: ProvidersChrome = .{
+    .available = "Available",
+    .not_found = "Not found",
+    .first_party = "First-party default",
+    .enable = "Enable",
+    .disable = "Disable",
+    .apply = "Use for this session",
+    .copy_install = "Copy install command",
+    .copy_login = "Copy login command",
+};
+
+const providers_chrome_zh_cn: ProvidersChrome = .{
+    .available = "可用",
+    .not_found = "未找到",
+    .first_party = "第一方默认",
+    .enable = "启用",
+    .disable = "禁用",
+    .apply = "用于此会话",
+    .copy_install = "复制安装命令",
+    .copy_login = "复制登录命令",
+};
+
+const providers_chrome_ja: ProvidersChrome = .{
+    .available = "利用可能",
+    .not_found = "見つかりません",
+    .first_party = "ファーストパーティ既定",
+    .enable = "有効",
+    .disable = "無効",
+    .apply = "このセッションで使う",
+    .copy_install = "インストールコマンドをコピー",
+    .copy_login = "ログインコマンドをコピー",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -2775,6 +2837,22 @@ pub fn usageSessionsChromeFor(preference: LanguagePreference, system_locale_id: 
         .simplified_chinese => usage_sessions_chrome_zh_cn,
         .japanese => usage_sessions_chrome_ja,
         .system, .english => usage_sessions_chrome_en,
+    };
+}
+
+/// Settings Providers status / Enable·Disable / Apply / Copy
+/// install|login / First-party for the resolved locale. Callers pass
+/// Model `language_preference` + `system_locale_id`; this file does
+/// not read process env. Distinct from ComputerUseChrome so Enable /
+/// Off stay independently evolvable. Provider wire names, binary
+/// paths, install/login commands, and on-press stay English. Longer
+/// detail transport notes / `fx_login_note` / `other_install_hint`
+/// stay English this cut.
+pub fn providersChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ProvidersChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => providers_chrome_zh_cn,
+        .japanese => providers_chrome_ja,
+        .system, .english => providers_chrome_en,
     };
 }
 
@@ -4454,5 +4532,67 @@ test "usageSessionsChromeFor english default; zh and ja chrome; english ignores 
     try testing.expectEqualStrings("sessions", usageSessionsChromeFor(.english, "ja_JP.UTF-8").sessions);
     try testing.expectEqualStrings("Connect a daemon for usage history", usageSessionsChromeFor(.english, "zh_CN.UTF-8").connect_daemon);
     try testing.expectEqualStrings("sessions", usageSessionsChromeFor(.english, "zh_CN.UTF-8").sessions);
+}
+
+test "providersChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Available", providersChromeFor(.english, "ja").available);
+    try testing.expectEqualStrings("Not found", providersChromeFor(.english, "").not_found);
+    try testing.expectEqualStrings("First-party default", providersChromeFor(.english, "").first_party);
+    try testing.expectEqualStrings("Enable", providersChromeFor(.english, "").enable);
+    try testing.expectEqualStrings("Disable", providersChromeFor(.english, "").disable);
+    try testing.expectEqualStrings("Use for this session", providersChromeFor(.english, "").apply);
+    try testing.expectEqualStrings("Copy install command", providersChromeFor(.english, "").copy_install);
+    try testing.expectEqualStrings("Copy login command", providersChromeFor(.english, "").copy_login);
+    try testing.expectEqualStrings("Available", providersChromeFor(.system, "").available);
+    try testing.expectEqualStrings("Not found", providersChromeFor(.system, "").not_found);
+    try testing.expectEqualStrings("First-party default", providersChromeFor(.system, "").first_party);
+    try testing.expectEqualStrings("Enable", providersChromeFor(.system, "").enable);
+    try testing.expectEqualStrings("Disable", providersChromeFor(.system, "").disable);
+    try testing.expectEqualStrings("Use for this session", providersChromeFor(.system, "").apply);
+    try testing.expectEqualStrings("Copy install command", providersChromeFor(.system, "").copy_install);
+    try testing.expectEqualStrings("Copy login command", providersChromeFor(.system, "").copy_login);
+
+    try testing.expectEqualStrings("可用", providersChromeFor(.simplified_chinese, "").available);
+    try testing.expectEqualStrings("未找到", providersChromeFor(.simplified_chinese, "").not_found);
+    try testing.expectEqualStrings("第一方默认", providersChromeFor(.simplified_chinese, "").first_party);
+    try testing.expectEqualStrings("启用", providersChromeFor(.simplified_chinese, "").enable);
+    try testing.expectEqualStrings("禁用", providersChromeFor(.simplified_chinese, "").disable);
+    try testing.expectEqualStrings("用于此会话", providersChromeFor(.simplified_chinese, "").apply);
+    try testing.expectEqualStrings("复制安装命令", providersChromeFor(.simplified_chinese, "").copy_install);
+    try testing.expectEqualStrings("复制登录命令", providersChromeFor(.simplified_chinese, "").copy_login);
+    try testing.expectEqualStrings("利用可能", providersChromeFor(.japanese, "").available);
+    try testing.expectEqualStrings("見つかりません", providersChromeFor(.japanese, "").not_found);
+    try testing.expectEqualStrings("ファーストパーティ既定", providersChromeFor(.japanese, "").first_party);
+    try testing.expectEqualStrings("有効", providersChromeFor(.japanese, "").enable);
+    try testing.expectEqualStrings("無効", providersChromeFor(.japanese, "").disable);
+    try testing.expectEqualStrings("このセッションで使う", providersChromeFor(.japanese, "").apply);
+    try testing.expectEqualStrings("インストールコマンドをコピー", providersChromeFor(.japanese, "").copy_install);
+    try testing.expectEqualStrings("ログインコマンドをコピー", providersChromeFor(.japanese, "").copy_login);
+
+    try testing.expectEqualStrings("可用", providersChromeFor(.system, "zh_CN.UTF-8").available);
+    try testing.expectEqualStrings("未找到", providersChromeFor(.system, "zh_CN.UTF-8").not_found);
+    try testing.expectEqualStrings("第一方默认", providersChromeFor(.system, "zh_CN.UTF-8").first_party);
+    try testing.expectEqualStrings("启用", providersChromeFor(.system, "zh_CN.UTF-8").enable);
+    try testing.expectEqualStrings("禁用", providersChromeFor(.system, "zh_CN.UTF-8").disable);
+    try testing.expectEqualStrings("用于此会话", providersChromeFor(.system, "zh_CN.UTF-8").apply);
+    try testing.expectEqualStrings("复制安装命令", providersChromeFor(.system, "zh_CN.UTF-8").copy_install);
+    try testing.expectEqualStrings("复制登录命令", providersChromeFor(.system, "zh_CN.UTF-8").copy_login);
+    try testing.expectEqualStrings("利用可能", providersChromeFor(.system, "ja_JP.UTF-8").available);
+    try testing.expectEqualStrings("見つかりません", providersChromeFor(.system, "ja_JP.UTF-8").not_found);
+    try testing.expectEqualStrings("ファーストパーティ既定", providersChromeFor(.system, "ja_JP.UTF-8").first_party);
+    try testing.expectEqualStrings("有効", providersChromeFor(.system, "ja_JP.UTF-8").enable);
+    try testing.expectEqualStrings("無効", providersChromeFor(.system, "ja_JP.UTF-8").disable);
+    try testing.expectEqualStrings("このセッションで使う", providersChromeFor(.system, "ja_JP.UTF-8").apply);
+    try testing.expectEqualStrings("インストールコマンドをコピー", providersChromeFor(.system, "ja_JP.UTF-8").copy_install);
+    try testing.expectEqualStrings("ログインコマンドをコピー", providersChromeFor(.system, "ja_JP.UTF-8").copy_login);
+    try testing.expectEqualStrings("Available", providersChromeFor(.english, "ja_JP.UTF-8").available);
+    try testing.expectEqualStrings("Not found", providersChromeFor(.english, "zh_CN.UTF-8").not_found);
+    try testing.expectEqualStrings("First-party default", providersChromeFor(.english, "zh_CN.UTF-8").first_party);
+    try testing.expectEqualStrings("Enable", providersChromeFor(.english, "ja_JP.UTF-8").enable);
+    try testing.expectEqualStrings("Disable", providersChromeFor(.english, "zh_CN.UTF-8").disable);
+    try testing.expectEqualStrings("Use for this session", providersChromeFor(.english, "ja_JP.UTF-8").apply);
+    try testing.expectEqualStrings("Copy install command", providersChromeFor(.english, "zh_CN.UTF-8").copy_install);
+    try testing.expectEqualStrings("Copy login command", providersChromeFor(.english, "ja_JP.UTF-8").copy_login);
 }
 

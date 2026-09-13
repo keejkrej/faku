@@ -29466,6 +29466,157 @@ test "Usage sessions unit and connect-daemon hint follow Appearance language" {
     try testing.expect(findByText(tree.root, .text, "2026-09-01 · 400 · $0.50 · 4 sessions") == null);
 }
 
+test "Settings Providers Available Not found Enable Disable Copy First-party follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{p.first_party_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{p.status}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{p.enable_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{copy_fx_install_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{copy_fx_login_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{apply_session_provider_label}"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">First-party default</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"copy_fx_install\">Copy install command</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"copy_fx_login\">Copy login command</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"apply_session_provider\">Use for this session</button>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"copy_fx_install\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"copy_fx_login\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"apply_session_provider\""));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Use for this session", model.apply_session_provider_label());
+    try testing.expectEqualStrings("Copy install command", model.copy_fx_install_label());
+    try testing.expectEqualStrings("Copy login command", model.copy_fx_login_label());
+    try testing.expectEqualStrings(i18n.providersChromeFor(.english, "").apply, model.apply_session_provider_label());
+    try testing.expectEqualStrings(i18n.providersChromeFor(.english, "").copy_install, model.copy_fx_install_label());
+    try testing.expectEqualStrings(i18n.providersChromeFor(.english, "").copy_login, model.copy_fx_login_label());
+    try testing.expectEqualStrings(providers.apply_session_label, model.apply_session_provider_label());
+    try testing.expectEqualStrings(providers.copy_install_label, model.copy_fx_install_label());
+    try testing.expectEqualStrings(providers.copy_login_label, model.copy_fx_login_label());
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_providers, &fx);
+    main.update(&model, .{ .select_provider = 1 }, &fx);
+    try testing.expect(model.settings_page_providers());
+    try testing.expect(model.has_provider_detail());
+    try testing.expect(model.can_copy_fx_install());
+    try testing.expect(model.can_apply_session_provider());
+    try testing.expect(!model.can_copy_fx_login());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "First-party default");
+    _ = try expectByText(tree.root, .text, "Not found");
+    _ = try expectButtonMsg(tree, "Disable", .{ .toggle_provider_enabled = 1 });
+    _ = try expectButtonMsg(tree, "Copy install command", .copy_fx_install);
+    _ = try expectButtonMsg(tree, "Use for this session", .apply_session_provider);
+    try testing.expect(findByText(tree.root, .button, "Copy login command") == null);
+    try testing.expect(findByText(tree.root, .text, "第一方默认") == null);
+    try testing.expect(findByText(tree.root, .text, "ファーストパーティ既定") == null);
+    try testing.expect(findByText(tree.root, .button, "用于此会话") == null);
+    try testing.expect(findByText(tree.root, .list_item, "fx") != null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("用于此会话", model.apply_session_provider_label());
+    try testing.expectEqualStrings("复制安装命令", model.copy_fx_install_label());
+    try testing.expectEqualStrings("复制登录命令", model.copy_fx_login_label());
+    try testing.expectEqualStrings(i18n.providersChromeFor(.simplified_chinese, "").apply, model.apply_session_provider_label());
+    try testing.expectEqualStrings("未找到", providers.statusFor(&model, .fx));
+    try testing.expectEqualStrings("第一方默认", providers.rowFor(&model, .fx).first_party_label);
+    try testing.expectEqualStrings("禁用", providers.rowFor(&model, .fx).enable_label);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "第一方默认");
+    _ = try expectByText(tree.root, .text, "未找到");
+    _ = try expectButtonMsg(tree, "禁用", .{ .toggle_provider_enabled = 1 });
+    _ = try expectButtonMsg(tree, "复制安装命令", .copy_fx_install);
+    _ = try expectButtonMsg(tree, "用于此会话", .apply_session_provider);
+    try testing.expect(findByText(tree.root, .text, "First-party default") == null);
+    try testing.expect(findByText(tree.root, .button, "Use for this session") == null);
+    try testing.expect(findByText(tree.root, .button, "Copy install command") == null);
+    try testing.expect(findByText(tree.root, .list_item, "fx") != null);
+    try testing.expect(findTextContaining(tree.root, providers.fx_install_command) != null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("このセッションで使う", model.apply_session_provider_label());
+    try testing.expectEqualStrings("インストールコマンドをコピー", model.copy_fx_install_label());
+    try testing.expectEqualStrings("ログインコマンドをコピー", model.copy_fx_login_label());
+    try testing.expectEqualStrings(i18n.providersChromeFor(.japanese, "").apply, model.apply_session_provider_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "ファーストパーティ既定");
+    _ = try expectByText(tree.root, .text, "見つかりません");
+    _ = try expectButtonMsg(tree, "無効", .{ .toggle_provider_enabled = 1 });
+    _ = try expectButtonMsg(tree, "インストールコマンドをコピー", .copy_fx_install);
+    _ = try expectButtonMsg(tree, "このセッションで使う", .apply_session_provider);
+    try testing.expect(findByText(tree.root, .text, "First-party default") == null);
+    try testing.expect(findByText(tree.root, .text, "第一方默认") == null);
+    try testing.expect(findByText(tree.root, .button, "Use for this session") == null);
+    try testing.expect(findByText(tree.root, .list_item, "fx") != null);
+
+    model.fx_available = true;
+    model.setFxPath("/tmp/faku-fx-probe");
+    try testing.expect(model.can_copy_fx_login());
+    try testing.expect(!model.can_copy_fx_install());
+    try testing.expectEqualStrings("利用可能", providers.statusFor(&model, .fx));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "利用可能");
+    _ = try expectButtonMsg(tree, "ログインコマンドをコピー", .copy_fx_login);
+    try testing.expect(findByText(tree.root, .button, "インストールコマンドをコピー") == null);
+    try testing.expect(findByText(tree.root, .text, "Available") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Use for this session", model.apply_session_provider_label());
+    try testing.expectEqualStrings("Copy login command", model.copy_fx_login_label());
+    try testing.expectEqualStrings("Available", providers.statusFor(&model, .fx));
+    try testing.expectEqualStrings("First-party default", providers.rowFor(&model, .fx).first_party_label);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "First-party default");
+    _ = try expectByText(tree.root, .text, "Available");
+    _ = try expectButtonMsg(tree, "Disable", .{ .toggle_provider_enabled = 1 });
+    _ = try expectButtonMsg(tree, "Copy login command", .copy_fx_login);
+    _ = try expectButtonMsg(tree, "Use for this session", .apply_session_provider);
+    try testing.expect(findByText(tree.root, .text, "ファーストパーティ既定") == null);
+    try testing.expect(findByText(tree.root, .button, "このセッションで使う") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("用于此会话", model.apply_session_provider_label());
+    try testing.expectEqualStrings("复制登录命令", model.copy_fx_login_label());
+    try testing.expectEqualStrings("可用", providers.statusFor(&model, .fx));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "第一方默认");
+    _ = try expectByText(tree.root, .text, "可用");
+    _ = try expectButtonMsg(tree, "禁用", .{ .toggle_provider_enabled = 1 });
+    _ = try expectButtonMsg(tree, "复制登录命令", .copy_fx_login);
+    _ = try expectButtonMsg(tree, "用于此会话", .apply_session_provider);
+    try testing.expect(findByText(tree.root, .text, "First-party default") == null);
+    try testing.expect(findByText(tree.root, .button, "Use for this session") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("このセッションで使う", model.apply_session_provider_label());
+    try testing.expectEqualStrings("ログインコマンドをコピー", model.copy_fx_login_label());
+    try testing.expectEqualStrings("利用可能", providers.statusFor(&model, .fx));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "ファーストパーティ既定");
+    _ = try expectByText(tree.root, .text, "利用可能");
+    _ = try expectButtonMsg(tree, "無効", .{ .toggle_provider_enabled = 1 });
+    _ = try expectButtonMsg(tree, "ログインコマンドをコピー", .copy_fx_login);
+    _ = try expectButtonMsg(tree, "このセッションで使う", .apply_session_provider);
+    try testing.expect(findByText(tree.root, .text, "First-party default") == null);
+    try testing.expect(findByText(tree.root, .text, "第一方默认") == null);
+
+    main.update(&model, .{ .toggle_provider_enabled = 1 }, &fx);
+    try testing.expect(model.disabled_providers[@intFromEnum(protocol.ProviderId.fx)]);
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "有効", .{ .toggle_provider_enabled = 1 });
+    try testing.expect(findByText(tree.root, .button, "Enable") == null);
+}
+
 test "DateBucket.title english default; zh and ja follow datesFor" {
     try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
     try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());

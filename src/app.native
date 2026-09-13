@@ -369,7 +369,7 @@
                       <row gap="8" cross="center">
                         <text wrap="false" overflow="ellipsis">{p.name}</text>
                         <if test="{p.first_party}">
-                          <text wrap="false" overflow="ellipsis" foreground="text_muted">First-party default</text>
+                          <text wrap="false" overflow="ellipsis" foreground="text_muted">{p.first_party_label}</text>
                         </if>
                       </row>
                       <text wrap="false" overflow="ellipsis" foreground="text_muted">{p.status}</text>
@@ -384,19 +384,19 @@
                   <text wrap="true">{provider_detail}</text>
                   <if test="{can_copy_fx_install}">
                     <text wrap="true" foreground="text_muted">{fx_install_command}</text>
-                    <button variant="ghost" size="sm" on-press="copy_fx_install">Copy install command</button>
+                    <button variant="ghost" size="sm" on-press="copy_fx_install">{copy_fx_install_label}</button>
                   </if>
                   <if test="{can_copy_fx_login}">
                     <text wrap="true" foreground="text_muted">{fx_login_command}</text>
                     <text wrap="true" foreground="text_muted">{fx_login_note}</text>
                     <text wrap="true" foreground="text_muted">{fx_login_codex_note}</text>
-                    <button variant="ghost" size="sm" on-press="copy_fx_login">Copy login command</button>
+                    <button variant="ghost" size="sm" on-press="copy_fx_login">{copy_fx_login_label}</button>
                   </if>
                   <if test="{has_other_install_hint}">
                     <text wrap="true" foreground="text_muted">{other_install_hint}</text>
                   </if>
                   <if test="{can_apply_session_provider}">
-                    <button variant="ghost" size="sm" on-press="apply_session_provider">Use for this session</button>
+                    <button variant="ghost" size="sm" on-press="apply_session_provider">{apply_session_provider_label}</button>
                   </if>
                 </if>
               </column>
