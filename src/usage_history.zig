@@ -14,7 +14,8 @@
 //! Daily / Projects and vice versa. Native 4 KiB stdin overflow /
 //! sidecar failure / unusable parse keep today's local session
 //! Context + Thread goal cards and must not toast-block Settings.
-//! No daemon shows a muted connect hint. Daily first-cut paints
+//! No daemon shows a muted connect hint (sessions unit + hint follow
+//! the resolved locale this cut). Daily first-cut paints
 //! per-provider share bars (`costShare` / `tokenShare`, or computed
 //! from totals) plus a runtime-only Cost | Tokens metric chip
 //! (default Cost), a Daily-only Model | Days breakdown chip (Waku
@@ -747,7 +748,7 @@ fn fillNestedByProvider(
     const claude_share = nestedProviderShare(claude, row_total, metric);
     var claude_percent_buf: [16]u8 = undefined;
     out.has_by_provider = true;
-    out.claude_line = joinLabelDetail(arena, providerLabel(day_provider_ids[protocol.usage_day_provider_claude]), claude.total_tokens, claude.cost_usd, null);
+    out.claude_line = joinLabelDetail(arena, providerLabel(day_provider_ids[protocol.usage_day_provider_claude]), claude.total_tokens, claude.cost_usd, null, "");
     out.claude_share = @floatCast(claude_share);
     out.claude_percent = if (formatPercent(&claude_percent_buf, claude_share)) |text|
         copyArena(arena, text)
@@ -757,7 +758,7 @@ fn fillNestedByProvider(
     const codex = slots[protocol.usage_day_provider_codex];
     const codex_share = nestedProviderShare(codex, row_total, metric);
     var codex_percent_buf: [16]u8 = undefined;
-    out.codex_line = joinLabelDetail(arena, providerLabel(day_provider_ids[protocol.usage_day_provider_codex]), codex.total_tokens, codex.cost_usd, null);
+    out.codex_line = joinLabelDetail(arena, providerLabel(day_provider_ids[protocol.usage_day_provider_codex]), codex.total_tokens, codex.cost_usd, null, "");
     out.codex_share = @floatCast(codex_share);
     out.codex_percent = if (formatPercent(&codex_percent_buf, codex_share)) |text|
         copyArena(arena, text)
@@ -831,8 +832,8 @@ fn appendTokensCost(buf: []u8, used: usize, tokens: u64, cost: f64) usize {
     return used + rest.len;
 }
 
-fn appendSessions(buf: []u8, used: usize, sessions: u64) usize {
-    const piece = std.fmt.bufPrint(buf[used..], " · {d} sessions", .{sessions}) catch return used;
+fn appendSessions(buf: []u8, used: usize, sessions: u64, unit: []const u8) usize {
+    const piece = std.fmt.bufPrint(buf[used..], " · {d} {s}", .{ sessions, unit }) catch return used;
     return used + piece.len;
 }
 
@@ -874,17 +875,25 @@ pub fn headline(model: *const Model, arena: std.mem.Allocator) []const u8 {
 }
 
 pub fn sessionsLabel(model: *const Model, arena: std.mem.Allocator) []const u8 {
-    var buf: [32]u8 = undefined;
-    const text = std.fmt.bufPrint(&buf, "{d} sessions", .{model.usage_history.sessions}) catch return "";
+    var buf: [48]u8 = undefined;
+    const chrome = sessionsChrome(model);
+    const text = std.fmt.bufPrint(&buf, "{d} {s}", .{ model.usage_history.sessions, chrome.sessions }) catch return "";
     return copyArena(arena, text);
 }
 
-fn joinLabelDetail(arena: std.mem.Allocator, label: []const u8, tokens: u64, cost: f64, sessions: ?u64) []const u8 {
+fn joinLabelDetail(
+    arena: std.mem.Allocator,
+    label: []const u8,
+    tokens: u64,
+    cost: f64,
+    sessions: ?u64,
+    sessions_unit: []const u8,
+) []const u8 {
     var buf: [max_line]u8 = undefined;
     const prefix_len = @min(label.len, buf.len);
     @memcpy(buf[0..prefix_len], label[0..prefix_len]);
     var pos = appendTokensCost(&buf, prefix_len, tokens, cost);
-    if (sessions) |count| pos = appendSessions(&buf, pos, count);
+    if (sessions) |count| pos = appendSessions(&buf, pos, count, sessions_unit);
     return copyArena(arena, buf[0..pos]);
 }
 
@@ -904,7 +913,7 @@ pub fn providerRows(model: *const Model, arena: std.mem.Allocator) []const Row {
             "";
         out[i] = .{
             .id = @intCast(i + 1),
-            .line = joinLabelDetail(arena, providerLabel(row.id()), row.total_tokens, row.cost_usd, null),
+            .line = joinLabelDetail(arena, providerLabel(row.id()), row.total_tokens, row.cost_usd, null, ""),
             .share = @floatCast(share),
             .percent = percent,
             .has_share = share > 0,
@@ -935,7 +944,7 @@ pub fn modelRows(model: *const Model, arena: std.mem.Allocator) []const Row {
             "";
         var label_buf: [96]u8 = undefined;
         const label = modelRowLabel(&label_buf, row.provider(), row.name());
-        var line = joinLabelDetail(arena, label, row.total_tokens, row.cost_usd, null);
+        var line = joinLabelDetail(arena, label, row.total_tokens, row.cost_usd, null, "");
         if (litellm_rates.lookup(&model.litellm_rates, row.name())) |rate| {
             var hint_buf: [32]u8 = undefined;
             if (litellm_rates.formatRateHint(&hint_buf, rate)) |hint| {
@@ -973,7 +982,7 @@ pub fn dailyRows(model: *const Model, arena: std.mem.Allocator) []const Row {
             "";
         out[i] = .{
             .id = @intCast(i + 1),
-            .line = joinLabelDetail(arena, label, row.total_tokens, row.cost_usd, null),
+            .line = joinLabelDetail(arena, label, row.total_tokens, row.cost_usd, null, ""),
             .share = @floatCast(share),
             .percent = percent,
             .has_share = share > 0,
@@ -1342,6 +1351,7 @@ pub fn monthRows(model: *const Model, arena: std.mem.Allocator) []const Row {
     if (count == 0) return &.{};
     const months = model.usage_history.months[0..count];
     const max = maxMonthValue(months, model.usage_share_metric);
+    const sessions_unit = sessionsChrome(model).sessions;
     const out = arena.alloc(Row, count) catch return &.{};
     var i: usize = 0;
     while (i < count) : (i += 1) {
@@ -1355,7 +1365,7 @@ pub fn monthRows(model: *const Model, arena: std.mem.Allocator) []const Row {
             "";
         out[i] = .{
             .id = @intCast(i + 1),
-            .line = joinLabelDetail(arena, label, row.total_tokens, row.cost_usd, row.sessions),
+            .line = joinLabelDetail(arena, label, row.total_tokens, row.cost_usd, row.sessions, sessions_unit),
             .share = @floatCast(share),
             .percent = percent,
             .has_share = share > 0,
@@ -1549,6 +1559,7 @@ pub fn projectRows(model: *const Model, arena: std.mem.Allocator) []const Row {
         const value = projects[idx_buf[i]].valueFor(model.usage_share_metric);
         if (value > max) max = value;
     }
+    const sessions_unit = sessionsChrome(model).sessions;
     const out = arena.alloc(Row, visible_n) catch return &.{};
     i = 0;
     while (i < visible_n) : (i += 1) {
@@ -1561,7 +1572,7 @@ pub fn projectRows(model: *const Model, arena: std.mem.Allocator) []const Row {
             "";
         out[i] = .{
             .id = @intCast(i + 1),
-            .line = joinLabelDetail(arena, projectBasename(row.path()), row.total_tokens, row.cost_usd, row.sessions),
+            .line = joinLabelDetail(arena, projectBasename(row.path()), row.total_tokens, row.cost_usd, row.sessions, sessions_unit),
             .share = @floatCast(share),
             .percent = percent,
             .has_share = share > 0,
@@ -1598,6 +1609,10 @@ fn costQualityChrome(model: *const Model) i18n.UsageCostQualityChrome {
 
 fn scanFooterChrome(model: *const Model) i18n.UsageScanFooterChrome {
     return i18n.usageScanFooterChromeFor(model.language_preference, model.systemLocaleId());
+}
+
+fn sessionsChrome(model: *const Model) i18n.UsageSessionsChrome {
+    return i18n.usageSessionsChromeFor(model.language_preference, model.systemLocaleId());
 }
 
 pub fn noticeRows(model: *const Model, arena: std.mem.Allocator) []const Row {
@@ -1802,7 +1817,7 @@ pub fn scanFooter(model: *const Model, arena: std.mem.Allocator) []const u8 {
 
 pub fn historyHint(model: *const Model) []const u8 {
     if (model.usage_history.present) return "";
-    if (store.resolveDaemonMirrorAddress(model).len == 0) return "Connect a daemon for usage history";
+    if (store.resolveDaemonMirrorAddress(model).len == 0) return sessionsChrome(model).connect_daemon;
     return "";
 }
 
@@ -3790,5 +3805,114 @@ test "scan footer chrome follow Appearance language; english default matches for
     model.setSystemLocaleId("zh_CN.UTF-8");
     try std.testing.expectEqualStrings("3 文件 · 1 已跳过 · 9 记录 · 1.0s", scanFooter(&model, arena));
 }
+
+test "sessions label, join suffix, and connect-daemon hint follow Appearance language; english default matches former copy" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var hint_model = Model{};
+    try std.testing.expectEqualStrings("Connect a daemon for usage history", historyHint(&hint_model));
+    try std.testing.expectEqualStrings(
+        i18n.usageSessionsChromeFor(.english, "").connect_daemon,
+        historyHint(&hint_model),
+    );
+
+    hint_model.language_preference = .simplified_chinese;
+    try std.testing.expectEqualStrings("连接守护进程以查看用量历史", historyHint(&hint_model));
+    try std.testing.expect(std.mem.indexOf(u8, historyHint(&hint_model), "Connect") == null);
+
+    hint_model.language_preference = .japanese;
+    try std.testing.expectEqualStrings("デーモンに接続して使用量履歴を表示", historyHint(&hint_model));
+    try std.testing.expect(std.mem.indexOf(u8, historyHint(&hint_model), "Connect") == null);
+
+    hint_model.language_preference = .english;
+    hint_model.setSystemLocaleId("ja_JP.UTF-8");
+    try std.testing.expectEqualStrings("Connect a daemon for usage history", historyHint(&hint_model));
+
+    hint_model.language_preference = .system;
+    try std.testing.expectEqualStrings("デーモンに接続して使用量履歴を表示", historyHint(&hint_model));
+
+    hint_model.setSystemLocaleId("zh_CN.UTF-8");
+    try std.testing.expectEqualStrings("连接守护进程以查看用量历史", historyHint(&hint_model));
+
+    hint_model.setLastDaemonAddress("127.0.0.1:8787");
+    try std.testing.expectEqualStrings("", historyHint(&hint_model));
+
+    var model = Model{};
+    model.settings_page = .usage;
+    model.usage_history.present = true;
+    model.usage_history.sessions = 4;
+    try std.testing.expectEqualStrings("4 sessions", sessionsLabel(&model, arena));
+    try std.testing.expectEqualStrings(
+        i18n.usageSessionsChromeFor(.english, "").sessions,
+        "sessions",
+    );
+    try std.testing.expectEqualStrings("", historyHint(&model));
+
+    const day = "2026-09-01";
+    model.usage_view = .monthly;
+    model.usage_history.window = monthly_window;
+    model.usage_history.month_count = 1;
+    @memcpy(model.usage_history.months[0].first_day_storage[0..day.len], day);
+    model.usage_history.months[0].first_day_len = day.len;
+    model.usage_history.months[0].total_tokens = 400;
+    model.usage_history.months[0].cost_usd = 0.5;
+    model.usage_history.months[0].sessions = 4;
+    const month_en = monthRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 1), month_en.len);
+    try std.testing.expectEqualStrings("2026-09-01 · 400 · $0.50 · 4 sessions", month_en[0].line);
+
+    const path = "/tmp/other";
+    model.usage_view = .projects;
+    model.usage_history.window = .{ .trailing_days = 30 };
+    model.usage_history.project_count = 1;
+    @memcpy(model.usage_history.projects[0].path_storage[0..path.len], path);
+    model.usage_history.projects[0].path_len = path.len;
+    model.usage_history.projects[0].total_tokens = 400;
+    model.usage_history.projects[0].cost_usd = 0.5;
+    model.usage_history.projects[0].sessions = 4;
+    const project_en = projectRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 1), project_en.len);
+    try std.testing.expectEqualStrings("other · 400 · $0.50 · 4 sessions", project_en[0].line);
+
+    model.language_preference = .simplified_chinese;
+    try std.testing.expectEqualStrings("4 会话", sessionsLabel(&model, arena));
+    model.usage_view = .monthly;
+    model.usage_history.window = monthly_window;
+    const month_zh = monthRows(&model, arena);
+    try std.testing.expectEqualStrings("2026-09-01 · 400 · $0.50 · 4 会话", month_zh[0].line);
+    try std.testing.expect(std.mem.indexOf(u8, month_zh[0].line, " · ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, month_zh[0].line, "4 ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, month_zh[0].line, "sessions") == null);
+    model.usage_view = .projects;
+    model.usage_history.window = .{ .trailing_days = 30 };
+    const project_zh = projectRows(&model, arena);
+    try std.testing.expectEqualStrings("other · 400 · $0.50 · 4 会话", project_zh[0].line);
+
+    model.language_preference = .japanese;
+    try std.testing.expectEqualStrings("4 セッション", sessionsLabel(&model, arena));
+    const project_ja = projectRows(&model, arena);
+    try std.testing.expectEqualStrings("other · 400 · $0.50 · 4 セッション", project_ja[0].line);
+    try std.testing.expect(std.mem.indexOf(u8, project_ja[0].line, " · ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, project_ja[0].line, "sessions") == null);
+    model.usage_view = .monthly;
+    model.usage_history.window = monthly_window;
+    try std.testing.expectEqualStrings("2026-09-01 · 400 · $0.50 · 4 セッション", monthRows(&model, arena)[0].line);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try std.testing.expectEqualStrings("4 sessions", sessionsLabel(&model, arena));
+    try std.testing.expectEqualStrings("2026-09-01 · 400 · $0.50 · 4 sessions", monthRows(&model, arena)[0].line);
+
+    model.language_preference = .system;
+    try std.testing.expectEqualStrings("4 セッション", sessionsLabel(&model, arena));
+    try std.testing.expectEqualStrings("2026-09-01 · 400 · $0.50 · 4 セッション", monthRows(&model, arena)[0].line);
+
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try std.testing.expectEqualStrings("4 会话", sessionsLabel(&model, arena));
+    try std.testing.expectEqualStrings("2026-09-01 · 400 · $0.50 · 4 会话", monthRows(&model, arena)[0].line);
+}
+
 
 
