@@ -901,9 +901,9 @@
           <if test="{has_find_match_label}">
             <text wrap="false" overflow="ellipsis" foreground="text_muted">{find_match_label}</text>
           </if>
-          <button variant="ghost" size="icon" icon="chevron-up" label="Previous match" on-press="find_prev"></button>
-          <button variant="ghost" size="icon" icon="chevron-down" label="Next match" on-press="find_next"></button>
-          <button variant="ghost" size="icon" icon="x" label="Close find" on-press="close_find"></button>
+          <button variant="ghost" size="icon" icon="chevron-up" label="{find_previous_match_label}" on-press="find_prev"></button>
+          <button variant="ghost" size="icon" icon="chevron-down" label="{find_next_match_label}" on-press="find_next"></button>
+          <button variant="ghost" size="icon" icon="x" label="{close_find_label}" on-press="close_find"></button>
         </row>
       </if>
       <scroll grow="1" value="{transcript_scroll}" on-scroll="transcript_scrolled" label="Transcript">
