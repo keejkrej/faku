@@ -949,8 +949,10 @@ test "statusFor / rowFor english default matches former copy; zh-CN / ja localiz
     try testing.expectEqualStrings("利用可能", statusFor(&model, .fx));
     try testing.expectEqualStrings("見つかりません", statusFor(&model, .claude));
     try testing.expectEqualStrings("無効", rowFor(&model, .fx).enable_label);
-    try testing.expectEqualStrings("有効", rowFor(&model, .claude).enable_label);
+    try testing.expectEqualStrings("無効", rowFor(&model, .claude).enable_label);
     try testing.expectEqualStrings("ファーストパーティ既定", rowFor(&model, .fx).first_party_label);
+    setProviderEnabled(&model, .claude, false);
+    try testing.expectEqualStrings("有効", rowFor(&model, .claude).enable_label);
     const ja_detail = detailText(&model, testing.allocator);
     defer if (ja_detail.len > 0) testing.allocator.free(ja_detail);
     try testing.expect(std.mem.indexOf(u8, ja_detail, "ファーストパーティ既定") != null);
