@@ -2118,6 +2118,7 @@ pub const Model = struct {
         "goalPlanRefreshChrome",
         "goalActionChrome",
         "usageCostQualityChrome",
+        "providersChrome",
         "palette_action_label",
         "show_right_panel_label",
         "sidebarDates",
@@ -4656,6 +4657,24 @@ pub const Model = struct {
         return model.settingsRefreshChrome().refresh;
     }
 
+    /// Settings Providers Apply. `on-press` stays
+    /// `apply_session_provider`.
+    pub fn apply_session_provider_label(model: *const Model) []const u8 {
+        return model.providersChrome().apply;
+    }
+
+    /// Settings Providers Copy install command. `on-press` stays
+    /// `copy_fx_install`. Install command text stays English.
+    pub fn copy_fx_install_label(model: *const Model) []const u8 {
+        return model.providersChrome().copy_install;
+    }
+
+    /// Settings Providers Copy login command. `on-press` stays
+    /// `copy_fx_login`. Login command text stays English.
+    pub fn copy_fx_login_label(model: *const Model) []const u8 {
+        return model.providersChrome().copy_login;
+    }
+
     /// Composer goal-row Refresh goal. `on-press` stays
     /// `goal_refresh`. Distinct from Settings Refresh and from
     /// plan-meter Refresh.
@@ -4927,6 +4946,10 @@ pub const Model = struct {
 
     fn usageCostQualityChrome(model: *const Model) i18n.UsageCostQualityChrome {
         return i18n.usageCostQualityChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn providersChrome(model: *const Model) i18n.ProvidersChrome {
+        return i18n.providersChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Palette row display label for `action`. New Task / Settings /

@@ -73,16 +73,25 @@ const protocol = @import("protocol.zig");
 const fx_probe = @import("fx_probe.zig");
 const cli_probe = @import("cli_probe.zig");
 const copy_helpers = @import("copy.zig");
+const i18n = @import("i18n.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
 
-pub const available_status = "Available";
-pub const missing_status = "Not found";
+fn chrome(model: *const Model) i18n.ProvidersChrome {
+    return i18n.providersChromeFor(model.language_preference, model.systemLocaleId());
+}
+
+/// English defaults from `i18n.ProvidersChrome`. Tests and callers that
+/// still want the former hardcoded copy use these; rows / detail /
+/// status resolve through `chrome` for the Appearance locale.
+const providers_chrome_en = i18n.providersChromeFor(.english, "");
+pub const available_status = providers_chrome_en.available;
+pub const missing_status = providers_chrome_en.not_found;
 pub const fx_available_status = available_status;
 pub const fx_missing_status = missing_status;
 pub const catalog_detail_note = "Status is a PATH --help probe. Send stays demo this cut.";
-pub const first_party_label = "First-party default";
+pub const first_party_label = providers_chrome_en.first_party;
 pub const fx_transport_note = "Live path is one-shot fx acp via acp-proxy.";
 pub const acp_transport_note = "Live Send is one-shot acp via acp-proxy when Available (ACP image content blocks when attached).";
 pub const grok_transport_note = "Live Send is one-shot grok agent stdio via acp-proxy when Available (ACP image content blocks when attached).";
@@ -90,7 +99,7 @@ pub const claude_transport_note = "Live Send is one-shot claude -p --output-form
 pub const codex_transport_note = "Live Send is one-shot codex exec when Available (`--image` when attached).";
 pub const amp_transport_note = "Live Send is one-shot amp -x / --execute when Available (`@path` when attached).";
 pub const pi_transport_note = "Live Send is one-shot pi --mode json when Available (`@path` when attached).";
-pub const apply_session_label = "Use for this session";
+pub const apply_session_label = providers_chrome_en.apply;
 /// Working keejkrej/fx Unix install script on the latest GitHub Release.
 /// Copied to the clipboard; never auto-run. Not fx.sh.
 /// Lands in `~/.fx/bin`. Windows uses `install.ps1` on the same latest
@@ -98,13 +107,13 @@ pub const apply_session_label = "Use for this session";
 pub const fx_install_command = "curl -fsSL https://github.com/keejkrej/fx/releases/latest/download/install | bash";
 /// Convenience copy only. Fork pitch is also `fx login grok` / `fx login codex`.
 pub const fx_login_command = "fx login";
-pub const copy_install_label = "Copy install command";
-pub const copy_login_label = "Copy login command";
+pub const copy_install_label = providers_chrome_en.copy_install;
+pub const copy_login_label = providers_chrome_en.copy_login;
 pub const fx_login_note = "Faku does not detect auth state from the --help probe. Copy is a convenience, not sign-in UI or OAuth.";
 pub const fx_login_codex_note = "Optional: fx login grok / fx login codex (no Gateway required).";
 pub const other_install_hint = "Install that CLI on PATH, then Refresh.";
-pub const enable_label = "Enable";
-pub const disable_label = "Disable";
+pub const enable_label = providers_chrome_en.enable;
+pub const disable_label = providers_chrome_en.disable;
 
 /// Settings Providers row. `id` is 1-based `@intFromEnum(ProviderId)`
 /// so Native `select_provider:{p.id}` / `toggle_provider_enabled:{p.id}`
@@ -121,6 +130,9 @@ pub const ProviderRow = struct {
     /// only. Not the `providerEnabled` gate (that also ANDs installed).
     enabled: bool = true,
     enable_label: []const u8 = disable_label,
+    /// First-party badge. Empty on non-fx rows; markup gates on
+    /// `first_party`. Localized via `i18n.ProvidersChrome`.
+    first_party_label: []const u8 = "",
 };
 
 pub fn catalogLen() usize {
@@ -170,8 +182,9 @@ pub fn toggleProviderEnabled(model: *Model, row_id: u32) bool {
 }
 
 pub fn statusFor(model: *const Model, id: protocol.ProviderId) []const u8 {
-    if (isAvailable(model, id)) return available_status;
-    return missing_status;
+    const pack = chrome(model);
+    if (isAvailable(model, id)) return pack.available;
+    return pack.not_found;
 }
 
 /// Probed fx path when that probe succeeded, else PATH `defaultBinary`.
@@ -187,6 +200,7 @@ pub fn rowFor(model: *const Model, id: protocol.ProviderId) ProviderRow {
     const binary = binaryFor(model, id);
     const rid = rowId(id);
     const enabled = !model.disabled_providers[@intFromEnum(id)];
+    const pack = chrome(model);
     return .{
         .id = rid,
         .name = id.wireName(),
@@ -196,7 +210,8 @@ pub fn rowFor(model: *const Model, id: protocol.ProviderId) ProviderRow {
         .first_party = id == .fx,
         .selected = model.provider_selected_id == rid,
         .enabled = enabled,
-        .enable_label = if (enabled) disable_label else enable_label,
+        .enable_label = if (enabled) pack.disable else pack.enable,
+        .first_party_label = if (id == .fx) pack.first_party else "",
     };
 }
 
@@ -212,12 +227,13 @@ pub fn rows(model: *const Model, arena: std.mem.Allocator) []const ProviderRow {
 
 pub fn detailText(model: *const Model, arena: std.mem.Allocator) []const u8 {
     const id = fromRowId(model.provider_selected_id) orelse return "";
+    const pack = chrome(model);
     if (id == .fx) {
         const path = model.fxPath();
         if (model.fx_available and path.len > 0) {
             return std.fmt.allocPrint(arena, "{s}\n{s}\nBinary: {s}\nPath: {s}\n{s}", .{
                 id.wireName(),
-                first_party_label,
+                pack.first_party,
                 id.defaultBinary(),
                 path,
                 fx_transport_note,
@@ -225,9 +241,9 @@ pub fn detailText(model: *const Model, arena: std.mem.Allocator) []const u8 {
         }
         return std.fmt.allocPrint(arena, "{s}\n{s}\nBinary: {s}\n{s}\n{s}", .{
             id.wireName(),
-            first_party_label,
+            pack.first_party,
             id.defaultBinary(),
-            missing_status,
+            pack.not_found,
             fx_transport_note,
         }) catch "";
     }
@@ -374,9 +390,10 @@ test "fx status from model fields without spawning; non-fx defaults Not found" {
 
     const fx_row = rowFor(&model, .fx);
     try std.testing.expect(fx_row.first_party);
-    try std.testing.expectEqualStrings(first_party_label, first_party_label);
+    try std.testing.expectEqualStrings(first_party_label, fx_row.first_party_label);
     try std.testing.expectEqualStrings(available_status, fx_row.status);
     try std.testing.expect(!rowFor(&model, .claude).first_party);
+    try std.testing.expectEqualStrings("", rowFor(&model, .claude).first_party_label);
 }
 
 test "non-fx success exit is Available; non-zero is Not found; fx stays on fx_available" {
@@ -889,4 +906,74 @@ test "providerEnabled is not-disabled AND probe-installed; chip is disable-flag-
     try std.testing.expect(!providerEnabled(&model, .fx));
     try std.testing.expect(!rowFor(&model, .fx).enabled);
     try std.testing.expectEqualStrings(enable_label, rowFor(&model, .fx).enable_label);
+}
+
+test "statusFor / rowFor english default matches former copy; zh-CN / ja localize status enable_label first_party" {
+    const testing = std.testing;
+    var model = Model{};
+    try testing.expectEqualStrings("Not found", statusFor(&model, .fx));
+    try testing.expectEqualStrings("Not found", statusFor(&model, .claude));
+    try testing.expectEqualStrings(missing_status, statusFor(&model, .fx));
+    try testing.expectEqualStrings("Disable", rowFor(&model, .fx).enable_label);
+    try testing.expectEqualStrings(disable_label, rowFor(&model, .fx).enable_label);
+    try testing.expectEqualStrings("First-party default", rowFor(&model, .fx).first_party_label);
+    try testing.expectEqualStrings(first_party_label, rowFor(&model, .fx).first_party_label);
+    try testing.expectEqualStrings("", rowFor(&model, .claude).first_party_label);
+    try testing.expectEqualStrings("fx", rowFor(&model, .fx).name);
+    try testing.expectEqualStrings("claude", rowFor(&model, .claude).name);
+
+    model.fx_available = true;
+    try testing.expectEqualStrings("Available", statusFor(&model, .fx));
+    try testing.expectEqualStrings(available_status, statusFor(&model, .fx));
+    setProviderEnabled(&model, .fx, false);
+    try testing.expectEqualStrings("Enable", rowFor(&model, .fx).enable_label);
+    try testing.expectEqualStrings(enable_label, rowFor(&model, .fx).enable_label);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("可用", statusFor(&model, .fx));
+    try testing.expectEqualStrings("未找到", statusFor(&model, .claude));
+    try testing.expectEqualStrings("启用", rowFor(&model, .fx).enable_label);
+    try testing.expectEqualStrings("禁用", rowFor(&model, .claude).enable_label);
+    try testing.expectEqualStrings("第一方默认", rowFor(&model, .fx).first_party_label);
+    try testing.expectEqualStrings("fx", rowFor(&model, .fx).name);
+    try testing.expectEqualStrings("claude", rowFor(&model, .claude).name);
+    selectProvider(&model, rowId(.fx));
+    const zh_detail = detailText(&model, testing.allocator);
+    defer if (zh_detail.len > 0) testing.allocator.free(zh_detail);
+    try testing.expect(std.mem.indexOf(u8, zh_detail, "第一方默认") != null);
+    try testing.expect(std.mem.indexOf(u8, zh_detail, "fx") != null);
+    try testing.expect(std.mem.indexOf(u8, zh_detail, fx_transport_note) != null);
+
+    model.language_preference = .japanese;
+    setProviderEnabled(&model, .fx, true);
+    try testing.expectEqualStrings("利用可能", statusFor(&model, .fx));
+    try testing.expectEqualStrings("見つかりません", statusFor(&model, .claude));
+    try testing.expectEqualStrings("無効", rowFor(&model, .fx).enable_label);
+    try testing.expectEqualStrings("無効", rowFor(&model, .claude).enable_label);
+    try testing.expectEqualStrings("ファーストパーティ既定", rowFor(&model, .fx).first_party_label);
+    setProviderEnabled(&model, .claude, false);
+    try testing.expectEqualStrings("有効", rowFor(&model, .claude).enable_label);
+    const ja_detail = detailText(&model, testing.allocator);
+    defer if (ja_detail.len > 0) testing.allocator.free(ja_detail);
+    try testing.expect(std.mem.indexOf(u8, ja_detail, "ファーストパーティ既定") != null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Available", statusFor(&model, .fx));
+    try testing.expectEqualStrings("Not found", statusFor(&model, .claude));
+    try testing.expectEqualStrings("Disable", rowFor(&model, .fx).enable_label);
+    try testing.expectEqualStrings("First-party default", rowFor(&model, .fx).first_party_label);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("可用", statusFor(&model, .fx));
+    try testing.expectEqualStrings("未找到", statusFor(&model, .claude));
+    try testing.expectEqualStrings("禁用", rowFor(&model, .fx).enable_label);
+    try testing.expectEqualStrings("第一方默认", rowFor(&model, .fx).first_party_label);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("利用可能", statusFor(&model, .fx));
+    try testing.expectEqualStrings("見つかりません", statusFor(&model, .claude));
+    try testing.expectEqualStrings("無効", rowFor(&model, .fx).enable_label);
+    try testing.expectEqualStrings("ファーストパーティ既定", rowFor(&model, .fx).first_party_label);
 }
