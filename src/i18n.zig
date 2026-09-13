@@ -107,6 +107,11 @@
 //! `UsageScanFooterChrome` strings; ` · ` separators and Latin
 //! `{d:.1}s` stay; distinct from UsageCostQualityChrome so the
 //! footer units stay independently evolvable)
+//! plus Settings Usage sessions unit and connect-daemon hint (same
+//! `UsageSessionsChrome` strings; `{d} sessions` / ` · {d} sessions`
+//! keep numbers and ` · `; distinct from UsageScanFooterChrome so
+//! the sessions unit stays independently evolvable; daemon
+//! `errors[]` notice text stays English data this cut)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -2182,6 +2187,34 @@ const usage_scan_footer_chrome_ja: UsageScanFooterChrome = .{
     .records = "レコード",
 };
 
+/// Settings Usage sessions unit and empty-state connect-daemon hint
+/// for the resolved locale. Same resolve path as
+/// UsageScanFooterChrome. English matches the former hardcoded copy
+/// (`{d} sessions`, ` · {d} sessions`, `Connect a daemon for usage
+/// history`). Distinct from UsageScanFooterChrome so the sessions
+/// unit stays independently evolvable. Numbers and middle-dot ` · `
+/// stay in every locale. Daemon `errors[]` notice text stays English
+/// data this cut.
+pub const UsageSessionsChrome = struct {
+    sessions: []const u8,
+    connect_daemon: []const u8,
+};
+
+const usage_sessions_chrome_en: UsageSessionsChrome = .{
+    .sessions = "sessions",
+    .connect_daemon = "Connect a daemon for usage history",
+};
+
+const usage_sessions_chrome_zh_cn: UsageSessionsChrome = .{
+    .sessions = "会话",
+    .connect_daemon = "连接守护进程以查看用量历史",
+};
+
+const usage_sessions_chrome_ja: UsageSessionsChrome = .{
+    .sessions = "セッション",
+    .connect_daemon = "デーモンに接続して使用量履歴を表示",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -2728,6 +2761,20 @@ pub fn usageScanFooterChromeFor(preference: LanguagePreference, system_locale_id
         .simplified_chinese => usage_scan_footer_chrome_zh_cn,
         .japanese => usage_scan_footer_chrome_ja,
         .system, .english => usage_scan_footer_chrome_en,
+    };
+}
+
+/// Settings Usage sessions unit and connect-daemon hint for the
+/// resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from UsageScanFooterChrome so the sessions unit stays independently
+/// evolvable. Numbers and ` · ` stay. Daemon `errors[]` notice text
+/// stays English data this cut.
+pub fn usageSessionsChromeFor(preference: LanguagePreference, system_locale_id: []const u8) UsageSessionsChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => usage_sessions_chrome_zh_cn,
+        .japanese => usage_sessions_chrome_ja,
+        .system, .english => usage_sessions_chrome_en,
     };
 }
 
@@ -4386,5 +4433,26 @@ test "usageScanFooterChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("files", usageScanFooterChromeFor(.english, "ja_JP.UTF-8").files);
     try testing.expectEqualStrings("skipped", usageScanFooterChromeFor(.english, "zh_CN.UTF-8").skipped);
     try testing.expectEqualStrings("records", usageScanFooterChromeFor(.english, "ja_JP.UTF-8").records);
+}
+
+test "usageSessionsChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("sessions", usageSessionsChromeFor(.english, "ja").sessions);
+    try testing.expectEqualStrings("Connect a daemon for usage history", usageSessionsChromeFor(.english, "").connect_daemon);
+    try testing.expectEqualStrings("sessions", usageSessionsChromeFor(.system, "").sessions);
+    try testing.expectEqualStrings("Connect a daemon for usage history", usageSessionsChromeFor(.system, "").connect_daemon);
+
+    try testing.expectEqualStrings("会话", usageSessionsChromeFor(.simplified_chinese, "").sessions);
+    try testing.expectEqualStrings("连接守护进程以查看用量历史", usageSessionsChromeFor(.simplified_chinese, "").connect_daemon);
+    try testing.expectEqualStrings("セッション", usageSessionsChromeFor(.japanese, "").sessions);
+    try testing.expectEqualStrings("デーモンに接続して使用量履歴を表示", usageSessionsChromeFor(.japanese, "").connect_daemon);
+
+    try testing.expectEqualStrings("会话", usageSessionsChromeFor(.system, "zh_CN.UTF-8").sessions);
+    try testing.expectEqualStrings("连接守护进程以查看用量历史", usageSessionsChromeFor(.system, "zh_CN.UTF-8").connect_daemon);
+    try testing.expectEqualStrings("セッション", usageSessionsChromeFor(.system, "ja_JP.UTF-8").sessions);
+    try testing.expectEqualStrings("デーモンに接続して使用量履歴を表示", usageSessionsChromeFor(.system, "ja_JP.UTF-8").connect_daemon);
+    try testing.expectEqualStrings("sessions", usageSessionsChromeFor(.english, "ja_JP.UTF-8").sessions);
+    try testing.expectEqualStrings("Connect a daemon for usage history", usageSessionsChromeFor(.english, "zh_CN.UTF-8").connect_daemon);
+    try testing.expectEqualStrings("sessions", usageSessionsChromeFor(.english, "zh_CN.UTF-8").sessions);
 }
 

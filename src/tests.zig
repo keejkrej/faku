@@ -29345,6 +29345,127 @@ test "Usage Cost quality Rates metric-strip chrome follow Appearance language" {
     try testing.expect(findByText(tree.root, .text, "3 files · 1 skipped · 9 records · 1.0s") == null);
 }
 
+test "Usage sessions unit and connect-daemon hint follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{usage_sessions_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{usage_history_hint}"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "<text>Connect a daemon for usage history</text>"));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Connect a daemon for usage history", i18n.usageSessionsChromeFor(.english, "").connect_daemon);
+    try testing.expectEqualStrings("sessions", i18n.usageSessionsChromeFor(.english, "").sessions);
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_usage, &fx);
+    try testing.expect(model.settings_page_usage());
+    try testing.expect(model.has_usage_history_hint());
+    try testing.expectEqualStrings("Connect a daemon for usage history", model.usage_history_hint());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Connect a daemon for usage history");
+    try testing.expect(findByText(tree.root, .text, "连接守护进程以查看用量历史") == null);
+    try testing.expect(findByText(tree.root, .text, "デーモンに接続して使用量履歴を表示") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("连接守护进程以查看用量历史", model.usage_history_hint());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "连接守护进程以查看用量历史");
+    try testing.expect(findByText(tree.root, .text, "Connect a daemon for usage history") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("デーモンに接続して使用量履歴を表示", model.usage_history_hint());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "デーモンに接続して使用量履歴を表示");
+    try testing.expect(findByText(tree.root, .text, "Connect a daemon for usage history") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Connect a daemon for usage history", model.usage_history_hint());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Connect a daemon for usage history");
+    try testing.expect(findByText(tree.root, .text, "デーモンに接続して使用量履歴を表示") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("连接守护进程以查看用量历史", model.usage_history_hint());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "连接守护进程以查看用量历史");
+    try testing.expect(findByText(tree.root, .text, "Connect a daemon for usage history") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("");
+    model.usage_history.present = true;
+    model.usage_history.window = .{ .trailing_days = 30 };
+    model.usage_history.sessions = 4;
+    try testing.expect(!model.has_usage_history_hint());
+    try testing.expect(model.has_usage_history());
+    try testing.expectEqualStrings("4 sessions", model.usage_sessions_label(arena));
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "4 sessions");
+    try testing.expect(findByText(tree.root, .text, "Connect a daemon for usage history") == null);
+    try testing.expect(findByText(tree.root, .text, "4 会话") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("4 会话", model.usage_sessions_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "4 会话");
+    try testing.expect(findByText(tree.root, .text, "4 sessions") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("4 セッション", model.usage_sessions_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "4 セッション");
+    try testing.expect(findByText(tree.root, .text, "4 sessions") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("4 sessions", model.usage_sessions_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "4 sessions");
+    try testing.expect(findByText(tree.root, .text, "4 セッション") == null);
+
+    model.language_preference = .system;
+    try testing.expectEqualStrings("4 セッション", model.usage_sessions_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "4 セッション");
+    try testing.expect(findByText(tree.root, .text, "4 sessions") == null);
+
+    const day = "2026-09-01";
+    model.usage_view = .monthly;
+    model.usage_history.window = .{ .months = 12 };
+    model.usage_history.month_count = 1;
+    @memcpy(model.usage_history.months[0].first_day_storage[0..day.len], day);
+    model.usage_history.months[0].first_day_len = day.len;
+    model.usage_history.months[0].total_tokens = 400;
+    model.usage_history.months[0].cost_usd = 0.5;
+    model.usage_history.months[0].sessions = 4;
+    try testing.expectEqualStrings("4 セッション", model.usage_sessions_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "2026-09-01 · 400 · $0.50 · 4 セッション");
+    try testing.expect(findByText(tree.root, .text, "2026-09-01 · 400 · $0.50 · 4 sessions") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("4 sessions", model.usage_sessions_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "2026-09-01 · 400 · $0.50 · 4 sessions");
+    try testing.expect(findByText(tree.root, .text, "2026-09-01 · 400 · $0.50 · 4 会话") == null);
+
+    model.language_preference = .system;
+    try testing.expectEqualStrings("4 会话", model.usage_sessions_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "2026-09-01 · 400 · $0.50 · 4 会话");
+    try testing.expect(findByText(tree.root, .text, "2026-09-01 · 400 · $0.50 · 4 sessions") == null);
+}
+
 test "DateBucket.title english default; zh and ja follow datesFor" {
     try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
     try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());
