@@ -27522,6 +27522,109 @@ test "transcript Find bar follows Appearance language" {
     try testing.expectEqualStrings("検索", sys_ja.placeholder);
 }
 
+test "transcript Find bar Previous/Next/Close a11y follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{find_previous_match_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{find_next_match_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{close_find_label}\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"{find_previous_match_label}\" on-press=\"find_prev\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"{find_next_match_label}\" on-press=\"find_next\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"{close_find_label}\" on-press=\"close_find\"") != null);
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Previous match\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Next match\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Close find\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Previous match\" on-press=\"find_prev\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Next match\" on-press=\"find_next\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Close find\" on-press=\"close_find\""));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Previous match", model.find_previous_match_label());
+    try testing.expectEqualStrings("Next match", model.find_next_match_label());
+    try testing.expectEqualStrings("Close find", model.close_find_label());
+    try testing.expectEqualStrings(i18n.findBarChromeFor(.english, "").previous_match, model.find_previous_match_label());
+    try testing.expectEqualStrings(i18n.findBarChromeFor(.english, "").next_match, model.find_next_match_label());
+    try testing.expectEqualStrings(i18n.findBarChromeFor(.english, "").close_find, model.close_find_label());
+
+    main.update(&model, .open_find, &fx);
+    try testing.expect(model.find_active);
+    var tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Previous match", .find_prev);
+    _ = try expectButtonMsg(tree, "Next match", .find_next);
+    _ = try expectButtonMsg(tree, "Close find", .close_find);
+    try testing.expect(findByText(tree.root, .button, "上一个匹配") == null);
+    try testing.expect(findByText(tree.root, .button, "前の一致") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("上一个匹配", model.find_previous_match_label());
+    try testing.expectEqualStrings("下一个匹配", model.find_next_match_label());
+    try testing.expectEqualStrings("关闭查找", model.close_find_label());
+    try testing.expectEqualStrings(i18n.findBarChromeFor(.simplified_chinese, "").previous_match, model.find_previous_match_label());
+    try testing.expectEqualStrings(i18n.findBarChromeFor(.simplified_chinese, "").next_match, model.find_next_match_label());
+    try testing.expectEqualStrings(i18n.findBarChromeFor(.simplified_chinese, "").close_find, model.close_find_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "上一个匹配", .find_prev);
+    _ = try expectButtonMsg(tree, "下一个匹配", .find_next);
+    _ = try expectButtonMsg(tree, "关闭查找", .close_find);
+    try testing.expect(findByText(tree.root, .button, "Previous match") == null);
+    try testing.expect(findByText(tree.root, .button, "Next match") == null);
+    try testing.expect(findByText(tree.root, .button, "Close find") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("前の一致", model.find_previous_match_label());
+    try testing.expectEqualStrings("次の一致", model.find_next_match_label());
+    try testing.expectEqualStrings("検索を閉じる", model.close_find_label());
+    try testing.expectEqualStrings(i18n.findBarChromeFor(.japanese, "").previous_match, model.find_previous_match_label());
+    try testing.expectEqualStrings(i18n.findBarChromeFor(.japanese, "").next_match, model.find_next_match_label());
+    try testing.expectEqualStrings(i18n.findBarChromeFor(.japanese, "").close_find, model.close_find_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "前の一致", .find_prev);
+    _ = try expectButtonMsg(tree, "次の一致", .find_next);
+    _ = try expectButtonMsg(tree, "検索を閉じる", .close_find);
+    try testing.expect(findByText(tree.root, .button, "上一个匹配") == null);
+    try testing.expect(findByText(tree.root, .button, "Previous match") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Previous match", model.find_previous_match_label());
+    try testing.expectEqualStrings("Next match", model.find_next_match_label());
+    try testing.expectEqualStrings("Close find", model.close_find_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Previous match", .find_prev);
+    _ = try expectButtonMsg(tree, "Next match", .find_next);
+    _ = try expectButtonMsg(tree, "Close find", .close_find);
+    try testing.expect(findByText(tree.root, .button, "前の一致") == null);
+    try testing.expect(findByText(tree.root, .button, "検索を閉じる") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("上一个匹配", model.find_previous_match_label());
+    try testing.expectEqualStrings("下一个匹配", model.find_next_match_label());
+    try testing.expectEqualStrings("关闭查找", model.close_find_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "上一个匹配", .find_prev);
+    _ = try expectButtonMsg(tree, "下一个匹配", .find_next);
+    _ = try expectButtonMsg(tree, "关闭查找", .close_find);
+    try testing.expect(findByText(tree.root, .button, "Previous match") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("前の一致", model.find_previous_match_label());
+    try testing.expectEqualStrings("次の一致", model.find_next_match_label());
+    try testing.expectEqualStrings("検索を閉じる", model.close_find_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "前の一致", .find_prev);
+    _ = try expectButtonMsg(tree, "次の一致", .find_next);
+    _ = try expectButtonMsg(tree, "検索を閉じる", .close_find);
+    try testing.expect(findByText(tree.root, .button, "Previous match") == null);
+    try testing.expect(findByText(tree.root, .button, "Close find") == null);
+}
+
 test "session title untitled placeholders follow Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

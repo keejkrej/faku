@@ -51,7 +51,12 @@
 //! `CommitChrome`) plus Settings General / project-edit Workspace path
 //! placeholders (same `WorkspacePathChrome` strings) plus transcript
 //! Find placeholder (reuses `FilePreviewChrome.find`) and Find in
-//! transcript a11y (reuses `Palette.find_in_transcript`) plus session
+//! transcript a11y (reuses `Palette.find_in_transcript`) plus find-bar
+//! Previous match / Next match / Close find a11y (same
+//! `FindBarChrome` strings; distinct from `FilePreviewChrome`
+//! previous/next/close file-find so transcript find-bar chrome stays
+//! independently evolvable; `on-press` stays `find_prev` /
+//! `find_next` / `close_find`) plus session
 //! title untitled placeholders (same `UntitledChrome` strings; catalog
 //! titles stay English `untitled`) plus Settings General daemon address
 //! placeholder (same `DaemonAddressChrome` strings; Latin `host:port`
@@ -198,9 +203,10 @@
 //! (`palette_cancel` / `palette_confirm` / `switcher_cancel` /
 //! `switcher_confirm`). Workspace path `on-input` stays English
 //! (`settings_project_edit` / `project_path_edit`); typed path text
-//! stays English (data). Transcript Find `on-input` / on-submit stay
-//! English (`find_edit` / `find_next`); typed query stays English
-//! (data). Session title `on-input` stays English
+//! stays English (data). Transcript Find `on-input` / on-submit /
+//! Previous / Next / Close `on-press` stay English (`find_edit` /
+//! `find_next` / `find_prev` / `close_find`); typed query stays
+//! English (data). Session title `on-input` stays English
 //! (`session_title_edit`). Daemon address `on-input` stays English
 //! (`settings_daemon_edit`). Settings General field labels / Default
 //! model / Effort placeholders (same `SettingsGeneralChrome` strings;
@@ -1765,6 +1771,37 @@ const composer_send_stop_chrome_ja: ComposerSendStopChrome = .{
     .stop = "停止",
 };
 
+/// Transcript find-bar Previous match / Next match / Close find a11y
+/// labels for the resolved locale. Same resolve path as
+/// ComposerSendStopChrome. English matches the former hardcoded copy.
+/// Distinct from `FilePreviewChrome` previous/next/close file-find
+/// and from Palette find-in-transcript so transcript find-bar chrome
+/// stays independently evolvable. Wire ids / on-press stay English
+/// (`find_prev` / `find_next` / `close_find`).
+pub const FindBarChrome = struct {
+    previous_match: []const u8,
+    next_match: []const u8,
+    close_find: []const u8,
+};
+
+const find_bar_chrome_en: FindBarChrome = .{
+    .previous_match = "Previous match",
+    .next_match = "Next match",
+    .close_find = "Close find",
+};
+
+const find_bar_chrome_zh_cn: FindBarChrome = .{
+    .previous_match = "上一个匹配",
+    .next_match = "下一个匹配",
+    .close_find = "关闭查找",
+};
+
+const find_bar_chrome_ja: FindBarChrome = .{
+    .previous_match = "前の一致",
+    .next_match = "次の一致",
+    .close_find = "検索を閉じる",
+};
+
 /// Browser address-field a11y label and placeholder for the resolved
 /// locale. Same resolve path as ComposerChrome. English matches the
 /// former hardcoded copy. Wire ids / on-input / on-submit stay
@@ -2890,6 +2927,22 @@ pub fn composerSendStopChromeFor(preference: LanguagePreference, system_locale_i
         .simplified_chinese => composer_send_stop_chrome_zh_cn,
         .japanese => composer_send_stop_chrome_ja,
         .system, .english => composer_send_stop_chrome_en,
+    };
+}
+
+/// Transcript find-bar Previous match / Next match / Close find a11y
+/// labels for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does not
+/// read process env. Distinct from FilePreviewChrome
+/// previous/next/close file-find / Palette find-in-transcript so
+/// transcript find-bar chrome stays independently evolvable. Wire
+/// ids / on-press stay English (`find_prev` / `find_next` /
+/// `close_find`).
+pub fn findBarChromeFor(preference: LanguagePreference, system_locale_id: []const u8) FindBarChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => find_bar_chrome_zh_cn,
+        .japanese => find_bar_chrome_ja,
+        .system, .english => find_bar_chrome_en,
     };
 }
 
@@ -4414,6 +4467,39 @@ test "composerSendStopChromeFor english default; zh and ja chrome; english ignor
     try testing.expectEqualStrings("Stop", composerSendStopChromeFor(.english, "ja_JP.UTF-8").stop);
     try testing.expectEqualStrings("Send", composerSendStopChromeFor(.english, "zh_CN.UTF-8").send);
     try testing.expectEqualStrings("Stop", composerSendStopChromeFor(.english, "zh_CN.UTF-8").stop);
+}
+
+test "findBarChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Previous match", findBarChromeFor(.english, "ja").previous_match);
+    try testing.expectEqualStrings("Next match", findBarChromeFor(.english, "ja").next_match);
+    try testing.expectEqualStrings("Close find", findBarChromeFor(.english, "ja").close_find);
+    try testing.expectEqualStrings("Previous match", findBarChromeFor(.english, "").previous_match);
+    try testing.expectEqualStrings("Next match", findBarChromeFor(.english, "").next_match);
+    try testing.expectEqualStrings("Close find", findBarChromeFor(.english, "").close_find);
+    try testing.expectEqualStrings("Previous match", findBarChromeFor(.system, "").previous_match);
+    try testing.expectEqualStrings("Next match", findBarChromeFor(.system, "").next_match);
+    try testing.expectEqualStrings("Close find", findBarChromeFor(.system, "").close_find);
+
+    try testing.expectEqualStrings("上一个匹配", findBarChromeFor(.simplified_chinese, "").previous_match);
+    try testing.expectEqualStrings("下一个匹配", findBarChromeFor(.simplified_chinese, "").next_match);
+    try testing.expectEqualStrings("关闭查找", findBarChromeFor(.simplified_chinese, "").close_find);
+    try testing.expectEqualStrings("前の一致", findBarChromeFor(.japanese, "").previous_match);
+    try testing.expectEqualStrings("次の一致", findBarChromeFor(.japanese, "").next_match);
+    try testing.expectEqualStrings("検索を閉じる", findBarChromeFor(.japanese, "").close_find);
+
+    try testing.expectEqualStrings("上一个匹配", findBarChromeFor(.system, "zh_CN.UTF-8").previous_match);
+    try testing.expectEqualStrings("下一个匹配", findBarChromeFor(.system, "zh_CN.UTF-8").next_match);
+    try testing.expectEqualStrings("关闭查找", findBarChromeFor(.system, "zh_CN.UTF-8").close_find);
+    try testing.expectEqualStrings("前の一致", findBarChromeFor(.system, "ja_JP.UTF-8").previous_match);
+    try testing.expectEqualStrings("次の一致", findBarChromeFor(.system, "ja_JP.UTF-8").next_match);
+    try testing.expectEqualStrings("検索を閉じる", findBarChromeFor(.system, "ja_JP.UTF-8").close_find);
+    try testing.expectEqualStrings("Previous match", findBarChromeFor(.english, "ja_JP.UTF-8").previous_match);
+    try testing.expectEqualStrings("Next match", findBarChromeFor(.english, "ja_JP.UTF-8").next_match);
+    try testing.expectEqualStrings("Close find", findBarChromeFor(.english, "ja_JP.UTF-8").close_find);
+    try testing.expectEqualStrings("Previous match", findBarChromeFor(.english, "zh_CN.UTF-8").previous_match);
+    try testing.expectEqualStrings("Next match", findBarChromeFor(.english, "zh_CN.UTF-8").next_match);
+    try testing.expectEqualStrings("Close find", findBarChromeFor(.english, "zh_CN.UTF-8").close_find);
 }
 
 test "browserAddressChromeFor english default; zh and ja chrome; latin placeholder; english ignores ja LANG" {

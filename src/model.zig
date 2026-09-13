@@ -4912,6 +4912,10 @@ pub const Model = struct {
         return i18n.composerSendStopChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn findBarChrome(model: *const Model) i18n.FindBarChrome {
+        return i18n.findBarChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn browserAddressChrome(model: *const Model) i18n.BrowserAddressChrome {
         return i18n.browserAddressChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6124,6 +6128,24 @@ pub const Model = struct {
     /// `find_next`.
     pub fn find_in_transcript_label(model: *const Model) []const u8 {
         return model.paletteChrome().find_in_transcript;
+    }
+
+    /// Transcript find-bar Previous match a11y. `on-press` stays
+    /// `find_prev`. Distinct from `file_preview_previous_match_label`.
+    pub fn find_previous_match_label(model: *const Model) []const u8 {
+        return model.findBarChrome().previous_match;
+    }
+
+    /// Transcript find-bar Next match a11y. `on-press` stays
+    /// `find_next`. Distinct from `file_preview_next_match_label`.
+    pub fn find_next_match_label(model: *const Model) []const u8 {
+        return model.findBarChrome().next_match;
+    }
+
+    /// Transcript find-bar Close find a11y. `on-press` stays
+    /// `close_find`. Distinct from `file_preview_close_find_label`.
+    pub fn close_find_label(model: *const Model) []const u8 {
+        return model.findBarChrome().close_find;
     }
 
     /// Session title rename placeholders (sidebar + header).
