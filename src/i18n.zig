@@ -58,13 +58,20 @@
 //! independently evolvable; `on-press` stays `find_prev` /
 //! `find_next` / `close_find`) plus header Copy session a11y and
 //! Fork / Rewind button chrome (same `HeaderSessionChrome` strings;
-//! distinct from `Palette.copy_session_id` / per-turn transcript
-//! Copy / Fork so header session chrome stays independently
+//! distinct from `Palette.copy_session_id` / `TranscriptTurnChrome`
+//! so header session chrome stays independently
 //! evolvable; `on-press` stays `copy_session` / `fork` / `rewind`)
 //! plus transcript turn You said / Assistant said a11y (same
 //! `TranscriptRoleChrome` strings; distinct from
-//! `HeaderSessionChrome` / per-turn transcript Copy / Fork so
+//! `HeaderSessionChrome` / `TranscriptTurnChrome` so
 //! transcript role chrome stays independently evolvable)
+//! plus transcript turn Match chip and per-turn Copy / Fork
+//! chrome (same `TranscriptTurnChrome` strings; distinct from
+//! `HeaderSessionChrome` / `TranscriptRoleChrome` /
+//! `Palette.copy_session_id` / `FindBarChrome` /
+//! `FilePreviewChrome` so transcript turn action chrome stays
+//! independently evolvable; `on-press` stays `copy_turn:{t.id}` /
+//! `fork_turn:{t.id}`)
 //! plus session
 //! title untitled placeholders (same `UntitledChrome` strings; catalog
 //! titles stay English `untitled`) plus Settings General daemon address
@@ -219,7 +226,9 @@
 //! stay English (`copy_session` / `fork` / `rewind`). Transcript
 //! turn You said / Assistant said a11y follow the resolved locale
 //! this cut (same `TranscriptRoleChrome` strings). Per-turn
-//! transcript Match / Copy / Fork stay English this cut. Session title
+//! transcript Match / Copy / Fork follow the resolved locale this
+//! cut (same `TranscriptTurnChrome` strings; `on-press` stays
+//! `copy_turn:{t.id}` / `fork_turn:{t.id}`). Session title
 //! `on-input` stays English
 //! (`session_title_edit`). Daemon address `on-input` stays English
 //! (`settings_daemon_edit`). Settings General field labels / Default
@@ -1819,8 +1828,8 @@ const find_bar_chrome_ja: FindBarChrome = .{
 /// Header Copy session a11y plus Fork / Rewind button chrome for the
 /// resolved locale. Same resolve path as FindBarChrome. English
 /// matches the former hardcoded copy. Distinct from
-/// `Palette.copy_session_id` ("Copy session id") and from per-turn
-/// transcript Copy / Fork so header session chrome stays
+/// `Palette.copy_session_id` ("Copy session id") and from
+/// `TranscriptTurnChrome` so header session chrome stays
 /// independently evolvable. Wire ids / on-press stay English
 /// (`copy_session` / `fork` / `rewind`).
 pub const HeaderSessionChrome = struct {
@@ -1850,8 +1859,8 @@ const header_session_chrome_ja: HeaderSessionChrome = .{
 /// Transcript turn You said / Assistant said a11y for the resolved
 /// locale. Same resolve path as HeaderSessionChrome. English
 /// matches the former hardcoded copy. Distinct from
-/// `HeaderSessionChrome` and from per-turn transcript Copy / Fork
-/// so transcript role chrome stays independently evolvable. Wire
+/// `HeaderSessionChrome` and from `TranscriptTurnChrome` so
+/// transcript role chrome stays independently evolvable. Wire
 /// ids / on-press / turn data stay English.
 pub const TranscriptRoleChrome = struct {
     you_said: []const u8,
@@ -1871,6 +1880,38 @@ const transcript_role_chrome_zh_cn: TranscriptRoleChrome = .{
 const transcript_role_chrome_ja: TranscriptRoleChrome = .{
     .you_said = "あなたが言った",
     .assistant_said = "アシスタントが言った",
+};
+
+/// Transcript turn Match chip plus per-turn Copy / Fork chrome for
+/// the resolved locale. Same resolve path as TranscriptRoleChrome.
+/// English matches the former hardcoded copy. Distinct from
+/// `HeaderSessionChrome` / `TranscriptRoleChrome` /
+/// `Palette.copy_session_id` / `FindBarChrome` /
+/// `FilePreviewChrome` so transcript turn action chrome stays
+/// independently evolvable. Wire ids / on-press stay English
+/// (`copy_turn:{t.id}` / `fork_turn:{t.id}`).
+pub const TranscriptTurnChrome = struct {
+    match: []const u8,
+    copy: []const u8,
+    fork: []const u8,
+};
+
+const transcript_turn_chrome_en: TranscriptTurnChrome = .{
+    .match = "Match",
+    .copy = "Copy",
+    .fork = "Fork",
+};
+
+const transcript_turn_chrome_zh_cn: TranscriptTurnChrome = .{
+    .match = "匹配",
+    .copy = "复制",
+    .fork = "分叉",
+};
+
+const transcript_turn_chrome_ja: TranscriptTurnChrome = .{
+    .match = "一致",
+    .copy = "コピー",
+    .fork = "フォーク",
 };
 
 /// Browser address-field a11y label and placeholder for the resolved
@@ -3020,8 +3061,8 @@ pub fn findBarChromeFor(preference: LanguagePreference, system_locale_id: []cons
 /// Header Copy session a11y plus Fork / Rewind button chrome for the
 /// resolved locale. Callers pass Model `language_preference` +
 /// `system_locale_id`; this file does not read process env. Distinct
-/// from Palette.copy_session_id / per-turn transcript Copy / Fork so
-/// header session chrome stays independently evolvable. Wire ids /
+/// from Palette.copy_session_id / TranscriptTurnChrome so header
+/// session chrome stays independently evolvable. Wire ids /
 /// on-press stay English (`copy_session` / `fork` / `rewind`).
 pub fn headerSessionChromeFor(preference: LanguagePreference, system_locale_id: []const u8) HeaderSessionChrome {
     return switch (resolve(preference, system_locale_id)) {
@@ -3034,14 +3075,30 @@ pub fn headerSessionChromeFor(preference: LanguagePreference, system_locale_id: 
 /// Transcript turn You said / Assistant said a11y for the resolved
 /// locale. Callers pass Model `language_preference` +
 /// `system_locale_id`; this file does not read process env. Distinct
-/// from HeaderSessionChrome / per-turn transcript Copy / Fork so
-/// transcript role chrome stays independently evolvable. Wire ids /
-/// on-press / turn data stay English.
+/// from HeaderSessionChrome / TranscriptTurnChrome so transcript
+/// role chrome stays independently evolvable. Wire ids / on-press /
+/// turn data stay English.
 pub fn transcriptRoleChromeFor(preference: LanguagePreference, system_locale_id: []const u8) TranscriptRoleChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => transcript_role_chrome_zh_cn,
         .japanese => transcript_role_chrome_ja,
         .system, .english => transcript_role_chrome_en,
+    };
+}
+
+/// Transcript turn Match chip plus per-turn Copy / Fork chrome for
+/// the resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from HeaderSessionChrome / TranscriptRoleChrome /
+/// Palette.copy_session_id / FindBarChrome / FilePreviewChrome so
+/// transcript turn action chrome stays independently evolvable.
+/// Wire ids / on-press stay English (`copy_turn:{t.id}` /
+/// `fork_turn:{t.id}`).
+pub fn transcriptTurnChromeFor(preference: LanguagePreference, system_locale_id: []const u8) TranscriptTurnChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => transcript_turn_chrome_zh_cn,
+        .japanese => transcript_turn_chrome_ja,
+        .system, .english => transcript_turn_chrome_en,
     };
 }
 
@@ -4660,6 +4717,55 @@ test "transcriptRoleChromeFor english default; zh and ja chrome; english ignores
     try testing.expectEqualStrings("Assistant said", transcriptRoleChromeFor(.english, "ja_JP.UTF-8").assistant_said);
     try testing.expectEqualStrings("You said", transcriptRoleChromeFor(.english, "zh_CN.UTF-8").you_said);
     try testing.expectEqualStrings("Assistant said", transcriptRoleChromeFor(.english, "zh_CN.UTF-8").assistant_said);
+}
+
+test "transcriptTurnChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Match", transcriptTurnChromeFor(.english, "ja").match);
+    try testing.expectEqualStrings("Copy", transcriptTurnChromeFor(.english, "ja").copy);
+    try testing.expectEqualStrings("Fork", transcriptTurnChromeFor(.english, "ja").fork);
+    try testing.expectEqualStrings("Match", transcriptTurnChromeFor(.english, "").match);
+    try testing.expectEqualStrings("Copy", transcriptTurnChromeFor(.english, "").copy);
+    try testing.expectEqualStrings("Fork", transcriptTurnChromeFor(.english, "").fork);
+    try testing.expectEqualStrings("Match", transcriptTurnChromeFor(.system, "").match);
+    try testing.expectEqualStrings("Copy", transcriptTurnChromeFor(.system, "").copy);
+    try testing.expectEqualStrings("Fork", transcriptTurnChromeFor(.system, "").fork);
+
+    try testing.expectEqualStrings("匹配", transcriptTurnChromeFor(.simplified_chinese, "").match);
+    try testing.expectEqualStrings("复制", transcriptTurnChromeFor(.simplified_chinese, "").copy);
+    try testing.expectEqualStrings("分叉", transcriptTurnChromeFor(.simplified_chinese, "").fork);
+    try testing.expectEqualStrings("一致", transcriptTurnChromeFor(.japanese, "").match);
+    try testing.expectEqualStrings("コピー", transcriptTurnChromeFor(.japanese, "").copy);
+    try testing.expectEqualStrings("フォーク", transcriptTurnChromeFor(.japanese, "").fork);
+
+    try testing.expectEqualStrings("匹配", transcriptTurnChromeFor(.system, "zh_CN.UTF-8").match);
+    try testing.expectEqualStrings("复制", transcriptTurnChromeFor(.system, "zh_CN.UTF-8").copy);
+    try testing.expectEqualStrings("分叉", transcriptTurnChromeFor(.system, "zh_CN.UTF-8").fork);
+    try testing.expectEqualStrings("一致", transcriptTurnChromeFor(.system, "ja_JP.UTF-8").match);
+    try testing.expectEqualStrings("コピー", transcriptTurnChromeFor(.system, "ja_JP.UTF-8").copy);
+    try testing.expectEqualStrings("フォーク", transcriptTurnChromeFor(.system, "ja_JP.UTF-8").fork);
+    try testing.expectEqualStrings("Match", transcriptTurnChromeFor(.english, "ja_JP.UTF-8").match);
+    try testing.expectEqualStrings("Copy", transcriptTurnChromeFor(.english, "ja_JP.UTF-8").copy);
+    try testing.expectEqualStrings("Fork", transcriptTurnChromeFor(.english, "ja_JP.UTF-8").fork);
+    try testing.expectEqualStrings("Match", transcriptTurnChromeFor(.english, "zh_CN.UTF-8").match);
+    try testing.expectEqualStrings("Copy", transcriptTurnChromeFor(.english, "zh_CN.UTF-8").copy);
+    try testing.expectEqualStrings("Fork", transcriptTurnChromeFor(.english, "zh_CN.UTF-8").fork);
+
+    try testing.expect(!std.mem.eql(u8, transcriptTurnChromeFor(.english, "").copy, headerSessionChromeFor(.english, "").copy_session));
+    try testing.expect(!std.mem.eql(u8, transcriptTurnChromeFor(.simplified_chinese, "").copy, headerSessionChromeFor(.simplified_chinese, "").copy_session));
+    try testing.expect(!std.mem.eql(u8, transcriptTurnChromeFor(.japanese, "").copy, headerSessionChromeFor(.japanese, "").copy_session));
+    try testing.expect(!std.mem.eql(u8, transcriptTurnChromeFor(.english, "").copy, paletteFor(.english, "").copy_session_id));
+    try testing.expect(!std.mem.eql(u8, transcriptTurnChromeFor(.simplified_chinese, "").copy, paletteFor(.simplified_chinese, "").copy_session_id));
+    try testing.expect(!std.mem.eql(u8, transcriptTurnChromeFor(.japanese, "").copy, paletteFor(.japanese, "").copy_session_id));
+    try testing.expect(!std.mem.eql(u8, transcriptTurnChromeFor(.english, "").match, findBarChromeFor(.english, "").previous_match));
+    try testing.expect(!std.mem.eql(u8, transcriptTurnChromeFor(.simplified_chinese, "").match, findBarChromeFor(.simplified_chinese, "").previous_match));
+    try testing.expect(!std.mem.eql(u8, transcriptTurnChromeFor(.japanese, "").match, findBarChromeFor(.japanese, "").previous_match));
+    try testing.expect(!std.mem.eql(u8, transcriptTurnChromeFor(.english, "").match, filePreviewChromeFor(.english, "").previous_file_match));
+    try testing.expect(!std.mem.eql(u8, transcriptTurnChromeFor(.simplified_chinese, "").match, filePreviewChromeFor(.simplified_chinese, "").previous_file_match));
+    try testing.expect(!std.mem.eql(u8, transcriptTurnChromeFor(.japanese, "").match, filePreviewChromeFor(.japanese, "").previous_file_match));
+    try testing.expect(!std.mem.eql(u8, transcriptTurnChromeFor(.english, "").copy, transcriptRoleChromeFor(.english, "").you_said));
+    try testing.expect(!std.mem.eql(u8, transcriptTurnChromeFor(.simplified_chinese, "").copy, transcriptRoleChromeFor(.simplified_chinese, "").you_said));
+    try testing.expect(!std.mem.eql(u8, transcriptTurnChromeFor(.japanese, "").copy, transcriptRoleChromeFor(.japanese, "").you_said));
 }
 
 test "browserAddressChromeFor english default; zh and ja chrome; latin placeholder; english ignores ja LANG" {

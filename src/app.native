@@ -920,10 +920,10 @@
                   </bubble>
                   <row gap="4" cross="center">
                     <if test="{t.is_find_current}">
-                      <text wrap="false" overflow="ellipsis" foreground="text_muted">Match</text>
+                      <text wrap="false" overflow="ellipsis" foreground="text_muted">{transcript_match_label}</text>
                     </if>
-                    <button variant="ghost" size="icon" icon="copy" label="Copy" on-press="copy_turn:{t.id}"></button>
-                    <button variant="ghost" size="sm" on-press="fork_turn:{t.id}">Fork</button>
+                    <button variant="ghost" size="icon" icon="copy" label="{copy_turn_label}" on-press="copy_turn:{t.id}"></button>
+                    <button variant="ghost" size="sm" on-press="fork_turn:{t.id}">{fork_turn_label}</button>
                   </row>
                 </column>
               </row>
@@ -934,10 +934,10 @@
                   <row gap="4" cross="center">
                     <text foreground="text_muted">{t.role_label}</text>
                     <if test="{t.is_find_current}">
-                      <text wrap="false" overflow="ellipsis" foreground="text_muted">Match</text>
+                      <text wrap="false" overflow="ellipsis" foreground="text_muted">{transcript_match_label}</text>
                     </if>
-                    <button variant="ghost" size="icon" icon="copy" label="Copy" on-press="copy_turn:{t.id}"></button>
-                    <button variant="ghost" size="sm" on-press="fork_turn:{t.id}">Fork</button>
+                    <button variant="ghost" size="icon" icon="copy" label="{copy_turn_label}" on-press="copy_turn:{t.id}"></button>
+                    <button variant="ghost" size="sm" on-press="fork_turn:{t.id}">{fork_turn_label}</button>
                   </row>
                   <markdown source="{t.text}" images="{transcript_images}" details-expanded="{transcript_details_expanded}" issue-link-base="{file_preview_issue_link_base}" on-details="transcript_toggle_details" on-link="transcript_open_url" />
                 </column>
@@ -948,10 +948,10 @@
                     <row gap="4" cross="center">
                       <text foreground="text_muted">{t.role_label}</text>
                       <if test="{t.is_find_current}">
-                        <text wrap="false" overflow="ellipsis" foreground="text_muted">Match</text>
+                        <text wrap="false" overflow="ellipsis" foreground="text_muted">{transcript_match_label}</text>
                       </if>
-                      <button variant="ghost" size="icon" icon="copy" label="Copy" on-press="copy_turn:{t.id}"></button>
-                      <button variant="ghost" size="sm" on-press="fork_turn:{t.id}">Fork</button>
+                      <button variant="ghost" size="icon" icon="copy" label="{copy_turn_label}" on-press="copy_turn:{t.id}"></button>
+                      <button variant="ghost" size="sm" on-press="fork_turn:{t.id}">{fork_turn_label}</button>
                     </row>
                     <markdown source="{t.text}" images="{transcript_images}" details-expanded="{transcript_details_expanded}" issue-link-base="{file_preview_issue_link_base}" on-details="transcript_toggle_details" on-link="transcript_open_url" />
                   </column>
@@ -963,10 +963,10 @@
                     </row>
                     <row gap="4" cross="center">
                       <if test="{t.is_find_current}">
-                        <text wrap="false" overflow="ellipsis" foreground="text_muted">Match</text>
+                        <text wrap="false" overflow="ellipsis" foreground="text_muted">{transcript_match_label}</text>
                       </if>
-                      <button variant="ghost" size="icon" icon="copy" label="Copy" on-press="copy_turn:{t.id}"></button>
-                      <button variant="ghost" size="sm" on-press="fork_turn:{t.id}">Fork</button>
+                      <button variant="ghost" size="icon" icon="copy" label="{copy_turn_label}" on-press="copy_turn:{t.id}"></button>
+                      <button variant="ghost" size="sm" on-press="fork_turn:{t.id}">{fork_turn_label}</button>
                     </row>
                   </column>
                 </else>
