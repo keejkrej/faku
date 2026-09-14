@@ -523,13 +523,13 @@
                           <if test="{has_usage_daily_chart}">
                             <if test="{usage_daily_chart_claude_on_top}">
                               <if test="{has_usage_daily_chart_y_max}">
-                                <chart height="140" y-min="0" y-max="{usage_daily_chart_y_max}" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_daily_chart_labels}" stroke-width="2" label="Daily usage">
+                                <chart height="140" y-min="0" y-max="{usage_daily_chart_y_max}" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_daily_chart_labels}" stroke-width="2" label="{usage_daily_chart_label}">
                                   <series kind="area" values="{usage_daily_chart_codex}" color="text_muted" label="Codex" />
                                   <series kind="area" values="{usage_daily_chart_claude}" color="info" label="Claude" />
                                 </chart>
                               </if>
                               <else>
-                                <chart height="140" y-min="0" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_daily_chart_labels}" stroke-width="2" label="Daily usage">
+                                <chart height="140" y-min="0" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_daily_chart_labels}" stroke-width="2" label="{usage_daily_chart_label}">
                                   <series kind="area" values="{usage_daily_chart_codex}" color="text_muted" label="Codex" />
                                   <series kind="area" values="{usage_daily_chart_claude}" color="info" label="Claude" />
                                 </chart>
@@ -537,13 +537,13 @@
                             </if>
                             <else>
                               <if test="{has_usage_daily_chart_y_max}">
-                                <chart height="140" y-min="0" y-max="{usage_daily_chart_y_max}" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_daily_chart_labels}" stroke-width="2" label="Daily usage">
+                                <chart height="140" y-min="0" y-max="{usage_daily_chart_y_max}" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_daily_chart_labels}" stroke-width="2" label="{usage_daily_chart_label}">
                                   <series kind="area" values="{usage_daily_chart_claude}" color="info" label="Claude" />
                                   <series kind="area" values="{usage_daily_chart_codex}" color="text_muted" label="Codex" />
                                 </chart>
                               </if>
                               <else>
-                                <chart height="140" y-min="0" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_daily_chart_labels}" stroke-width="2" label="Daily usage">
+                                <chart height="140" y-min="0" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_daily_chart_labels}" stroke-width="2" label="{usage_daily_chart_label}">
                                   <series kind="area" values="{usage_daily_chart_claude}" color="info" label="Claude" />
                                   <series kind="area" values="{usage_daily_chart_codex}" color="text_muted" label="Codex" />
                                 </chart>
@@ -610,13 +610,13 @@
                         <if test="{has_usage_monthly_chart}">
                           <if test="{usage_monthly_chart_claude_on_top}">
                             <if test="{has_usage_monthly_chart_y_max}">
-                              <chart height="140" y-min="0" y-max="{usage_monthly_chart_y_max}" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_monthly_chart_labels}" stroke-width="2" label="Monthly usage">
+                              <chart height="140" y-min="0" y-max="{usage_monthly_chart_y_max}" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_monthly_chart_labels}" stroke-width="2" label="{usage_monthly_chart_label}">
                                 <series kind="area" values="{usage_monthly_chart_codex}" color="text_muted" label="Codex" />
                                 <series kind="area" values="{usage_monthly_chart_claude}" color="info" label="Claude" />
                               </chart>
                             </if>
                             <else>
-                              <chart height="140" y-min="0" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_monthly_chart_labels}" stroke-width="2" label="Monthly usage">
+                              <chart height="140" y-min="0" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_monthly_chart_labels}" stroke-width="2" label="{usage_monthly_chart_label}">
                                 <series kind="area" values="{usage_monthly_chart_codex}" color="text_muted" label="Codex" />
                                 <series kind="area" values="{usage_monthly_chart_claude}" color="info" label="Claude" />
                               </chart>
@@ -624,13 +624,13 @@
                           </if>
                           <else>
                             <if test="{has_usage_monthly_chart_y_max}">
-                              <chart height="140" y-min="0" y-max="{usage_monthly_chart_y_max}" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_monthly_chart_labels}" stroke-width="2" label="Monthly usage">
+                              <chart height="140" y-min="0" y-max="{usage_monthly_chart_y_max}" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_monthly_chart_labels}" stroke-width="2" label="{usage_monthly_chart_label}">
                                 <series kind="area" values="{usage_monthly_chart_claude}" color="info" label="Claude" />
                                 <series kind="area" values="{usage_monthly_chart_codex}" color="text_muted" label="Codex" />
                               </chart>
                             </if>
                             <else>
-                              <chart height="140" y-min="0" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_monthly_chart_labels}" stroke-width="2" label="Monthly usage">
+                              <chart height="140" y-min="0" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_monthly_chart_labels}" stroke-width="2" label="{usage_monthly_chart_label}">
                                 <series kind="area" values="{usage_monthly_chart_claude}" color="info" label="Claude" />
                                 <series kind="area" values="{usage_monthly_chart_codex}" color="text_muted" label="Codex" />
                               </chart>
@@ -688,13 +688,13 @@
                         <if test="{has_usage_projects_chart}">
                           <if test="{usage_projects_chart_claude_on_top}">
                             <if test="{has_usage_projects_chart_y_max}">
-                              <chart height="140" y-min="0" y-max="{usage_projects_chart_y_max}" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_projects_chart_labels}" stroke-width="2" label="Projects usage">
+                              <chart height="140" y-min="0" y-max="{usage_projects_chart_y_max}" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_projects_chart_labels}" stroke-width="2" label="{usage_projects_chart_label}">
                                 <series kind="area" values="{usage_projects_chart_codex}" color="text_muted" label="Codex" />
                                 <series kind="area" values="{usage_projects_chart_claude}" color="info" label="Claude" />
                               </chart>
                             </if>
                             <else>
-                              <chart height="140" y-min="0" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_projects_chart_labels}" stroke-width="2" label="Projects usage">
+                              <chart height="140" y-min="0" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_projects_chart_labels}" stroke-width="2" label="{usage_projects_chart_label}">
                                 <series kind="area" values="{usage_projects_chart_codex}" color="text_muted" label="Codex" />
                                 <series kind="area" values="{usage_projects_chart_claude}" color="info" label="Claude" />
                               </chart>
@@ -702,13 +702,13 @@
                           </if>
                           <else>
                             <if test="{has_usage_projects_chart_y_max}">
-                              <chart height="140" y-min="0" y-max="{usage_projects_chart_y_max}" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_projects_chart_labels}" stroke-width="2" label="Projects usage">
+                              <chart height="140" y-min="0" y-max="{usage_projects_chart_y_max}" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_projects_chart_labels}" stroke-width="2" label="{usage_projects_chart_label}">
                                 <series kind="area" values="{usage_projects_chart_claude}" color="info" label="Claude" />
                                 <series kind="area" values="{usage_projects_chart_codex}" color="text_muted" label="Codex" />
                               </chart>
                             </if>
                             <else>
-                              <chart height="140" y-min="0" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_projects_chart_labels}" stroke-width="2" label="Projects usage">
+                              <chart height="140" y-min="0" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_projects_chart_labels}" stroke-width="2" label="{usage_projects_chart_label}">
                                 <series kind="area" values="{usage_projects_chart_claude}" color="info" label="Claude" />
                                 <series kind="area" values="{usage_projects_chart_codex}" color="text_muted" label="Codex" />
                               </chart>

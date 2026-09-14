@@ -5117,6 +5117,10 @@ pub const Model = struct {
         return i18n.usageMonthlyEmptyChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn usageChartA11yChrome(model: *const Model) i18n.UsageChartA11yChrome {
+        return i18n.usageChartA11yChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn settingsRefreshChrome(model: *const Model) i18n.SettingsRefreshChrome {
         return i18n.settingsRefreshChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6941,10 +6945,31 @@ pub const Model = struct {
 
     /// Settings Usage Monthly empty-state when history has no
     /// month rows. Distinct from FilterChrome `no_project_usage`
-    /// and UsageLocalChrome empty cards. Chart a11y `Monthly usage`
-    /// stays English this cut.
+    /// and UsageLocalChrome empty cards. Chart a11y lives in
+    /// `usageChartA11yChrome`; series Claude/Codex stay English.
     pub fn no_monthly_usage_label(model: *const Model) []const u8 {
         return model.usageMonthlyEmptyChrome().no_monthly_usage;
+    }
+
+    /// Settings Usage Daily Native `<chart>` a11y label. Distinct
+    /// from UsageViewChrome Daily chip. Series Claude/Codex stay
+    /// English.
+    pub fn usage_daily_chart_label(model: *const Model) []const u8 {
+        return model.usageChartA11yChrome().daily_usage;
+    }
+
+    /// Settings Usage Monthly Native `<chart>` a11y label. Distinct
+    /// from UsageViewChrome Monthly chip. Series Claude/Codex stay
+    /// English.
+    pub fn usage_monthly_chart_label(model: *const Model) []const u8 {
+        return model.usageChartA11yChrome().monthly_usage;
+    }
+
+    /// Settings Usage Projects Native `<chart>` a11y label. Distinct
+    /// from UsageViewChrome Projects chip. Series Claude/Codex stay
+    /// English.
+    pub fn usage_projects_chart_label(model: *const Model) []const u8 {
+        return model.usageChartA11yChrome().projects_usage;
     }
 
     pub fn usage_project_filter(model: *const Model) []const u8 {
