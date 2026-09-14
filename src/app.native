@@ -26,52 +26,52 @@
              Do not paint both. Native omits numbers/washes above 128
              lines, so those segments stay text. -->
         <if test="{review_diff_hunk_language == 'zig'}">
-          <code source="{h.source}" language="zig" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+          <code source="{h.source}" language="zig" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="{review_hunk_label}" />
         </if>
         <if test="{review_diff_hunk_language == 'javascript'}">
-          <code source="{h.source}" language="javascript" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+          <code source="{h.source}" language="javascript" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="{review_hunk_label}" />
         </if>
         <if test="{review_diff_hunk_language == 'typescript'}">
-          <code source="{h.source}" language="typescript" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+          <code source="{h.source}" language="typescript" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="{review_hunk_label}" />
         </if>
         <if test="{review_diff_hunk_language == 'jsx'}">
-          <code source="{h.source}" language="jsx" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+          <code source="{h.source}" language="jsx" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="{review_hunk_label}" />
         </if>
         <if test="{review_diff_hunk_language == 'tsx'}">
-          <code source="{h.source}" language="tsx" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+          <code source="{h.source}" language="tsx" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="{review_hunk_label}" />
         </if>
         <if test="{review_diff_hunk_language == 'json'}">
-          <code source="{h.source}" language="json" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+          <code source="{h.source}" language="json" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="{review_hunk_label}" />
         </if>
         <if test="{review_diff_hunk_language == 'yaml'}">
-          <code source="{h.source}" language="yaml" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+          <code source="{h.source}" language="yaml" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="{review_hunk_label}" />
         </if>
         <if test="{review_diff_hunk_language == 'shell'}">
-          <code source="{h.source}" language="shell" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+          <code source="{h.source}" language="shell" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="{review_hunk_label}" />
         </if>
         <if test="{review_diff_hunk_language == 'python'}">
-          <code source="{h.source}" language="python" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+          <code source="{h.source}" language="python" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="{review_hunk_label}" />
         </if>
         <if test="{review_diff_hunk_language == 'rust'}">
-          <code source="{h.source}" language="rust" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+          <code source="{h.source}" language="rust" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="{review_hunk_label}" />
         </if>
         <if test="{review_diff_hunk_language == 'c'}">
-          <code source="{h.source}" language="c" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+          <code source="{h.source}" language="c" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="{review_hunk_label}" />
         </if>
         <if test="{review_diff_hunk_language == 'go'}">
-          <code source="{h.source}" language="go" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+          <code source="{h.source}" language="go" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="{review_hunk_label}" />
         </if>
         <if test="{review_diff_hunk_language == 'html'}">
-          <code source="{h.source}" language="html" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+          <code source="{h.source}" language="html" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="{review_hunk_label}" />
         </if>
         <if test="{review_diff_hunk_language == 'css'}">
-          <code source="{h.source}" language="css" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+          <code source="{h.source}" language="css" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="{review_hunk_label}" />
         </if>
         <if test="{review_diff_hunk_language == 'sql'}">
-          <code source="{h.source}" language="sql" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+          <code source="{h.source}" language="sql" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="{review_hunk_label}" />
         </if>
         <if test="{review_diff_hunk_language == 'markdown'}">
-          <code source="{h.source}" language="markdown" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+          <code source="{h.source}" language="markdown" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="{review_hunk_label}" />
         </if>
       </if>
       <else>
@@ -1470,7 +1470,7 @@
                     <text wrap="true" foreground="text_muted">{review_diff_hunk_status}</text>
                   </if>
                   <if test="{has_review_diff_hunk}">
-                    <scroll grow="1" label="Review hunks">
+                    <scroll grow="1" label="{review_hunks_label}">
                       <use template="review-hunk-rows" />
                     </scroll>
                   </if>
@@ -1609,7 +1609,7 @@
                 <text wrap="true" foreground="text_muted">{review_diff_hunk_status}</text>
               </if>
               <if test="{has_review_diff_hunk}">
-                <scroll grow="1" label="Review hunks">
+                <scroll grow="1" label="{review_hunks_label}">
                   <use template="review-hunk-rows" />
                 </scroll>
               </if>

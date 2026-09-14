@@ -3869,6 +3869,20 @@ pub const Model = struct {
         return model.reviewDiffChrome().gap_expand_all;
     }
 
+    /// Review Diff Native `<code>` a11y for Review hunk. Distinct from
+    /// `i18n.ReviewDiffChrome` title / Cancel / source chips / gap
+    /// expand. Unmodified-line gap labels stay English.
+    pub fn review_hunk_label(model: *const Model) []const u8 {
+        return model.reviewHunkA11yChrome().review_hunk;
+    }
+
+    /// Review Diff Native `<scroll>` a11y for Review hunks. Distinct
+    /// from `review_hunk_label` (singular `<code>` a11y) and from
+    /// `i18n.ReviewDiffChrome`.
+    pub fn review_hunks_label(model: *const Model) []const u8 {
+        return model.reviewHunkA11yChrome().review_hunks;
+    }
+
     /// Header Environment info a11y and dropdown header. `on-press`
     /// stays `toggle_environment_summary`.
     pub fn environment_label(model: *const Model) []const u8 {
@@ -4963,6 +4977,10 @@ pub const Model = struct {
 
     fn reviewDiffChrome(model: *const Model) i18n.ReviewDiffChrome {
         return i18n.reviewDiffChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn reviewHunkA11yChrome(model: *const Model) i18n.ReviewHunkA11yChrome {
+        return i18n.reviewHunkA11yChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     fn environmentChrome(model: *const Model) i18n.EnvironmentChrome {
@@ -6979,7 +6997,6 @@ pub const Model = struct {
     /// Settings Usage + composer project-row Native `<progress>` a11y
     /// for Context usage. Distinct from numeric `context_usage_label`
     /// occupancy and from `i18n.UsageLocalChrome` Context window heading.
-    /// Review hunk a11y stays English.
     pub fn context_usage_progress_label(model: *const Model) []const u8 {
         return model.usageProgressA11yChrome().context_usage;
     }

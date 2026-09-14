@@ -25,6 +25,10 @@
 //! reuses `RightPanelChrome.open_in_terminal`), and first-cut Review
 //! Diff header title / Cancel / source chips / gap expand
 //! Start / End / Both / All (same `ReviewDiffChrome` strings),
+//! plus first-cut Review Diff Native `<code>` / `<scroll>` a11y
+//! Review hunk / Review hunks (same `ReviewHunkA11yChrome` strings;
+//! distinct from `ReviewDiffChrome` so hunk a11y stays independently
+//! evolvable),
 //! and first-cut Background row kind /
 //! status / stop·dismiss chrome (same `BackgroundChrome` strings;
 //! Environment Summary + right-panel Background body), and
@@ -238,6 +242,9 @@
 //! `UsageChartA11yChrome` / `UsageLocalChrome` Context window
 //! heading / `UsageMeterChrome` plan-usage hints / `Chrome.usage`
 //! so progress a11y stays independently evolvable)
+//! plus Review Diff Native `<code>` / `<scroll>` a11y Review hunk /
+//! Review hunks (same `ReviewHunkA11yChrome` strings; distinct from
+//! `ReviewDiffChrome` so hunk a11y stays independently evolvable)
 //! plus Settings Providers Available / Not found, Enable /
 //! Disable, Use for this session, Copy install command / Copy login
 //! command, and First-party default (same `ProvidersChrome` strings;
@@ -441,7 +448,12 @@
 //! strings; distinct from `UsageChartA11yChrome` /
 //! `UsageLocalChrome` Context window heading / `UsageMeterChrome`
 //! plan-usage hints / `Chrome.usage` so progress a11y stays
-//! independently evolvable). Review hunk a11y stays English.
+//! independently evolvable). Review Diff Native `<code>` /
+//! `<scroll>` a11y Review hunk / Review hunks follow the
+//! resolved locale this cut (same `ReviewHunkA11yChrome`
+//! strings; distinct from `ReviewDiffChrome` so hunk a11y
+//! stays independently evolvable). Unmodified-line gap labels
+//! stay English.
 //! Typed URL text
 //! stays data. Parked `home_url`
 //! / scene URLs stay data. OS
@@ -1099,9 +1111,10 @@ const composer_project_chrome_ja: ComposerProjectChrome = .{
 /// / `expand_review_diff_gap_*`); selected-state bools stay
 /// `review_diff_source_*`. English matches the former hardcoded
 /// header, chips, and gap expand buttons. Title EN Review matches
-/// the Diff tab (`RightPanelTabs.diff`), not Diff. Remaining hunk
-/// chrome (unmodified-line gap labels, `label="Review hunk"`)
-/// stays English.
+/// the Diff tab (`RightPanelTabs.diff`), not Diff. Native `<code>` /
+/// `<scroll>` a11y Review hunk / Review hunks live in
+/// `ReviewHunkA11yChrome`. Remaining hunk chrome (unmodified-line
+/// gap labels) stays English.
 pub const ReviewDiffChrome = struct {
     review_title: []const u8,
     cancel: []const u8,
@@ -1160,6 +1173,32 @@ const review_diff_chrome_ja: ReviewDiffChrome = .{
     .gap_expand_end = "末尾",
     .gap_expand_both = "両端",
     .gap_expand_all = "すべて",
+};
+
+/// Review Diff Native `<code>` / `<scroll>` a11y (Review hunk /
+/// Review hunks) for the resolved locale. Same resolve path as
+/// ReviewDiffChrome. English matches the former hardcoded copy.
+/// Distinct from `ReviewDiffChrome` (title / Cancel / source chips /
+/// gap Start|End|Both|All) so hunk a11y stays independently
+/// evolvable. Unmodified-line gap labels stay English.
+pub const ReviewHunkA11yChrome = struct {
+    review_hunk: []const u8,
+    review_hunks: []const u8,
+};
+
+const review_hunk_a11y_chrome_en: ReviewHunkA11yChrome = .{
+    .review_hunk = "Review hunk",
+    .review_hunks = "Review hunks",
+};
+
+const review_hunk_a11y_chrome_zh_cn: ReviewHunkA11yChrome = .{
+    .review_hunk = "审阅片段",
+    .review_hunks = "审阅片段",
+};
+
+const review_hunk_a11y_chrome_ja: ReviewHunkA11yChrome = .{
+    .review_hunk = "レビューハンク",
+    .review_hunks = "レビューハンク",
 };
 
 /// Background row kind / status / stop·dismiss chrome for the
@@ -3236,7 +3275,7 @@ const usage_chart_a11y_chrome_ja: UsageChartA11yChrome = .{
 /// `UsageLocalChrome` (Context window heading), `UsageMeterChrome`
 /// (plan-usage hints / Nothing measured yet / Plan limits), and
 /// `Chrome.usage` (nav / meter toggle "Usage") so progress a11y stays
-/// independently evolvable. Review hunk a11y stays English.
+/// independently evolvable. Unmodified-line gap labels stay English.
 pub const UsageProgressA11yChrome = struct {
     context_usage: []const u8,
     usage_meter: []const u8,
@@ -3587,6 +3626,20 @@ pub fn reviewDiffChromeFor(preference: LanguagePreference, system_locale_id: []c
         .simplified_chinese => review_diff_chrome_zh_cn,
         .japanese => review_diff_chrome_ja,
         .system, .english => review_diff_chrome_en,
+    };
+}
+
+/// Review Diff Native `<code>` / `<scroll>` a11y Review hunk /
+/// Review hunks for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does not
+/// read process env. Distinct from `reviewDiffChromeFor` so hunk
+/// a11y stays independently evolvable. Unmodified-line gap labels
+/// stay English.
+pub fn reviewHunkA11yChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ReviewHunkA11yChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => review_hunk_a11y_chrome_zh_cn,
+        .japanese => review_hunk_a11y_chrome_ja,
+        .system, .english => review_hunk_a11y_chrome_en,
     };
 }
 
@@ -4346,7 +4399,7 @@ pub fn usageChartA11yChromeFor(preference: LanguagePreference, system_locale_id:
 /// from `usageChartA11yChromeFor` / `usageLocalChromeFor` Context
 /// window heading / `usageMeterChromeFor` plan-usage hints /
 /// `Chrome.usage` so progress a11y stays independently evolvable.
-/// Review hunk a11y stays English.
+/// Unmodified-line gap labels stay English.
 pub fn usageProgressA11yChromeFor(preference: LanguagePreference, system_locale_id: []const u8) UsageProgressA11yChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => usage_progress_a11y_chrome_zh_cn,
@@ -4955,6 +5008,26 @@ test "reviewDiffChromeFor english default; zh and ja chrome; english ignores ja 
     try testing.expectEqualStrings("End", reviewDiffChromeFor(.english, "zh_CN.UTF-8").gap_expand_end);
     try testing.expectEqualStrings("Both", reviewDiffChromeFor(.english, "ja_JP.UTF-8").gap_expand_both);
     try testing.expectEqualStrings("All", reviewDiffChromeFor(.english, "zh_CN.UTF-8").gap_expand_all);
+}
+
+test "reviewHunkA11yChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Review hunk", reviewHunkA11yChromeFor(.english, "ja").review_hunk);
+    try testing.expectEqualStrings("Review hunks", reviewHunkA11yChromeFor(.english, "").review_hunks);
+    try testing.expectEqualStrings("Review hunk", reviewHunkA11yChromeFor(.system, "").review_hunk);
+    try testing.expectEqualStrings("Review hunks", reviewHunkA11yChromeFor(.system, "").review_hunks);
+
+    try testing.expectEqualStrings("审阅片段", reviewHunkA11yChromeFor(.simplified_chinese, "").review_hunk);
+    try testing.expectEqualStrings("审阅片段", reviewHunkA11yChromeFor(.simplified_chinese, "").review_hunks);
+    try testing.expectEqualStrings("レビューハンク", reviewHunkA11yChromeFor(.japanese, "").review_hunk);
+    try testing.expectEqualStrings("レビューハンク", reviewHunkA11yChromeFor(.japanese, "").review_hunks);
+
+    try testing.expectEqualStrings("审阅片段", reviewHunkA11yChromeFor(.system, "zh_CN.UTF-8").review_hunk);
+    try testing.expectEqualStrings("审阅片段", reviewHunkA11yChromeFor(.system, "zh_CN.UTF-8").review_hunks);
+    try testing.expectEqualStrings("レビューハンク", reviewHunkA11yChromeFor(.system, "ja_JP.UTF-8").review_hunk);
+    try testing.expectEqualStrings("レビューハンク", reviewHunkA11yChromeFor(.system, "ja_JP.UTF-8").review_hunks);
+    try testing.expectEqualStrings("Review hunk", reviewHunkA11yChromeFor(.english, "ja_JP.UTF-8").review_hunk);
+    try testing.expectEqualStrings("Review hunks", reviewHunkA11yChromeFor(.english, "zh_CN.UTF-8").review_hunks);
 }
 
 test "backgroundChromeFor english default; zh and ja chrome; english ignores ja LANG" {
