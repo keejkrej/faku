@@ -12698,6 +12698,11 @@ test "cmd-r / cmd-l / cmd-[ / cmd-] route by Browser-tab keyboard gate" {
         .key = "r",
         .modifiers = .{ .super = true, .shift = true },
     };
+    const ctrl_shift_r = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "R",
+        .modifiers = .{ .control = true, .shift = true },
+    };
     const cmd_l = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
         .key = "l",
@@ -12715,7 +12720,8 @@ test "cmd-r / cmd-l / cmd-[ / cmd-] route by Browser-tab keyboard gate" {
     };
     try testing.expectEqual(Msg.browser_reload, keys.onKey(cmd_r).?);
     try testing.expectEqual(Msg.browser_reload, keys.onKey(ctrl_r).?);
-    try testing.expectEqual(@as(?Msg, null), keys.onKey(cmd_shift_r));
+    try testing.expectEqual(Msg.browser_hard_reload, keys.onKey(cmd_shift_r).?);
+    try testing.expectEqual(Msg.browser_hard_reload, keys.onKey(ctrl_shift_r).?);
     try testing.expectEqual(Msg.focus_browser_or_composer, keys.onKey(cmd_l).?);
     try testing.expectEqual(Msg.navigate_back, keys.onKey(cmd_back).?);
     try testing.expectEqual(Msg.navigate_forward, keys.onKey(cmd_forward).?);
@@ -12820,6 +12826,81 @@ test "cmd-r / cmd-l / cmd-[ / cmd-] route by Browser-tab keyboard gate" {
     try testing.expectEqualStrings(port_title, model.selected_title());
     try testing.expectEqual(@as(usize, 1), browser_pane.occupiedCount(&model));
     try testing.expectEqualStrings("", browser_pane.committedUrlAt(&model, 0));
+}
+
+test "cmd-shift-r Hard Reload blanks then restores on the next update tick" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    const cmd_shift_r = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "r",
+        .modifiers = .{ .super = true, .shift = true },
+    };
+    const cmd_r = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "r",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.browser_hard_reload, keys.onKey(cmd_shift_r).?);
+    try testing.expectEqual(Msg.browser_reload, keys.onKey(cmd_r).?);
+
+    var model = main.initialModel();
+    var panes: [browser_pane.max_sessions]browser_pane.WebViewPane = undefined;
+    try testing.expect(!model.browser_keyboard_active());
+    main.update(&model, keys.onKey(cmd_shift_r).?, &fx);
+    try testing.expect(!model.browser_slots[0].hard_reload_pending);
+
+    main.update(&model, .set_right_panel_tab_browser, &fx);
+    try testing.expect(model.browser_keyboard_active());
+    try testing.expect(model.browser_showing_start_page());
+    main.update(&model, keys.onKey(cmd_shift_r).?, &fx);
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expect(!model.browser_slots[0].hard_reload_pending);
+    try testing.expectEqualStrings(browser_pane.home_url, panes[0].url);
+
+    main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://a.example" } }, &fx);
+    main.update(&model, .browser_navigate, &fx);
+    main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://b.example" } }, &fx);
+    main.update(&model, .browser_navigate, &fx);
+    _ = browser_pane.webPanes(&model, &panes);
+    const before = panes[0].reload_token;
+    try testing.expectEqual(@as(usize, 2), model.browser_slots[0].history_count);
+
+    main.update(&model, keys.onKey(cmd_shift_r).?, &fx);
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expect(model.browser_slots[0].hard_reload_pending);
+    try testing.expectEqualStrings(browser_pane.blank_url, panes[0].url);
+    try testing.expectEqual(before, panes[0].reload_token);
+    try testing.expectEqualStrings("https://b.example", browser_pane.currentUrl(&model));
+    try testing.expectEqual(@as(usize, 2), model.browser_slots[0].history_count);
+    try testing.expectEqual(@as(usize, 1), model.browser_slots[0].history_index);
+
+    main.update(&model, .clipboard_done, &fx);
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expect(!model.browser_slots[0].hard_reload_pending);
+    try testing.expectEqualStrings("https://b.example", panes[0].url);
+    try testing.expect(panes[0].reload_token != before);
+    try testing.expectEqual(@as(usize, 2), model.browser_slots[0].history_count);
+    try testing.expectEqual(@as(usize, 1), model.browser_slots[0].history_index);
+
+    const after_hard = panes[0].reload_token;
+    main.update(&model, keys.onKey(cmd_r).?, &fx);
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expect(!model.browser_slots[0].hard_reload_pending);
+    try testing.expectEqualStrings("https://b.example", panes[0].url);
+    try testing.expect(panes[0].reload_token != after_hard);
+    try testing.expectEqual(@as(usize, 2), model.browser_slots[0].history_count);
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(!model.browser_keyboard_active());
+    const settings_token = panes[0].reload_token;
+    main.update(&model, keys.onKey(cmd_shift_r).?, &fx);
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expect(!model.browser_slots[0].hard_reload_pending);
+    try testing.expectEqual(settings_token, panes[0].reload_token);
+    try testing.expectEqualStrings("https://b.example", panes[0].url);
 }
 
 test "escape restores Browser address draft without stopping a live turn" {

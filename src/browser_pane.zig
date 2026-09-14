@@ -15,7 +15,10 @@
 //! Native `WebViewPane` has no title callback). Empty history keeps
 //! occupancy-order `1`..`4`. Each occupied slot keeps its own
 //! address-bar draft, committed history ring, history index, and
-//! `reload_token`. Inactive occupied slots park at 1×1 with
+//! `reload_token`. Cmd/Ctrl-Shift-R Hard Reload is a Faku-side
+//! `about:blank` hop plus `reload_token` on the next update tick
+//! (Native `WebViewPane` documents only `url` + `reload_token`; not
+//! Waku cache-clear). Inactive occupied slots park at 1×1 with
 //! `anchor = null` so they do not overlay Files/Diff/Terminal but keep
 //! the webview process/state. Unopened slots stay parked at the home
 //! placeholder. Hidden Browser parks **all** panes the same way.
@@ -33,7 +36,8 @@
 //! cold-start fallback. Session switch / New Task / remove restore
 //! occupancy + histories + active from the in-memory
 //! `right_panel_session` stash (`capturePersisted` / `restoreFromPersist`;
-//! missing → `default_slots`). `reload_token` stays runtime-only. Empty
+//! missing → `default_slots`). `reload_token` and Hard Reload's
+//! pending blank hop stay runtime-only. Empty
 //! history still parks on the
 //! scene placeholder `https://example.com` and does not show it.
 //! Enter/Navigate uses Safari/Waku omnibox resolve (explicit schemes,
@@ -89,8 +93,11 @@ pub const web_pane_anchor = "browser-pane";
 /// Scene placeholder and parked empty-history pane URL. Empty history
 /// does not treat this as a committed page (no snap, globe not lock).
 pub const home_url = "https://example.com";
+/// Documented Native pane URL for the Hard Reload blank hop. Not
+/// pushed onto the user history ring.
+pub const blank_url = "about:blank";
 /// Workbench `max_history` ring. Occupied rings persist; `reload_token`
-/// stays runtime-only.
+/// and Hard Reload's pending blank hop stay runtime-only.
 pub const max_history = 32;
 /// Parking frame: positive size so `applyWebPane` does not keep the last
 /// content-sized snapshot when the Browser tab is hidden or the slot is
@@ -102,8 +109,8 @@ pub const parked_frame = geometry.RectF.init(0, 0, 1, 1);
 /// index persist on `sessions.json` extras (`browser_slots` /
 /// `browser_histories` / `browser_active`) as last-live cold-start;
 /// session switch restores them from `right_panel_session`. The active
-/// address draft still persists as `browser_url`. `reload_token` stays
-/// runtime-only.
+/// address draft still persists as `browser_url`. `reload_token` and
+/// Hard Reload's pending blank hop stay runtime-only.
 pub const Slot = struct {
     occupied: bool = false,
     url_buffer: canvas.TextBuffer(open_url.max_url) = .{},
@@ -111,6 +118,10 @@ pub const Slot = struct {
     history_count: usize = 0,
     history_index: usize = 0,
     reload_token: u64 = 0,
+    /// Runtime-only: next `webPanes` emits `blank_url` so Native
+    /// navigates away; `maybeFinishHardReload` on the following update
+    /// tick restores the committed URL and bumps `reload_token`.
+    hard_reload_pending: bool = false,
 };
 
 pub const BrowserSessionRow = struct {
@@ -362,7 +373,8 @@ pub fn capturePersisted(model: *const Model, out: *[max_sessions]PersistedSlot) 
 
 /// Rebuild occupancy, history rings + index when present, otherwise a
 /// single-entry history from each committed tip. Does not restore
-/// `reload_token`. Zero occupied slots keep today's slot-0 session.
+/// `reload_token` or a pending Hard Reload hop. Zero occupied slots keep
+/// today's slot-0 session.
 pub fn restoreFromPersist(model: *Model, slots: []const PersistedSlot, active: u8) void {
     model.browser_slots = [_]Slot{.{}} ** max_sessions;
     const n = @min(slots.len, max_sessions);
@@ -691,6 +703,33 @@ pub fn reload(model: *Model) void {
     activeSlot(model).reload_token +%= 1;
 }
 
+/// Hard Reload first-cut: documented Native `url` + `reload_token`
+/// only. Capture stays on the history ring; the next `webPanes`
+/// emits `about:blank` so Native navigates. `maybeFinishHardReload` on
+/// the following update tick restores that URL and bumps
+/// `reload_token`. No-op without a committed page (same as `reload`).
+pub fn hardReload(model: *Model) void {
+    if (!hasPage(model)) return;
+    activeSlot(model).hard_reload_pending = true;
+}
+
+/// Second tick of Hard Reload: after Native has applied `about:blank`,
+/// restore the committed pane URL and bump `reload_token`. History
+/// is unchanged. Called at the start of `update` so a same-tick
+/// blank→restore cannot collapse to one final URL.
+pub fn maybeFinishHardReload(model: *Model) void {
+    for (&model.browser_slots) |*slot| {
+        if (!slot.hard_reload_pending) continue;
+        slot.hard_reload_pending = false;
+        slot.reload_token +%= 1;
+    }
+}
+
+fn paneUrl(slot: *const Slot, committed: []const u8) []const u8 {
+    if (slot.hard_reload_pending) return blank_url;
+    return committed;
+}
+
 /// Model-derived webview panes. Always one pane per scene webview
 /// (Native `max_web_panes` = 4). The active occupied slot snaps to
 /// `browser-pane` when the Browser tab is showing **and** that slot
@@ -709,7 +748,7 @@ pub fn webPanes(model: *const Model, out: []WebViewPane) usize {
             .label = web_view_labels[i],
             .anchor = if (snap) web_pane_anchor else null,
             .frame = if (snap) geometry.RectF.init(0, 0, 0, 0) else parked_frame,
-            .url = currentUrlAt(model, i),
+            .url = paneUrl(slot, currentUrlAt(model, i)),
             .reload_token = if (occupied) slot.reload_token else 0,
         };
         n += 1;
@@ -924,6 +963,61 @@ test "reload bumps the pane token without changing the URL" {
     _ = webPanes(&model, &panes);
     try std.testing.expect(panes[0].reload_token != before);
     try std.testing.expectEqualStrings("https://example.com/ok", panes[0].url);
+    try std.testing.expect(!model.browser_slots[0].hard_reload_pending);
+}
+
+test "hardReload no-ops without a committed page" {
+    var model: Model = .{};
+    var panes: [max_sessions]WebViewPane = undefined;
+    model.right_panel_open = true;
+    model.right_panel_tab = .browser;
+    _ = webPanes(&model, &panes);
+    const token = panes[0].reload_token;
+    hardReload(&model);
+    maybeFinishHardReload(&model);
+    _ = webPanes(&model, &panes);
+    try std.testing.expectEqual(token, panes[0].reload_token);
+    try std.testing.expectEqualStrings(home_url, panes[0].url);
+    try std.testing.expect(!model.browser_slots[0].hard_reload_pending);
+    try std.testing.expectEqual(@as(usize, 0), activeSlotConst(&model).history_count);
+}
+
+test "hardReload blanks the pane URL then restore bumps reload_token without history" {
+    var model: Model = .{};
+    var panes: [max_sessions]WebViewPane = undefined;
+    model.right_panel_open = true;
+    model.right_panel_tab = .browser;
+    setDraft(&model, "https://a.example");
+    commitNavigation(&model);
+    setDraft(&model, "https://b.example");
+    commitNavigation(&model);
+    _ = webPanes(&model, &panes);
+    const before = panes[0].reload_token;
+    try std.testing.expectEqual(@as(usize, 2), activeSlotConst(&model).history_count);
+    try std.testing.expectEqual(@as(usize, 1), activeSlotConst(&model).history_index);
+
+    hardReload(&model);
+    _ = webPanes(&model, &panes);
+    try std.testing.expect(model.browser_slots[0].hard_reload_pending);
+    try std.testing.expectEqualStrings(blank_url, panes[0].url);
+    try std.testing.expectEqual(before, panes[0].reload_token);
+    try std.testing.expectEqualStrings("https://b.example", currentUrl(&model));
+    try std.testing.expectEqualStrings("b.example", draft(&model));
+    try std.testing.expectEqual(@as(usize, 2), activeSlotConst(&model).history_count);
+    try std.testing.expectEqual(@as(usize, 1), activeSlotConst(&model).history_index);
+    try std.testing.expectEqualStrings(web_pane_anchor, panes[0].anchor orelse "");
+
+    maybeFinishHardReload(&model);
+    _ = webPanes(&model, &panes);
+    try std.testing.expect(!model.browser_slots[0].hard_reload_pending);
+    try std.testing.expectEqualStrings("https://b.example", panes[0].url);
+    try std.testing.expect(panes[0].reload_token != before);
+    try std.testing.expectEqualStrings("https://b.example", currentUrl(&model));
+    try std.testing.expectEqualStrings("b.example", draft(&model));
+    try std.testing.expectEqual(@as(usize, 2), activeSlotConst(&model).history_count);
+    try std.testing.expectEqual(@as(usize, 1), activeSlotConst(&model).history_index);
+    goBack(&model);
+    try std.testing.expectEqualStrings("https://a.example", currentUrl(&model));
 }
 
 test "history ring shifts the oldest entry once full" {
@@ -1339,10 +1433,13 @@ test "restoreFromPersist rebuilds history rings so back and forward work" {
 
     var restored: Model = .{};
     restored.browser_slots[0].reload_token = 99;
+    restored.browser_slots[0].hard_reload_pending = true;
     restoreFromPersist(&restored, &persisted, 1);
     try std.testing.expectEqual(@as(u8, 1), restored.browser_active);
     try std.testing.expectEqual(@as(u64, 0), restored.browser_slots[0].reload_token);
     try std.testing.expectEqual(@as(u64, 0), restored.browser_slots[1].reload_token);
+    try std.testing.expect(!restored.browser_slots[0].hard_reload_pending);
+    try std.testing.expect(!restored.browser_slots[1].hard_reload_pending);
     try std.testing.expectEqual(@as(usize, 3), restored.browser_slots[0].history_count);
     try std.testing.expectEqual(@as(usize, 1), restored.browser_slots[0].history_index);
     try std.testing.expectEqualStrings("https://a2.example", committedUrlAt(&restored, 0));
@@ -1415,6 +1512,7 @@ test "CONTEXT and README describe first-cut Browser multi-session inside the tab
     try std.testing.expect(std.mem.indexOf(u8, context, "history rings") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "browser_histories") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "`reload_token` stays runtime-only") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "Faku-side blank-hop") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "is_secure_url") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "lock/globe") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "display_url/host first-cut") != null);

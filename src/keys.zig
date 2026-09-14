@@ -9,9 +9,11 @@
 //! (`onKey` has no focus/model; composer Shift-Enter newline).
 //! Prev remains the chevron / Cmd-Shift-G.
 //! Browser first-cut: Cmd/Ctrl-R/L/[/] emit model-gated Msgs (`onKey`
-//! has no focus). Escape stays `.stop`; handleStop restores the
+//! has no focus). Cmd/Ctrl-Shift-R is Hard Reload (Faku-side
+//! `about:blank` hop + `reload_token`; Native `web_panes` has no
+//! hard-reload flag). Escape stays `.stop`; handleStop restores the
 //! address draft when that field is active (Waku BrowserAddressCancel).
-//! Hard Reload / DevTools / loading Stop stay unbound.
+//! DevTools / loading Stop stay unbound.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -99,12 +101,13 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "r")) {
         // Waku secondary-alt-r ToggleFindRegex. Bare Cmd/Ctrl-R is
         // BrowserReload (handler no-ops unless the Browser tab is the
-        // active right-panel surface). Cmd/Ctrl-Shift-R Hard Reload
-        // stays unbound (Native `web_panes` has no hard-reload API).
+        // active right-panel surface). Cmd/Ctrl-Shift-R is Hard Reload
+        // (Faku-side blank-hop + `reload_token`; same keyboard gate).
         if (hasAltModifier(keyboard.modifiers) and !keyboard.modifiers.shift) {
             return .toggle_file_preview_find_regex;
         }
-        if (!keyboard.modifiers.shift) return .browser_reload;
+        if (keyboard.modifiers.shift) return .browser_hard_reload;
+        return .browser_reload;
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "s")) {
         // Waku `cmd-s` SaveFile / Files preview Save.
