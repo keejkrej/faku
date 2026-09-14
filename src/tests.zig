@@ -13233,6 +13233,10 @@ test "cmd-f routes to Files preview find when a preview is open" {
     try testing.expectEqualStrings("hello", model.file_preview_find_query());
     try testing.expectEqual(@as(u32, 2), model.file_preview_find_match_count);
     try testing.expectEqualStrings("1 of 2 · L1", model.file_preview_find_match_label(arena));
+    try testing.expectEqualStrings(
+        i18n.formatFilePreviewFindMatchOf(i18n.filePreviewFindMatchChromeFor(.english, ""), arena, 1, 2, "", 1),
+        model.file_preview_find_match_label(arena),
+    );
 
     main.update(&model, .toggle_file_preview_find_whole_word, &fx);
     try testing.expect(model.file_preview_find_whole_word);
@@ -13264,6 +13268,10 @@ test "cmd-f routes to Files preview find when a preview is open" {
     main.update(&model, keys.onKey(cmd_g).?, &fx);
     try testing.expectEqual(@as(u32, 1), model.file_preview_find_match_index);
     try testing.expectEqualStrings("2 of 2 · L2", model.file_preview_find_match_label(arena));
+    try testing.expectEqualStrings(
+        i18n.formatFilePreviewFindMatchOf(i18n.filePreviewFindMatchChromeFor(.english, ""), arena, 2, 2, "", 2),
+        model.file_preview_find_match_label(arena),
+    );
 
     const show_replace = try expectButton(tree.root, "Show replace");
     try testing.expectEqual(Msg.toggle_file_preview_find_replace, tree.msgForPointer(show_replace.id, .up).?);
@@ -27847,6 +27855,133 @@ test "transcript Find-bar match position follows Appearance language" {
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "一致なし");
     try testing.expect(findByText(tree.root, .text, "No matches") == null);
+}
+
+test "Files preview find match-position follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try absCopyProjectDir(tmp, "preview-find-match-i18n", &project_buf);
+    var note_buf: [320]u8 = undefined;
+    const note_path = try std.fmt.bufPrint(&note_buf, "{s}/note.txt", .{project});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = note_path,
+        .data = "alpha hello\nbeta hello\n",
+    });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{file_preview_find_match_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{has_file_preview_find_match_label}"));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">{file_preview_find_match_label}</text>") != null);
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">invalid<"));
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("preview find match i18n", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    defer right_panel.clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
+
+    main.update(&model, .show_right_panel, &fx);
+    file_mention.applyStdoutPaths(&model, "note.txt\n");
+    main.update(&model, .{ .open_right_panel_file = 1 }, &fx);
+    try testing.expect(model.right_panel_file_preview_open());
+
+    main.update(&model, .open_find, &fx);
+    try testing.expect(model.file_preview_find_active);
+    try testing.expect(!model.has_file_preview_find_match_label());
+    try testing.expectEqualStrings("", model.file_preview_find_match_label(arena));
+
+    main.update(&model, .{ .file_preview_find_edit = .{ .insert_text = "hello" } }, &fx);
+    try testing.expect(model.has_file_preview_find_match_label());
+    try testing.expectEqualStrings("1 of 2 · L1", model.file_preview_find_match_label(arena));
+    try testing.expectEqualStrings(
+        i18n.formatFilePreviewFindMatchOf(i18n.filePreviewFindMatchChromeFor(.english, ""), arena, 1, 2, "", 1),
+        model.file_preview_find_match_label(arena),
+    );
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "1 of 2 · L1");
+    try testing.expect(findByText(tree.root, .text, "1 / 2 · L1") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("1 / 2 · L1", model.file_preview_find_match_label(arena));
+    try testing.expect(std.mem.indexOf(u8, model.file_preview_find_match_label(arena), " of ") == null);
+    try testing.expectEqualStrings(
+        i18n.formatFilePreviewFindMatchOf(i18n.filePreviewFindMatchChromeFor(.simplified_chinese, ""), arena, 1, 2, "", 1),
+        model.file_preview_find_match_label(arena),
+    );
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "1 / 2 · L1");
+    try testing.expect(findByText(tree.root, .text, "1 of 2 · L1") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("1 / 2 · L1", model.file_preview_find_match_label(arena));
+    try testing.expect(std.mem.indexOf(u8, model.file_preview_find_match_label(arena), " of ") == null);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "1 / 2 · L1");
+    try testing.expect(findByText(tree.root, .text, "1 of 2 · L1") == null);
+
+    main.update(&model, .{ .file_preview_find_edit = .clear }, &fx);
+    main.update(&model, .{ .file_preview_find_edit = .{ .insert_text = "zzz" } }, &fx);
+    try testing.expectEqualStrings("0", model.file_preview_find_match_label(arena));
+    try testing.expectEqualStrings(i18n.filePreviewFindMatchChromeFor(.japanese, "").zero, model.file_preview_find_match_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "0");
+
+    main.update(&model, .toggle_file_preview_find_regex, &fx);
+    main.update(&model, .{ .file_preview_find_edit = .clear }, &fx);
+    main.update(&model, .{ .file_preview_find_edit = .{ .insert_text = "(unclosed" } }, &fx);
+    try testing.expect(model.file_preview_find_invalid);
+    try testing.expectEqualStrings("無効", model.file_preview_find_match_label(arena));
+    try testing.expectEqualStrings(i18n.filePreviewFindMatchChromeFor(.japanese, "").invalid, model.file_preview_find_match_label(arena));
+    try testing.expect(std.mem.indexOf(u8, model.file_preview_find_match_label(arena), "invalid") == null);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "無効");
+    try testing.expect(findByText(tree.root, .text, "invalid") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("无效", model.file_preview_find_match_label(arena));
+    try testing.expect(std.mem.indexOf(u8, model.file_preview_find_match_label(arena), "invalid") == null);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "无效");
+    try testing.expect(findByText(tree.root, .text, "invalid") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("invalid", model.file_preview_find_match_label(arena));
+    try testing.expectEqualStrings(i18n.filePreviewFindMatchChromeFor(.english, "ja_JP.UTF-8").invalid, model.file_preview_find_match_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "invalid");
+    try testing.expect(findByText(tree.root, .text, "無効") == null);
+
+    main.update(&model, .{ .file_preview_find_edit = .clear }, &fx);
+    main.update(&model, .{ .file_preview_find_edit = .{ .insert_text = "hello" } }, &fx);
+    try testing.expectEqualStrings("1 of 2 · L1", model.file_preview_find_match_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "1 of 2 · L1");
+    try testing.expect(findByText(tree.root, .text, "1 / 2 · L1") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("1 / 2 · L1", model.file_preview_find_match_label(arena));
+    try testing.expect(std.mem.indexOf(u8, model.file_preview_find_match_label(arena), " of ") == null);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "1 / 2 · L1");
+    try testing.expect(findByText(tree.root, .text, "1 of 2 · L1") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("1 / 2 · L1", model.file_preview_find_match_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "1 / 2 · L1");
+    try testing.expect(findByText(tree.root, .text, "1 of 2 · L1") == null);
 }
 
 test "header Copy session / Fork / Rewind chrome follows Appearance language" {

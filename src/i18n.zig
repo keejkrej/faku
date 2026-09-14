@@ -59,8 +59,13 @@
 //! `find_next` / `close_find`) plus find-bar muted match-position
 //! No matches / k of N (same `FindMatchChrome` strings; distinct from
 //! `FindBarChrome` / `FilePreviewChrome` / `TranscriptTurnChrome.match`
-//! so transcript find-match chrome stays independently evolvable;
-//! numbers stay Latin) plus header Copy session a11y and
+//! / `FilePreviewFindMatchChrome` so transcript find-match chrome
+//! stays independently evolvable; numbers stay Latin) plus Files
+//! preview find muted match-position `n of m · L#line` / `invalid`
+//! / `0` (same `FilePreviewFindMatchChrome` strings; distinct from
+//! `FindMatchChrome` / `FilePreviewChrome` so file-preview match
+//! chrome stays independently evolvable; numbers stay Latin; `+`
+//! cap and ` · ` stay) plus header Copy session a11y and
 //! Fork / Rewind button chrome (same `HeaderSessionChrome` strings;
 //! distinct from `Palette.copy_session_id` / `TranscriptTurnChrome`
 //! so header session chrome stays independently
@@ -257,7 +262,11 @@
 //! `find_next` / `find_prev` / `close_find`); typed query stays
 //! English (data). Find-bar muted match-position No matches / k of N
 //! follow the resolved locale this cut (same `FindMatchChrome`
-//! strings). Header Copy session / Fork / Rewind `on-press`
+//! strings). Files preview find muted match-position
+//! `n of m · L#line` / `invalid` / `0` follow the resolved locale
+//! this cut (same `FilePreviewFindMatchChrome` strings; `on-press`
+//! / on-input / find query / replace text stay English). Header
+//! Copy session / Fork / Rewind `on-press`
 //! stay English (`copy_session` / `fork` / `rewind`). Transcript
 //! turn You said / Assistant said a11y follow the resolved locale
 //! this cut (same `TranscriptRoleChrome` strings). Per-turn
@@ -1222,7 +1231,8 @@ const filter_chrome_ja: FilterChrome = .{
 /// `toggle_file_preview_find_replace` / `file_preview_find_edit` /
 /// `file_preview_find_replace_edit`). English matches the former
 /// hardcoded copy. Distinct from composer `Open in Editor` (title
-/// case). Aa / Ab / .* glyphs stay. Path text and body content stay
+/// case) and from `FilePreviewFindMatchChrome` (file-preview
+/// `n of m · L#line` / `invalid` / `0`). Aa / Ab / .* glyphs stay. Path text and body content stay
 /// data. Transcript Find placeholder reuses `find` via a distinct
 /// Model getter; a11y reuses `Palette.find_in_transcript`.
 pub const FilePreviewChrome = struct {
@@ -1933,11 +1943,12 @@ const find_bar_chrome_ja: FindBarChrome = .{
 /// `k of N`) for the resolved locale. Same resolve path as
 /// FindBarChrome. English matches the former hardcoded copy
 /// (`No matches`, `{d} of {d}`). Distinct from `FindBarChrome`
-/// previous/next/close a11y, from `FilePreviewChrome` (file-preview
-/// still uses its own `n of m · L#line` English path), and from
-/// `TranscriptTurnChrome.match` so transcript find-match chrome
-/// stays independently evolvable. Numbers stay Latin. Wire ids /
-/// on-press / find query stay English.
+/// previous/next/close a11y, from `FilePreviewChrome`, and from
+/// `FilePreviewFindMatchChrome` (file-preview keeps its own
+/// `n of m · L#line` path) and from `TranscriptTurnChrome.match` so
+/// transcript find-match chrome stays independently evolvable.
+/// Numbers stay Latin. Wire ids / on-press / find query stay
+/// English.
 pub const FindMatchChrome = struct {
     no_matches: []const u8,
     of_fmt: []const u8,
@@ -1956,6 +1967,43 @@ const find_match_chrome_zh_cn: FindMatchChrome = .{
 const find_match_chrome_ja: FindMatchChrome = .{
     .no_matches = "一致なし",
     .of_fmt = "{d} / {d}",
+};
+
+/// Files preview find muted match-position chrome (`n of m · L#line`
+/// / `invalid` / `0`) for the resolved locale. Same resolve path as
+/// FindMatchChrome. English matches the former hardcoded copy
+/// (`{d} of {d}{s} · L{d}`, `invalid`, `0`, allocPrint fallback
+/// `match`). Distinct from `FindMatchChrome` / `FindBarChrome` /
+/// `FilePreviewChrome` so file-preview match chrome stays
+/// independently evolvable. Numbers stay Latin. `+` cap marker and
+/// middle-dot ` · ` stay. Wire ids / on-press / on-input / find
+/// query / replace text stay English.
+pub const FilePreviewFindMatchChrome = struct {
+    of_line_fmt: []const u8,
+    invalid: []const u8,
+    zero: []const u8,
+    match: []const u8,
+};
+
+const file_preview_find_match_chrome_en: FilePreviewFindMatchChrome = .{
+    .of_line_fmt = "{d} of {d}{s} · L{d}",
+    .invalid = "invalid",
+    .zero = "0",
+    .match = "match",
+};
+
+const file_preview_find_match_chrome_zh_cn: FilePreviewFindMatchChrome = .{
+    .of_line_fmt = "{d} / {d}{s} · L{d}",
+    .invalid = "无效",
+    .zero = "0",
+    .match = "匹配",
+};
+
+const file_preview_find_match_chrome_ja: FilePreviewFindMatchChrome = .{
+    .of_line_fmt = "{d} / {d}{s} · L{d}",
+    .invalid = "無効",
+    .zero = "0",
+    .match = "一致",
 };
 
 /// Header Copy session a11y plus Fork / Rewind button chrome for the
@@ -3310,9 +3358,10 @@ pub fn findBarChromeFor(preference: LanguagePreference, system_locale_id: []cons
 /// Transcript find-bar muted match-position chrome for the resolved
 /// locale. Callers pass Model `language_preference` +
 /// `system_locale_id`; this file does not read process env. Distinct
-/// from FindBarChrome / FilePreviewChrome / TranscriptTurnChrome.match
-/// so transcript find-match chrome stays independently evolvable.
-/// Numbers stay Latin. Wire ids / on-press / find query stay English.
+/// from FindBarChrome / FilePreviewChrome / FilePreviewFindMatchChrome
+/// / TranscriptTurnChrome.match so transcript find-match chrome
+/// stays independently evolvable. Numbers stay Latin. Wire ids /
+/// on-press / find query stay English.
 pub fn findMatchChromeFor(preference: LanguagePreference, system_locale_id: []const u8) FindMatchChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => find_match_chrome_zh_cn,
@@ -3328,6 +3377,38 @@ pub fn formatFindMatchOf(chrome: FindMatchChrome, arena: std.mem.Allocator, inde
         return std.fmt.allocPrint(arena, "{d} / {d}", .{ index, count }) catch "match";
     }
     return std.fmt.allocPrint(arena, "{d} of {d}", .{ index, count }) catch "match";
+}
+
+/// Files preview find muted match-position chrome for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from FindMatchChrome / FindBarChrome / FilePreviewChrome so
+/// file-preview match chrome stays independently evolvable.
+/// Numbers stay Latin. `+` cap and ` · ` stay. Wire ids / on-press /
+/// on-input / find query / replace text stay English.
+pub fn filePreviewFindMatchChromeFor(preference: LanguagePreference, system_locale_id: []const u8) FilePreviewFindMatchChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => file_preview_find_match_chrome_zh_cn,
+        .japanese => file_preview_find_match_chrome_ja,
+        .system, .english => file_preview_find_match_chrome_en,
+    };
+}
+
+/// Format Files preview find `n of m · L#line` from the pack's
+/// `of_line_fmt`. Numbers stay Latin. `index` is 1-based. `cap` is
+/// `"+"` when matches were capped, else `""`.
+pub fn formatFilePreviewFindMatchOf(
+    chrome: FilePreviewFindMatchChrome,
+    arena: std.mem.Allocator,
+    index: u32,
+    count: u32,
+    cap: []const u8,
+    line: u32,
+) []const u8 {
+    if (std.mem.eql(u8, chrome.of_line_fmt, "{d} / {d}{s} · L{d}")) {
+        return std.fmt.allocPrint(arena, "{d} / {d}{s} · L{d}", .{ index, count, cap, line }) catch chrome.match;
+    }
+    return std.fmt.allocPrint(arena, "{d} of {d}{s} · L{d}", .{ index, count, cap, line }) catch chrome.match;
 }
 
 /// Header Copy session a11y plus Fork / Rewind button chrome for the
@@ -5059,6 +5140,8 @@ test "findMatchChromeFor english default; zh and ja chrome; english ignores ja L
     try testing.expect(!std.mem.eql(u8, findMatchChromeFor(.english, "").of_fmt, filePreviewChromeFor(.english, "").find));
     try testing.expect(!std.mem.eql(u8, findMatchChromeFor(.simplified_chinese, "").no_matches, filePreviewChromeFor(.simplified_chinese, "").previous_file_match));
     try testing.expect(!std.mem.eql(u8, findMatchChromeFor(.japanese, "").no_matches, filePreviewChromeFor(.japanese, "").previous_file_match));
+    try testing.expect(!std.mem.eql(u8, findMatchChromeFor(.english, "").of_fmt, filePreviewFindMatchChromeFor(.english, "").of_line_fmt));
+    try testing.expect(!std.mem.eql(u8, findMatchChromeFor(.simplified_chinese, "").of_fmt, filePreviewFindMatchChromeFor(.simplified_chinese, "").of_line_fmt));
 
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
@@ -5068,6 +5151,62 @@ test "findMatchChromeFor english default; zh and ja chrome; english ignores ja L
     try testing.expectEqualStrings("3 / 5", formatFindMatchOf(findMatchChromeFor(.japanese, ""), arena, 3, 5));
     try testing.expectEqualStrings("1 / 2", formatFindMatchOf(findMatchChromeFor(.system, "zh_CN.UTF-8"), arena, 1, 2));
     try testing.expectEqualStrings("1 of 2", formatFindMatchOf(findMatchChromeFor(.english, "ja_JP.UTF-8"), arena, 1, 2));
+}
+
+test "filePreviewFindMatchChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("{d} of {d}{s} · L{d}", filePreviewFindMatchChromeFor(.english, "ja").of_line_fmt);
+    try testing.expectEqualStrings("invalid", filePreviewFindMatchChromeFor(.english, "ja").invalid);
+    try testing.expectEqualStrings("0", filePreviewFindMatchChromeFor(.english, "ja").zero);
+    try testing.expectEqualStrings("match", filePreviewFindMatchChromeFor(.english, "ja").match);
+    try testing.expectEqualStrings("{d} of {d}{s} · L{d}", filePreviewFindMatchChromeFor(.english, "").of_line_fmt);
+    try testing.expectEqualStrings("invalid", filePreviewFindMatchChromeFor(.english, "").invalid);
+    try testing.expectEqualStrings("0", filePreviewFindMatchChromeFor(.english, "").zero);
+    try testing.expectEqualStrings("match", filePreviewFindMatchChromeFor(.english, "").match);
+    try testing.expectEqualStrings("{d} of {d}{s} · L{d}", filePreviewFindMatchChromeFor(.system, "").of_line_fmt);
+    try testing.expectEqualStrings("invalid", filePreviewFindMatchChromeFor(.system, "").invalid);
+
+    try testing.expectEqualStrings("{d} / {d}{s} · L{d}", filePreviewFindMatchChromeFor(.simplified_chinese, "").of_line_fmt);
+    try testing.expectEqualStrings("无效", filePreviewFindMatchChromeFor(.simplified_chinese, "").invalid);
+    try testing.expectEqualStrings("0", filePreviewFindMatchChromeFor(.simplified_chinese, "").zero);
+    try testing.expectEqualStrings("匹配", filePreviewFindMatchChromeFor(.simplified_chinese, "").match);
+    try testing.expectEqualStrings("{d} / {d}{s} · L{d}", filePreviewFindMatchChromeFor(.japanese, "").of_line_fmt);
+    try testing.expectEqualStrings("無効", filePreviewFindMatchChromeFor(.japanese, "").invalid);
+    try testing.expectEqualStrings("0", filePreviewFindMatchChromeFor(.japanese, "").zero);
+    try testing.expectEqualStrings("一致", filePreviewFindMatchChromeFor(.japanese, "").match);
+
+    try testing.expectEqualStrings("无效", filePreviewFindMatchChromeFor(.system, "zh_CN.UTF-8").invalid);
+    try testing.expectEqualStrings("{d} / {d}{s} · L{d}", filePreviewFindMatchChromeFor(.system, "zh_CN.UTF-8").of_line_fmt);
+    try testing.expectEqualStrings("無効", filePreviewFindMatchChromeFor(.system, "ja_JP.UTF-8").invalid);
+    try testing.expectEqualStrings("{d} / {d}{s} · L{d}", filePreviewFindMatchChromeFor(.system, "ja_JP.UTF-8").of_line_fmt);
+    try testing.expectEqualStrings("invalid", filePreviewFindMatchChromeFor(.english, "ja_JP.UTF-8").invalid);
+    try testing.expectEqualStrings("{d} of {d}{s} · L{d}", filePreviewFindMatchChromeFor(.english, "ja_JP.UTF-8").of_line_fmt);
+    try testing.expectEqualStrings("invalid", filePreviewFindMatchChromeFor(.english, "zh_CN.UTF-8").invalid);
+    try testing.expectEqualStrings("{d} of {d}{s} · L{d}", filePreviewFindMatchChromeFor(.english, "zh_CN.UTF-8").of_line_fmt);
+
+    try testing.expect(!std.mem.eql(u8, filePreviewFindMatchChromeFor(.english, "").of_line_fmt, findMatchChromeFor(.english, "").of_fmt));
+    try testing.expect(!std.mem.eql(u8, filePreviewFindMatchChromeFor(.english, "").invalid, filePreviewChromeFor(.english, "").find));
+    try testing.expect(!std.mem.eql(u8, filePreviewFindMatchChromeFor(.simplified_chinese, "").invalid, "invalid"));
+    try testing.expect(!std.mem.eql(u8, filePreviewFindMatchChromeFor(.japanese, "").invalid, "invalid"));
+    try testing.expect(std.mem.indexOf(u8, filePreviewFindMatchChromeFor(.simplified_chinese, "").of_line_fmt, " of ") == null);
+    try testing.expect(std.mem.indexOf(u8, filePreviewFindMatchChromeFor(.japanese, "").of_line_fmt, " of ") == null);
+    try testing.expect(!std.mem.eql(u8, filePreviewFindMatchChromeFor(.simplified_chinese, "").invalid, filePreviewChromeFor(.simplified_chinese, "").previous_file_match));
+    try testing.expect(!std.mem.eql(u8, filePreviewFindMatchChromeFor(.japanese, "").invalid, filePreviewChromeFor(.japanese, "").previous_file_match));
+    try testing.expect(!std.mem.eql(u8, filePreviewFindMatchChromeFor(.english, "").match, findMatchChromeFor(.english, "").no_matches));
+
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    try testing.expectEqualStrings("1 of 2 · L1", formatFilePreviewFindMatchOf(filePreviewFindMatchChromeFor(.english, ""), arena, 1, 2, "", 1));
+    try testing.expectEqualStrings("1 of 2+ · L1", formatFilePreviewFindMatchOf(filePreviewFindMatchChromeFor(.english, ""), arena, 1, 2, "+", 1));
+    try testing.expectEqualStrings("2 of 2 · L2", formatFilePreviewFindMatchOf(filePreviewFindMatchChromeFor(.english, ""), arena, 2, 2, "", 2));
+    try testing.expectEqualStrings("1 / 2 · L1", formatFilePreviewFindMatchOf(filePreviewFindMatchChromeFor(.simplified_chinese, ""), arena, 1, 2, "", 1));
+    try testing.expectEqualStrings("1 / 2+ · L3", formatFilePreviewFindMatchOf(filePreviewFindMatchChromeFor(.simplified_chinese, ""), arena, 1, 2, "+", 3));
+    try testing.expectEqualStrings("3 / 5 · L8", formatFilePreviewFindMatchOf(filePreviewFindMatchChromeFor(.japanese, ""), arena, 3, 5, "", 8));
+    try testing.expectEqualStrings("1 / 2 · L1", formatFilePreviewFindMatchOf(filePreviewFindMatchChromeFor(.system, "zh_CN.UTF-8"), arena, 1, 2, "", 1));
+    try testing.expectEqualStrings("1 of 2 · L1", formatFilePreviewFindMatchOf(filePreviewFindMatchChromeFor(.english, "ja_JP.UTF-8"), arena, 1, 2, "", 1));
+    try testing.expect(std.mem.indexOf(u8, formatFilePreviewFindMatchOf(filePreviewFindMatchChromeFor(.simplified_chinese, ""), arena, 1, 2, "", 1), " of ") == null);
+    try testing.expect(std.mem.indexOf(u8, formatFilePreviewFindMatchOf(filePreviewFindMatchChromeFor(.japanese, ""), arena, 1, 2, "", 1), " of ") == null);
 }
 
 test "headerSessionChromeFor english default; zh and ja chrome; english ignores ja LANG" {
