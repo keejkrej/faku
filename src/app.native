@@ -975,8 +975,8 @@
           </for>
           <else>
             <column grow="1" gap="8" padding="24" main="center" cross="center">
-              <text size="display" text-alignment="center"><span weight="bold">What should we build?</span></text>
-              <text foreground="text_muted" text-alignment="center">Pick a project, or just start typing.</text>
+              <text size="display" text-alignment="center"><span weight="bold">{welcome_title}</span></text>
+              <text foreground="text_muted" text-alignment="center">{welcome_subtitle}</text>
             </column>
           </else>
         </column>
