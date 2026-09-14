@@ -63,6 +63,10 @@ const Effects = main.Effects;
 const main_window_label = main.main_window_label;
 
 pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
+    // Finish a previous Hard Reload blank hop after Native has had a
+    // rebuild to apply `about:blank`. Same-tick blank→restore would
+    // collapse to one final URL.
+    browser_pane.maybeFinishHardReload(model);
     model.now_ms = fx.wallMs();
     switch (msg) {
         .new_session => session_actions.handleNewSession(model, fx),
@@ -373,6 +377,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .browser_reload => {
             if (!model.browser_keyboard_active()) return;
             browser_pane.reload(model);
+        },
+        .browser_hard_reload => {
+            if (!model.browser_keyboard_active()) return;
+            browser_pane.hardReload(model);
         },
         .browser_back => {
             browser_pane.goBack(model);

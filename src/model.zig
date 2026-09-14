@@ -746,6 +746,12 @@ pub const Msg = union(enum) {
     /// active right-panel surface (settings closed) and history is
     /// non-empty.
     browser_reload,
+    /// Hard Reload via documented Native `url` + `reload_token` only
+    /// (`about:blank` hop, then restore + token bump on the next
+    /// update tick). Cmd/Ctrl-Shift-R. Same keyboard / has-page gate as
+    /// `browser_reload`. Not Waku cache-clear; Native has no
+    /// hard-reload flag. Keyboard-only this cut (no toolbar chrome).
+    browser_hard_reload,
     /// Walk the app-owned Browser history backward.
     browser_back,
     /// Walk the app-owned Browser history forward.
@@ -845,7 +851,7 @@ pub const Msg = union(enum) {
     fx_probe_exit: native_sdk.EffectExit,
     cli_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "cli_probe_exit", "term_pty", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "focus_browser_or_composer", "open_find", "open_file_preview_find_replace", "clipboard_done", "attach_preview_done", "file_preview_image_done", "transcript_image_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app", "start_image_attach", "show_right_panel", "navigate_back", "navigate_forward" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "cli_probe_exit", "term_pty", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "focus_browser_or_composer", "open_find", "open_file_preview_find_replace", "clipboard_done", "attach_preview_done", "file_preview_image_done", "transcript_image_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app", "start_image_attach", "show_right_panel", "navigate_back", "navigate_forward", "browser_hard_reload" };
 };
 
 pub const Model = struct {
@@ -1379,9 +1385,10 @@ pub const Model = struct {
     /// persist globally as last-live `sessions.json` extras; the **active**
     /// slot's address draft still persists as `browser_url`. Session
     /// switch restores occupancy from `right_panel_session` (missing →
-    /// `default_slots`). `reload_token` stays runtime-only. Slot 0 starts
-    /// occupied. `browser_active` is the active `web_panes` slot (snapped
-    /// only when that slot has a committed page).
+    /// `default_slots`). `reload_token` and Hard Reload's pending blank
+    /// hop stay runtime-only. Slot 0 starts occupied. `browser_active`
+    /// is the active `web_panes` slot (snapped only when that slot has a
+    /// committed page).
     browser_slots: [browser_pane.max_sessions]browser_pane.Slot = browser_pane.default_slots,
     browser_active: u8 = 0,
     open_terminal_live: bool = false,

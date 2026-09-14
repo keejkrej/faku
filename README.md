@@ -101,7 +101,8 @@ Build from source: clone https://github.com/keejkrej/fx, Zig 0.16.0,
   up to 4 sessions; occupied URLs persist; history rings persist; lock/globe from committed https;
   empty-history Native start page; Browser-tab-gated Cmd/Ctrl-R/L/[/] when that tab is showing;
   first-cut Escape restores the address draft when that field is active;
-  Hard Reload / DevTools / loading Stop stay out;
+  Cmd/Ctrl-Shift-R Hard Reload is a Faku-side `about:blank` hop + `reload_token`;
+  DevTools / loading Stop stay out;
   **Open in browser** stays the OS fallback)
 
 Protocol dump: [CONTEXT.md](CONTEXT.md).
