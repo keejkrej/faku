@@ -224,6 +224,10 @@
 //! UsageSessionsChrome / UsageViewChrome / FilterChrome
 //! no_project_usage so local session chrome stays independently
 //! evolvable; wire ids / numeric usage values stay English/data)
+//! plus Settings Usage Monthly empty-state No monthly usage (same
+//! `UsageMonthlyEmptyChrome` strings; distinct from FilterChrome
+//! no_project_usage / UsageLocalChrome / UsageViewChrome so Monthly
+//! empty stays independently evolvable; wire ids stay English)
 //! plus Settings Providers Available / Not found, Enable /
 //! Disable, Use for this session, Copy install command / Copy login
 //! command, and First-party default (same `ProvidersChrome` strings;
@@ -411,6 +415,11 @@
 //! UsageMeterChrome / UsageSessionsChrome / UsageViewChrome /
 //! FilterChrome no_project_usage; wire ids / numeric usage
 //! values stay English/data).
+//! Settings Usage Monthly empty-state No monthly usage follows
+//! the resolved locale this cut (same `UsageMonthlyEmptyChrome`
+//! strings; distinct from FilterChrome no_project_usage /
+//! UsageLocalChrome / UsageViewChrome so Monthly empty stays
+//! independently evolvable; wire ids stay English).
 //! Typed URL text
 //! stays data. Parked `home_url`
 //! / scene URLs stay data. OS
@@ -3142,6 +3151,30 @@ const usage_local_chrome_ja: UsageLocalChrome = .{
     .no_thread_goal_usage = "スレッド目標の使用量はありません",
 };
 
+/// Settings Usage Monthly empty-state when history has no month
+/// rows (`usage_months_empty`) for the resolved locale. Same
+/// resolve path as UsageLocalChrome. English matches the former
+/// hardcoded copy. Distinct from FilterChrome `no_project_usage`
+/// / `no_matching_projects`, UsageLocalChrome session-card
+/// empties, and UsageViewChrome Monthly chip so Monthly empty
+/// stays independently evolvable. Wire ids stay English. Chart
+/// a11y `Monthly usage` / series names stay English this cut.
+pub const UsageMonthlyEmptyChrome = struct {
+    no_monthly_usage: []const u8,
+};
+
+const usage_monthly_empty_chrome_en: UsageMonthlyEmptyChrome = .{
+    .no_monthly_usage = "No monthly usage",
+};
+
+const usage_monthly_empty_chrome_zh_cn: UsageMonthlyEmptyChrome = .{
+    .no_monthly_usage = "暂无月度用量",
+};
+
+const usage_monthly_empty_chrome_ja: UsageMonthlyEmptyChrome = .{
+    .no_monthly_usage = "月次の使用量はありません",
+};
+
 /// Settings Providers status, Enable/Disable chip, Apply, Copy
 /// install/login, and First-party default for the resolved locale.
 /// Same resolve path as UsageSessionsChrome. English matches the
@@ -4188,6 +4221,21 @@ pub fn usageLocalChromeFor(preference: LanguagePreference, system_locale_id: []c
         .simplified_chinese => usage_local_chrome_zh_cn,
         .japanese => usage_local_chrome_ja,
         .system, .english => usage_local_chrome_en,
+    };
+}
+
+/// Settings Usage Monthly empty-state No monthly usage for the
+/// resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env.
+/// Distinct from FilterChrome `no_project_usage` / UsageLocalChrome
+/// / UsageViewChrome so Monthly empty stays independently
+/// evolvable. Wire ids stay English. Chart a11y `Monthly usage`
+/// stays English this cut.
+pub fn usageMonthlyEmptyChromeFor(preference: LanguagePreference, system_locale_id: []const u8) UsageMonthlyEmptyChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => usage_monthly_empty_chrome_zh_cn,
+        .japanese => usage_monthly_empty_chrome_ja,
+        .system, .english => usage_monthly_empty_chrome_en,
     };
 }
 
@@ -6749,6 +6797,21 @@ test "usageLocalChromeFor english default; zh and ja chrome; english ignores ja 
     try testing.expectEqualStrings("No context usage reported yet", usageLocalChromeFor(.english, "zh_CN.UTF-8").no_context_usage);
     try testing.expectEqualStrings("Thread goal tokens", usageLocalChromeFor(.english, "ja_JP.UTF-8").thread_goal_tokens);
     try testing.expectEqualStrings("No thread goal usage", usageLocalChromeFor(.english, "zh_CN.UTF-8").no_thread_goal_usage);
+}
+
+test "usageMonthlyEmptyChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("No monthly usage", usageMonthlyEmptyChromeFor(.english, "ja").no_monthly_usage);
+    try testing.expectEqualStrings("No monthly usage", usageMonthlyEmptyChromeFor(.english, "").no_monthly_usage);
+    try testing.expectEqualStrings("No monthly usage", usageMonthlyEmptyChromeFor(.system, "").no_monthly_usage);
+
+    try testing.expectEqualStrings("暂无月度用量", usageMonthlyEmptyChromeFor(.simplified_chinese, "").no_monthly_usage);
+    try testing.expectEqualStrings("月次の使用量はありません", usageMonthlyEmptyChromeFor(.japanese, "").no_monthly_usage);
+
+    try testing.expectEqualStrings("暂无月度用量", usageMonthlyEmptyChromeFor(.system, "zh_CN.UTF-8").no_monthly_usage);
+    try testing.expectEqualStrings("月次の使用量はありません", usageMonthlyEmptyChromeFor(.system, "ja_JP.UTF-8").no_monthly_usage);
+    try testing.expectEqualStrings("No monthly usage", usageMonthlyEmptyChromeFor(.english, "ja_JP.UTF-8").no_monthly_usage);
+    try testing.expectEqualStrings("No monthly usage", usageMonthlyEmptyChromeFor(.english, "zh_CN.UTF-8").no_monthly_usage);
 }
 
 test "providersChromeFor english default; zh and ja chrome; english ignores ja LANG" {

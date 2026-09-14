@@ -32584,6 +32584,108 @@ test "settings Usage local session cards follow Appearance language" {
     try testing.expect(findByText(tree.root, .text, "Context window") == null);
 }
 
+test "settings Usage Monthly empty chrome follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{no_monthly_usage_label}"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No monthly usage</text>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{no_project_usage_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{no_context_usage_label}"));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Monthly usage\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Daily usage\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Projects usage\"") != null);
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("No monthly usage", model.no_monthly_usage_label());
+    try testing.expectEqualStrings(i18n.usageMonthlyEmptyChromeFor(.english, "").no_monthly_usage, model.no_monthly_usage_label());
+    try testing.expectEqualStrings("No project usage", model.no_project_usage_label());
+    try testing.expectEqualStrings("No context usage reported yet", model.no_context_usage_label());
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_usage, &fx);
+    main.update(&model, .set_usage_view_monthly, &fx);
+    try testing.expect(model.settings_page_usage());
+    try testing.expect(model.usage_view_monthly());
+    model.usage_history.present = true;
+    model.usage_history.window = .{ .months = 12 };
+    model.usage_history.month_count = 0;
+    try testing.expect(model.has_usage_history());
+    try testing.expect(model.usage_months_empty());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "No monthly usage");
+    try testing.expect(findByText(tree.root, .text, "暂无月度用量") == null);
+    try testing.expect(findByText(tree.root, .text, "月次の使用量はありません") == null);
+    try testing.expect(findByText(tree.root, .text, "No project usage") == null);
+    try testing.expect(findByText(tree.root, .chart, "Monthly usage") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("暂无月度用量", model.no_monthly_usage_label());
+    try testing.expectEqualStrings(i18n.usageMonthlyEmptyChromeFor(.simplified_chinese, "").no_monthly_usage, model.no_monthly_usage_label());
+    try testing.expectEqualStrings("没有项目用量", model.no_project_usage_label());
+    try testing.expectEqualStrings("尚未报告上下文用量", model.no_context_usage_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "暂无月度用量");
+    try testing.expect(findByText(tree.root, .text, "No monthly usage") == null);
+    try testing.expect(findByText(tree.root, .text, "月次の使用量はありません") == null);
+    try testing.expect(findByText(tree.root, .text, "没有项目用量") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("月次の使用量はありません", model.no_monthly_usage_label());
+    try testing.expectEqualStrings(i18n.usageMonthlyEmptyChromeFor(.japanese, "").no_monthly_usage, model.no_monthly_usage_label());
+    try testing.expectEqualStrings("プロジェクトの使用量はありません", model.no_project_usage_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "月次の使用量はありません");
+    try testing.expect(findByText(tree.root, .text, "No monthly usage") == null);
+    try testing.expect(findByText(tree.root, .text, "暂无月度用量") == null);
+    try testing.expect(findByText(tree.root, .text, "プロジェクトの使用量はありません") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("No monthly usage", model.no_monthly_usage_label());
+    try testing.expectEqualStrings(i18n.usageMonthlyEmptyChromeFor(.english, "ja_JP.UTF-8").no_monthly_usage, model.no_monthly_usage_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "No monthly usage");
+    try testing.expect(findByText(tree.root, .text, "月次の使用量はありません") == null);
+    try testing.expect(findByText(tree.root, .text, "暂无月度用量") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("暂无月度用量", model.no_monthly_usage_label());
+    try testing.expectEqualStrings(i18n.usageMonthlyEmptyChromeFor(.system, "zh_CN.UTF-8").no_monthly_usage, model.no_monthly_usage_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "暂无月度用量");
+    try testing.expect(findByText(tree.root, .text, "No monthly usage") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("月次の使用量はありません", model.no_monthly_usage_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "月次の使用量はありません");
+    try testing.expect(findByText(tree.root, .text, "暂无月度用量") == null);
+
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("No monthly usage", model.no_monthly_usage_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "No monthly usage");
+
+    main.update(&model, .set_usage_view_projects, &fx);
+    model.usage_history.window = .{ .trailing_days = 30 };
+    try testing.expect(model.usage_view_projects());
+    try testing.expect(!model.usage_months_empty());
+    model.usage_history.project_count = 0;
+    try testing.expect(model.usage_projects_empty());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "No project usage");
+    try testing.expect(findByText(tree.root, .text, "No monthly usage") == null);
+    try testing.expect(findByText(tree.root, .text, "暂无月度用量") == null);
+}
+
 test "Settings Providers Available Not found Enable Disable Copy First-party follow Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

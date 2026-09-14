@@ -605,7 +605,7 @@
                           <button variant="ghost" size="sm" selected="{usage_share_tokens}" on-press="set_usage_share_tokens">{usage_share_tokens_label}</button>
                         </row>
                         <if test="{usage_months_empty}">
-                          <text wrap="true" foreground="text_muted">No monthly usage</text>
+                          <text wrap="true" foreground="text_muted">{no_monthly_usage_label}</text>
                         </if>
                         <if test="{has_usage_monthly_chart}">
                           <if test="{usage_monthly_chart_claude_on_top}">

@@ -5113,6 +5113,10 @@ pub const Model = struct {
         return i18n.usageLocalChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn usageMonthlyEmptyChrome(model: *const Model) i18n.UsageMonthlyEmptyChrome {
+        return i18n.usageMonthlyEmptyChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn settingsRefreshChrome(model: *const Model) i18n.SettingsRefreshChrome {
         return i18n.settingsRefreshChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6933,6 +6937,14 @@ pub const Model = struct {
 
     pub fn usage_months_empty(model: *const Model) bool {
         return model.has_usage_history() and model.usage_view == .monthly and model.usage_history.month_count == 0;
+    }
+
+    /// Settings Usage Monthly empty-state when history has no
+    /// month rows. Distinct from FilterChrome `no_project_usage`
+    /// and UsageLocalChrome empty cards. Chart a11y `Monthly usage`
+    /// stays English this cut.
+    pub fn no_monthly_usage_label(model: *const Model) []const u8 {
+        return model.usageMonthlyEmptyChrome().no_monthly_usage;
     }
 
     pub fn usage_project_filter(model: *const Model) []const u8 {
