@@ -199,6 +199,11 @@
 //! First-cut Files preview find/replace ships (Native bar above the
 //! preview body: query, `n of m` / `0` / `m+` cap note / `invalid`, prev/next,
 //! close, case toggle, whole-word toggle, regex toggle, Replace row).
+//! Match-position `n of m · L#line` / `invalid` / `0` follow the
+//! resolved locale this cut (same `i18n.FilePreviewFindMatchChrome`
+//! strings; distinct from transcript `FindMatchChrome`; numbers stay
+//! Latin; `+` cap and ` · ` stay; wire ids / on-press / on-input /
+//! find query / replace text stay English).
 //! Enter in the find `search-field` is FindNext via Native `on-submit`
 //! (same `find_next` as the next chevron / Cmd-G). Enter in Replace is
 //! `file_preview_find_replace_one` via `text-field` `on-submit` (plain tag;
@@ -319,6 +324,7 @@ const file_preview_images = @import("file_preview_images.zig");
 const file_preview_details = @import("file_preview_details.zig");
 const file_preview_issue_link = @import("file_preview_issue_link.zig");
 const right_panel_session = @import("right_panel_session.zig");
+const i18n = @import("i18n.zig");
 
 const canvas = native_sdk.canvas;
 
@@ -1671,20 +1677,16 @@ pub fn hasFilePreviewFindMatchLabel(model: *const Model) bool {
 
 pub fn filePreviewFindMatchLabel(model: *const Model, arena: std.mem.Allocator) []const u8 {
     if (!hasFilePreviewFindMatchLabel(model)) return "";
-    if (model.file_preview_find_invalid) return "invalid";
+    const chrome = model.filePreviewFindMatchChrome();
+    if (model.file_preview_find_invalid) return chrome.invalid;
     const count = model.file_preview_find_match_count;
-    if (count == 0) return "0";
+    if (count == 0) return chrome.zero;
     var idx = model.file_preview_find_match_index;
     if (idx >= count) idx = 0;
     const start = model.file_preview_find_match_starts[idx];
     const line = file_preview_find.lineNumberAt(filePreviewFindHaystack(model), start);
     const cap = if (model.file_preview_find_limited) "+" else "";
-    return std.fmt.allocPrint(arena, "{d} of {d}{s} · L{d}", .{
-        idx + 1,
-        count,
-        cap,
-        line,
-    }) catch "match";
+    return i18n.formatFilePreviewFindMatchOf(chrome, arena, idx + 1, count, cap, line);
 }
 
 /// Replace needs a writable draft: already editing, or Edit is offered.
@@ -3377,7 +3379,12 @@ test "Files preview find collect/navigate/replace; read-only replace is a no-op"
     {
         var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
         defer arena_state.deinit();
-        try std.testing.expectEqualStrings("1 of 2 · L1", model.file_preview_find_match_label(arena_state.allocator()));
+        const arena = arena_state.allocator();
+        try std.testing.expectEqualStrings("1 of 2 · L1", model.file_preview_find_match_label(arena));
+        try std.testing.expectEqualStrings(
+            i18n.formatFilePreviewFindMatchOf(i18n.filePreviewFindMatchChromeFor(.english, ""), arena, 1, 2, "", 1),
+            model.file_preview_find_match_label(arena),
+        );
     }
 
     stepFilePreviewFind(&model, false);
@@ -3511,6 +3518,10 @@ test "Files preview find regex toggle matches, invalid, replace expand, keep-on-
         var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
         defer arena_state.deinit();
         try std.testing.expectEqualStrings("invalid", model.file_preview_find_match_label(arena_state.allocator()));
+        try std.testing.expectEqualStrings(
+            i18n.filePreviewFindMatchChromeFor(.english, "").invalid,
+            model.file_preview_find_match_label(arena_state.allocator()),
+        );
     }
 
     model.file_preview_find_buffer.set("(\\w+) = (\\d+)");
@@ -3525,6 +3536,90 @@ test "Files preview find regex toggle matches, invalid, replace expand, keep-on-
     try std.testing.expect(!model.file_preview_find_active);
     try std.testing.expect(model.file_preview_find_use_regex);
     try std.testing.expectEqualStrings("(\\w+) = (\\d+)", model.file_preview_find_query());
+}
+
+test "Files preview find match-position follows Appearance language" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-find-i18n-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var path_buf: [300]u8 = undefined;
+    const abs = try std.fmt.bufPrint(&path_buf, "{s}/note.txt", .{project});
+    try writePreviewFile(std.testing.io, abs, "alpha foo\nbeta foo\n");
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("preview find i18n", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(&model, "note.txt\n");
+    defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
+
+    pickFile(&model, 1);
+    openFilePreviewFind(&model, false);
+    applyFilePreviewFindEdit(&model, .{ .insert_text = "foo" });
+
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    try std.testing.expectEqualStrings("1 of 2 · L1", model.file_preview_find_match_label(arena));
+    try std.testing.expectEqualStrings(
+        i18n.formatFilePreviewFindMatchOf(i18n.filePreviewFindMatchChromeFor(.english, ""), arena, 1, 2, "", 1),
+        model.file_preview_find_match_label(arena),
+    );
+
+    model.language_preference = .simplified_chinese;
+    try std.testing.expectEqualStrings("1 / 2 · L1", model.file_preview_find_match_label(arena));
+    try std.testing.expect(std.mem.indexOf(u8, model.file_preview_find_match_label(arena), " of ") == null);
+    try std.testing.expectEqualStrings(
+        i18n.formatFilePreviewFindMatchOf(i18n.filePreviewFindMatchChromeFor(.simplified_chinese, ""), arena, 1, 2, "", 1),
+        model.file_preview_find_match_label(arena),
+    );
+
+    model.language_preference = .japanese;
+    try std.testing.expectEqualStrings("1 / 2 · L1", model.file_preview_find_match_label(arena));
+    try std.testing.expect(std.mem.indexOf(u8, model.file_preview_find_match_label(arena), " of ") == null);
+
+    model.file_preview_find_limited = true;
+    try std.testing.expectEqualStrings("1 / 2+ · L1", model.file_preview_find_match_label(arena));
+    model.file_preview_find_limited = false;
+
+    model.file_preview_find_buffer.set("zzz");
+    recomputeFilePreviewFind(&model, .query);
+    try std.testing.expectEqualStrings("0", model.file_preview_find_match_label(arena));
+    try std.testing.expectEqualStrings(i18n.filePreviewFindMatchChromeFor(.japanese, "").zero, model.file_preview_find_match_label(arena));
+
+    toggleFilePreviewFindRegex(&model);
+    model.file_preview_find_buffer.set("(unclosed");
+    recomputeFilePreviewFind(&model, .query);
+    try std.testing.expect(model.file_preview_find_invalid);
+    try std.testing.expectEqualStrings("無効", model.file_preview_find_match_label(arena));
+    try std.testing.expectEqualStrings(i18n.filePreviewFindMatchChromeFor(.japanese, "").invalid, model.file_preview_find_match_label(arena));
+    try std.testing.expect(std.mem.indexOf(u8, model.file_preview_find_match_label(arena), "invalid") == null);
+
+    model.language_preference = .simplified_chinese;
+    try std.testing.expectEqualStrings("无效", model.file_preview_find_match_label(arena));
+    try std.testing.expect(std.mem.indexOf(u8, model.file_preview_find_match_label(arena), "invalid") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try std.testing.expectEqualStrings("invalid", model.file_preview_find_match_label(arena));
+    try std.testing.expectEqualStrings(i18n.filePreviewFindMatchChromeFor(.english, "ja_JP.UTF-8").invalid, model.file_preview_find_match_label(arena));
+
+    model.file_preview_find_buffer.set("foo");
+    recomputeFilePreviewFind(&model, .query);
+    try std.testing.expectEqualStrings("1 of 2 · L1", model.file_preview_find_match_label(arena));
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try std.testing.expectEqualStrings("1 / 2 · L1", model.file_preview_find_match_label(arena));
+    try std.testing.expect(std.mem.indexOf(u8, model.file_preview_find_match_label(arena), " of ") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try std.testing.expectEqualStrings("1 / 2 · L1", model.file_preview_find_match_label(arena));
 }
 
 test "reload discards dirty buffer; truncated and binary refuse save" {
