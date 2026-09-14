@@ -5021,6 +5021,10 @@ pub const Model = struct {
         return i18n.goalActionChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn goalEmptyChrome(model: *const Model) i18n.GoalEmptyChrome {
+        return i18n.goalEmptyChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn usageCostQualityChrome(model: *const Model) i18n.UsageCostQualityChrome {
         return i18n.usageCostQualityChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6940,9 +6944,13 @@ pub const Model = struct {
     }
 
     /// Current objective, or a muted empty label. Markup ellipsizes.
+    /// Empty chrome from `i18n.GoalEmptyChrome`. Distinct from Set/Clear
+    /// (`GoalActionChrome`), Refresh goal (`GoalPlanRefreshChrome`), and
+    /// Goal Status (`ComposerChrome`). Objective text stays data.
     pub fn goal_label(model: *const Model) []const u8 {
-        const session = model.sessionByIdConst(model.selected) orelse return "No goal";
-        if (session.threadGoalObjective().len == 0) return "No goal";
+        const empty = model.goalEmptyChrome().no_goal;
+        const session = model.sessionByIdConst(model.selected) orelse return empty;
+        if (session.threadGoalObjective().len == 0) return empty;
         return session.threadGoalObjective();
     }
 
