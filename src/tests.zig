@@ -25825,9 +25825,9 @@ test "Review Diff hunk a11y chrome follows Appearance language" {
 
     var tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .scroll_view, "Review hunks") != null);
-    try testing.expect(findByText(tree.root, .code, "Review hunk") != null);
+    try testing.expect(findByText(tree.root, .text, "Review hunk") != null);
     try testing.expect(findByText(tree.root, .scroll_view, "审阅片段") == null);
-    try testing.expect(findByText(tree.root, .code, "审阅片段") == null);
+    try testing.expect(findByText(tree.root, .text, "审阅片段") == null);
 
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("审阅片段", model.review_hunk_label());
@@ -25836,9 +25836,9 @@ test "Review Diff hunk a11y chrome follows Appearance language" {
     try testing.expectEqualStrings(i18n.reviewHunkA11yChromeFor(.simplified_chinese, "").review_hunks, model.review_hunks_label());
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .scroll_view, "审阅片段") != null);
-    try testing.expect(findByText(tree.root, .code, "审阅片段") != null);
+    try testing.expect(findByText(tree.root, .text, "审阅片段") != null);
     try testing.expect(findByText(tree.root, .scroll_view, "Review hunks") == null);
-    try testing.expect(findByText(tree.root, .code, "Review hunk") == null);
+    try testing.expect(findByText(tree.root, .text, "Review hunk") == null);
     try testing.expect(findByText(tree.root, .scroll_view, "レビューハンク") == null);
 
     model.language_preference = .japanese;
@@ -25848,9 +25848,9 @@ test "Review Diff hunk a11y chrome follows Appearance language" {
     try testing.expectEqualStrings(i18n.reviewHunkA11yChromeFor(.japanese, "").review_hunks, model.review_hunks_label());
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .scroll_view, "レビューハンク") != null);
-    try testing.expect(findByText(tree.root, .code, "レビューハンク") != null);
+    try testing.expect(findByText(tree.root, .text, "レビューハンク") != null);
     try testing.expect(findByText(tree.root, .scroll_view, "Review hunks") == null);
-    try testing.expect(findByText(tree.root, .code, "Review hunk") == null);
+    try testing.expect(findByText(tree.root, .text, "Review hunk") == null);
     try testing.expect(findByText(tree.root, .scroll_view, "审阅片段") == null);
 
     model.language_preference = .english;
@@ -25860,9 +25860,9 @@ test "Review Diff hunk a11y chrome follows Appearance language" {
     try testing.expectEqualStrings(i18n.reviewHunkA11yChromeFor(.english, "ja_JP.UTF-8").review_hunk, model.review_hunk_label());
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .scroll_view, "Review hunks") != null);
-    try testing.expect(findByText(tree.root, .code, "Review hunk") != null);
+    try testing.expect(findByText(tree.root, .text, "Review hunk") != null);
     try testing.expect(findByText(tree.root, .scroll_view, "レビューハンク") == null);
-    try testing.expect(findByText(tree.root, .code, "レビューハンク") == null);
+    try testing.expect(findByText(tree.root, .text, "レビューハンク") == null);
 
     model.language_preference = .system;
     model.setSystemLocaleId("zh_CN.UTF-8");
@@ -25871,7 +25871,7 @@ test "Review Diff hunk a11y chrome follows Appearance language" {
     try testing.expectEqualStrings(i18n.reviewHunkA11yChromeFor(.system, "zh_CN.UTF-8").review_hunk, model.review_hunk_label());
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .scroll_view, "审阅片段") != null);
-    try testing.expect(findByText(tree.root, .code, "审阅片段") != null);
+    try testing.expect(findByText(tree.root, .text, "审阅片段") != null);
     try testing.expect(findByText(tree.root, .scroll_view, "Review hunks") == null);
 
     model.setSystemLocaleId("ja_JP.UTF-8");
@@ -25879,7 +25879,7 @@ test "Review Diff hunk a11y chrome follows Appearance language" {
     try testing.expectEqualStrings("レビューハンク", model.review_hunks_label());
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .scroll_view, "レビューハンク") != null);
-    try testing.expect(findByText(tree.root, .code, "レビューハンク") != null);
+    try testing.expect(findByText(tree.root, .text, "レビューハンク") != null);
     try testing.expect(findByText(tree.root, .scroll_view, "审阅片段") == null);
 
     model.setSystemLocaleId("");
@@ -25887,7 +25887,7 @@ test "Review Diff hunk a11y chrome follows Appearance language" {
     try testing.expectEqualStrings("Review hunks", model.review_hunks_label());
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .scroll_view, "Review hunks") != null);
-    try testing.expect(findByText(tree.root, .code, "Review hunk") != null);
+    try testing.expect(findByText(tree.root, .text, "Review hunk") != null);
 }
 
 test "Background row kind / status / stop chrome follow Appearance language" {
@@ -34811,7 +34811,7 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expect(hunk_source.codeLineNumberDigits() > 0);
     _ = try expectByText(tree.root, .text, "src/a.zig");
     try testing.expect(findByText(tree.root, .scroll_view, "Review hunks") != null);
-    try testing.expect(findByText(tree.root, .code, "Review hunk") != null);
+    try testing.expect(findByText(tree.root, .text, "Review hunk") != null);
     try testing.expect(findByText(tree.root, .scroll_view, "Review files") != null);
     const selected_row = try expectButtonMsg(tree, "a.zig", .{ .select_review_diff_file = 1 });
     try testing.expect(selected_row.state.selected);
