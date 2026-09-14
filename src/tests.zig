@@ -26004,6 +26004,217 @@ test "Review Diff unmodified-line gap labels follow Appearance language" {
     try testing.expect(findByText(tree.root, .text, "20 unmodified lines") != null);
 }
 
+test "Review Diff status chrome follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{review_diff_status}"));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{review_diff_hunk_status}"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Comparing…"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "No changes to compare"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Could not compare."));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "No workspace."));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "No hunks"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Could not show diff."));
+    try testing.expect(std.mem.indexOf(u8, @embedFile("review_diff.zig"), "pub const comparing_status = \"Comparing…\"") == null);
+    try testing.expect(std.mem.indexOf(u8, @embedFile("review_diff.zig"), "pub const empty_status = \"No changes to compare\"") == null);
+    try testing.expect(std.mem.indexOf(u8, @embedFile("review_diff.zig"), "pub const failed_status = \"Could not compare.\"") == null);
+    try testing.expect(std.mem.indexOf(u8, @embedFile("review_diff.zig"), "pub const no_workspace_status = \"No workspace.\"") == null);
+    try testing.expect(std.mem.indexOf(u8, @embedFile("review_diff.zig"), "pub const hunk_empty_status = \"No hunks\"") == null);
+    try testing.expect(std.mem.indexOf(u8, @embedFile("review_diff.zig"), "pub const hunk_failed_status = \"Could not show diff.\"") == null);
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Comparing…", model.review_diff_comparing_status());
+    try testing.expectEqualStrings("No changes to compare", model.review_diff_empty_status());
+    try testing.expectEqualStrings("Could not compare.", model.review_diff_failed_status());
+    try testing.expectEqualStrings("No workspace.", model.review_diff_no_workspace_status());
+    try testing.expectEqualStrings("No hunks", model.review_diff_hunk_empty_status());
+    try testing.expectEqualStrings("Could not show diff.", model.review_diff_hunk_failed_status());
+    try testing.expectEqualStrings(review_diff.comparing_status, model.review_diff_comparing_status());
+    try testing.expectEqualStrings(i18n.reviewDiffStatusChromeFor(.english, "").comparing, model.review_diff_comparing_status());
+    try testing.expectEqualStrings(i18n.reviewDiffStatusChromeFor(.english, "").empty, model.review_diff_empty_status());
+    try testing.expectEqualStrings(i18n.reviewDiffStatusChromeFor(.english, "").failed, model.review_diff_failed_status());
+    try testing.expectEqualStrings(i18n.reviewDiffStatusChromeFor(.english, "").no_workspace, model.review_diff_no_workspace_status());
+    try testing.expectEqualStrings(i18n.reviewDiffStatusChromeFor(.english, "").hunk_empty, model.review_diff_hunk_empty_status());
+    try testing.expectEqualStrings(i18n.reviewDiffStatusChromeFor(.english, "").hunk_failed, model.review_diff_hunk_failed_status());
+    try testing.expect(!std.mem.eql(u8, model.review_diff_comparing_status(), model.review_diff_title_label()));
+    try testing.expect(!std.mem.eql(u8, model.review_diff_hunk_empty_status(), model.review_hunks_label()));
+
+    main.update(&model, .show_right_panel, &fx);
+    try testing.expect(model.right_panel_open);
+    model.right_panel_tab = .diff;
+    model.review_diff_active = true;
+    try testing.expect(model.right_panel_showing_diff());
+
+    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_comparing_status());
+    main.writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, model.review_diff_hunk_empty_status());
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "Comparing…") != null);
+    try testing.expect(findByText(tree.root, .text, "No hunks") != null);
+    try testing.expect(findByText(tree.root, .text, "正在比较…") == null);
+    try testing.expect(findByText(tree.root, .text, "比較中…") == null);
+    try testing.expect(findByText(tree.root, .text, "没有片段") == null);
+    try testing.expect(findByText(tree.root, .text, "ハンクがありません") == null);
+
+    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_empty_status());
+    main.writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, model.review_diff_hunk_failed_status());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "No changes to compare") != null);
+    try testing.expect(findByText(tree.root, .text, "Could not show diff.") != null);
+    try testing.expect(findByText(tree.root, .text, "没有可比较的更改") == null);
+    try testing.expect(findByText(tree.root, .text, "无法显示 diff。") == null);
+
+    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_failed_status());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "Could not compare.") != null);
+    try testing.expect(findByText(tree.root, .text, "无法比较。") == null);
+
+    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_no_workspace_status());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "No workspace.") != null);
+    try testing.expect(findByText(tree.root, .text, "没有工作区。") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("正在比较…", model.review_diff_comparing_status());
+    try testing.expectEqualStrings("没有可比较的更改", model.review_diff_empty_status());
+    try testing.expectEqualStrings("无法比较。", model.review_diff_failed_status());
+    try testing.expectEqualStrings("没有工作区。", model.review_diff_no_workspace_status());
+    try testing.expectEqualStrings("没有片段", model.review_diff_hunk_empty_status());
+    try testing.expectEqualStrings("无法显示 diff。", model.review_diff_hunk_failed_status());
+    try testing.expectEqualStrings(i18n.reviewDiffStatusChromeFor(.simplified_chinese, "").comparing, model.review_diff_comparing_status());
+    try testing.expect(!std.mem.eql(u8, review_diff.comparing_status, model.review_diff_comparing_status()));
+    try testing.expect(!std.mem.eql(u8, review_diff.empty_status, model.review_diff_empty_status()));
+    try testing.expect(!std.mem.eql(u8, review_diff.failed_status, model.review_diff_failed_status()));
+    try testing.expect(!std.mem.eql(u8, review_diff.no_workspace_status, model.review_diff_no_workspace_status()));
+    try testing.expect(!std.mem.eql(u8, review_diff.hunk_empty_status, model.review_diff_hunk_empty_status()));
+    try testing.expect(!std.mem.eql(u8, review_diff.hunk_failed_status, model.review_diff_hunk_failed_status()));
+
+    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_comparing_status());
+    main.writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, model.review_diff_hunk_empty_status());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "正在比较…") != null);
+    try testing.expect(findByText(tree.root, .text, "没有片段") != null);
+    try testing.expect(findByText(tree.root, .text, "Comparing…") == null);
+    try testing.expect(findByText(tree.root, .text, "No hunks") == null);
+    try testing.expect(findByText(tree.root, .text, "比較中…") == null);
+
+    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_empty_status());
+    main.writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, model.review_diff_hunk_failed_status());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "没有可比较的更改") != null);
+    try testing.expect(findByText(tree.root, .text, "无法显示 diff。") != null);
+    try testing.expect(findByText(tree.root, .text, "No changes to compare") == null);
+    try testing.expect(findByText(tree.root, .text, "Could not show diff.") == null);
+
+    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_failed_status());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "无法比较。") != null);
+    try testing.expect(findByText(tree.root, .text, "Could not compare.") == null);
+
+    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_no_workspace_status());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "没有工作区。") != null);
+    try testing.expect(findByText(tree.root, .text, "No workspace.") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("比較中…", model.review_diff_comparing_status());
+    try testing.expectEqualStrings("比較する変更はありません", model.review_diff_empty_status());
+    try testing.expectEqualStrings("比較できませんでした。", model.review_diff_failed_status());
+    try testing.expectEqualStrings("ワークスペースがありません。", model.review_diff_no_workspace_status());
+    try testing.expectEqualStrings("ハンクがありません", model.review_diff_hunk_empty_status());
+    try testing.expectEqualStrings("diff を表示できませんでした。", model.review_diff_hunk_failed_status());
+    try testing.expectEqualStrings(i18n.reviewDiffStatusChromeFor(.japanese, "").comparing, model.review_diff_comparing_status());
+    try testing.expect(!std.mem.eql(u8, review_diff.comparing_status, model.review_diff_comparing_status()));
+    try testing.expect(!std.mem.eql(u8, review_diff.no_workspace_status, model.review_diff_no_workspace_status()));
+    try testing.expect(!std.mem.eql(u8, review_diff.hunk_failed_status, model.review_diff_hunk_failed_status()));
+
+    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_comparing_status());
+    main.writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, model.review_diff_hunk_empty_status());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "比較中…") != null);
+    try testing.expect(findByText(tree.root, .text, "ハンクがありません") != null);
+    try testing.expect(findByText(tree.root, .text, "Comparing…") == null);
+    try testing.expect(findByText(tree.root, .text, "正在比较…") == null);
+    try testing.expect(findByText(tree.root, .text, "No hunks") == null);
+
+    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_empty_status());
+    main.writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, model.review_diff_hunk_failed_status());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "比較する変更はありません") != null);
+    try testing.expect(findByText(tree.root, .text, "diff を表示できませんでした。") != null);
+    try testing.expect(findByText(tree.root, .text, "No changes to compare") == null);
+    try testing.expect(findByText(tree.root, .text, "Could not show diff.") == null);
+
+    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_failed_status());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "比較できませんでした。") != null);
+    try testing.expect(findByText(tree.root, .text, "Could not compare.") == null);
+
+    review_diff.open(&model, &fx);
+    try testing.expect(model.review_diff_active);
+    try testing.expectEqualStrings(model.review_diff_no_workspace_status(), model.review_diff_status());
+    try testing.expectEqualStrings("ワークスペースがありません。", model.review_diff_status());
+    try testing.expect(!std.mem.eql(u8, review_diff.no_workspace_status, model.review_diff_status()));
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "ワークスペースがありません。") != null);
+    try testing.expect(findByText(tree.root, .text, "No workspace.") == null);
+    try testing.expect(findByText(tree.root, .text, "没有工作区。") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Comparing…", model.review_diff_comparing_status());
+    try testing.expectEqualStrings("No hunks", model.review_diff_hunk_empty_status());
+    try testing.expectEqualStrings(i18n.reviewDiffStatusChromeFor(.english, "ja_JP.UTF-8").comparing, model.review_diff_comparing_status());
+    try testing.expectEqualStrings(i18n.reviewDiffStatusChromeFor(.english, "zh_CN.UTF-8").hunk_failed, model.review_diff_hunk_failed_status());
+    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_comparing_status());
+    main.writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, model.review_diff_hunk_failed_status());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "Comparing…") != null);
+    try testing.expect(findByText(tree.root, .text, "Could not show diff.") != null);
+    try testing.expect(findByText(tree.root, .text, "比較中…") == null);
+    try testing.expect(findByText(tree.root, .text, "diff を表示できませんでした。") == null);
+
+    review_diff.open(&model, &fx);
+    try testing.expectEqualStrings(review_diff.no_workspace_status, model.review_diff_status());
+    try testing.expectEqualStrings("No workspace.", model.review_diff_status());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "No workspace.") != null);
+    try testing.expect(findByText(tree.root, .text, "ワークスペースがありません。") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("正在比较…", model.review_diff_comparing_status());
+    try testing.expectEqualStrings("没有工作区。", model.review_diff_no_workspace_status());
+    review_diff.open(&model, &fx);
+    try testing.expectEqualStrings("没有工作区。", model.review_diff_status());
+    try testing.expect(!std.mem.eql(u8, review_diff.no_workspace_status, model.review_diff_status()));
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "没有工作区。") != null);
+    try testing.expect(findByText(tree.root, .text, "No workspace.") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("比較中…", model.review_diff_comparing_status());
+    review_diff.open(&model, &fx);
+    try testing.expectEqualStrings("ワークスペースがありません。", model.review_diff_status());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "ワークスペースがありません。") != null);
+    try testing.expect(findByText(tree.root, .text, "没有工作区。") == null);
+
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Comparing…", model.review_diff_comparing_status());
+    try testing.expectEqualStrings("No hunks", model.review_diff_hunk_empty_status());
+    review_diff.open(&model, &fx);
+    try testing.expectEqualStrings("No workspace.", model.review_diff_status());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "No workspace.") != null);
+    try testing.expect(findByText(tree.root, .text, "ワークスペースがありません。") == null);
+}
+
 test "Background row kind / status / stop chrome follow Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

@@ -273,7 +273,9 @@ pub const tree_file_indent_extra: f32 = 16;
 pub const max_review_diff_path: usize = 255;
 /// `X ` plus path. Rename/copy uses the destination path only.
 pub const max_review_diff_label: usize = 258;
-pub const max_review_diff_status: usize = 32;
+/// Review Diff file-list status (Comparing… / empty / fail /
+/// no workspace). 64 holds ja `ワークスペースがありません。`.
+pub const max_review_diff_status: usize = 64;
 
 pub const git_bin = "git";
 /// PATH-resolved Windows Git (explicit `.exe` like sibling
@@ -411,7 +413,9 @@ pub const max_review_diff_hunk: usize = max_review_diff_hunk_lines * 32;
 /// Hidden context copied out of collapsed runs. Same bound as
 /// retained source lines.
 pub const max_review_diff_hidden_lines: usize = 50_000;
-pub const max_review_diff_hunk_status: usize = 32;
+/// Review hunk pane status (No hunks / Could not show diff.).
+/// 64 holds ja `diff を表示できませんでした。`.
+pub const max_review_diff_hunk_status: usize = 64;
 /// Stored daemon `patch` for selected-file filter. Match the hunk
 /// retain cap so a `completeContext` body can still extract later
 /// files. Native daemon stdout is still `daemon_line_bytes` (64 KiB
@@ -421,12 +425,18 @@ pub const max_review_diff_daemon_patch: usize = max_review_diff_hunk;
 /// Gap label buffer (`{d}` plus locale unmodified-line copy).
 pub const max_review_diff_gap_label: usize = 40;
 
-pub const comparing_status = "Comparing…";
-pub const empty_status = "No changes to compare";
-pub const failed_status = "Could not compare.";
-pub const no_workspace_status = "No workspace.";
-pub const hunk_empty_status = "No hunks";
-pub const hunk_failed_status = "Could not show diff.";
+/// English chrome fallbacks / test anchors. Localized Review Diff
+/// status chrome uses `i18n.reviewDiffStatusChromeFor` via
+/// `statusChrome` / Model getters. Distinct from
+/// `i18n.ReviewDiffChrome` / `ReviewHunkA11yChrome` /
+/// `ReviewDiffGapLabelChrome`. Binary file changed Meta body
+/// stays English this cut.
+pub const comparing_status = i18n.reviewDiffStatusChromeFor(.english, "").comparing;
+pub const empty_status = i18n.reviewDiffStatusChromeFor(.english, "").empty;
+pub const failed_status = i18n.reviewDiffStatusChromeFor(.english, "").failed;
+pub const no_workspace_status = i18n.reviewDiffStatusChromeFor(.english, "").no_workspace;
+pub const hunk_empty_status = i18n.reviewDiffStatusChromeFor(.english, "").hunk_empty;
+pub const hunk_failed_status = i18n.reviewDiffStatusChromeFor(.english, "").hunk_failed;
 /// Waku `LineKind::Meta` body for binary patches (not the raw git line).
 pub const binary_file_changed = "Binary file changed";
 
@@ -1668,6 +1678,10 @@ fn gapLabel(arena: std.mem.Allocator, count: u32, chrome: i18n.ReviewDiffGapLabe
     return i18n.formatReviewDiffGapLabel(chrome, arena, count);
 }
 
+fn statusChrome(model: *const Model) i18n.ReviewDiffStatusChrome {
+    return i18n.reviewDiffStatusChromeFor(model.language_preference, model.systemLocaleId());
+}
+
 fn isHunkCodeKind(kind: LineKind) bool {
     return kind == .context or kind == .addition or kind == .deletion;
 }
@@ -2417,17 +2431,17 @@ fn startProbe(model: *Model, fx: *Effects) void {
     model.review_diff_probe_session = 0;
     model.review_diff_probe_path_len = 0;
     if (!probeSupported()) {
-        setStatus(model, failed_status);
+        setStatus(model, statusChrome(model).failed);
         return;
     }
     const cwd = probePath(model);
     if (cwd.len == 0) {
-        setStatus(model, no_workspace_status);
+        setStatus(model, statusChrome(model).no_workspace);
         return;
     }
     if (model.review_diff_source == .last_turn) {
         if (!captureLastTurnRange(model)) {
-            setStatus(model, failed_status);
+            setStatus(model, statusChrome(model).failed);
             return;
         }
     } else {
@@ -2436,7 +2450,7 @@ fn startProbe(model: *Model, fx: *Effects) void {
 
     model.review_diff_probe_session = model.selected;
     writeFixed(&model.review_diff_probe_path_storage, &model.review_diff_probe_path_len, cwd);
-    setStatus(model, comparing_status);
+    setStatus(model, statusChrome(model).comparing);
     if (shouldPreferDaemon(model) and trySpawnDaemonCollectReviewDiff(model, fx, cwd)) return;
     spawnLocalReviewDiff(model, fx, cwd);
 }
@@ -2595,12 +2609,12 @@ fn startHunkProbe(model: *Model, fx: *Effects, file_path: []const u8, no_index: 
     model.review_diff_hunk_no_index = false;
     model.review_diff_complete_context = false;
     if (!probeSupported()) {
-        setHunkStatus(model, hunk_failed_status);
+        setHunkStatus(model, statusChrome(model).hunk_failed);
         return;
     }
     const cwd = probePath(model);
     if (cwd.len == 0) {
-        setHunkStatus(model, hunk_failed_status);
+        setHunkStatus(model, statusChrome(model).hunk_failed);
         return;
     }
 
@@ -2668,7 +2682,7 @@ fn paintDaemonHunk(model: *Model, file_path: []const u8) void {
     const patch = model.review_diff_daemon_patch_storage[0..model.review_diff_daemon_patch_len];
     const extracted = extractFilePatch(patch, file_path);
     if (extracted.len == 0) {
-        setHunkStatus(model, hunk_empty_status);
+        setHunkStatus(model, statusChrome(model).hunk_empty);
         return;
     }
     var it = std.mem.splitScalar(u8, extracted, '\n');
@@ -2676,7 +2690,7 @@ fn paintDaemonHunk(model: *Model, file_path: []const u8) void {
         appendHunkLine(model, line);
     }
     if (model.review_diff_hunk_len == 0) {
-        setHunkStatus(model, hunk_empty_status);
+        setHunkStatus(model, statusChrome(model).hunk_empty);
         return;
     }
     rebuildHunkRows(model);
@@ -2806,13 +2820,13 @@ pub fn handleExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void
     if (!current) {
         clearFiles(model);
         clearDaemonFlags(model);
-        setStatus(model, failed_status);
+        setStatus(model, statusChrome(model).failed);
         return;
     }
     if (via_daemon) {
         if (daemon_ok) {
             if (model.review_diff_file_count == 0) {
-                setStatus(model, empty_status);
+                setStatus(model, statusChrome(model).empty);
             } else {
                 clearStatus(model);
             }
@@ -2823,21 +2837,21 @@ pub fn handleExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void
         clearFiles(model);
         const cwd = model.review_diff_probe_path_storage[0..model.review_diff_probe_path_len];
         if (cwd.len == 0) {
-            setStatus(model, failed_status);
+            setStatus(model, statusChrome(model).failed);
             return;
         }
-        setStatus(model, comparing_status);
+        setStatus(model, statusChrome(model).comparing);
         spawnLocalReviewDiff(model, fx, cwd);
         return;
     }
     if (exit.reason != .exited or exit.code != 0) {
         if (startCommittedFallback(model, fx)) return;
         clearFiles(model);
-        setStatus(model, failed_status);
+        setStatus(model, statusChrome(model).failed);
         return;
     }
     if (model.review_diff_file_count == 0) {
-        setStatus(model, empty_status);
+        setStatus(model, statusChrome(model).empty);
         return;
     }
     clearStatus(model);
@@ -2880,7 +2894,7 @@ pub fn handleHunkExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) 
     }
     if (!current) {
         clearHunkBody(model);
-        setHunkStatus(model, hunk_failed_status);
+        setHunkStatus(model, statusChrome(model).hunk_failed);
         return;
     }
     const ok = if (model.review_diff_hunk_no_index)
@@ -2889,11 +2903,11 @@ pub fn handleHunkExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) 
         exit.reason == .exited and exit.code == 0;
     if (!ok) {
         clearHunkBody(model);
-        setHunkStatus(model, hunk_failed_status);
+        setHunkStatus(model, statusChrome(model).hunk_failed);
         return;
     }
     if (model.review_diff_hunk_len == 0) {
-        setHunkStatus(model, hunk_empty_status);
+        setHunkStatus(model, statusChrome(model).hunk_empty);
         return;
     }
     model.review_diff_complete_context = false;
@@ -6263,4 +6277,63 @@ test "selected-file hunk header binds file_icon from the path" {
 
     writeFixed(&model.review_diff_hunk_path_storage, &model.review_diff_hunk_path_len, ".gitignore");
     try std.testing.expectEqualStrings("app:git", reviewDiffHunkFileIcon(&model));
+}
+
+test "review diff status chrome english matches former hardcoded copy" {
+    try std.testing.expectEqualStrings("Comparing…", comparing_status);
+    try std.testing.expectEqualStrings(i18n.reviewDiffStatusChromeFor(.english, "").comparing, comparing_status);
+    try std.testing.expectEqualStrings("No changes to compare", empty_status);
+    try std.testing.expectEqualStrings(i18n.reviewDiffStatusChromeFor(.english, "").empty, empty_status);
+    try std.testing.expectEqualStrings("Could not compare.", failed_status);
+    try std.testing.expectEqualStrings(i18n.reviewDiffStatusChromeFor(.english, "").failed, failed_status);
+    try std.testing.expectEqualStrings("No workspace.", no_workspace_status);
+    try std.testing.expectEqualStrings(i18n.reviewDiffStatusChromeFor(.english, "").no_workspace, no_workspace_status);
+    try std.testing.expectEqualStrings("No hunks", hunk_empty_status);
+    try std.testing.expectEqualStrings(i18n.reviewDiffStatusChromeFor(.english, "").hunk_empty, hunk_empty_status);
+    try std.testing.expectEqualStrings("Could not show diff.", hunk_failed_status);
+    try std.testing.expectEqualStrings(i18n.reviewDiffStatusChromeFor(.english, "").hunk_failed, hunk_failed_status);
+
+    try std.testing.expect(i18n.reviewDiffStatusChromeFor(.english, "").comparing.len <= max_review_diff_status);
+    try std.testing.expect(i18n.reviewDiffStatusChromeFor(.english, "").empty.len <= max_review_diff_status);
+    try std.testing.expect(i18n.reviewDiffStatusChromeFor(.english, "").failed.len <= max_review_diff_status);
+    try std.testing.expect(i18n.reviewDiffStatusChromeFor(.english, "").no_workspace.len <= max_review_diff_status);
+    try std.testing.expect(i18n.reviewDiffStatusChromeFor(.simplified_chinese, "").comparing.len <= max_review_diff_status);
+    try std.testing.expect(i18n.reviewDiffStatusChromeFor(.simplified_chinese, "").empty.len <= max_review_diff_status);
+    try std.testing.expect(i18n.reviewDiffStatusChromeFor(.simplified_chinese, "").failed.len <= max_review_diff_status);
+    try std.testing.expect(i18n.reviewDiffStatusChromeFor(.simplified_chinese, "").no_workspace.len <= max_review_diff_status);
+    try std.testing.expect(i18n.reviewDiffStatusChromeFor(.japanese, "").comparing.len <= max_review_diff_status);
+    try std.testing.expect(i18n.reviewDiffStatusChromeFor(.japanese, "").empty.len <= max_review_diff_status);
+    try std.testing.expect(i18n.reviewDiffStatusChromeFor(.japanese, "").failed.len <= max_review_diff_status);
+    try std.testing.expect(i18n.reviewDiffStatusChromeFor(.japanese, "").no_workspace.len <= max_review_diff_status);
+    try std.testing.expect(i18n.reviewDiffStatusChromeFor(.english, "").hunk_empty.len <= max_review_diff_hunk_status);
+    try std.testing.expect(i18n.reviewDiffStatusChromeFor(.english, "").hunk_failed.len <= max_review_diff_hunk_status);
+    try std.testing.expect(i18n.reviewDiffStatusChromeFor(.simplified_chinese, "").hunk_empty.len <= max_review_diff_hunk_status);
+    try std.testing.expect(i18n.reviewDiffStatusChromeFor(.simplified_chinese, "").hunk_failed.len <= max_review_diff_hunk_status);
+    try std.testing.expect(i18n.reviewDiffStatusChromeFor(.japanese, "").hunk_empty.len <= max_review_diff_hunk_status);
+    try std.testing.expect(i18n.reviewDiffStatusChromeFor(.japanese, "").hunk_failed.len <= max_review_diff_hunk_status);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("review status i18n", .fx);
+    model.selected = id;
+
+    model.language_preference = .simplified_chinese;
+    open(&model, &fx);
+    try std.testing.expectEqualStrings(i18n.reviewDiffStatusChromeFor(.simplified_chinese, "").no_workspace, reviewDiffStatus(&model));
+    try std.testing.expectEqualStrings(model.review_diff_no_workspace_status(), reviewDiffStatus(&model));
+    try std.testing.expect(!std.mem.eql(u8, no_workspace_status, reviewDiffStatus(&model)));
+
+    model.language_preference = .japanese;
+    open(&model, &fx);
+    try std.testing.expectEqualStrings(i18n.reviewDiffStatusChromeFor(.japanese, "").no_workspace, reviewDiffStatus(&model));
+    try std.testing.expect(!std.mem.eql(u8, no_workspace_status, reviewDiffStatus(&model)));
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    open(&model, &fx);
+    try std.testing.expectEqualStrings(no_workspace_status, reviewDiffStatus(&model));
+    try std.testing.expectEqualStrings(i18n.reviewDiffStatusChromeFor(.english, "ja_JP.UTF-8").no_workspace, reviewDiffStatus(&model));
 }
