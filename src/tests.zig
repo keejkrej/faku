@@ -27707,6 +27707,148 @@ test "transcript Find bar Previous/Next/Close a11y follows Appearance language" 
     try testing.expect(findByText(tree.root, .button, "Close find") == null);
 }
 
+test "transcript Find-bar match position follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{find_match_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{has_find_match_label}"));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">{find_match_label}</text>") != null);
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No matches<"));
+
+    var model = Model{};
+    const id = model.addSession("find match i18n", .fx);
+    model.selected = id;
+    _ = model.appendTurn(id, .user, "alpha hello");
+    _ = model.appendTurn(id, .assistant, "beta world");
+
+    main.update(&model, .open_find, &fx);
+    try testing.expect(model.find_active);
+    try testing.expect(!model.has_find_match_label());
+    try testing.expectEqualStrings("", model.find_match_label(arena));
+
+    main.update(&model, .{ .find_edit = .{ .insert_text = "zzz" } }, &fx);
+    try testing.expect(model.has_find_match_label());
+    try testing.expectEqualStrings("No matches", model.find_match_label(arena));
+    try testing.expectEqualStrings(i18n.findMatchChromeFor(.english, "").no_matches, model.find_match_label(arena));
+    try testing.expect(!std.mem.eql(u8, model.find_match_label(arena), model.transcript_match_label()));
+    try testing.expect(!std.mem.eql(u8, model.find_match_label(arena), model.find_previous_match_label()));
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "No matches");
+    try testing.expect(findByText(tree.root, .text, "无匹配") == null);
+    try testing.expect(findByText(tree.root, .text, "一致なし") == null);
+
+    main.update(&model, .{ .find_edit = .clear }, &fx);
+    main.update(&model, .{ .find_edit = .{ .insert_text = "a" } }, &fx);
+    try testing.expect(model.has_find_match_label());
+    try testing.expectEqualStrings("1 of 2", model.find_match_label(arena));
+    try testing.expectEqualStrings(
+        i18n.formatFindMatchOf(i18n.findMatchChromeFor(.english, ""), arena, 1, 2),
+        model.find_match_label(arena),
+    );
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "1 of 2");
+    try testing.expect(findByText(tree.root, .text, "1 / 2") == null);
+    try testing.expect(findByText(tree.root, .text, "No matches") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expect(model.has_find_match_label());
+    try testing.expectEqualStrings("1 / 2", model.find_match_label(arena));
+    try testing.expectEqualStrings(i18n.findMatchChromeFor(.simplified_chinese, "").no_matches, "无匹配");
+    try testing.expectEqualStrings(
+        i18n.formatFindMatchOf(i18n.findMatchChromeFor(.simplified_chinese, ""), arena, 1, 2),
+        model.find_match_label(arena),
+    );
+    try testing.expect(!std.mem.eql(u8, model.find_match_label(arena), model.transcript_match_label()));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "1 / 2");
+    try testing.expect(findByText(tree.root, .text, "1 of 2") == null);
+    try testing.expect(findByText(tree.root, .text, "No matches") == null);
+
+    main.update(&model, .{ .find_edit = .clear }, &fx);
+    main.update(&model, .{ .find_edit = .{ .insert_text = "zzz" } }, &fx);
+    try testing.expect(model.has_find_match_label());
+    try testing.expectEqualStrings("无匹配", model.find_match_label(arena));
+    try testing.expectEqualStrings(i18n.findMatchChromeFor(.simplified_chinese, "").no_matches, model.find_match_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "无匹配");
+    try testing.expect(findByText(tree.root, .text, "No matches") == null);
+    try testing.expect(findByText(tree.root, .text, "一致なし") == null);
+
+    model.language_preference = .japanese;
+    try testing.expect(model.has_find_match_label());
+    try testing.expectEqualStrings("一致なし", model.find_match_label(arena));
+    try testing.expectEqualStrings(i18n.findMatchChromeFor(.japanese, "").no_matches, model.find_match_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "一致なし");
+    try testing.expect(findByText(tree.root, .text, "无匹配") == null);
+    try testing.expect(findByText(tree.root, .text, "No matches") == null);
+
+    main.update(&model, .{ .find_edit = .clear }, &fx);
+    main.update(&model, .{ .find_edit = .{ .insert_text = "hello" } }, &fx);
+    try testing.expect(model.has_find_match_label());
+    try testing.expectEqualStrings("1 / 1", model.find_match_label(arena));
+    try testing.expectEqualStrings(
+        i18n.formatFindMatchOf(i18n.findMatchChromeFor(.japanese, ""), arena, 1, 1),
+        model.find_match_label(arena),
+    );
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "1 / 1");
+    try testing.expect(findByText(tree.root, .text, "1 of 1") == null);
+    try testing.expect(findByText(tree.root, .text, "一致なし") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expect(model.has_find_match_label());
+    try testing.expectEqualStrings("1 of 1", model.find_match_label(arena));
+    try testing.expectEqualStrings(i18n.findMatchChromeFor(.english, "ja_JP.UTF-8").no_matches, "No matches");
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "1 of 1");
+    try testing.expect(findByText(tree.root, .text, "1 / 1") == null);
+    try testing.expect(findByText(tree.root, .text, "一致なし") == null);
+
+    main.update(&model, .{ .find_edit = .clear }, &fx);
+    main.update(&model, .{ .find_edit = .{ .insert_text = "zzz" } }, &fx);
+    try testing.expectEqualStrings("No matches", model.find_match_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "No matches");
+    try testing.expect(findByText(tree.root, .text, "一致なし") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expect(model.has_find_match_label());
+    try testing.expectEqualStrings("无匹配", model.find_match_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "无匹配");
+    try testing.expect(findByText(tree.root, .text, "No matches") == null);
+
+    main.update(&model, .{ .find_edit = .clear }, &fx);
+    main.update(&model, .{ .find_edit = .{ .insert_text = "a" } }, &fx);
+    try testing.expectEqualStrings("1 / 2", model.find_match_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "1 / 2");
+    try testing.expect(findByText(tree.root, .text, "1 of 2") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expect(model.has_find_match_label());
+    try testing.expectEqualStrings("1 / 2", model.find_match_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "1 / 2");
+    try testing.expect(findByText(tree.root, .text, "1 of 2") == null);
+
+    main.update(&model, .{ .find_edit = .clear }, &fx);
+    main.update(&model, .{ .find_edit = .{ .insert_text = "zzz" } }, &fx);
+    try testing.expectEqualStrings("一致なし", model.find_match_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "一致なし");
+    try testing.expect(findByText(tree.root, .text, "No matches") == null);
+}
+
 test "header Copy session / Fork / Rewind chrome follows Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

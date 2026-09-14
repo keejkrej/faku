@@ -4120,16 +4120,15 @@ pub const Model = struct {
     /// Find-bar muted position (`k of N` / `No matches`). Empty when find is
     /// inactive or the trimmed query is blank so the row can hide it.
     /// Same selected-session ascii-contains predicate as `visible_turns`.
+    /// Locale from `i18n.FindMatchChrome`; numbers stay Latin.
     pub fn find_match_label(model: *const Model, arena: std.mem.Allocator) []const u8 {
         if (!model.find_active) return "";
         const query = std.mem.trim(u8, model.find_query(), " \t\r\n");
         if (query.len == 0) return "";
         const count = model.findMatchCount();
-        if (count == 0) return "No matches";
-        return std.fmt.allocPrint(arena, "{d} of {d}", .{
-            model.clampedFindMatchIndex() + 1,
-            count,
-        }) catch "match";
+        const chrome = model.findMatchChrome();
+        if (count == 0) return chrome.no_matches;
+        return i18n.formatFindMatchOf(chrome, arena, model.clampedFindMatchIndex() + 1, count);
     }
 
     /// True when the find bar should show `find_match_label`.
@@ -4934,6 +4933,10 @@ pub const Model = struct {
 
     fn findBarChrome(model: *const Model) i18n.FindBarChrome {
         return i18n.findBarChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn findMatchChrome(model: *const Model) i18n.FindMatchChrome {
+        return i18n.findMatchChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     fn headerSessionChrome(model: *const Model) i18n.HeaderSessionChrome {
@@ -6220,8 +6223,9 @@ pub const Model = struct {
     }
 
     /// Transcript current-find-hit Match chip. Distinct from
-    /// `find_match_label` ("1 of 2") and from FindBarChrome /
-    /// FilePreviewChrome match a11y. Find logic unchanged.
+    /// `find_match_label` (`i18n.FindMatchChrome` `k of N`) and from
+    /// FindBarChrome / FilePreviewChrome match a11y. Find logic
+    /// unchanged.
     pub fn transcript_match_label(model: *const Model) []const u8 {
         return model.transcriptTurnChrome().match;
     }
