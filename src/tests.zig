@@ -28066,7 +28066,7 @@ test "Files preview error/save chrome follows Appearance language" {
         fn missing(m: *Model, efx: *Effects, alloc: std.mem.Allocator) !void {
             main.update(m, .{ .open_right_panel_file = 1 }, efx);
             try testing.expectEqualStrings("File not found", m.file_preview_error());
-            var tree = try buildTree(alloc, m);
+            const tree = try buildTree(alloc, m);
             _ = try expectByText(tree.root, .text, "File not found");
             try testing.expect(findByText(tree.root, .text, "找不到文件") == null);
             try testing.expect(findByText(tree.root, .text, "ファイルが見つかりません") == null);
@@ -28076,7 +28076,7 @@ test "Files preview error/save chrome follows Appearance language" {
             main.update(m, .{ .open_right_panel_file = 3 }, efx);
             main.update(m, .open_right_panel_file_edit, efx);
             try testing.expectEqualStrings("Cannot save binary file", m.file_preview_status());
-            var tree = try buildTree(alloc, m);
+            const tree = try buildTree(alloc, m);
             _ = try expectByText(tree.root, .text, "Cannot save binary file");
             try testing.expect(findByText(tree.root, .text, "无法保存二进制文件") == null);
         }
@@ -28085,7 +28085,7 @@ test "Files preview error/save chrome follows Appearance language" {
             main.update(m, .{ .open_right_panel_file = 4 }, efx);
             main.update(m, .open_right_panel_file_edit, efx);
             try testing.expectEqualStrings("Cannot save truncated preview — open in editor", m.file_preview_status());
-            var tree = try buildTree(alloc, m);
+            const tree = try buildTree(alloc, m);
             _ = try expectByText(tree.root, .text, "Cannot save truncated preview — open in editor");
             try testing.expect(findByText(tree.root, .text, "无法保存已截断的预览 — 请在编辑器中打开") == null);
         }
@@ -28097,7 +28097,7 @@ test "Files preview error/save chrome follows Appearance language" {
             m.right_panel_file_preview_abs_len = 0;
             main.update(m, .file_preview_save, efx);
             try testing.expectEqualStrings("Cannot save file", m.file_preview_status());
-            var tree = try buildTree(alloc, m);
+            const tree = try buildTree(alloc, m);
             _ = try expectByText(tree.root, .text, "Cannot save file");
             try testing.expect(findByText(tree.root, .text, "无法保存文件") == null);
         }
