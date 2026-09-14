@@ -114,8 +114,9 @@
 //! Numstat `-` columns are Waku `FileStatus::Binary` (`B`), not `M`.
 //! Untracked synthetic `?` stays `?` (Waku's enum is A/M/D/Binary)
 //! and uses the same warning color as `M`. Binary patch lines
-//! (`Binary files ` / `GIT binary patch`) paint meta
-//! `Binary file changed` and mark that file `B`.
+//! (`Binary files ` / `GIT binary patch`) paint localized meta
+//! `Binary file changed` (`i18n.ReviewDiffBinaryMetaChrome`) and
+//! mark that file `B`.
 //! First-cut selected-file Diff header chrome ships above the hunk
 //! pane (same `file_icon` as the tree + path + optional `+N` / `-M`,
 //! ~36px, outside Native `<scroll>`). Waku's scroll-driven sticky overlay
@@ -430,7 +431,8 @@ pub const max_review_diff_gap_label: usize = 40;
 /// `statusChrome` / Model getters. Distinct from
 /// `i18n.ReviewDiffChrome` / `ReviewHunkA11yChrome` /
 /// `ReviewDiffGapLabelChrome`. Binary file changed Meta body
-/// stays English this cut.
+/// uses `i18n.reviewDiffBinaryMetaChromeFor` via
+/// `binaryMetaChrome` / Model getters.
 pub const comparing_status = i18n.reviewDiffStatusChromeFor(.english, "").comparing;
 pub const empty_status = i18n.reviewDiffStatusChromeFor(.english, "").empty;
 pub const failed_status = i18n.reviewDiffStatusChromeFor(.english, "").failed;
@@ -438,7 +440,7 @@ pub const no_workspace_status = i18n.reviewDiffStatusChromeFor(.english, "").no_
 pub const hunk_empty_status = i18n.reviewDiffStatusChromeFor(.english, "").hunk_empty;
 pub const hunk_failed_status = i18n.reviewDiffStatusChromeFor(.english, "").hunk_failed;
 /// Waku `LineKind::Meta` body for binary patches (not the raw git line).
-pub const binary_file_changed = "Binary file changed";
+pub const binary_file_changed = i18n.reviewDiffBinaryMetaChromeFor(.english, "").binary_file_changed;
 
 /// Native `for each="review_diff_rows"` row. File `id` is 1-based
 /// into `review_diff_file_store`. Directory `id` is
@@ -1682,6 +1684,10 @@ fn statusChrome(model: *const Model) i18n.ReviewDiffStatusChrome {
     return i18n.reviewDiffStatusChromeFor(model.language_preference, model.systemLocaleId());
 }
 
+fn binaryMetaChrome(model: *const Model) i18n.ReviewDiffBinaryMetaChrome {
+    return i18n.reviewDiffBinaryMetaChromeFor(model.language_preference, model.systemLocaleId());
+}
+
 fn isHunkCodeKind(kind: LineKind) bool {
     return kind == .context or kind == .addition or kind == .deletion;
 }
@@ -1701,7 +1707,7 @@ fn paintVisibleRow(model: *const Model, arena: std.mem.Allocator, line: DiffLine
         .text = lineContent(model, line),
     };
     if (line.kind == .meta and isBinaryPatchLine(row.text)) {
-        row.text = binary_file_changed;
+        row.text = binaryMetaChrome(model).binary_file_changed;
     }
     switch (line.kind) {
         .addition => row.is_addition = true,
@@ -6336,4 +6342,65 @@ test "review diff status chrome english matches former hardcoded copy" {
     open(&model, &fx);
     try std.testing.expectEqualStrings(no_workspace_status, reviewDiffStatus(&model));
     try std.testing.expectEqualStrings(i18n.reviewDiffStatusChromeFor(.english, "ja_JP.UTF-8").no_workspace, reviewDiffStatus(&model));
+}
+
+test "review diff binary meta chrome english matches former hardcoded copy" {
+    try std.testing.expectEqualStrings("Binary file changed", binary_file_changed);
+    try std.testing.expectEqualStrings(i18n.reviewDiffBinaryMetaChromeFor(.english, "").binary_file_changed, binary_file_changed);
+    try std.testing.expect(!std.mem.eql(u8, binary_file_changed, i18n.filePreviewChromeFor(.english, "").binary_file));
+
+    var model = Model{};
+    defer freeReviewDiffStores(&model);
+    model.review_diff_file_store[0].setCounts('M', "bin.dat", 0, 0);
+    model.review_diff_file_count = 1;
+    model.review_diff_selected_id = 1;
+    const patch =
+        \\diff --git a/bin.dat b/bin.dat
+        \\index 1111111..2222222
+        \\Binary files a/bin.dat and b/bin.dat differ
+        \\
+    ;
+    loadHunkPatch(&model, patch, false);
+    try std.testing.expectEqual(@as(u8, 'B'), model.review_diff_file_store[0].status);
+
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+
+    const expectMeta = struct {
+        fn run(rows: []const ReviewDiffHunkRow, want: []const u8) !void {
+            var saw = false;
+            for (rows) |row| {
+                try std.testing.expect(std.mem.indexOf(u8, row.text, "Binary files ") == null);
+                try std.testing.expect(!std.mem.eql(u8, row.text, "GIT binary patch"));
+                if (std.mem.eql(u8, row.text, want)) saw = true;
+            }
+            try std.testing.expect(saw);
+        }
+    }.run;
+
+    try expectMeta(reviewDiffHunkRows(&model, arena_state.allocator()), binary_file_changed);
+    try expectMeta(reviewDiffHunkRows(&model, arena_state.allocator()), model.review_diff_binary_file_changed());
+
+    model.language_preference = .simplified_chinese;
+    try std.testing.expectEqualStrings("二进制文件已更改", model.review_diff_binary_file_changed());
+    try expectMeta(
+        reviewDiffHunkRows(&model, arena_state.allocator()),
+        i18n.reviewDiffBinaryMetaChromeFor(.simplified_chinese, "").binary_file_changed,
+    );
+    try std.testing.expect(!std.mem.eql(u8, binary_file_changed, model.review_diff_binary_file_changed()));
+
+    model.language_preference = .japanese;
+    try std.testing.expectEqualStrings("バイナリファイルが変更されました", model.review_diff_binary_file_changed());
+    try expectMeta(
+        reviewDiffHunkRows(&model, arena_state.allocator()),
+        i18n.reviewDiffBinaryMetaChromeFor(.japanese, "").binary_file_changed,
+    );
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try std.testing.expectEqualStrings(binary_file_changed, model.review_diff_binary_file_changed());
+    try expectMeta(
+        reviewDiffHunkRows(&model, arena_state.allocator()),
+        i18n.reviewDiffBinaryMetaChromeFor(.english, "ja_JP.UTF-8").binary_file_changed,
+    );
 }

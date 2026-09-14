@@ -3873,7 +3873,8 @@ pub const Model = struct {
     /// `i18n.ReviewDiffChrome` title / Cancel / source chips / gap
     /// expand. Unmodified-line gap labels live in
     /// `i18n.ReviewDiffGapLabelChrome`. Status chrome lives in
-    /// `i18n.ReviewDiffStatusChrome`.
+    /// `i18n.ReviewDiffStatusChrome`. Binary file changed Meta body
+    /// lives in `i18n.ReviewDiffBinaryMetaChrome`.
     pub fn review_hunk_label(model: *const Model) []const u8 {
         return model.reviewHunkA11yChrome().review_hunk;
     }
@@ -3921,6 +3922,16 @@ pub const Model = struct {
     /// matches `review_diff.hunk_failed_status`.
     pub fn review_diff_hunk_failed_status(model: *const Model) []const u8 {
         return model.reviewDiffStatusChrome().hunk_failed;
+    }
+
+    /// Review Diff Binary file changed Meta body. Distinct from
+    /// `i18n.ReviewDiffChrome` / `ReviewHunkA11yChrome` /
+    /// `ReviewDiffGapLabelChrome` / `ReviewDiffStatusChrome`.
+    /// English matches `review_diff.binary_file_changed`. Git
+    /// detection of `Binary files ` / `GIT binary patch` stays
+    /// English/data.
+    pub fn review_diff_binary_file_changed(model: *const Model) []const u8 {
+        return model.reviewDiffBinaryMetaChrome().binary_file_changed;
     }
 
     /// Header Environment info a11y and dropdown header. `on-press`
@@ -5025,6 +5036,10 @@ pub const Model = struct {
 
     fn reviewDiffStatusChrome(model: *const Model) i18n.ReviewDiffStatusChrome {
         return i18n.reviewDiffStatusChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn reviewDiffBinaryMetaChrome(model: *const Model) i18n.ReviewDiffBinaryMetaChrome {
+        return i18n.reviewDiffBinaryMetaChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     fn environmentChrome(model: *const Model) i18n.EnvironmentChrome {

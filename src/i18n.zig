@@ -42,6 +42,13 @@
 //! `ReviewDiffGapLabelChrome` so status chrome stays
 //! independently evolvable; wire ids / on-press / git argv /
 //! paths stay English/data),
+//! plus first-cut Review Diff Binary file changed Meta body
+//! (same `ReviewDiffBinaryMetaChrome` strings; distinct from
+//! `ReviewDiffChrome` / `ReviewHunkA11yChrome` /
+//! `ReviewDiffGapLabelChrome` / `ReviewDiffStatusChrome` so
+//! binary Meta body stays independently evolvable; git
+//! detection of `Binary files ` / `GIT binary patch` / status
+//! letter `B` / raw git lines stay English/data),
 //! and first-cut Background row kind /
 //! status / stop·dismiss chrome (same `BackgroundChrome` strings;
 //! Environment Summary + right-panel Background body), and
@@ -269,6 +276,13 @@
 //! `ReviewDiffGapLabelChrome` so status chrome stays
 //! independently evolvable; wire ids / on-press / git argv /
 //! paths stay English/data)
+//! plus Review Diff Binary file changed Meta body (same
+//! `ReviewDiffBinaryMetaChrome` strings; distinct from
+//! `ReviewDiffChrome` / `ReviewHunkA11yChrome` /
+//! `ReviewDiffGapLabelChrome` / `ReviewDiffStatusChrome` so
+//! binary Meta body stays independently evolvable; git
+//! detection of `Binary files ` / `GIT binary patch` / status
+//! letter `B` / raw git lines stay English/data)
 //! plus Settings Providers Available / Not found, Enable /
 //! Disable, Use for this session, Copy install command / Copy login
 //! command, and First-party default (same `ProvidersChrome` strings;
@@ -488,7 +502,14 @@
 //! `ReviewDiffChrome` / `ReviewHunkA11yChrome` /
 //! `ReviewDiffGapLabelChrome` so status chrome stays
 //! independently evolvable; wire ids / on-press / git argv /
-//! paths stay English/data).
+//! paths stay English/data). Review Diff Binary file changed
+//! Meta body follows the resolved locale this cut (same
+//! `ReviewDiffBinaryMetaChrome` strings; distinct from
+//! `ReviewDiffChrome` / `ReviewHunkA11yChrome` /
+//! `ReviewDiffGapLabelChrome` / `ReviewDiffStatusChrome` so
+//! binary Meta body stays independently evolvable; git
+//! detection of `Binary files ` / `GIT binary patch` / status
+//! letter `B` / raw git lines stay English/data).
 //! Typed URL text
 //! stays data. Parked `home_url`
 //! / scene URLs stay data. OS
@@ -1151,7 +1172,8 @@ const composer_project_chrome_ja: ComposerProjectChrome = .{
 /// `ReviewHunkA11yChrome`. Unmodified-line gap labels live in
 /// `ReviewDiffGapLabelChrome`. Status chrome (Comparing… /
 /// empty / fail / no workspace / No hunks / Could not show
-/// diff.) lives in `ReviewDiffStatusChrome`.
+/// diff.) lives in `ReviewDiffStatusChrome`. Binary file
+/// changed Meta body lives in `ReviewDiffBinaryMetaChrome`.
 pub const ReviewDiffChrome = struct {
     review_title: []const u8,
     cancel: []const u8,
@@ -1219,7 +1241,8 @@ const review_diff_chrome_ja: ReviewDiffChrome = .{
 /// gap Start|End|Both|All) so hunk a11y stays independently
 /// evolvable. Unmodified-line gap labels live in
 /// `ReviewDiffGapLabelChrome`. Status chrome lives in
-/// `ReviewDiffStatusChrome`.
+/// `ReviewDiffStatusChrome`. Binary file changed Meta body
+/// lives in `ReviewDiffBinaryMetaChrome`.
 pub const ReviewHunkA11yChrome = struct {
     review_hunk: []const u8,
     review_hunks: []const u8,
@@ -1249,7 +1272,8 @@ const review_hunk_a11y_chrome_ja: ReviewHunkA11yChrome = .{
 /// count labels stay independently evolvable. Numbers stay Latin
 /// `{d}`. Plural may match singular where natural in zh-CN / ja;
 /// both fields are kept. Status chrome lives in
-/// `ReviewDiffStatusChrome`.
+/// `ReviewDiffStatusChrome`. Binary file changed Meta body
+/// lives in `ReviewDiffBinaryMetaChrome`.
 pub const ReviewDiffGapLabelChrome = struct {
     unmodified_line: []const u8,
     unmodified_lines: []const u8,
@@ -1280,8 +1304,8 @@ const review_diff_gap_label_chrome_ja: ReviewDiffGapLabelChrome = .{
 /// `ReviewHunkA11yChrome` (Review hunk / Review hunks), and
 /// `ReviewDiffGapLabelChrome` (unmodified-line gap labels) so
 /// status chrome stays independently evolvable. Binary file
-/// changed Meta body stays English this cut. Wire ids / on-press /
-/// git argv / paths stay English/data.
+/// changed Meta body lives in `ReviewDiffBinaryMetaChrome`. Wire
+/// ids / on-press / git argv / paths stay English/data.
 pub const ReviewDiffStatusChrome = struct {
     comparing: []const u8,
     empty: []const u8,
@@ -1316,6 +1340,33 @@ const review_diff_status_chrome_ja: ReviewDiffStatusChrome = .{
     .no_workspace = "ワークスペースがありません。",
     .hunk_empty = "ハンクがありません",
     .hunk_failed = "diff を表示できませんでした。",
+};
+
+/// Review Diff Binary file changed Meta body for the resolved
+/// locale. Same resolve path as ReviewDiffStatusChrome. English
+/// matches the former hardcoded copy (`Binary file changed`).
+/// Distinct from `ReviewDiffChrome` (title / Cancel / source chips /
+/// gap Start|End|Both|All), `ReviewHunkA11yChrome` (Review hunk /
+/// Review hunks), `ReviewDiffGapLabelChrome` (unmodified-line gap
+/// labels), and `ReviewDiffStatusChrome` (Comparing… / empty /
+/// fail / no workspace / No hunks / Could not show diff.) so
+/// binary Meta body stays independently evolvable. Git detection
+/// of `Binary files ` / `GIT binary patch`, status letter `B`,
+/// and raw git lines stay English/data.
+pub const ReviewDiffBinaryMetaChrome = struct {
+    binary_file_changed: []const u8,
+};
+
+const review_diff_binary_meta_chrome_en: ReviewDiffBinaryMetaChrome = .{
+    .binary_file_changed = "Binary file changed",
+};
+
+const review_diff_binary_meta_chrome_zh_cn: ReviewDiffBinaryMetaChrome = .{
+    .binary_file_changed = "二进制文件已更改",
+};
+
+const review_diff_binary_meta_chrome_ja: ReviewDiffBinaryMetaChrome = .{
+    .binary_file_changed = "バイナリファイルが変更されました",
 };
 
 /// Background row kind / status / stop·dismiss chrome for the
@@ -3752,7 +3803,8 @@ pub fn reviewDiffChromeFor(preference: LanguagePreference, system_locale_id: []c
 /// read process env. Distinct from `reviewDiffChromeFor` so hunk
 /// a11y stays independently evolvable. Unmodified-line gap labels
 /// live in `reviewDiffGapLabelChromeFor`. Status chrome lives in
-/// `reviewDiffStatusChromeFor`.
+/// `reviewDiffStatusChromeFor`. Binary file changed Meta body
+/// lives in `reviewDiffBinaryMetaChromeFor`.
 pub fn reviewHunkA11yChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ReviewHunkA11yChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => review_hunk_a11y_chrome_zh_cn,
@@ -3766,7 +3818,9 @@ pub fn reviewHunkA11yChromeFor(preference: LanguagePreference, system_locale_id:
 /// this file does not read process env. Distinct from
 /// `reviewDiffChromeFor` / `reviewHunkA11yChromeFor` so gap count
 /// labels stay independently evolvable. Numbers stay Latin.
-/// Status chrome lives in `reviewDiffStatusChromeFor`.
+/// Status chrome lives in `reviewDiffStatusChromeFor`. Binary
+/// file changed Meta body lives in
+/// `reviewDiffBinaryMetaChromeFor`.
 pub fn reviewDiffGapLabelChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ReviewDiffGapLabelChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => review_diff_gap_label_chrome_zh_cn,
@@ -3790,13 +3844,31 @@ pub fn formatReviewDiffGapLabel(chrome: ReviewDiffGapLabelChrome, arena: std.mem
 /// `system_locale_id`; this file does not read process env.
 /// Distinct from `reviewDiffChromeFor` /
 /// `reviewHunkA11yChromeFor` / `reviewDiffGapLabelChromeFor` so
-/// status chrome stays independently evolvable. Wire ids /
-/// on-press / git argv / paths stay English/data.
+/// status chrome stays independently evolvable. Binary file
+/// changed Meta body lives in `reviewDiffBinaryMetaChromeFor`.
+/// Wire ids / on-press / git argv / paths stay English/data.
 pub fn reviewDiffStatusChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ReviewDiffStatusChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => review_diff_status_chrome_zh_cn,
         .japanese => review_diff_status_chrome_ja,
         .system, .english => review_diff_status_chrome_en,
+    };
+}
+
+/// Review Diff Binary file changed Meta body for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env.
+/// Distinct from `reviewDiffChromeFor` /
+/// `reviewHunkA11yChromeFor` / `reviewDiffGapLabelChromeFor` /
+/// `reviewDiffStatusChromeFor` so binary Meta body stays
+/// independently evolvable. Git detection of `Binary files ` /
+/// `GIT binary patch`, status letter `B`, and raw git lines
+/// stay English/data.
+pub fn reviewDiffBinaryMetaChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ReviewDiffBinaryMetaChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => review_diff_binary_meta_chrome_zh_cn,
+        .japanese => review_diff_binary_meta_chrome_ja,
+        .system, .english => review_diff_binary_meta_chrome_en,
     };
 }
 
@@ -5296,6 +5368,29 @@ test "reviewDiffStatusChromeFor english default; zh and ja chrome; english ignor
     try testing.expect(!std.mem.eql(u8, reviewDiffStatusChromeFor(.english, "").hunk_failed, reviewDiffStatusChromeFor(.simplified_chinese, "").hunk_failed));
     try testing.expect(!std.mem.eql(u8, reviewDiffStatusChromeFor(.english, "").comparing, reviewDiffChromeFor(.english, "").review_title));
     try testing.expect(!std.mem.eql(u8, reviewDiffStatusChromeFor(.english, "").hunk_empty, reviewHunkA11yChromeFor(.english, "").review_hunks));
+}
+
+test "reviewDiffBinaryMetaChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Binary file changed", reviewDiffBinaryMetaChromeFor(.english, "ja").binary_file_changed);
+    try testing.expectEqualStrings("Binary file changed", reviewDiffBinaryMetaChromeFor(.english, "").binary_file_changed);
+    try testing.expectEqualStrings("Binary file changed", reviewDiffBinaryMetaChromeFor(.system, "").binary_file_changed);
+
+    try testing.expectEqualStrings("二进制文件已更改", reviewDiffBinaryMetaChromeFor(.simplified_chinese, "").binary_file_changed);
+    try testing.expectEqualStrings("バイナリファイルが変更されました", reviewDiffBinaryMetaChromeFor(.japanese, "").binary_file_changed);
+
+    try testing.expectEqualStrings("二进制文件已更改", reviewDiffBinaryMetaChromeFor(.system, "zh_CN.UTF-8").binary_file_changed);
+    try testing.expectEqualStrings("バイナリファイルが変更されました", reviewDiffBinaryMetaChromeFor(.system, "ja_JP.UTF-8").binary_file_changed);
+    try testing.expectEqualStrings("Binary file changed", reviewDiffBinaryMetaChromeFor(.english, "ja_JP.UTF-8").binary_file_changed);
+    try testing.expectEqualStrings("Binary file changed", reviewDiffBinaryMetaChromeFor(.english, "zh_CN.UTF-8").binary_file_changed);
+
+    try testing.expect(!std.mem.eql(u8, reviewDiffBinaryMetaChromeFor(.english, "").binary_file_changed, reviewDiffBinaryMetaChromeFor(.simplified_chinese, "").binary_file_changed));
+    try testing.expect(!std.mem.eql(u8, reviewDiffBinaryMetaChromeFor(.english, "").binary_file_changed, reviewDiffBinaryMetaChromeFor(.japanese, "").binary_file_changed));
+    try testing.expect(!std.mem.eql(u8, reviewDiffBinaryMetaChromeFor(.simplified_chinese, "").binary_file_changed, reviewDiffBinaryMetaChromeFor(.japanese, "").binary_file_changed));
+    try testing.expect(!std.mem.eql(u8, reviewDiffBinaryMetaChromeFor(.english, "").binary_file_changed, reviewDiffStatusChromeFor(.english, "").hunk_empty));
+    try testing.expect(!std.mem.eql(u8, reviewDiffBinaryMetaChromeFor(.english, "").binary_file_changed, filePreviewChromeFor(.english, "").binary_file));
+    try testing.expect(!std.mem.eql(u8, reviewDiffBinaryMetaChromeFor(.simplified_chinese, "").binary_file_changed, filePreviewChromeFor(.simplified_chinese, "").binary_file));
+    try testing.expect(!std.mem.eql(u8, reviewDiffBinaryMetaChromeFor(.japanese, "").binary_file_changed, filePreviewChromeFor(.japanese, "").binary_file));
 }
 
 test "backgroundChromeFor english default; zh and ja chrome; english ignores ja LANG" {
