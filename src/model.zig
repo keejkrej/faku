@@ -2872,7 +2872,9 @@ pub const Model = struct {
             const text = model.workspace_prep_text_storage[0..model.workspace_prep_text_len];
             if (text.len > 0) model.draft_buffer.apply(.{ .insert_text = text });
             model.setDraftImagePath(model.workspace_prep_image_storage[0..model.workspace_prep_image_len]);
-            if (std.mem.eql(u8, model.attach_status(), session_workspace.preparing_status)) {
+            if (std.mem.eql(u8, model.attach_status(), model.worktree_creating_status()) or
+                std.mem.eql(u8, model.attach_status(), session_workspace.preparing_status))
+            {
                 model.clearAttachStatus();
             }
         }
@@ -4935,6 +4937,10 @@ pub const Model = struct {
         return i18n.workspaceChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn worktreeStatusChrome(model: *const Model) i18n.WorktreeStatusChrome {
+        return i18n.worktreeStatusChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn daemonDirChrome(model: *const Model) i18n.DaemonDirChrome {
         return i18n.daemonDirChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6136,6 +6142,23 @@ pub const Model = struct {
     /// `pick_workspace_new_worktree`.
     pub fn workspace_new_worktree_label(model: *const Model) []const u8 {
         return model.workspaceChrome().new_worktree;
+    }
+
+    /// Send-prep Creating worktree… attach status. Distinct from
+    /// `WorkspaceChrome` picker labels / `BranchChrome` /
+    /// `CommitChrome` generating / amending / committing / pushing.
+    /// Worktree stays Latin in zh-CN / ja. English matches
+    /// `session_workspace.preparing_status`.
+    pub fn worktree_creating_status(model: *const Model) []const u8 {
+        return model.worktreeStatusChrome().creating;
+    }
+
+    /// Send-prep / New worktree… Could not create worktree. attach
+    /// status. Distinct from Could not push / checkout / create
+    /// branch leftovers. Worktree stays Latin in zh-CN / ja.
+    /// English matches `git_checkout.worktree_add_failed_status`.
+    pub fn worktree_create_failed_status(model: *const Model) []const u8 {
+        return model.worktreeStatusChrome().create_failed;
     }
 
     /// Daemon-dir browser Up. `on-press` stays `daemon_dir_browser_up`.

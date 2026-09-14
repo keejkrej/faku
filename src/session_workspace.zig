@@ -131,7 +131,10 @@ const Model = main.Model;
 const Effects = main.Effects;
 const Session = main.Session;
 
-pub const preparing_status = "Creating worktree…";
+/// English chrome fallback / test anchor. Localized Creating
+/// worktree… uses `i18n.worktreeStatusChromeFor` via
+/// `Model.worktree_creating_status`.
+pub const preparing_status = i18n.worktreeStatusChromeFor(.english, "").creating;
 /// English chrome fallback. Localized Work in picker labels use
 /// `i18n.workspaceChromeFor`.
 pub const local_label = "Local";
@@ -225,13 +228,13 @@ pub fn beginPrep(model: *Model, fx: *Effects, text: []const u8) bool {
     const slug = git_checkout.worktreeSlug(src, slug_buf[0..]);
 
     model.queueWorkspacePrep(session.id, text, model.draftImagePath());
-    model.setAttachStatus(preparing_status);
+    model.setAttachStatus(model.worktree_creating_status());
     if (!git_checkout.trySpawnDaemonCreateWorktree(model, fx, text)) {
         git_checkout.beginWorktreeAdd(model, fx, slug);
     }
     if (model.git_worktree_add_key == 0 and model.git_worktree_base_key == 0) {
         model.abortWorkspacePrep();
-        model.setAttachStatus(git_checkout.worktree_add_failed_status);
+        model.setAttachStatus(model.worktree_create_failed_status());
         return false;
     }
     return true;
@@ -941,4 +944,113 @@ test "Send CreateWorktree sidecar exit 0 without worktreeCreated fails closed" {
     try std.testing.expect(isNewWorktree(model.sessionByIdConst(id).?));
     try std.testing.expectEqualStrings(project, model.selectedProjectPath());
     try std.testing.expectEqualStrings(git_checkout.worktree_add_failed_status, model.attach_status());
+}
+
+test "Send newWorktree attach status follows Appearance language" {
+    try std.testing.expectEqualStrings("Creating worktree…", preparing_status);
+    try std.testing.expectEqualStrings(i18n.worktreeStatusChromeFor(.english, "").creating, preparing_status);
+    try std.testing.expectEqualStrings("Could not create worktree.", git_checkout.worktree_add_failed_status);
+    try std.testing.expectEqualStrings(i18n.worktreeStatusChromeFor(.english, "").create_failed, git_checkout.worktree_add_failed_status);
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/ws-send-i18n", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var home_buf: [256]u8 = undefined;
+    const home = try std.fmt.bufPrint(&home_buf, "/tmp/faku-ws-i18n-{s}", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, home);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.fx_probe_started = true;
+    model.setHome(home);
+    const id = model.addSession("feat i18n", .fx);
+    model.selected = id;
+    model.sessionById(id).?.setProjectPath(project);
+    pickNewWorktree(&model, &fx);
+    try std.testing.expectEqualStrings(preparing_status, model.worktree_creating_status());
+    try std.testing.expectEqualStrings(git_checkout.worktree_add_failed_status, model.worktree_create_failed_status());
+
+    model.language_preference = .simplified_chinese;
+    model.draft_buffer.apply(.{ .insert_text = "ship the workspace cut" });
+    main.update(&model, .send, &fx);
+    try std.testing.expect(model.workspace_prep_active);
+    try std.testing.expectEqualStrings("正在创建 worktree…", model.attach_status());
+    try std.testing.expectEqualStrings(i18n.worktreeStatusChromeFor(.simplified_chinese, "").creating, model.attach_status());
+    try std.testing.expectEqualStrings(model.worktree_creating_status(), model.attach_status());
+    try std.testing.expect(!std.mem.eql(u8, preparing_status, model.attach_status()));
+    try std.testing.expect(!std.mem.eql(u8, model.workspace_new_worktree_label(), model.attach_status()));
+
+    const zh_probe = findWorktreeBaseSpawn(&fx, model.git_worktree_base_key) orelse return error.MissingWorktreeBaseZh;
+    try fx.feedExit(zh_probe.key, 1);
+    drainEffects(&model, &fx);
+    const zh_first = findWorktreeAddSpawn(&fx, model.git_worktree_add_key) orelse return error.MissingWorktreeAddZh;
+    try fx.feedExit(zh_first.key, 1);
+    drainEffects(&model, &fx);
+    model.git_worktree_add_attempt = git_checkout.max_worktree_candidates - 1;
+    const zh_retry = findWorktreeAddSpawn(&fx, model.git_worktree_add_key) orelse return error.MissingWorktreeAddRetryZh;
+    try fx.feedExit(zh_retry.key, 1);
+    drainEffects(&model, &fx);
+    try std.testing.expect(!model.workspace_prep_active);
+    try std.testing.expectEqualStrings("无法创建 worktree。", model.attach_status());
+    try std.testing.expectEqualStrings(i18n.worktreeStatusChromeFor(.simplified_chinese, "").create_failed, model.attach_status());
+    try std.testing.expectEqualStrings(model.worktree_create_failed_status(), model.attach_status());
+    try std.testing.expect(!std.mem.eql(u8, git_checkout.worktree_add_failed_status, model.attach_status()));
+    try std.testing.expect(isNewWorktree(model.sessionByIdConst(id).?));
+
+    model.clearAttachStatus();
+    model.language_preference = .japanese;
+    model.draft_buffer.apply(.{ .insert_text = "ship the workspace cut" });
+    main.update(&model, .send, &fx);
+    try std.testing.expectEqualStrings("worktree を作成中…", model.attach_status());
+    try std.testing.expectEqualStrings(i18n.worktreeStatusChromeFor(.japanese, "").creating, model.attach_status());
+    try std.testing.expect(!std.mem.eql(u8, "正在创建 worktree…", model.attach_status()));
+
+    const ja_probe = findWorktreeBaseSpawn(&fx, model.git_worktree_base_key) orelse return error.MissingWorktreeBaseJa;
+    try fx.feedExit(ja_probe.key, 1);
+    drainEffects(&model, &fx);
+    const ja_first = findWorktreeAddSpawn(&fx, model.git_worktree_add_key) orelse return error.MissingWorktreeAddJa;
+    try fx.feedExit(ja_first.key, 1);
+    drainEffects(&model, &fx);
+    model.git_worktree_add_attempt = git_checkout.max_worktree_candidates - 1;
+    const ja_retry = findWorktreeAddSpawn(&fx, model.git_worktree_add_key) orelse return error.MissingWorktreeAddRetryJa;
+    try fx.feedExit(ja_retry.key, 1);
+    drainEffects(&model, &fx);
+    try std.testing.expectEqualStrings("worktree を作成できませんでした。", model.attach_status());
+    try std.testing.expectEqualStrings(i18n.worktreeStatusChromeFor(.japanese, "").create_failed, model.attach_status());
+
+    model.clearAttachStatus();
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    model.draft_buffer.apply(.{ .insert_text = "ship the workspace cut" });
+    main.update(&model, .send, &fx);
+    try std.testing.expectEqualStrings(preparing_status, model.attach_status());
+    try std.testing.expectEqualStrings("Creating worktree…", model.attach_status());
+    try std.testing.expect(!std.mem.eql(u8, "worktree を作成中…", model.attach_status()));
+    model.abortWorkspacePrep();
+    model.git_worktree_base_key = 0;
+    model.git_worktree_add_key = 0;
+    try std.testing.expect(!model.has_attach_status());
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    model.draft_buffer.apply(.{ .insert_text = "ship the workspace cut" });
+    main.update(&model, .send, &fx);
+    try std.testing.expectEqualStrings("正在创建 worktree…", model.attach_status());
+    model.abortWorkspacePrep();
+    model.git_worktree_base_key = 0;
+    model.git_worktree_add_key = 0;
+    try std.testing.expect(!model.has_attach_status());
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    model.draft_buffer.apply(.{ .insert_text = "ship the workspace cut" });
+    main.update(&model, .send, &fx);
+    try std.testing.expectEqualStrings("worktree を作成中…", model.attach_status());
+    model.abortWorkspacePrep();
+    try std.testing.expect(!model.has_attach_status());
 }

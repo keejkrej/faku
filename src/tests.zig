@@ -29608,6 +29608,102 @@ test "empty transcript welcome chrome follows Appearance language" {
     try testing.expect(findByText(tree.root, .text, "What should we build?") == null);
 }
 
+test "Send-prep worktree attach status follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{attach_status}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "test=\"{has_attach_status}\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Creating worktree…"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Could not create worktree."));
+
+    var model = Model{};
+    try testing.expectEqualStrings("Creating worktree…", model.worktree_creating_status());
+    try testing.expectEqualStrings("Could not create worktree.", model.worktree_create_failed_status());
+    try testing.expectEqualStrings(i18n.worktreeStatusChromeFor(.english, "").creating, model.worktree_creating_status());
+    try testing.expectEqualStrings(i18n.worktreeStatusChromeFor(.english, "").create_failed, model.worktree_create_failed_status());
+    try testing.expectEqualStrings(git_checkout.worktree_add_failed_status, model.worktree_create_failed_status());
+    try testing.expect(!std.mem.eql(u8, model.worktree_creating_status(), model.workspace_new_worktree_label()));
+    try testing.expect(!std.mem.eql(u8, model.worktree_creating_status(), model.git_commit_generating_label()));
+
+    model.setAttachStatus(model.worktree_creating_status());
+    try testing.expectEqualStrings("Creating worktree…", model.attach_status());
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Creating worktree…");
+    try testing.expect(findByText(tree.root, .text, "正在创建 worktree…") == null);
+    try testing.expect(findByText(tree.root, .text, "worktree を作成中…") == null);
+
+    model.language_preference = .simplified_chinese;
+    model.setAttachStatus(model.worktree_creating_status());
+    try testing.expectEqualStrings("正在创建 worktree…", model.worktree_creating_status());
+    try testing.expectEqualStrings("无法创建 worktree。", model.worktree_create_failed_status());
+    try testing.expectEqualStrings(i18n.worktreeStatusChromeFor(.simplified_chinese, "").creating, model.attach_status());
+    try testing.expect(!std.mem.eql(u8, model.worktree_creating_status(), model.workspace_new_worktree_label()));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "正在创建 worktree…");
+    try testing.expect(findByText(tree.root, .text, "Creating worktree…") == null);
+
+    model.setAttachStatus(model.worktree_create_failed_status());
+    try testing.expectEqualStrings("无法创建 worktree。", model.attach_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "无法创建 worktree。");
+    try testing.expect(findByText(tree.root, .text, "Could not create worktree.") == null);
+
+    model.language_preference = .japanese;
+    model.setAttachStatus(model.worktree_creating_status());
+    try testing.expectEqualStrings("worktree を作成中…", model.worktree_creating_status());
+    try testing.expectEqualStrings("worktree を作成できませんでした。", model.worktree_create_failed_status());
+    try testing.expectEqualStrings(i18n.worktreeStatusChromeFor(.japanese, "").creating, model.attach_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "worktree を作成中…");
+    try testing.expect(findByText(tree.root, .text, "正在创建 worktree…") == null);
+
+    model.setAttachStatus(model.worktree_create_failed_status());
+    try testing.expectEqualStrings("worktree を作成できませんでした。", model.attach_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "worktree を作成できませんでした。");
+    try testing.expect(findByText(tree.root, .text, "Could not create worktree.") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    model.setAttachStatus(model.worktree_creating_status());
+    try testing.expectEqualStrings("Creating worktree…", model.attach_status());
+    try testing.expectEqualStrings(i18n.worktreeStatusChromeFor(.english, "ja_JP.UTF-8").creating, model.worktree_creating_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Creating worktree…");
+    try testing.expect(findByText(tree.root, .text, "worktree を作成中…") == null);
+
+    model.setAttachStatus(model.worktree_create_failed_status());
+    try testing.expectEqualStrings("Could not create worktree.", model.attach_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Could not create worktree.");
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    model.setAttachStatus(model.worktree_creating_status());
+    try testing.expectEqualStrings("正在创建 worktree…", model.attach_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "正在创建 worktree…");
+    try testing.expect(findByText(tree.root, .text, "Creating worktree…") == null);
+
+    model.setAttachStatus(model.worktree_create_failed_status());
+    try testing.expectEqualStrings("无法创建 worktree。", model.attach_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "无法创建 worktree。");
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    model.setAttachStatus(model.worktree_creating_status());
+    try testing.expectEqualStrings("worktree を作成中…", model.attach_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "worktree を作成中…");
+
+    model.setAttachStatus(model.worktree_create_failed_status());
+    try testing.expectEqualStrings("worktree を作成できませんでした。", model.attach_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "worktree を作成できませんでした。");
+}
+
 test "Browser Address field chrome follows Appearance language; placeholder stays Latin" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

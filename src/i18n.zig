@@ -44,7 +44,12 @@
 //! picker Work in / Local / New worktree (same `WorkspaceChrome`
 //! strings; worktree stays Latin in zh-CN / ja) plus Work-in Base
 //! (reuses `BranchChrome.base`) and project-row Local (reuses
-//! `WorkspaceChrome.local`) plus daemon-dir
+//! `WorkspaceChrome.local`) plus Send-prep attach status Creating
+//! worktree… / Could not create worktree. (same
+//! `WorktreeStatusChrome` strings; distinct from `WorkspaceChrome`
+//! picker labels / `BranchChrome` / `CommitChrome`
+//! pushing/committing; worktree stays Latin in zh-CN / ja; other
+//! git attach-status leftovers stay English this cut) plus daemon-dir
 //! in-app browser Up / Home / Choose / Loading… (same `DaemonDirChrome`
 //! strings; Cancel reuses `CommitChrome`) plus session-switcher
 //! title / Switch (same `SwitcherChrome` strings; Cancel reuses
@@ -255,6 +260,11 @@
 //! English (data). Workspace picker `on-press` stays English
 //! (`toggle_workspace_picker` / `close_workspace_picker` /
 //! `pick_workspace_local` / `pick_workspace_new_worktree`).
+//! Send-prep Creating worktree… / Could not create worktree.
+//! follow the resolved locale this cut (same `WorktreeStatusChrome`
+//! strings; distinct from `WorkspaceChrome` / `BranchChrome` /
+//! `CommitChrome`; worktree stays Latin in zh-CN / ja; other git
+//! attach-status leftovers stay English this cut).
 //! Daemon-dir browser `on-press` stays English
 //! (`daemon_dir_browser_up` / `daemon_dir_browser_home` /
 //! `confirm_daemon_dir_browser` / `cancel_daemon_dir_browser`).
@@ -1545,8 +1555,40 @@ const workspace_chrome_ja: WorkspaceChrome = .{
     .new_worktree = "新しい worktree",
 };
 
+/// Send-prep attach status Creating worktree… / Could not create
+/// worktree. for the resolved locale. Same resolve path as
+/// WorkspaceChrome. English matches the former hardcoded copy.
+/// Distinct from workspace picker Work in / Local / New worktree
+/// (`WorkspaceChrome`), branch-menu New worktree… (`BranchChrome`),
+/// and CommitChrome generating / amending / committing / pushing so
+/// worktree attach-status chrome stays independently evolvable.
+/// Worktree is git jargon and stays Latin in zh-CN / ja. Creating
+/// uses the ellipsis character (same style as CommitChrome
+/// generating / amending). Other git attach-status leftovers
+/// (Could not push / checkout / …) stay English this cut. Wire
+/// ids / on-press / git argv stay English.
+pub const WorktreeStatusChrome = struct {
+    creating: []const u8,
+    create_failed: []const u8,
+};
+
+const worktree_status_chrome_en: WorktreeStatusChrome = .{
+    .creating = "Creating worktree…",
+    .create_failed = "Could not create worktree.",
+};
+
+const worktree_status_chrome_zh_cn: WorktreeStatusChrome = .{
+    .creating = "正在创建 worktree…",
+    .create_failed = "无法创建 worktree。",
+};
+
+const worktree_status_chrome_ja: WorktreeStatusChrome = .{
+    .creating = "worktree を作成中…",
+    .create_failed = "worktree を作成できませんでした。",
+};
+
 /// Daemon-dir in-app BrowseDirectory browser chrome for the resolved
-/// locale. Same resolve path as WorkspaceChrome. Wire ids / on-press
+/// locale. Same resolve path as WorktreeStatusChrome. Wire ids / on-press
 /// stay English (`daemon_dir_browser_up` / `daemon_dir_browser_home` /
 /// `confirm_daemon_dir_browser` / `cancel_daemon_dir_browser`).
 /// English matches the former hardcoded copy. Cancel reuses
@@ -3203,12 +3245,27 @@ pub fn branchChromeFor(preference: LanguagePreference, system_locale_id: []const
 /// Composer workspace picker chrome for the resolved locale. Callers
 /// pass Model `language_preference` + `system_locale_id`; this file
 /// does not read process env. Wire ids / on-press stay English.
-/// Worktree stays Latin in zh-CN / ja.
+/// Worktree stays Latin in zh-CN / ja. Send-prep attach status
+/// lives on `worktreeStatusChromeFor`.
 pub fn workspaceChromeFor(preference: LanguagePreference, system_locale_id: []const u8) WorkspaceChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => workspace_chrome_zh_cn,
         .japanese => workspace_chrome_ja,
         .system, .english => workspace_chrome_en,
+    };
+}
+
+/// Send-prep Creating worktree… / Could not create worktree. attach
+/// status for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does not
+/// read process env. Distinct from WorkspaceChrome picker labels /
+/// BranchChrome / CommitChrome. Worktree stays Latin in zh-CN / ja.
+/// Other git attach-status leftovers stay English this cut.
+pub fn worktreeStatusChromeFor(preference: LanguagePreference, system_locale_id: []const u8) WorktreeStatusChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => worktree_status_chrome_zh_cn,
+        .japanese => worktree_status_chrome_ja,
+        .system, .english => worktree_status_chrome_en,
     };
 }
 
@@ -4782,6 +4839,44 @@ test "workspaceChromeFor english default; zh and ja chrome; english ignores ja L
     try testing.expectEqualStrings("Work in", workspaceChromeFor(.english, "ja_JP.UTF-8").work_in);
     try testing.expectEqualStrings("Local", workspaceChromeFor(.english, "zh_CN.UTF-8").local);
     try testing.expectEqualStrings("New worktree", workspaceChromeFor(.english, "ja_JP.UTF-8").new_worktree);
+}
+
+test "worktreeStatusChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Creating worktree…", worktreeStatusChromeFor(.english, "ja").creating);
+    try testing.expectEqualStrings("Could not create worktree.", worktreeStatusChromeFor(.english, "ja").create_failed);
+    try testing.expectEqualStrings("Creating worktree…", worktreeStatusChromeFor(.english, "").creating);
+    try testing.expectEqualStrings("Could not create worktree.", worktreeStatusChromeFor(.english, "").create_failed);
+    try testing.expectEqualStrings("Creating worktree…", worktreeStatusChromeFor(.system, "").creating);
+    try testing.expectEqualStrings("Could not create worktree.", worktreeStatusChromeFor(.system, "").create_failed);
+
+    try testing.expectEqualStrings("正在创建 worktree…", worktreeStatusChromeFor(.simplified_chinese, "").creating);
+    try testing.expectEqualStrings("无法创建 worktree。", worktreeStatusChromeFor(.simplified_chinese, "").create_failed);
+    try testing.expectEqualStrings("worktree を作成中…", worktreeStatusChromeFor(.japanese, "").creating);
+    try testing.expectEqualStrings("worktree を作成できませんでした。", worktreeStatusChromeFor(.japanese, "").create_failed);
+
+    try testing.expectEqualStrings("正在创建 worktree…", worktreeStatusChromeFor(.system, "zh_CN.UTF-8").creating);
+    try testing.expectEqualStrings("无法创建 worktree。", worktreeStatusChromeFor(.system, "zh_CN.UTF-8").create_failed);
+    try testing.expectEqualStrings("worktree を作成中…", worktreeStatusChromeFor(.system, "ja_JP.UTF-8").creating);
+    try testing.expectEqualStrings("worktree を作成できませんでした。", worktreeStatusChromeFor(.system, "ja_JP.UTF-8").create_failed);
+    try testing.expectEqualStrings("Creating worktree…", worktreeStatusChromeFor(.english, "ja_JP.UTF-8").creating);
+    try testing.expectEqualStrings("Could not create worktree.", worktreeStatusChromeFor(.english, "zh_CN.UTF-8").create_failed);
+    try testing.expectEqualStrings("Creating worktree…", worktreeStatusChromeFor(.english, "zh_CN.UTF-8").creating);
+    try testing.expectEqualStrings("Could not create worktree.", worktreeStatusChromeFor(.english, "ja_JP.UTF-8").create_failed);
+
+    try testing.expect(!std.mem.eql(u8, worktreeStatusChromeFor(.english, "").creating, worktreeStatusChromeFor(.english, "").create_failed));
+    try testing.expect(!std.mem.eql(u8, worktreeStatusChromeFor(.english, "").creating, workspaceChromeFor(.english, "").new_worktree));
+    try testing.expect(!std.mem.eql(u8, worktreeStatusChromeFor(.english, "").creating, branchChromeFor(.english, "").new_worktree_menu));
+    try testing.expect(!std.mem.eql(u8, worktreeStatusChromeFor(.english, "").creating, commitChromeFor(.english, "").generating));
+    try testing.expect(!std.mem.eql(u8, worktreeStatusChromeFor(.english, "").creating, commitChromeFor(.english, "").amending));
+    try testing.expect(!std.mem.eql(u8, worktreeStatusChromeFor(.english, "").creating, commitChromeFor(.english, "").pushing));
+    try testing.expect(!std.mem.eql(u8, worktreeStatusChromeFor(.english, "").creating, commitChromeFor(.english, "").committing));
+    try testing.expect(!std.mem.eql(u8, worktreeStatusChromeFor(.english, "").create_failed, workspaceChromeFor(.english, "").new_worktree));
+    try testing.expect(!std.mem.eql(u8, worktreeStatusChromeFor(.english, "").create_failed, branchChromeFor(.english, "").new_worktree_menu));
+    try testing.expect(!std.mem.eql(u8, worktreeStatusChromeFor(.simplified_chinese, "").creating, workspaceChromeFor(.simplified_chinese, "").new_worktree));
+    try testing.expect(!std.mem.eql(u8, worktreeStatusChromeFor(.japanese, "").creating, workspaceChromeFor(.japanese, "").new_worktree));
+    try testing.expect(!std.mem.eql(u8, worktreeStatusChromeFor(.simplified_chinese, "").creating, commitChromeFor(.simplified_chinese, "").generating));
+    try testing.expect(!std.mem.eql(u8, worktreeStatusChromeFor(.japanese, "").creating, commitChromeFor(.japanese, "").generating));
 }
 
 test "daemonDirChromeFor english default; zh and ja chrome; english ignores ja LANG" {
