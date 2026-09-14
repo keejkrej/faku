@@ -32439,6 +32439,151 @@ test "composer usage meter chrome follows Appearance language" {
     try testing.expect(findByText(tree.root, .text, "Plan limits") == null);
 }
 
+test "settings Usage local session cards follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{context_window_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{no_context_usage_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{thread_goal_tokens_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{no_thread_goal_usage_label}"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Context window</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No context usage reported yet</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Thread goal tokens</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No thread goal usage</text>"));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Context window", model.context_window_label());
+    try testing.expectEqualStrings("No context usage reported yet", model.no_context_usage_label());
+    try testing.expectEqualStrings("Thread goal tokens", model.thread_goal_tokens_label());
+    try testing.expectEqualStrings("No thread goal usage", model.no_thread_goal_usage_label());
+    try testing.expectEqualStrings(i18n.usageLocalChromeFor(.english, "").context_window, model.context_window_label());
+    try testing.expectEqualStrings(i18n.usageLocalChromeFor(.english, "").no_context_usage, model.no_context_usage_label());
+    try testing.expectEqualStrings(i18n.usageLocalChromeFor(.english, "").thread_goal_tokens, model.thread_goal_tokens_label());
+    try testing.expectEqualStrings(i18n.usageLocalChromeFor(.english, "").no_thread_goal_usage, model.no_thread_goal_usage_label());
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_usage, &fx);
+    try testing.expect(model.settings_page_usage());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Context window");
+    _ = try expectByText(tree.root, .text, "No context usage reported yet");
+    _ = try expectByText(tree.root, .text, "Thread goal tokens");
+    _ = try expectByText(tree.root, .text, "No thread goal usage");
+    try testing.expect(findByText(tree.root, .text, "上下文窗口") == null);
+    try testing.expect(findByText(tree.root, .text, "コンテキストウィンドウ") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("上下文窗口", model.context_window_label());
+    try testing.expectEqualStrings("尚未报告上下文用量", model.no_context_usage_label());
+    try testing.expectEqualStrings("线程目标 Token", model.thread_goal_tokens_label());
+    try testing.expectEqualStrings("没有线程目标用量", model.no_thread_goal_usage_label());
+    try testing.expectEqualStrings(i18n.usageLocalChromeFor(.simplified_chinese, "").context_window, model.context_window_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "上下文窗口");
+    _ = try expectByText(tree.root, .text, "尚未报告上下文用量");
+    _ = try expectByText(tree.root, .text, "线程目标 Token");
+    _ = try expectByText(tree.root, .text, "没有线程目标用量");
+    try testing.expect(findByText(tree.root, .text, "Context window") == null);
+    try testing.expect(findByText(tree.root, .text, "No context usage reported yet") == null);
+    try testing.expect(findByText(tree.root, .text, "Thread goal tokens") == null);
+    try testing.expect(findByText(tree.root, .text, "No thread goal usage") == null);
+
+    const id = model.selected;
+    if (model.sessionById(id)) |session| {
+        session.setContextUsage(53_000, 200_000);
+        session.setThreadGoalUsage(100_000, 12_000, 180);
+    }
+    try testing.expectEqualStrings("53k / 200k", model.context_usage_label(arena));
+    try testing.expectEqualStrings("12k/100k · 3m", model.goal_usage_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "上下文窗口");
+    _ = try expectByText(tree.root, .text, "53k / 200k");
+    _ = try expectByText(tree.root, .text, "线程目标 Token");
+    _ = try expectByText(tree.root, .text, "12k/100k · 3m");
+    try testing.expect(findByText(tree.root, .text, "尚未报告上下文用量") == null);
+    try testing.expect(findByText(tree.root, .text, "没有线程目标用量") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("コンテキストウィンドウ", model.context_window_label());
+    try testing.expectEqualStrings("コンテキスト使用量はまだ報告されていません", model.no_context_usage_label());
+    try testing.expectEqualStrings("スレッド目標トークン", model.thread_goal_tokens_label());
+    try testing.expectEqualStrings("スレッド目標の使用量はありません", model.no_thread_goal_usage_label());
+    try testing.expectEqualStrings(i18n.usageLocalChromeFor(.japanese, "").context_window, model.context_window_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "コンテキストウィンドウ");
+    _ = try expectByText(tree.root, .text, "53k / 200k");
+    _ = try expectByText(tree.root, .text, "スレッド目標トークン");
+    _ = try expectByText(tree.root, .text, "12k/100k · 3m");
+    try testing.expect(findByText(tree.root, .text, "Context window") == null);
+    try testing.expect(findByText(tree.root, .text, "上下文窗口") == null);
+    try testing.expect(findByText(tree.root, .text, "Thread goal tokens") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Context window", model.context_window_label());
+    try testing.expectEqualStrings("No context usage reported yet", model.no_context_usage_label());
+    try testing.expectEqualStrings("Thread goal tokens", model.thread_goal_tokens_label());
+    try testing.expectEqualStrings("No thread goal usage", model.no_thread_goal_usage_label());
+    try testing.expectEqualStrings(i18n.usageLocalChromeFor(.english, "ja_JP.UTF-8").context_window, model.context_window_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Context window");
+    _ = try expectByText(tree.root, .text, "Thread goal tokens");
+    _ = try expectByText(tree.root, .text, "53k / 200k");
+    try testing.expect(findByText(tree.root, .text, "コンテキストウィンドウ") == null);
+    try testing.expect(findByText(tree.root, .text, "上下文窗口") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("上下文窗口", model.context_window_label());
+    try testing.expectEqualStrings("尚未报告上下文用量", model.no_context_usage_label());
+    try testing.expectEqualStrings("线程目标 Token", model.thread_goal_tokens_label());
+    try testing.expectEqualStrings("没有线程目标用量", model.no_thread_goal_usage_label());
+    try testing.expectEqualStrings(i18n.usageLocalChromeFor(.system, "zh_CN.UTF-8").context_window, model.context_window_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "上下文窗口");
+    _ = try expectByText(tree.root, .text, "线程目标 Token");
+    _ = try expectByText(tree.root, .text, "53k / 200k");
+    try testing.expect(findByText(tree.root, .text, "Context window") == null);
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(!model.settings_open);
+    model.usage_meter_open = true;
+    model.language_preference = .english;
+    model.setSystemLocaleId("");
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Context window");
+    try testing.expect(findByText(tree.root, .text, "上下文窗口") == null);
+
+    model.language_preference = .simplified_chinese;
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "上下文窗口");
+    try testing.expect(findByText(tree.root, .text, "Context window") == null);
+
+    model.language_preference = .japanese;
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "コンテキストウィンドウ");
+    try testing.expect(findByText(tree.root, .text, "Context window") == null);
+    try testing.expect(findByText(tree.root, .text, "上下文窗口") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Context window");
+    try testing.expect(findByText(tree.root, .text, "上下文窗口") == null);
+
+    model.language_preference = .system;
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "上下文窗口");
+    try testing.expect(findByText(tree.root, .text, "Context window") == null);
+}
+
 test "Settings Providers Available Not found Enable Disable Copy First-party follow Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

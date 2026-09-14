@@ -5109,6 +5109,10 @@ pub const Model = struct {
         return i18n.usageViewChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn usageLocalChrome(model: *const Model) i18n.UsageLocalChrome {
+        return i18n.usageLocalChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn settingsRefreshChrome(model: *const Model) i18n.SettingsRefreshChrome {
         return i18n.settingsRefreshChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6726,6 +6730,30 @@ pub const Model = struct {
     /// Settings Usage identity. Same untitled chrome as the header.
     pub fn settings_usage_session_label(model: *const Model) []const u8 {
         return model.header_title();
+    }
+
+    /// Settings Usage + composer Usage meter panel heading.
+    /// Distinct from `context_usage_label` (numeric occupancy) and
+    /// from `i18n.Chrome.usage` (nav "Usage").
+    pub fn context_window_label(model: *const Model) []const u8 {
+        return model.usageLocalChrome().context_window;
+    }
+
+    /// Settings Usage empty-state when `context_size == 0`.
+    /// Distinct from UsageMeterChrome `nothing_measured`.
+    pub fn no_context_usage_label(model: *const Model) []const u8 {
+        return model.usageLocalChrome().no_context_usage;
+    }
+
+    /// Settings Usage thread-goal tokens heading. Distinct from
+    /// `goal_usage_label` (numeric occupancy).
+    pub fn thread_goal_tokens_label(model: *const Model) []const u8 {
+        return model.usageLocalChrome().thread_goal_tokens;
+    }
+
+    /// Settings Usage empty-state when thread-goal usage is missing.
+    pub fn no_thread_goal_usage_label(model: *const Model) []const u8 {
+        return model.usageLocalChrome().no_thread_goal_usage;
     }
 
     pub fn usage_view_daily(model: *const Model) bool {

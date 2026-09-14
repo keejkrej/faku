@@ -218,6 +218,12 @@
 //! the Settings Usage history connect hint stays independently
 //! evolvable; numbers, Latin `m`/`h`/`d`, and ` · ` stay; daemon
 //! plan window labels / planLabel stay English data this cut)
+//! plus Settings Usage local session cards and the composer Usage
+//! meter panel Context window heading (same `UsageLocalChrome`
+//! strings; distinct from `Chrome.usage` / UsageMeterChrome /
+//! UsageSessionsChrome / UsageViewChrome / FilterChrome
+//! no_project_usage so local session chrome stays independently
+//! evolvable; wire ids / numeric usage values stay English/data)
 //! plus Settings Providers Available / Not found, Enable /
 //! Disable, Use for this session, Copy install command / Copy login
 //! command, and First-party default (same `ProvidersChrome` strings;
@@ -397,6 +403,14 @@
 //! `GoalStatusChrome` strings; distinct from ComposerChrome
 //! Status placeholder; wire ids / on-press `pick_goal_status`
 //! / stored session status stay English).
+//! Settings Usage local session cards (Context window / No
+//! context usage reported yet / Thread goal tokens / No thread
+//! goal usage) plus the composer Usage meter panel Context
+//! window heading follow the resolved locale this cut (same
+//! `UsageLocalChrome` strings; distinct from `Chrome.usage` /
+//! UsageMeterChrome / UsageSessionsChrome / UsageViewChrome /
+//! FilterChrome no_project_usage; wire ids / numeric usage
+//! values stay English/data).
 //! Typed URL text
 //! stays data. Parked `home_url`
 //! / scene URLs stay data. OS
@@ -3088,6 +3102,46 @@ const usage_meter_chrome_ja: UsageMeterChrome = .{
     .resets_in = "あと",
 };
 
+/// Settings Usage local session cards (Context window / empty
+/// context / Thread goal tokens / empty thread-goal) plus the
+/// composer Usage meter panel Context window heading for the
+/// resolved locale. Same resolve path as UsageMeterChrome.
+/// English matches the former hardcoded copy. Distinct from
+/// `Chrome.usage` (nav "Usage"), UsageMeterChrome (plan-usage
+/// hints / Nothing measured yet / Plan limits),
+/// UsageSessionsChrome (sessions unit / connect daemon for
+/// history), UsageViewChrome (Daily/Monthly/Projects chips),
+/// and FilterChrome `no_project_usage` / `no_matching_projects`
+/// so local session chrome stays independently evolvable. Wire
+/// ids / numeric usage values stay English/data.
+pub const UsageLocalChrome = struct {
+    context_window: []const u8,
+    no_context_usage: []const u8,
+    thread_goal_tokens: []const u8,
+    no_thread_goal_usage: []const u8,
+};
+
+const usage_local_chrome_en: UsageLocalChrome = .{
+    .context_window = "Context window",
+    .no_context_usage = "No context usage reported yet",
+    .thread_goal_tokens = "Thread goal tokens",
+    .no_thread_goal_usage = "No thread goal usage",
+};
+
+const usage_local_chrome_zh_cn: UsageLocalChrome = .{
+    .context_window = "上下文窗口",
+    .no_context_usage = "尚未报告上下文用量",
+    .thread_goal_tokens = "线程目标 Token",
+    .no_thread_goal_usage = "没有线程目标用量",
+};
+
+const usage_local_chrome_ja: UsageLocalChrome = .{
+    .context_window = "コンテキストウィンドウ",
+    .no_context_usage = "コンテキスト使用量はまだ報告されていません",
+    .thread_goal_tokens = "スレッド目標トークン",
+    .no_thread_goal_usage = "スレッド目標の使用量はありません",
+};
+
 /// Settings Providers status, Enable/Disable chip, Apply, Copy
 /// install/login, and First-party default for the resolved locale.
 /// Same resolve path as UsageSessionsChrome. English matches the
@@ -4118,6 +4172,22 @@ pub fn usageMeterChromeFor(preference: LanguagePreference, system_locale_id: []c
         .simplified_chinese => usage_meter_chrome_zh_cn,
         .japanese => usage_meter_chrome_ja,
         .system, .english => usage_meter_chrome_en,
+    };
+}
+
+/// Settings Usage local session cards and composer Usage meter
+/// panel Context window heading for the resolved locale.
+/// Callers pass Model `language_preference` + `system_locale_id`;
+/// this file does not read process env. Distinct from
+/// `Chrome.usage` / UsageMeterChrome / UsageSessionsChrome /
+/// UsageViewChrome / FilterChrome so local session chrome stays
+/// independently evolvable. Wire ids / numeric usage values stay
+/// English/data.
+pub fn usageLocalChromeFor(preference: LanguagePreference, system_locale_id: []const u8) UsageLocalChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => usage_local_chrome_zh_cn,
+        .japanese => usage_local_chrome_ja,
+        .system, .english => usage_local_chrome_en,
     };
 }
 
@@ -6645,6 +6715,40 @@ test "usageMeterChromeFor english default; zh and ja chrome; english ignores ja 
     try testing.expectEqualStrings("Plan limits", usageMeterChromeFor(.english, "ja_JP.UTF-8").plan_limits);
     try testing.expectEqualStrings("Resets soon", usageMeterChromeFor(.english, "zh_CN.UTF-8").resets_soon);
     try testing.expectEqualStrings("Resets in", usageMeterChromeFor(.english, "ja_JP.UTF-8").resets_in);
+}
+
+test "usageLocalChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Context window", usageLocalChromeFor(.english, "ja").context_window);
+    try testing.expectEqualStrings("No context usage reported yet", usageLocalChromeFor(.english, "").no_context_usage);
+    try testing.expectEqualStrings("Thread goal tokens", usageLocalChromeFor(.english, "").thread_goal_tokens);
+    try testing.expectEqualStrings("No thread goal usage", usageLocalChromeFor(.english, "").no_thread_goal_usage);
+    try testing.expectEqualStrings("Context window", usageLocalChromeFor(.system, "").context_window);
+    try testing.expectEqualStrings("No context usage reported yet", usageLocalChromeFor(.system, "").no_context_usage);
+    try testing.expectEqualStrings("Thread goal tokens", usageLocalChromeFor(.system, "").thread_goal_tokens);
+    try testing.expectEqualStrings("No thread goal usage", usageLocalChromeFor(.system, "").no_thread_goal_usage);
+
+    try testing.expectEqualStrings("上下文窗口", usageLocalChromeFor(.simplified_chinese, "").context_window);
+    try testing.expectEqualStrings("尚未报告上下文用量", usageLocalChromeFor(.simplified_chinese, "").no_context_usage);
+    try testing.expectEqualStrings("线程目标 Token", usageLocalChromeFor(.simplified_chinese, "").thread_goal_tokens);
+    try testing.expectEqualStrings("没有线程目标用量", usageLocalChromeFor(.simplified_chinese, "").no_thread_goal_usage);
+    try testing.expectEqualStrings("コンテキストウィンドウ", usageLocalChromeFor(.japanese, "").context_window);
+    try testing.expectEqualStrings("コンテキスト使用量はまだ報告されていません", usageLocalChromeFor(.japanese, "").no_context_usage);
+    try testing.expectEqualStrings("スレッド目標トークン", usageLocalChromeFor(.japanese, "").thread_goal_tokens);
+    try testing.expectEqualStrings("スレッド目標の使用量はありません", usageLocalChromeFor(.japanese, "").no_thread_goal_usage);
+
+    try testing.expectEqualStrings("上下文窗口", usageLocalChromeFor(.system, "zh_CN.UTF-8").context_window);
+    try testing.expectEqualStrings("尚未报告上下文用量", usageLocalChromeFor(.system, "zh_CN.UTF-8").no_context_usage);
+    try testing.expectEqualStrings("线程目标 Token", usageLocalChromeFor(.system, "zh_CN.UTF-8").thread_goal_tokens);
+    try testing.expectEqualStrings("没有线程目标用量", usageLocalChromeFor(.system, "zh_CN.UTF-8").no_thread_goal_usage);
+    try testing.expectEqualStrings("コンテキストウィンドウ", usageLocalChromeFor(.system, "ja_JP.UTF-8").context_window);
+    try testing.expectEqualStrings("コンテキスト使用量はまだ報告されていません", usageLocalChromeFor(.system, "ja_JP.UTF-8").no_context_usage);
+    try testing.expectEqualStrings("スレッド目標トークン", usageLocalChromeFor(.system, "ja_JP.UTF-8").thread_goal_tokens);
+    try testing.expectEqualStrings("スレッド目標の使用量はありません", usageLocalChromeFor(.system, "ja_JP.UTF-8").no_thread_goal_usage);
+    try testing.expectEqualStrings("Context window", usageLocalChromeFor(.english, "ja_JP.UTF-8").context_window);
+    try testing.expectEqualStrings("No context usage reported yet", usageLocalChromeFor(.english, "zh_CN.UTF-8").no_context_usage);
+    try testing.expectEqualStrings("Thread goal tokens", usageLocalChromeFor(.english, "ja_JP.UTF-8").thread_goal_tokens);
+    try testing.expectEqualStrings("No thread goal usage", usageLocalChromeFor(.english, "zh_CN.UTF-8").no_thread_goal_usage);
 }
 
 test "providersChromeFor english default; zh and ja chrome; english ignores ja LANG" {

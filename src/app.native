@@ -439,24 +439,24 @@
                 <text wrap="false" overflow="ellipsis" foreground="text_muted">{settings_usage_session_label}</text>
                 <card size="sm" padding="10">
                   <column gap="8">
-                    <text>Context window</text>
+                    <text>{context_window_label}</text>
                     <if test="{has_context_usage}">
                       <text wrap="false" overflow="ellipsis">{context_usage_label}</text>
                       <progress value="{context_usage}" width="48" height="6" label="Context usage" />
                     </if>
                     <else>
-                      <text wrap="true" foreground="text_muted">No context usage reported yet</text>
+                      <text wrap="true" foreground="text_muted">{no_context_usage_label}</text>
                     </else>
                   </column>
                 </card>
                 <card size="sm" padding="10">
                   <column gap="8">
-                    <text>Thread goal tokens</text>
+                    <text>{thread_goal_tokens_label}</text>
                     <if test="{has_goal_usage}">
                       <text wrap="false" overflow="ellipsis">{goal_usage_label}</text>
                     </if>
                     <else>
-                      <text wrap="true" foreground="text_muted">No thread goal usage</text>
+                      <text wrap="true" foreground="text_muted">{no_thread_goal_usage_label}</text>
                     </else>
                   </column>
                 </card>
@@ -1068,7 +1068,7 @@
                   <dropdown-menu anchor="above" anchor-alignment="start" on-dismiss="close_usage_meter">
                     <card size="sm" padding="10">
                       <column gap="8">
-                        <text>Context window</text>
+                        <text>{context_window_label}</text>
                         <text wrap="false" overflow="ellipsis" foreground="text_muted">{usage_meter_context_label}</text>
                         <progress value="{usage_meter_progress}" width="48" height="6" label="Session context" />
                         <if test="{usage_meter_plan_visible}">
