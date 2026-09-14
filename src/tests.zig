@@ -29113,6 +29113,8 @@ test "Composer Send and Stop a11y chrome follows Appearance language" {
     try testing.expectEqualStrings("Stop", model.composer_stop_label());
     try testing.expectEqualStrings(i18n.composerSendStopChromeFor(.english, "").send, model.composer_send_label());
     try testing.expectEqualStrings(i18n.composerSendStopChromeFor(.english, "").stop, model.composer_stop_label());
+    try testing.expectEqualStrings("Send", model.send_label());
+    try testing.expectEqualStrings(model.composer_send_label(), model.send_label());
     try testing.expect(!model.has_draft());
     try testing.expect(!model.is_streaming());
 
@@ -29132,6 +29134,8 @@ test "Composer Send and Stop a11y chrome follows Appearance language" {
     tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "Stop", .stop_turn);
     try testing.expect(findByText(tree.root, .button, "Send") == null);
+    try testing.expectEqualStrings("Stop", model.send_label());
+    try testing.expectEqualStrings(model.composer_stop_label(), model.send_label());
 
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("发送", model.composer_send_label());
@@ -29193,6 +29197,83 @@ test "Composer Send and Stop a11y chrome follows Appearance language" {
     _ = try expectButtonMsg(tree, "停止", .stop_turn);
     try testing.expect(findByText(tree.root, .button, "Stop") == null);
     try testing.expect(findByText(tree.root, .button, "Send") == null);
+}
+
+test "composer send_label follows Appearance language" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"{send_label}\""));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "label=\"{composer_send_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{composer_stop_label}\""));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "on-press=\"send\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"stop_turn\""));
+
+    var model = main.initialModel();
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqualStrings("Send", model.send_label());
+    try testing.expectEqualStrings(i18n.composerSendStopChromeFor(.english, "").send, model.send_label());
+    try testing.expectEqualStrings(model.composer_send_label(), model.send_label());
+    try testing.expect(!std.mem.eql(u8, model.send_label(), model.composer_stop_label()));
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "hello" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqualStrings("Stop", model.send_label());
+    try testing.expectEqualStrings(i18n.composerSendStopChromeFor(.english, "").stop, model.send_label());
+    try testing.expectEqualStrings(model.composer_stop_label(), model.send_label());
+    try testing.expect(!std.mem.eql(u8, model.send_label(), model.composer_send_label()));
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("停止", model.send_label());
+    try testing.expectEqualStrings(i18n.composerSendStopChromeFor(.simplified_chinese, "").stop, model.send_label());
+    try testing.expectEqualStrings(model.composer_stop_label(), model.send_label());
+    try testing.expectEqualStrings("发送", model.composer_send_label());
+
+    main.update(&model, .stop_turn, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqualStrings("发送", model.send_label());
+    try testing.expectEqualStrings(i18n.composerSendStopChromeFor(.simplified_chinese, "").send, model.send_label());
+    try testing.expectEqualStrings(model.composer_send_label(), model.send_label());
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("送信", model.send_label());
+    try testing.expectEqualStrings(i18n.composerSendStopChromeFor(.japanese, "").send, model.send_label());
+    try testing.expectEqualStrings(model.composer_send_label(), model.send_label());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "hello ja" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqualStrings("停止", model.send_label());
+    try testing.expectEqualStrings(i18n.composerSendStopChromeFor(.japanese, "").stop, model.send_label());
+    try testing.expectEqualStrings(model.composer_stop_label(), model.send_label());
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Stop", model.send_label());
+    try testing.expectEqualStrings(i18n.composerSendStopChromeFor(.english, "ja_JP.UTF-8").stop, model.send_label());
+    try testing.expectEqualStrings("Send", model.composer_send_label());
+    try testing.expectEqualStrings("Stop", model.composer_stop_label());
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("停止", model.send_label());
+    try testing.expectEqualStrings(i18n.composerSendStopChromeFor(.system, "zh_CN.UTF-8").stop, model.send_label());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("停止", model.send_label());
+    try testing.expectEqualStrings(i18n.composerSendStopChromeFor(.system, "ja_JP.UTF-8").stop, model.send_label());
+
+    main.update(&model, .stop_turn, &fx);
+    try testing.expect(!model.is_streaming());
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("发送", model.send_label());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("送信", model.send_label());
+    model.language_preference = .english;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("Send", model.send_label());
 }
 
 test "composer textarea placeholders follow Appearance language" {

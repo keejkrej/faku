@@ -103,11 +103,13 @@
 //! matches `PaletteChrome.commands` but stays a separate field so
 //! the composer chip does not couple to the palette overlay
 //! header; Clear image `on-press` stays `clear_image_attach`)
-//! plus composer primary Send / Stop a11y labels (same
-//! `ComposerSendStopChrome` strings; distinct from
+//! plus composer primary Send / Stop a11y labels and visible
+//! `send_label` (same `ComposerSendStopChrome` strings; idle
+//! `send` / streaming `stop`; distinct from
 //! `BackgroundChrome.daemon_stop` / `ComposerChrome` so composer
 //! Send/Stop stay independently evolvable; `on-press` stays
-//! `send` / `stop_turn`)
+//! `send` / `stop_turn`; icon-button a11y stays
+//! `composer_send_label` / `composer_stop_label`)
 //! plus composer textarea idle / streaming placeholders (same
 //! `ComposerPlaceholderChrome` strings; distinct from
 //! `QueueChrome` / `ComposerChrome` / `ComposerSendStopChrome` so
@@ -1833,12 +1835,15 @@ const composer_chrome_ja: ComposerChrome = .{
     .commands = "コマンド",
 };
 
-/// Composer primary Send / Stop a11y labels for the resolved locale.
-/// Same resolve path as ComposerChrome. English matches the former
-/// hardcoded copy. Distinct from `BackgroundChrome.daemon_stop` and
-/// from `ComposerChrome` (image/goal/commands) so composer Send/Stop
-/// stay independently evolvable. Wire ids / on-press stay English
-/// (`send` / `stop_turn`).
+/// Composer primary Send / Stop a11y labels and visible `send_label`
+/// for the resolved locale. Same resolve path as ComposerChrome.
+/// English matches the former hardcoded copy. Distinct from
+/// `BackgroundChrome.daemon_stop` and from `ComposerChrome`
+/// (image/goal/commands) so composer Send/Stop stay independently
+/// evolvable. Wire ids / on-press stay English (`send` /
+/// `stop_turn`). Visible `send_label` is idle `send` / streaming
+/// `stop`; icon-button a11y stays `composer_send_label` /
+/// `composer_stop_label`.
 pub const ComposerSendStopChrome = struct {
     send: []const u8,
     stop: []const u8,
@@ -3223,12 +3228,15 @@ pub fn composerChromeFor(preference: LanguagePreference, system_locale_id: []con
     };
 }
 
-/// Composer primary Send / Stop a11y labels for the resolved locale.
-/// Callers pass Model `language_preference` + `system_locale_id`;
-/// this file does not read process env. Distinct from
-/// BackgroundChrome.daemon_stop / ComposerChrome so composer
-/// Send/Stop stay independently evolvable. Wire ids / on-press stay
-/// English (`send` / `stop_turn`).
+/// Composer primary Send / Stop a11y labels and visible `send_label`
+/// for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does not
+/// read process env. Distinct from BackgroundChrome.daemon_stop /
+/// ComposerChrome so composer Send/Stop stay independently
+/// evolvable. Wire ids / on-press stay English (`send` /
+/// `stop_turn`). Visible `send_label` is idle `send` / streaming
+/// `stop`; icon-button a11y stays `composer_send_label` /
+/// `composer_stop_label`.
 pub fn composerSendStopChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ComposerSendStopChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => composer_send_stop_chrome_zh_cn,
@@ -4905,6 +4913,8 @@ test "composerSendStopChromeFor english default; zh and ja chrome; english ignor
     try testing.expectEqualStrings("Stop", composerSendStopChromeFor(.english, "ja_JP.UTF-8").stop);
     try testing.expectEqualStrings("Send", composerSendStopChromeFor(.english, "zh_CN.UTF-8").send);
     try testing.expectEqualStrings("Stop", composerSendStopChromeFor(.english, "zh_CN.UTF-8").stop);
+
+    try testing.expect(!std.mem.eql(u8, composerSendStopChromeFor(.english, "").send, composerSendStopChromeFor(.english, "").stop));
 }
 
 test "composerPlaceholderChromeFor english default; zh and ja chrome; english ignores ja LANG" {
