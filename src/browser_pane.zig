@@ -15,10 +15,11 @@
 //! Native `WebViewPane` has no title callback). Empty history keeps
 //! occupancy-order `1`..`4`. Each occupied slot keeps its own
 //! address-bar draft, committed history ring, history index, and
-//! `reload_token`. Cmd/Ctrl-Shift-R Hard Reload is a Faku-side
-//! `about:blank` hop plus `reload_token` on the next update tick
-//! (Native `WebViewPane` documents only `url` + `reload_token`; not
-//! Waku cache-clear). Inactive occupied slots park at 1×1 with
+//! `reload_token`. Cmd/Ctrl-Shift-R Hard Reload (chord and toolbar) is
+//! a Faku-side `about:blank` hop plus `reload_token` on the next update
+//! tick (Native `WebViewPane` documents only `url` + `reload_token`;
+//! not Waku cache-clear; no hard-reload flag). Inactive occupied slots
+//! park at 1×1 with
 //! `anchor = null` so they do not overlay Files/Diff/Terminal but keep
 //! the webview process/state. Unopened slots stay parked at the home
 //! placeholder. Hidden Browser parks **all** panes the same way.

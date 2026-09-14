@@ -748,9 +748,9 @@ pub const Msg = union(enum) {
     browser_reload,
     /// Hard Reload via documented Native `url` + `reload_token` only
     /// (`about:blank` hop, then restore + token bump on the next
-    /// update tick). Cmd/Ctrl-Shift-R. Same keyboard / has-page gate as
-    /// `browser_reload`. Not Waku cache-clear; Native has no
-    /// hard-reload flag. Keyboard-only this cut (no toolbar chrome).
+    /// update tick). Cmd/Ctrl-Shift-R and toolbar. Same keyboard /
+    /// has-page gate as `browser_reload`. Not Waku cache-clear; Native
+    /// has no hard-reload flag. `on-press` stays `browser_hard_reload`.
     browser_hard_reload,
     /// Walk the app-owned Browser history backward.
     browser_back,
@@ -851,7 +851,7 @@ pub const Msg = union(enum) {
     fx_probe_exit: native_sdk.EffectExit,
     cli_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "cli_probe_exit", "term_pty", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "focus_browser_or_composer", "open_find", "open_file_preview_find_replace", "clipboard_done", "attach_preview_done", "file_preview_image_done", "transcript_image_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app", "start_image_attach", "show_right_panel", "navigate_back", "navigate_forward", "browser_hard_reload" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "cli_probe_exit", "term_pty", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "focus_browser_or_composer", "open_find", "open_file_preview_find_replace", "clipboard_done", "attach_preview_done", "file_preview_image_done", "transcript_image_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app", "start_image_attach", "show_right_panel", "navigate_back", "navigate_forward" };
 };
 
 pub const Model = struct {
@@ -3077,9 +3077,16 @@ pub const Model = struct {
     }
 
     /// Browser toolbar Reload a11y. Distinct from Files preview
-    /// Reload. `on-press` stays `browser_reload`.
+    /// Reload and from Hard Reload. `on-press` stays `browser_reload`.
     pub fn browser_reload_label(model: *const Model) []const u8 {
         return model.browserToolbarChrome().reload;
+    }
+
+    /// Browser toolbar Hard Reload a11y. Distinct from Reload.
+    /// `on-press` stays `browser_hard_reload`. Same disable gate as
+    /// Reload (`browser_reload_disabled`).
+    pub fn browser_hard_reload_label(model: *const Model) []const u8 {
+        return model.browserToolbarChrome().hard_reload;
     }
 
     /// Browser toolbar Navigate button. `on-press` stays

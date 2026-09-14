@@ -25,8 +25,9 @@
 //! `browser-web-0`..`browser-web-3`, chips + New + Close; occupied
 //! chips show host or truncated `display_url` from the committed URL;
 //! slot URLs and history rings persist; `reload_token` stays runtime-only;
-//! Cmd/Ctrl-Shift-R Hard Reload is a Faku-side `about:blank` hop plus
-//! `reload_token` (Native `web_panes` has no hard-reload flag);
+//! Cmd/Ctrl-Shift-R Hard Reload (chord and toolbar) is a Faku-side
+//! `about:blank` hop plus `reload_token` (Native `web_panes` has no
+//! hard-reload flag);
 //! not Waku `page_title` / surface UUID tabs / DevTools). When the Browser
 //! tab is hidden every pane parks at 1×1 with no anchor so Native does
 //! not keep the last webview frame over Files/Diff/Terminal. Inactive
