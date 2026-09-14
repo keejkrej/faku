@@ -54,8 +54,13 @@
 //! Could not delete branch. / Could not fetch. / Could not push.
 //! (same `BranchOpStatusChrome` strings; distinct from
 //! `BranchChrome` / `CommitChrome` / `WorktreeStatusChrome` /
-//! `WorkspaceChrome`; worktree stays Latin in zh-CN / ja; commit
-//! attach-status leftovers stay English this cut) plus daemon-dir
+//! `WorkspaceChrome`; worktree stays Latin in zh-CN / ja) plus
+//! Commit… attach-status Enter a commit message. / Could not
+//! commit. / Nothing staged to commit. / Could not generate a
+//! commit message. (same `CommitAttachStatusChrome` strings;
+//! distinct from `CommitChrome` pending Generating… /
+//! `BranchOpStatusChrome` / `WorktreeStatusChrome` /
+//! `WorkspaceChrome`) plus daemon-dir
 //! in-app browser Up / Home / Choose / Loading… (same `DaemonDirChrome`
 //! strings; Cancel reuses `CommitChrome`) plus session-switcher
 //! title / Switch (same `SwitcherChrome` strings; Cancel reuses
@@ -276,8 +281,13 @@
 //! follow the resolved locale this cut (same `BranchOpStatusChrome`
 //! strings; distinct from `BranchChrome` / `CommitChrome` /
 //! `WorktreeStatusChrome` / `WorkspaceChrome`; worktree stays Latin
-//! in zh-CN / ja; commit attach-status leftovers stay English this
-//! cut).
+//! in zh-CN / ja).
+//! Commit… attach status Enter a commit message. / Could not
+//! commit. / Nothing staged to commit. / Could not generate a
+//! commit message. follow the resolved locale this cut (same
+//! `CommitAttachStatusChrome` strings; distinct from `CommitChrome`
+//! pending Generating… / `BranchOpStatusChrome` /
+//! `WorktreeStatusChrome` / `WorkspaceChrome`).
 //! Daemon-dir browser `on-press` stays English
 //! (`daemon_dir_browser_up` / `daemon_dir_browser_home` /
 //! `confirm_daemon_dir_browser` / `cancel_daemon_dir_browser`).
@@ -1386,7 +1396,9 @@ const file_preview_chrome_ja: FilePreviewChrome = .{
 /// the former hardcoded copy. Branch-picker `Commit…` / `Push…`
 /// live in `BranchChrome`. Delete / push-confirm Force / Push /
 /// Cancel reuse `force` / `push` / `cancel` here.
-/// `git_commit.zig` status strings stay leftover English.
+/// Commit attach-status Enter a commit message. / Could not
+/// commit. / Nothing staged to commit. / Could not generate a
+/// commit message. live in `CommitAttachStatusChrome`.
 pub const CommitChrome = struct {
     commit_message: []const u8,
     include_unstaged: []const u8,
@@ -1578,8 +1590,8 @@ const workspace_chrome_ja: WorkspaceChrome = .{
 /// Worktree is git jargon and stays Latin in zh-CN / ja. Creating
 /// uses the ellipsis character (same style as CommitChrome
 /// generating / amending). Branch-op attach statuses live on
-/// `BranchOpStatusChrome`. Commit attach-status leftovers stay
-/// English this cut. Wire ids / on-press / git argv stay English.
+/// `BranchOpStatusChrome`. Commit attach-status lives on
+/// `CommitAttachStatusChrome`. Wire ids / on-press / git argv stay English.
 pub const WorktreeStatusChrome = struct {
     creating: []const u8,
     create_failed: []const u8,
@@ -1611,9 +1623,8 @@ const worktree_status_chrome_ja: WorktreeStatusChrome = .{
 /// Work in / Local / New worktree (`WorkspaceChrome`) so branch-op
 /// attach-status chrome stays independently evolvable. Worktree is
 /// git jargon and stays Latin in zh-CN / ja where it appears in the
-/// occupied string. Commit attach-status leftovers (Could not
-/// commit / generate / Nothing staged / Enter a commit message)
-/// stay English this cut. Wire ids / on-press / git argv stay
+/// occupied string. Commit attach-status lives on
+/// `CommitAttachStatusChrome`. Wire ids / on-press / git argv stay
 /// English.
 pub const BranchOpStatusChrome = struct {
     checkout_failed: []const u8,
@@ -1651,8 +1662,47 @@ const branch_op_status_chrome_ja: BranchOpStatusChrome = .{
     .push_failed = "プッシュできませんでした。",
 };
 
+/// Commit… attach-status Enter a commit message. / Could not
+/// commit. / Nothing staged to commit. / Could not generate a
+/// commit message. for the resolved locale. Same resolve path as
+/// BranchOpStatusChrome. English matches the former hardcoded copy.
+/// Distinct from Commit dialog labels / pending Generating… /
+/// Amending… / Committing… / Committing and pushing… / Pushing…
+/// (`CommitChrome`), branch-op Could not push. (`BranchOpStatusChrome`),
+/// Send-prep Creating worktree… (`WorktreeStatusChrome`), and
+/// workspace picker (`WorkspaceChrome`) so commit attach-status
+/// chrome stays independently evolvable. Wire ids / on-press / git
+/// argv stay English.
+pub const CommitAttachStatusChrome = struct {
+    empty_message: []const u8,
+    commit_failed: []const u8,
+    nothing_staged: []const u8,
+    generate_failed: []const u8,
+};
+
+const commit_attach_status_chrome_en: CommitAttachStatusChrome = .{
+    .empty_message = "Enter a commit message.",
+    .commit_failed = "Could not commit.",
+    .nothing_staged = "Nothing staged to commit.",
+    .generate_failed = "Could not generate a commit message.",
+};
+
+const commit_attach_status_chrome_zh_cn: CommitAttachStatusChrome = .{
+    .empty_message = "请输入提交信息。",
+    .commit_failed = "无法提交。",
+    .nothing_staged = "没有可提交的暂存更改。",
+    .generate_failed = "无法生成提交信息。",
+};
+
+const commit_attach_status_chrome_ja: CommitAttachStatusChrome = .{
+    .empty_message = "コミットメッセージを入力してください。",
+    .commit_failed = "コミットできませんでした。",
+    .nothing_staged = "コミットするステージ済みの変更がありません。",
+    .generate_failed = "コミットメッセージを生成できませんでした。",
+};
+
 /// Daemon-dir in-app BrowseDirectory browser chrome for the resolved
-/// locale. Same resolve path as BranchOpStatusChrome. Wire ids / on-press
+/// locale. Same resolve path as CommitAttachStatusChrome. Wire ids / on-press
 /// stay English (`daemon_dir_browser_up` / `daemon_dir_browser_home` /
 /// `confirm_daemon_dir_browser` / `cancel_daemon_dir_browser`).
 /// English matches the former hardcoded copy. Cancel reuses
@@ -3282,7 +3332,8 @@ pub fn filePreviewChromeFor(preference: LanguagePreference, system_locale_id: []
 /// pass Model `language_preference` + `system_locale_id`; this file
 /// does not read process env. Wire ids / on-press / on-input stay
 /// English. Branch-picker / create / delete / push-confirm chrome
-/// lives on `branchChromeFor`.
+/// lives on `branchChromeFor`. Commit attach-status lives on
+/// `commitAttachStatusChromeFor`.
 pub fn commitChromeFor(preference: LanguagePreference, system_locale_id: []const u8) CommitChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => commit_chrome_zh_cn,
@@ -3341,12 +3392,27 @@ pub fn worktreeStatusChromeFor(preference: LanguagePreference, system_locale_id:
 /// `system_locale_id`; this file does not read process env. Distinct
 /// from BranchChrome menu labels / CommitChrome / WorktreeStatusChrome
 /// / WorkspaceChrome. Worktree stays Latin in zh-CN / ja. Commit
-/// attach-status leftovers stay English this cut.
+/// attach-status lives on `commitAttachStatusChromeFor`.
 pub fn branchOpStatusChromeFor(preference: LanguagePreference, system_locale_id: []const u8) BranchOpStatusChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => branch_op_status_chrome_zh_cn,
         .japanese => branch_op_status_chrome_ja,
         .system, .english => branch_op_status_chrome_en,
+    };
+}
+
+/// Commit… Enter a commit message. / Could not commit. / Nothing
+/// staged to commit. / Could not generate a commit message. attach
+/// status for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does not
+/// read process env. Distinct from CommitChrome dialog labels /
+/// pending Generating… / BranchOpStatusChrome / WorktreeStatusChrome
+/// / WorkspaceChrome.
+pub fn commitAttachStatusChromeFor(preference: LanguagePreference, system_locale_id: []const u8) CommitAttachStatusChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => commit_attach_status_chrome_zh_cn,
+        .japanese => commit_attach_status_chrome_ja,
+        .system, .english => commit_attach_status_chrome_en,
     };
 }
 
@@ -5031,6 +5097,60 @@ test "branchOpStatusChromeFor english default; zh and ja chrome; english ignores
     try testing.expect(!std.mem.eql(u8, branchOpStatusChromeFor(.japanese, "").fetch_failed, branchChromeFor(.japanese, "").fetch_menu));
     try testing.expect(std.mem.indexOf(u8, branchOpStatusChromeFor(.simplified_chinese, "").occupied_checkout, "worktree") != null);
     try testing.expect(std.mem.indexOf(u8, branchOpStatusChromeFor(.japanese, "").occupied_checkout, "worktree") != null);
+}
+
+test "commitAttachStatusChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Enter a commit message.", commitAttachStatusChromeFor(.english, "ja").empty_message);
+    try testing.expectEqualStrings("Could not commit.", commitAttachStatusChromeFor(.english, "ja").commit_failed);
+    try testing.expectEqualStrings("Nothing staged to commit.", commitAttachStatusChromeFor(.english, "ja").nothing_staged);
+    try testing.expectEqualStrings("Could not generate a commit message.", commitAttachStatusChromeFor(.english, "ja").generate_failed);
+    try testing.expectEqualStrings("Enter a commit message.", commitAttachStatusChromeFor(.english, "").empty_message);
+    try testing.expectEqualStrings("Could not commit.", commitAttachStatusChromeFor(.english, "").commit_failed);
+    try testing.expectEqualStrings("Nothing staged to commit.", commitAttachStatusChromeFor(.english, "").nothing_staged);
+    try testing.expectEqualStrings("Could not generate a commit message.", commitAttachStatusChromeFor(.english, "").generate_failed);
+    try testing.expectEqualStrings("Enter a commit message.", commitAttachStatusChromeFor(.system, "").empty_message);
+    try testing.expectEqualStrings("Could not commit.", commitAttachStatusChromeFor(.system, "").commit_failed);
+    try testing.expectEqualStrings("Nothing staged to commit.", commitAttachStatusChromeFor(.system, "").nothing_staged);
+    try testing.expectEqualStrings("Could not generate a commit message.", commitAttachStatusChromeFor(.system, "").generate_failed);
+
+    try testing.expectEqualStrings("请输入提交信息。", commitAttachStatusChromeFor(.simplified_chinese, "").empty_message);
+    try testing.expectEqualStrings("无法提交。", commitAttachStatusChromeFor(.simplified_chinese, "").commit_failed);
+    try testing.expectEqualStrings("没有可提交的暂存更改。", commitAttachStatusChromeFor(.simplified_chinese, "").nothing_staged);
+    try testing.expectEqualStrings("无法生成提交信息。", commitAttachStatusChromeFor(.simplified_chinese, "").generate_failed);
+    try testing.expectEqualStrings("コミットメッセージを入力してください。", commitAttachStatusChromeFor(.japanese, "").empty_message);
+    try testing.expectEqualStrings("コミットできませんでした。", commitAttachStatusChromeFor(.japanese, "").commit_failed);
+    try testing.expectEqualStrings("コミットするステージ済みの変更がありません。", commitAttachStatusChromeFor(.japanese, "").nothing_staged);
+    try testing.expectEqualStrings("コミットメッセージを生成できませんでした。", commitAttachStatusChromeFor(.japanese, "").generate_failed);
+
+    try testing.expectEqualStrings("请输入提交信息。", commitAttachStatusChromeFor(.system, "zh_CN.UTF-8").empty_message);
+    try testing.expectEqualStrings("无法提交。", commitAttachStatusChromeFor(.system, "zh_CN.UTF-8").commit_failed);
+    try testing.expectEqualStrings("没有可提交的暂存更改。", commitAttachStatusChromeFor(.system, "zh_CN.UTF-8").nothing_staged);
+    try testing.expectEqualStrings("无法生成提交信息。", commitAttachStatusChromeFor(.system, "zh_CN.UTF-8").generate_failed);
+    try testing.expectEqualStrings("コミットメッセージを入力してください。", commitAttachStatusChromeFor(.system, "ja_JP.UTF-8").empty_message);
+    try testing.expectEqualStrings("コミットできませんでした。", commitAttachStatusChromeFor(.system, "ja_JP.UTF-8").commit_failed);
+    try testing.expectEqualStrings("コミットするステージ済みの変更がありません。", commitAttachStatusChromeFor(.system, "ja_JP.UTF-8").nothing_staged);
+    try testing.expectEqualStrings("コミットメッセージを生成できませんでした。", commitAttachStatusChromeFor(.system, "ja_JP.UTF-8").generate_failed);
+    try testing.expectEqualStrings("Enter a commit message.", commitAttachStatusChromeFor(.english, "ja_JP.UTF-8").empty_message);
+    try testing.expectEqualStrings("Could not commit.", commitAttachStatusChromeFor(.english, "zh_CN.UTF-8").commit_failed);
+    try testing.expectEqualStrings("Nothing staged to commit.", commitAttachStatusChromeFor(.english, "zh_CN.UTF-8").nothing_staged);
+    try testing.expectEqualStrings("Could not generate a commit message.", commitAttachStatusChromeFor(.english, "ja_JP.UTF-8").generate_failed);
+
+    try testing.expect(!std.mem.eql(u8, commitAttachStatusChromeFor(.english, "").empty_message, commitAttachStatusChromeFor(.english, "").commit_failed));
+    try testing.expect(!std.mem.eql(u8, commitAttachStatusChromeFor(.english, "").commit_failed, commitAttachStatusChromeFor(.english, "").nothing_staged));
+    try testing.expect(!std.mem.eql(u8, commitAttachStatusChromeFor(.english, "").commit_failed, commitAttachStatusChromeFor(.english, "").generate_failed));
+    try testing.expect(!std.mem.eql(u8, commitAttachStatusChromeFor(.english, "").empty_message, commitChromeFor(.english, "").commit_message));
+    try testing.expect(!std.mem.eql(u8, commitAttachStatusChromeFor(.english, "").commit_failed, commitChromeFor(.english, "").committing));
+    try testing.expect(!std.mem.eql(u8, commitAttachStatusChromeFor(.english, "").generate_failed, commitChromeFor(.english, "").generating));
+    try testing.expect(!std.mem.eql(u8, commitAttachStatusChromeFor(.english, "").commit_failed, branchOpStatusChromeFor(.english, "").push_failed));
+    try testing.expect(!std.mem.eql(u8, commitAttachStatusChromeFor(.english, "").nothing_staged, worktreeStatusChromeFor(.english, "").create_failed));
+    try testing.expect(!std.mem.eql(u8, commitAttachStatusChromeFor(.english, "").empty_message, workspaceChromeFor(.english, "").work_in));
+    try testing.expect(!std.mem.eql(u8, commitAttachStatusChromeFor(.simplified_chinese, "").commit_failed, commitChromeFor(.simplified_chinese, "").committing));
+    try testing.expect(!std.mem.eql(u8, commitAttachStatusChromeFor(.japanese, "").commit_failed, commitChromeFor(.japanese, "").committing));
+    try testing.expect(!std.mem.eql(u8, commitAttachStatusChromeFor(.simplified_chinese, "").generate_failed, commitChromeFor(.simplified_chinese, "").generating));
+    try testing.expect(!std.mem.eql(u8, commitAttachStatusChromeFor(.japanese, "").generate_failed, commitChromeFor(.japanese, "").generating));
+    try testing.expect(!std.mem.eql(u8, commitAttachStatusChromeFor(.simplified_chinese, "").commit_failed, branchOpStatusChromeFor(.simplified_chinese, "").push_failed));
+    try testing.expect(!std.mem.eql(u8, commitAttachStatusChromeFor(.japanese, "").commit_failed, branchOpStatusChromeFor(.japanese, "").push_failed));
 }
 
 test "daemonDirChromeFor english default; zh and ja chrome; english ignores ja LANG" {

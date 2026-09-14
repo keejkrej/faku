@@ -216,6 +216,7 @@ const review_diff = @import("review_diff.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const store = @import("store.zig");
 const protocol = @import("protocol.zig");
+const i18n = @import("i18n.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -248,10 +249,17 @@ pub const max_commit_message: usize = 200;
 /// Enough for one `fx ask --json` object whose `output` is a subject.
 pub const max_generate_stdout: usize = 4096;
 
-pub const empty_message_status = "Enter a commit message.";
-pub const commit_failed_status = "Could not commit.";
-pub const nothing_staged_status = "Nothing staged to commit.";
-pub const generate_failed_status = "Could not generate a commit message.";
+/// English chrome fallbacks / test anchors. Localized commit
+/// attach statuses use `i18n.commitAttachStatusChromeFor` via Model
+/// getters (`empty_message_status` / `commit_failed_status` /
+/// `nothing_staged_status` / `generate_failed_status`). Distinct
+/// from `i18n.CommitChrome` pending Generating… / Amending… /
+/// Committing… / Pushing…. Branch-op Could not push. lives on
+/// `i18n.BranchOpStatusChrome`.
+pub const empty_message_status = i18n.commitAttachStatusChromeFor(.english, "").empty_message;
+pub const commit_failed_status = i18n.commitAttachStatusChromeFor(.english, "").commit_failed;
+pub const nothing_staged_status = i18n.commitAttachStatusChromeFor(.english, "").nothing_staged;
+pub const generate_failed_status = i18n.commitAttachStatusChromeFor(.english, "").generate_failed;
 
 pub const fx_ask_cmd = "ask";
 pub const fx_ask_no_save = "--no-save";
@@ -370,7 +378,7 @@ fn resetCommitState(model: *Model) void {
 fn failCommit(model: *Model) void {
     model.git_commit_key = 0;
     resetCommitState(model);
-    model.setAttachStatus(commit_failed_status);
+    model.setAttachStatus(model.commit_failed_status());
 }
 
 /// Hide while the dirty probe is in flight; show when porcelain XY
@@ -1176,11 +1184,11 @@ pub fn cancelInFlight(model: *Model, fx: *Effects) void {
     const in_flight = model.git_commit_key != 0 or model.git_commit_generate_key != 0;
     cancelGenerate(model, fx);
     if (model.git_commit_key == 0) {
-        if (in_flight) model.setAttachStatus(commit_failed_status);
+        if (in_flight) model.setAttachStatus(model.commit_failed_status());
         return;
     }
     cancelCommit(model, fx);
-    model.setAttachStatus(commit_failed_status);
+    model.setAttachStatus(model.commit_failed_status());
 }
 
 /// Esc / Cancel: close the card and drop an in-flight generate /
@@ -1201,7 +1209,7 @@ pub fn dismissCommit(model: *Model, fx: *Effects) void {
         model.setAttachStatus(model.push_failed_status());
         return;
     }
-    if (in_flight) model.setAttachStatus(commit_failed_status);
+    if (in_flight) model.setAttachStatus(model.commit_failed_status());
 }
 
 fn prepareCommitCard(model: *Model, fx: *Effects) void {
@@ -1331,7 +1339,7 @@ fn spawnCachedQuiet(model: *Model, fx: *Effects) void {
 fn failNothingStaged(model: *Model) void {
     model.git_commit_key = 0;
     resetCommitState(model);
-    model.setAttachStatus(nothing_staged_status);
+    model.setAttachStatus(model.nothing_staged_status());
 }
 
 fn generateAvailable(model: *const Model) bool {
@@ -1362,7 +1370,7 @@ fn failGenerate(model: *Model) void {
     model.git_commit_generate_via_daemon = false;
     model.git_commit_generate_daemon_ok = false;
     model.git_commit_then_push = false;
-    model.setAttachStatus(generate_failed_status);
+    model.setAttachStatus(model.generate_failed_status());
 }
 
 /// Sidecar + `daemon-proxy` + address. Final Commit… spawn when a
@@ -1544,7 +1552,7 @@ fn confirmCommitWith(model: *Model, fx: *Effects, then_push: bool) void {
         if (trySpawnDaemonGenerate(model, fx)) return;
         if (!generateAvailable(model)) {
             model.git_commit_then_push = false;
-            model.setAttachStatus(empty_message_status);
+            model.setAttachStatus(model.empty_message_status());
             return;
         }
         spawnGenerate(model, fx);
@@ -1722,7 +1730,7 @@ pub fn handleCommitExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
     model.git_commit_key = 0;
     if (!current) {
         resetCommitState(model);
-        model.setAttachStatus(commit_failed_status);
+        model.setAttachStatus(model.commit_failed_status());
         return;
     }
     switch (phase) {
@@ -1775,9 +1783,9 @@ pub fn handleCommitExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
                 return;
             }
             if (!model.git_commit_include_unstaged) {
-                model.setAttachStatus(nothing_staged_status);
+                model.setAttachStatus(model.nothing_staged_status());
             } else {
-                model.setAttachStatus(commit_failed_status);
+                model.setAttachStatus(model.commit_failed_status());
             }
         },
     }
@@ -5254,4 +5262,142 @@ test "GenerateCommitMessage then Amend Confirm stays local git" {
     try std.testing.expect(findPendingDaemonCommit(&fx, model.git_commit_key) == null);
     const add = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingLocalAddAfterDaemonGenerateAmend;
     try std.testing.expect(!isDaemonWorkspaceCommitArgv(add.argv));
+}
+
+test "commit attach status follows Appearance language" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try std.testing.expectEqualStrings("Enter a commit message.", empty_message_status);
+    try std.testing.expectEqualStrings(i18n.commitAttachStatusChromeFor(.english, "").empty_message, empty_message_status);
+    try std.testing.expectEqualStrings("Could not commit.", commit_failed_status);
+    try std.testing.expectEqualStrings(i18n.commitAttachStatusChromeFor(.english, "").commit_failed, commit_failed_status);
+    try std.testing.expectEqualStrings("Nothing staged to commit.", nothing_staged_status);
+    try std.testing.expectEqualStrings(i18n.commitAttachStatusChromeFor(.english, "").nothing_staged, nothing_staged_status);
+    try std.testing.expectEqualStrings("Could not generate a commit message.", generate_failed_status);
+    try std.testing.expectEqualStrings(i18n.commitAttachStatusChromeFor(.english, "").generate_failed, generate_failed_status);
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-attach-i18n", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("commit attach i18n", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 1);
+
+    const paint = struct {
+        fn reset(m: *Model, efx: *Effects) void {
+            cancelInFlight(m, efx);
+            closeCommit(m);
+            m.clearAttachStatus();
+            m.fx_available = false;
+            m.setFxPath("");
+        }
+
+        fn empty(m: *Model, efx: *Effects) void {
+            reset(m, efx);
+            markDirtyUnstaged(m, 1);
+            startCommit(m, efx);
+            confirmCommit(m, efx);
+        }
+
+        fn commitFail(m: *Model, efx: *Effects) !void {
+            reset(m, efx);
+            markDirtyUnstaged(m, 1);
+            startCommit(m, efx);
+            m.git_commit_buffer.apply(.{ .insert_text = "save work" });
+            confirmCommit(m, efx);
+            const add = findPending(efx, m.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn;
+            handleCommitExit(m, efx, .{ .key = add.key, .reason = .exited, .code = 1 });
+        }
+
+        fn nothingStaged(m: *Model, efx: *Effects) !void {
+            reset(m, efx);
+            markDirtyUnstaged(m, 1);
+            startCommit(m, efx);
+            m.git_commit_buffer.apply(.{ .insert_text = "nothing to stage" });
+            confirmCommit(m, efx);
+            const add = findPending(efx, m.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn;
+            handleCommitExit(m, efx, .{ .key = add.key, .reason = .exited, .code = 0 });
+            const preflight = findPending(efx, m.git_commit_key, &isGitCommitCachedQuietArgv) orelse return error.MissingGitCachedQuietSpawn;
+            handleCommitExit(m, efx, .{ .key = preflight.key, .reason = .exited, .code = 0 });
+        }
+
+        fn generateFail(m: *Model, efx: *Effects) !void {
+            reset(m, efx);
+            enableFx(m);
+            markDirtyUnstaged(m, 1);
+            startCommit(m, efx);
+            confirmCommit(m, efx);
+            const gen = findPending(efx, m.git_commit_generate_key, &isGitCommitGenerateArgv) orelse return error.MissingGenerateSpawn;
+            handleGenerateExit(m, efx, .{ .key = gen.key, .reason = .exited, .code = 1 });
+        }
+    };
+
+    model.language_preference = .simplified_chinese;
+    paint.empty(&model, &fx);
+    try std.testing.expectEqualStrings("请输入提交信息。", model.attach_status());
+    try std.testing.expectEqualStrings(i18n.commitAttachStatusChromeFor(.simplified_chinese, "").empty_message, model.attach_status());
+    try std.testing.expectEqualStrings(model.empty_message_status(), model.attach_status());
+    try std.testing.expect(!std.mem.eql(u8, empty_message_status, model.attach_status()));
+
+    try paint.commitFail(&model, &fx);
+    try std.testing.expectEqualStrings("无法提交。", model.attach_status());
+    try std.testing.expectEqualStrings(model.commit_failed_status(), model.attach_status());
+    try std.testing.expect(!std.mem.eql(u8, commit_failed_status, model.attach_status()));
+    try std.testing.expect(!std.mem.eql(u8, model.commit_failed_status(), model.git_commit_committing_label()));
+    try std.testing.expect(!std.mem.eql(u8, model.commit_failed_status(), model.push_failed_status()));
+
+    try paint.nothingStaged(&model, &fx);
+    try std.testing.expectEqualStrings("没有可提交的暂存更改。", model.attach_status());
+    try std.testing.expectEqualStrings(model.nothing_staged_status(), model.attach_status());
+    try std.testing.expect(!std.mem.eql(u8, nothing_staged_status, model.attach_status()));
+
+    try paint.generateFail(&model, &fx);
+    try std.testing.expectEqualStrings("无法生成提交信息。", model.attach_status());
+    try std.testing.expectEqualStrings(model.generate_failed_status(), model.attach_status());
+    try std.testing.expect(!std.mem.eql(u8, generate_failed_status, model.attach_status()));
+    try std.testing.expect(!std.mem.eql(u8, model.generate_failed_status(), model.git_commit_generating_label()));
+
+    model.language_preference = .japanese;
+    paint.empty(&model, &fx);
+    try std.testing.expectEqualStrings("コミットメッセージを入力してください。", model.attach_status());
+    try std.testing.expectEqualStrings(i18n.commitAttachStatusChromeFor(.japanese, "").empty_message, model.attach_status());
+    try paint.commitFail(&model, &fx);
+    try std.testing.expectEqualStrings("コミットできませんでした。", model.attach_status());
+    try paint.nothingStaged(&model, &fx);
+    try std.testing.expectEqualStrings("コミットするステージ済みの変更がありません。", model.attach_status());
+    try paint.generateFail(&model, &fx);
+    try std.testing.expectEqualStrings("コミットメッセージを生成できませんでした。", model.attach_status());
+    try std.testing.expect(!std.mem.eql(u8, generate_failed_status, model.attach_status()));
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    paint.empty(&model, &fx);
+    try std.testing.expectEqualStrings(empty_message_status, model.attach_status());
+    try paint.commitFail(&model, &fx);
+    try std.testing.expectEqualStrings(commit_failed_status, model.attach_status());
+    try paint.nothingStaged(&model, &fx);
+    try std.testing.expectEqualStrings(nothing_staged_status, model.attach_status());
+    try paint.generateFail(&model, &fx);
+    try std.testing.expectEqualStrings(generate_failed_status, model.attach_status());
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    paint.empty(&model, &fx);
+    try std.testing.expectEqualStrings("请输入提交信息。", model.attach_status());
+    try paint.commitFail(&model, &fx);
+    try std.testing.expectEqualStrings("无法提交。", model.attach_status());
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try paint.nothingStaged(&model, &fx);
+    try std.testing.expectEqualStrings("コミットするステージ済みの変更がありません。", model.attach_status());
+    try paint.generateFail(&model, &fx);
+    try std.testing.expectEqualStrings("コミットメッセージを生成できませんでした。", model.attach_status());
 }
