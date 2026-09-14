@@ -1198,7 +1198,7 @@ pub fn dismissCommit(model: *Model, fx: *Effects) void {
     closeCommit(model);
     model.git_commit_then_push = false;
     if (pushing) {
-        model.setAttachStatus(git_checkout.push_failed_status);
+        model.setAttachStatus(model.push_failed_status());
         return;
     }
     if (in_flight) model.setAttachStatus(commit_failed_status);
@@ -1764,7 +1764,7 @@ pub fn handleCommitExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
                     if (model.git_push_key == 0) {
                         closeCommit(model);
                         if (!model.has_attach_status()) {
-                            model.setAttachStatus(git_checkout.push_failed_status);
+                            model.setAttachStatus(model.push_failed_status());
                         }
                         git_checkout.refreshWorkspaceProbes(model, fx);
                     }

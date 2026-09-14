@@ -29704,6 +29704,201 @@ test "Send-prep worktree attach status follows Appearance language" {
     _ = try expectByText(tree.root, .text, "worktree を作成できませんでした。");
 }
 
+test "branch-op attach status follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{attach_status}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "test=\"{has_attach_status}\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Could not check out branch."));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Already checked out in another worktree."));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Could not create branch."));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Could not delete branch."));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Could not fetch."));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Could not push."));
+
+    var model = Model{};
+    try testing.expectEqualStrings("Could not check out branch.", model.checkout_failed_status());
+    try testing.expectEqualStrings("Already checked out in another worktree.", model.occupied_checkout_status());
+    try testing.expectEqualStrings("Could not create branch.", model.create_failed_status());
+    try testing.expectEqualStrings("Could not delete branch.", model.delete_failed_status());
+    try testing.expectEqualStrings("Could not fetch.", model.fetch_failed_status());
+    try testing.expectEqualStrings("Could not push.", model.push_failed_status());
+    try testing.expectEqualStrings(i18n.branchOpStatusChromeFor(.english, "").checkout_failed, model.checkout_failed_status());
+    try testing.expectEqualStrings(i18n.branchOpStatusChromeFor(.english, "").occupied_checkout, model.occupied_checkout_status());
+    try testing.expectEqualStrings(i18n.branchOpStatusChromeFor(.english, "").create_failed, model.create_failed_status());
+    try testing.expectEqualStrings(i18n.branchOpStatusChromeFor(.english, "").delete_failed, model.delete_failed_status());
+    try testing.expectEqualStrings(i18n.branchOpStatusChromeFor(.english, "").fetch_failed, model.fetch_failed_status());
+    try testing.expectEqualStrings(i18n.branchOpStatusChromeFor(.english, "").push_failed, model.push_failed_status());
+    try testing.expectEqualStrings(git_checkout.checkout_failed_status, model.checkout_failed_status());
+    try testing.expectEqualStrings(git_checkout.occupied_checkout_status, model.occupied_checkout_status());
+    try testing.expectEqualStrings(git_checkout.create_failed_status, model.create_failed_status());
+    try testing.expectEqualStrings(git_checkout.delete_failed_status, model.delete_failed_status());
+    try testing.expectEqualStrings(git_checkout.fetch_failed_status, model.fetch_failed_status());
+    try testing.expectEqualStrings(git_checkout.push_failed_status, model.push_failed_status());
+    try testing.expect(!std.mem.eql(u8, model.create_failed_status(), model.worktree_create_failed_status()));
+    try testing.expect(!std.mem.eql(u8, model.push_failed_status(), model.git_commit_pushing_label()));
+    try testing.expect(!std.mem.eql(u8, model.fetch_failed_status(), model.git_fetch_menu_label()));
+
+    const expect_en = struct {
+        fn run(m: *Model, alloc: std.mem.Allocator) !void {
+            m.setAttachStatus(m.checkout_failed_status());
+            try testing.expectEqualStrings("Could not check out branch.", m.attach_status());
+            var tree = try buildTree(alloc, m);
+            _ = try expectByText(tree.root, .text, "Could not check out branch.");
+            try testing.expect(findByText(tree.root, .text, "无法检出分支。") == null);
+            try testing.expect(findByText(tree.root, .text, "ブランチをチェックアウトできませんでした。") == null);
+
+            m.setAttachStatus(m.occupied_checkout_status());
+            try testing.expectEqualStrings("Already checked out in another worktree.", m.attach_status());
+            tree = try buildTree(alloc, m);
+            _ = try expectByText(tree.root, .text, "Already checked out in another worktree.");
+
+            m.setAttachStatus(m.create_failed_status());
+            try testing.expectEqualStrings("Could not create branch.", m.attach_status());
+            tree = try buildTree(alloc, m);
+            _ = try expectByText(tree.root, .text, "Could not create branch.");
+
+            m.setAttachStatus(m.delete_failed_status());
+            try testing.expectEqualStrings("Could not delete branch.", m.attach_status());
+            tree = try buildTree(alloc, m);
+            _ = try expectByText(tree.root, .text, "Could not delete branch.");
+
+            m.setAttachStatus(m.fetch_failed_status());
+            try testing.expectEqualStrings("Could not fetch.", m.attach_status());
+            tree = try buildTree(alloc, m);
+            _ = try expectByText(tree.root, .text, "Could not fetch.");
+
+            m.setAttachStatus(m.push_failed_status());
+            try testing.expectEqualStrings("Could not push.", m.attach_status());
+            tree = try buildTree(alloc, m);
+            _ = try expectByText(tree.root, .text, "Could not push.");
+            try testing.expect(findByText(tree.root, .text, "无法推送。") == null);
+            try testing.expect(findByText(tree.root, .text, "プッシュできませんでした。") == null);
+        }
+    };
+
+    try expect_en.run(&model, arena);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("无法检出分支。", model.checkout_failed_status());
+    try testing.expectEqualStrings("已在另一个 worktree 中检出。", model.occupied_checkout_status());
+    try testing.expectEqualStrings("无法创建分支。", model.create_failed_status());
+    try testing.expectEqualStrings("无法删除分支。", model.delete_failed_status());
+    try testing.expectEqualStrings("无法获取。", model.fetch_failed_status());
+    try testing.expectEqualStrings("无法推送。", model.push_failed_status());
+    try testing.expectEqualStrings(i18n.branchOpStatusChromeFor(.simplified_chinese, "").checkout_failed, model.checkout_failed_status());
+    try testing.expect(!std.mem.eql(u8, model.create_failed_status(), model.worktree_create_failed_status()));
+    try testing.expect(!std.mem.eql(u8, model.push_failed_status(), model.git_commit_pushing_label()));
+    try testing.expect(!std.mem.eql(u8, git_checkout.checkout_failed_status, model.checkout_failed_status()));
+
+    model.setAttachStatus(model.checkout_failed_status());
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "无法检出分支。");
+    try testing.expect(findByText(tree.root, .text, "Could not check out branch.") == null);
+
+    model.setAttachStatus(model.occupied_checkout_status());
+    try testing.expectEqualStrings("已在另一个 worktree 中检出。", model.attach_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "已在另一个 worktree 中检出。");
+    try testing.expect(findByText(tree.root, .text, "Already checked out in another worktree.") == null);
+
+    model.setAttachStatus(model.create_failed_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "无法创建分支。");
+    try testing.expect(findByText(tree.root, .text, "Could not create branch.") == null);
+
+    model.setAttachStatus(model.delete_failed_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "无法删除分支。");
+
+    model.setAttachStatus(model.fetch_failed_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "无法获取。");
+
+    model.setAttachStatus(model.push_failed_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "无法推送。");
+    try testing.expect(findByText(tree.root, .text, "Could not push.") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("ブランチをチェックアウトできませんでした。", model.checkout_failed_status());
+    try testing.expectEqualStrings("別の worktree で既にチェックアウトされています。", model.occupied_checkout_status());
+    try testing.expectEqualStrings("ブランチを作成できませんでした。", model.create_failed_status());
+    try testing.expectEqualStrings("ブランチを削除できませんでした。", model.delete_failed_status());
+    try testing.expectEqualStrings("フェッチできませんでした。", model.fetch_failed_status());
+    try testing.expectEqualStrings("プッシュできませんでした。", model.push_failed_status());
+    try testing.expectEqualStrings(i18n.branchOpStatusChromeFor(.japanese, "").push_failed, model.push_failed_status());
+
+    model.setAttachStatus(model.checkout_failed_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "ブランチをチェックアウトできませんでした。");
+    try testing.expect(findByText(tree.root, .text, "无法检出分支。") == null);
+
+    model.setAttachStatus(model.occupied_checkout_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "別の worktree で既にチェックアウトされています。");
+
+    model.setAttachStatus(model.create_failed_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "ブランチを作成できませんでした。");
+
+    model.setAttachStatus(model.delete_failed_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "ブランチを削除できませんでした。");
+
+    model.setAttachStatus(model.fetch_failed_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "フェッチできませんでした。");
+
+    model.setAttachStatus(model.push_failed_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "プッシュできませんでした。");
+    try testing.expect(findByText(tree.root, .text, "Could not push.") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Could not check out branch.", model.checkout_failed_status());
+    try testing.expectEqualStrings("Already checked out in another worktree.", model.occupied_checkout_status());
+    try testing.expectEqualStrings("Could not create branch.", model.create_failed_status());
+    try testing.expectEqualStrings("Could not delete branch.", model.delete_failed_status());
+    try testing.expectEqualStrings("Could not fetch.", model.fetch_failed_status());
+    try testing.expectEqualStrings("Could not push.", model.push_failed_status());
+    try testing.expectEqualStrings(i18n.branchOpStatusChromeFor(.english, "ja_JP.UTF-8").checkout_failed, model.checkout_failed_status());
+    try expect_en.run(&model, arena);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("无法检出分支。", model.checkout_failed_status());
+    try testing.expectEqualStrings("已在另一个 worktree 中检出。", model.occupied_checkout_status());
+    try testing.expectEqualStrings("无法创建分支。", model.create_failed_status());
+    try testing.expectEqualStrings("无法删除分支。", model.delete_failed_status());
+    try testing.expectEqualStrings("无法获取。", model.fetch_failed_status());
+    try testing.expectEqualStrings("无法推送。", model.push_failed_status());
+    model.setAttachStatus(model.occupied_checkout_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "已在另一个 worktree 中检出。");
+    try testing.expect(findByText(tree.root, .text, "Already checked out in another worktree.") == null);
+    model.setAttachStatus(model.push_failed_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "无法推送。");
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("ブランチをチェックアウトできませんでした。", model.checkout_failed_status());
+    try testing.expectEqualStrings("別の worktree で既にチェックアウトされています。", model.occupied_checkout_status());
+    try testing.expectEqualStrings("ブランチを作成できませんでした。", model.create_failed_status());
+    try testing.expectEqualStrings("ブランチを削除できませんでした。", model.delete_failed_status());
+    try testing.expectEqualStrings("フェッチできませんでした。", model.fetch_failed_status());
+    try testing.expectEqualStrings("プッシュできませんでした。", model.push_failed_status());
+    model.setAttachStatus(model.checkout_failed_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "ブランチをチェックアウトできませんでした。");
+    model.setAttachStatus(model.push_failed_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "プッシュできませんでした。");
+}
+
 test "Browser Address field chrome follows Appearance language; placeholder stays Latin" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

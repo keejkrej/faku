@@ -48,8 +48,14 @@
 //! worktree… / Could not create worktree. (same
 //! `WorktreeStatusChrome` strings; distinct from `WorkspaceChrome`
 //! picker labels / `BranchChrome` / `CommitChrome`
-//! pushing/committing; worktree stays Latin in zh-CN / ja; other
-//! git attach-status leftovers stay English this cut) plus daemon-dir
+//! pushing/committing; worktree stays Latin in zh-CN / ja) plus
+//! branch-menu attach-status Could not check out branch. / Already
+//! checked out in another worktree. / Could not create branch. /
+//! Could not delete branch. / Could not fetch. / Could not push.
+//! (same `BranchOpStatusChrome` strings; distinct from
+//! `BranchChrome` / `CommitChrome` / `WorktreeStatusChrome` /
+//! `WorkspaceChrome`; worktree stays Latin in zh-CN / ja; commit
+//! attach-status leftovers stay English this cut) plus daemon-dir
 //! in-app browser Up / Home / Choose / Loading… (same `DaemonDirChrome`
 //! strings; Cancel reuses `CommitChrome`) plus session-switcher
 //! title / Switch (same `SwitcherChrome` strings; Cancel reuses
@@ -263,8 +269,15 @@
 //! Send-prep Creating worktree… / Could not create worktree.
 //! follow the resolved locale this cut (same `WorktreeStatusChrome`
 //! strings; distinct from `WorkspaceChrome` / `BranchChrome` /
-//! `CommitChrome`; worktree stays Latin in zh-CN / ja; other git
-//! attach-status leftovers stay English this cut).
+//! `CommitChrome`; worktree stays Latin in zh-CN / ja).
+//! Branch-op attach status Could not check out branch. / Already
+//! checked out in another worktree. / Could not create branch. /
+//! Could not delete branch. / Could not fetch. / Could not push.
+//! follow the resolved locale this cut (same `BranchOpStatusChrome`
+//! strings; distinct from `BranchChrome` / `CommitChrome` /
+//! `WorktreeStatusChrome` / `WorkspaceChrome`; worktree stays Latin
+//! in zh-CN / ja; commit attach-status leftovers stay English this
+//! cut).
 //! Daemon-dir browser `on-press` stays English
 //! (`daemon_dir_browser_up` / `daemon_dir_browser_home` /
 //! `confirm_daemon_dir_browser` / `cancel_daemon_dir_browser`).
@@ -1564,9 +1577,9 @@ const workspace_chrome_ja: WorkspaceChrome = .{
 /// worktree attach-status chrome stays independently evolvable.
 /// Worktree is git jargon and stays Latin in zh-CN / ja. Creating
 /// uses the ellipsis character (same style as CommitChrome
-/// generating / amending). Other git attach-status leftovers
-/// (Could not push / checkout / …) stay English this cut. Wire
-/// ids / on-press / git argv stay English.
+/// generating / amending). Branch-op attach statuses live on
+/// `BranchOpStatusChrome`. Commit attach-status leftovers stay
+/// English this cut. Wire ids / on-press / git argv stay English.
 pub const WorktreeStatusChrome = struct {
     creating: []const u8,
     create_failed: []const u8,
@@ -1587,8 +1600,59 @@ const worktree_status_chrome_ja: WorktreeStatusChrome = .{
     .create_failed = "worktree を作成できませんでした。",
 };
 
+/// Branch-menu attach-status Could not check out branch. / Already
+/// checked out in another worktree. / Could not create branch. /
+/// Could not delete branch. / Could not fetch. / Could not push.
+/// for the resolved locale. Same resolve path as
+/// WorktreeStatusChrome. English matches the former hardcoded copy.
+/// Distinct from branch-picker menu labels (`BranchChrome`), Commit
+/// dialog pending Generating… / Pushing… (`CommitChrome`), Send-prep
+/// Creating worktree… (`WorktreeStatusChrome`), and workspace picker
+/// Work in / Local / New worktree (`WorkspaceChrome`) so branch-op
+/// attach-status chrome stays independently evolvable. Worktree is
+/// git jargon and stays Latin in zh-CN / ja where it appears in the
+/// occupied string. Commit attach-status leftovers (Could not
+/// commit / generate / Nothing staged / Enter a commit message)
+/// stay English this cut. Wire ids / on-press / git argv stay
+/// English.
+pub const BranchOpStatusChrome = struct {
+    checkout_failed: []const u8,
+    occupied_checkout: []const u8,
+    create_failed: []const u8,
+    delete_failed: []const u8,
+    fetch_failed: []const u8,
+    push_failed: []const u8,
+};
+
+const branch_op_status_chrome_en: BranchOpStatusChrome = .{
+    .checkout_failed = "Could not check out branch.",
+    .occupied_checkout = "Already checked out in another worktree.",
+    .create_failed = "Could not create branch.",
+    .delete_failed = "Could not delete branch.",
+    .fetch_failed = "Could not fetch.",
+    .push_failed = "Could not push.",
+};
+
+const branch_op_status_chrome_zh_cn: BranchOpStatusChrome = .{
+    .checkout_failed = "无法检出分支。",
+    .occupied_checkout = "已在另一个 worktree 中检出。",
+    .create_failed = "无法创建分支。",
+    .delete_failed = "无法删除分支。",
+    .fetch_failed = "无法获取。",
+    .push_failed = "无法推送。",
+};
+
+const branch_op_status_chrome_ja: BranchOpStatusChrome = .{
+    .checkout_failed = "ブランチをチェックアウトできませんでした。",
+    .occupied_checkout = "別の worktree で既にチェックアウトされています。",
+    .create_failed = "ブランチを作成できませんでした。",
+    .delete_failed = "ブランチを削除できませんでした。",
+    .fetch_failed = "フェッチできませんでした。",
+    .push_failed = "プッシュできませんでした。",
+};
+
 /// Daemon-dir in-app BrowseDirectory browser chrome for the resolved
-/// locale. Same resolve path as WorktreeStatusChrome. Wire ids / on-press
+/// locale. Same resolve path as BranchOpStatusChrome. Wire ids / on-press
 /// stay English (`daemon_dir_browser_up` / `daemon_dir_browser_home` /
 /// `confirm_daemon_dir_browser` / `cancel_daemon_dir_browser`).
 /// English matches the former hardcoded copy. Cancel reuses
@@ -3233,7 +3297,8 @@ pub fn commitChromeFor(preference: LanguagePreference, system_locale_id: []const
 /// `system_locale_id`; this file does not read process env. Wire ids /
 /// on-press / on-input stay English. Force / Push (no ellipsis) /
 /// Cancel stay on `commitChromeFor`. Workspace picker chrome lives
-/// on `workspaceChromeFor`.
+/// on `workspaceChromeFor`. Branch-op attach status lives on
+/// `branchOpStatusChromeFor`.
 pub fn branchChromeFor(preference: LanguagePreference, system_locale_id: []const u8) BranchChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => branch_chrome_zh_cn,
@@ -3260,12 +3325,28 @@ pub fn workspaceChromeFor(preference: LanguagePreference, system_locale_id: []co
 /// `language_preference` + `system_locale_id`; this file does not
 /// read process env. Distinct from WorkspaceChrome picker labels /
 /// BranchChrome / CommitChrome. Worktree stays Latin in zh-CN / ja.
-/// Other git attach-status leftovers stay English this cut.
+/// Branch-op attach statuses live on `branchOpStatusChromeFor`.
 pub fn worktreeStatusChromeFor(preference: LanguagePreference, system_locale_id: []const u8) WorktreeStatusChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => worktree_status_chrome_zh_cn,
         .japanese => worktree_status_chrome_ja,
         .system, .english => worktree_status_chrome_en,
+    };
+}
+
+/// Branch-menu Could not check out branch. / Already checked out in
+/// another worktree. / Could not create branch. / Could not delete
+/// branch. / Could not fetch. / Could not push. attach status for
+/// the resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from BranchChrome menu labels / CommitChrome / WorktreeStatusChrome
+/// / WorkspaceChrome. Worktree stays Latin in zh-CN / ja. Commit
+/// attach-status leftovers stay English this cut.
+pub fn branchOpStatusChromeFor(preference: LanguagePreference, system_locale_id: []const u8) BranchOpStatusChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => branch_op_status_chrome_zh_cn,
+        .japanese => branch_op_status_chrome_ja,
+        .system, .english => branch_op_status_chrome_en,
     };
 }
 
@@ -4877,6 +4958,79 @@ test "worktreeStatusChromeFor english default; zh and ja chrome; english ignores
     try testing.expect(!std.mem.eql(u8, worktreeStatusChromeFor(.japanese, "").creating, workspaceChromeFor(.japanese, "").new_worktree));
     try testing.expect(!std.mem.eql(u8, worktreeStatusChromeFor(.simplified_chinese, "").creating, commitChromeFor(.simplified_chinese, "").generating));
     try testing.expect(!std.mem.eql(u8, worktreeStatusChromeFor(.japanese, "").creating, commitChromeFor(.japanese, "").generating));
+}
+
+test "branchOpStatusChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Could not check out branch.", branchOpStatusChromeFor(.english, "ja").checkout_failed);
+    try testing.expectEqualStrings("Already checked out in another worktree.", branchOpStatusChromeFor(.english, "ja").occupied_checkout);
+    try testing.expectEqualStrings("Could not create branch.", branchOpStatusChromeFor(.english, "ja").create_failed);
+    try testing.expectEqualStrings("Could not delete branch.", branchOpStatusChromeFor(.english, "ja").delete_failed);
+    try testing.expectEqualStrings("Could not fetch.", branchOpStatusChromeFor(.english, "ja").fetch_failed);
+    try testing.expectEqualStrings("Could not push.", branchOpStatusChromeFor(.english, "ja").push_failed);
+    try testing.expectEqualStrings("Could not check out branch.", branchOpStatusChromeFor(.english, "").checkout_failed);
+    try testing.expectEqualStrings("Already checked out in another worktree.", branchOpStatusChromeFor(.english, "").occupied_checkout);
+    try testing.expectEqualStrings("Could not create branch.", branchOpStatusChromeFor(.english, "").create_failed);
+    try testing.expectEqualStrings("Could not delete branch.", branchOpStatusChromeFor(.english, "").delete_failed);
+    try testing.expectEqualStrings("Could not fetch.", branchOpStatusChromeFor(.english, "").fetch_failed);
+    try testing.expectEqualStrings("Could not push.", branchOpStatusChromeFor(.english, "").push_failed);
+    try testing.expectEqualStrings("Could not check out branch.", branchOpStatusChromeFor(.system, "").checkout_failed);
+    try testing.expectEqualStrings("Already checked out in another worktree.", branchOpStatusChromeFor(.system, "").occupied_checkout);
+    try testing.expectEqualStrings("Could not create branch.", branchOpStatusChromeFor(.system, "").create_failed);
+    try testing.expectEqualStrings("Could not delete branch.", branchOpStatusChromeFor(.system, "").delete_failed);
+    try testing.expectEqualStrings("Could not fetch.", branchOpStatusChromeFor(.system, "").fetch_failed);
+    try testing.expectEqualStrings("Could not push.", branchOpStatusChromeFor(.system, "").push_failed);
+
+    try testing.expectEqualStrings("无法检出分支。", branchOpStatusChromeFor(.simplified_chinese, "").checkout_failed);
+    try testing.expectEqualStrings("已在另一个 worktree 中检出。", branchOpStatusChromeFor(.simplified_chinese, "").occupied_checkout);
+    try testing.expectEqualStrings("无法创建分支。", branchOpStatusChromeFor(.simplified_chinese, "").create_failed);
+    try testing.expectEqualStrings("无法删除分支。", branchOpStatusChromeFor(.simplified_chinese, "").delete_failed);
+    try testing.expectEqualStrings("无法获取。", branchOpStatusChromeFor(.simplified_chinese, "").fetch_failed);
+    try testing.expectEqualStrings("无法推送。", branchOpStatusChromeFor(.simplified_chinese, "").push_failed);
+    try testing.expectEqualStrings("ブランチをチェックアウトできませんでした。", branchOpStatusChromeFor(.japanese, "").checkout_failed);
+    try testing.expectEqualStrings("別の worktree で既にチェックアウトされています。", branchOpStatusChromeFor(.japanese, "").occupied_checkout);
+    try testing.expectEqualStrings("ブランチを作成できませんでした。", branchOpStatusChromeFor(.japanese, "").create_failed);
+    try testing.expectEqualStrings("ブランチを削除できませんでした。", branchOpStatusChromeFor(.japanese, "").delete_failed);
+    try testing.expectEqualStrings("フェッチできませんでした。", branchOpStatusChromeFor(.japanese, "").fetch_failed);
+    try testing.expectEqualStrings("プッシュできませんでした。", branchOpStatusChromeFor(.japanese, "").push_failed);
+
+    try testing.expectEqualStrings("无法检出分支。", branchOpStatusChromeFor(.system, "zh_CN.UTF-8").checkout_failed);
+    try testing.expectEqualStrings("已在另一个 worktree 中检出。", branchOpStatusChromeFor(.system, "zh_CN.UTF-8").occupied_checkout);
+    try testing.expectEqualStrings("无法创建分支。", branchOpStatusChromeFor(.system, "zh_CN.UTF-8").create_failed);
+    try testing.expectEqualStrings("无法删除分支。", branchOpStatusChromeFor(.system, "zh_CN.UTF-8").delete_failed);
+    try testing.expectEqualStrings("无法获取。", branchOpStatusChromeFor(.system, "zh_CN.UTF-8").fetch_failed);
+    try testing.expectEqualStrings("无法推送。", branchOpStatusChromeFor(.system, "zh_CN.UTF-8").push_failed);
+    try testing.expectEqualStrings("ブランチをチェックアウトできませんでした。", branchOpStatusChromeFor(.system, "ja_JP.UTF-8").checkout_failed);
+    try testing.expectEqualStrings("別の worktree で既にチェックアウトされています。", branchOpStatusChromeFor(.system, "ja_JP.UTF-8").occupied_checkout);
+    try testing.expectEqualStrings("ブランチを作成できませんでした。", branchOpStatusChromeFor(.system, "ja_JP.UTF-8").create_failed);
+    try testing.expectEqualStrings("ブランチを削除できませんでした。", branchOpStatusChromeFor(.system, "ja_JP.UTF-8").delete_failed);
+    try testing.expectEqualStrings("フェッチできませんでした。", branchOpStatusChromeFor(.system, "ja_JP.UTF-8").fetch_failed);
+    try testing.expectEqualStrings("プッシュできませんでした。", branchOpStatusChromeFor(.system, "ja_JP.UTF-8").push_failed);
+    try testing.expectEqualStrings("Could not check out branch.", branchOpStatusChromeFor(.english, "ja_JP.UTF-8").checkout_failed);
+    try testing.expectEqualStrings("Already checked out in another worktree.", branchOpStatusChromeFor(.english, "zh_CN.UTF-8").occupied_checkout);
+    try testing.expectEqualStrings("Could not create branch.", branchOpStatusChromeFor(.english, "zh_CN.UTF-8").create_failed);
+    try testing.expectEqualStrings("Could not delete branch.", branchOpStatusChromeFor(.english, "ja_JP.UTF-8").delete_failed);
+    try testing.expectEqualStrings("Could not fetch.", branchOpStatusChromeFor(.english, "zh_CN.UTF-8").fetch_failed);
+    try testing.expectEqualStrings("Could not push.", branchOpStatusChromeFor(.english, "ja_JP.UTF-8").push_failed);
+
+    try testing.expect(!std.mem.eql(u8, branchOpStatusChromeFor(.english, "").checkout_failed, branchOpStatusChromeFor(.english, "").occupied_checkout));
+    try testing.expect(!std.mem.eql(u8, branchOpStatusChromeFor(.english, "").checkout_failed, branchOpStatusChromeFor(.english, "").create_failed));
+    try testing.expect(!std.mem.eql(u8, branchOpStatusChromeFor(.english, "").create_failed, branchOpStatusChromeFor(.english, "").delete_failed));
+    try testing.expect(!std.mem.eql(u8, branchOpStatusChromeFor(.english, "").fetch_failed, branchOpStatusChromeFor(.english, "").push_failed));
+    try testing.expect(!std.mem.eql(u8, branchOpStatusChromeFor(.english, "").create_failed, worktreeStatusChromeFor(.english, "").create_failed));
+    try testing.expect(!std.mem.eql(u8, branchOpStatusChromeFor(.english, "").push_failed, commitChromeFor(.english, "").pushing));
+    try testing.expect(!std.mem.eql(u8, branchOpStatusChromeFor(.english, "").push_failed, commitChromeFor(.english, "").push));
+    try testing.expect(!std.mem.eql(u8, branchOpStatusChromeFor(.english, "").fetch_failed, branchChromeFor(.english, "").fetch_menu));
+    try testing.expect(!std.mem.eql(u8, branchOpStatusChromeFor(.english, "").occupied_checkout, workspaceChromeFor(.english, "").new_worktree));
+    try testing.expect(!std.mem.eql(u8, branchOpStatusChromeFor(.english, "").occupied_checkout, worktreeStatusChromeFor(.english, "").create_failed));
+    try testing.expect(!std.mem.eql(u8, branchOpStatusChromeFor(.simplified_chinese, "").create_failed, worktreeStatusChromeFor(.simplified_chinese, "").create_failed));
+    try testing.expect(!std.mem.eql(u8, branchOpStatusChromeFor(.japanese, "").create_failed, worktreeStatusChromeFor(.japanese, "").create_failed));
+    try testing.expect(!std.mem.eql(u8, branchOpStatusChromeFor(.simplified_chinese, "").push_failed, commitChromeFor(.simplified_chinese, "").pushing));
+    try testing.expect(!std.mem.eql(u8, branchOpStatusChromeFor(.japanese, "").push_failed, commitChromeFor(.japanese, "").pushing));
+    try testing.expect(!std.mem.eql(u8, branchOpStatusChromeFor(.simplified_chinese, "").fetch_failed, branchChromeFor(.simplified_chinese, "").fetch_menu));
+    try testing.expect(!std.mem.eql(u8, branchOpStatusChromeFor(.japanese, "").fetch_failed, branchChromeFor(.japanese, "").fetch_menu));
+    try testing.expect(std.mem.indexOf(u8, branchOpStatusChromeFor(.simplified_chinese, "").occupied_checkout, "worktree") != null);
+    try testing.expect(std.mem.indexOf(u8, branchOpStatusChromeFor(.japanese, "").occupied_checkout, "worktree") != null);
 }
 
 test "daemonDirChromeFor english default; zh and ja chrome; english ignores ja LANG" {
