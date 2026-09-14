@@ -32844,6 +32844,145 @@ test "settings Usage chart a11y chrome follows Appearance language" {
     try testing.expect(findByText(tree.root, .chart, "项目用量") == null);
 }
 
+test "settings Usage progress a11y chrome follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 3), countNeedle(main.app_markup, "label=\"{context_usage_progress_label}\""));
+    try testing.expectEqual(@as(usize, 1), countNeedle(main.app_markup, "label=\"{usage_meter_label}\""));
+    try testing.expectEqual(@as(usize, 1), countNeedle(main.app_markup, "label=\"{session_context_label}\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Context usage\"") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Usage meter\"") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Session context\"") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Review hunk\"") != null);
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Context usage", model.context_usage_progress_label());
+    try testing.expectEqualStrings("Usage meter", model.usage_meter_label());
+    try testing.expectEqualStrings("Session context", model.session_context_label());
+    try testing.expectEqualStrings(i18n.usageProgressA11yChromeFor(.english, "").context_usage, model.context_usage_progress_label());
+    try testing.expectEqualStrings(i18n.usageProgressA11yChromeFor(.english, "").usage_meter, model.usage_meter_label());
+    try testing.expectEqualStrings(i18n.usageProgressA11yChromeFor(.english, "").session_context, model.session_context_label());
+
+    const id = model.selected;
+    if (model.sessionById(id)) |session| {
+        session.setContextUsage(53_000, 200_000);
+    }
+    try testing.expect(model.has_context_usage());
+    try testing.expect(model.usage_meter_available());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectContextProgress(tree.root, 0.265);
+    _ = try expectByText(tree.root, .progress, "Usage meter");
+    try testing.expect(findByText(tree.root, .progress, "Session context") == null);
+    try testing.expect(findByText(tree.root, .progress, "上下文用量") == null);
+    try testing.expect(findByText(tree.root, .progress, "用量计") == null);
+
+    main.update(&model, .toggle_usage_meter, &fx);
+    try testing.expect(model.usage_meter_open);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .progress, "Session context");
+    _ = try expectByText(tree.root, .progress, "Usage meter");
+    _ = try expectContextProgress(tree.root, 0.265);
+    try testing.expect(findByText(tree.root, .progress, "会话上下文") == null);
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_usage, &fx);
+    try testing.expect(model.settings_page_usage());
+    tree = try buildTree(arena, &model);
+    _ = try expectContextProgress(tree.root, 0.265);
+    try testing.expect(findByText(tree.root, .progress, "上下文用量") == null);
+    try testing.expect(findByText(tree.root, .progress, "コンテキスト使用量") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("上下文用量", model.context_usage_progress_label());
+    try testing.expectEqualStrings("用量计", model.usage_meter_label());
+    try testing.expectEqualStrings("会话上下文", model.session_context_label());
+    try testing.expectEqualStrings(i18n.usageProgressA11yChromeFor(.simplified_chinese, "").context_usage, model.context_usage_progress_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .progress, "上下文用量");
+    try testing.expectApproxEqAbs(@as(f32, 0.265), (findByText(tree.root, .progress, "上下文用量") orelse return error.WidgetNotFound).value, 0.0001);
+    try testing.expect(findByText(tree.root, .progress, "Context usage") == null);
+    try testing.expect(findByText(tree.root, .progress, "コンテキスト使用量") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("コンテキスト使用量", model.context_usage_progress_label());
+    try testing.expectEqualStrings("使用量メーター", model.usage_meter_label());
+    try testing.expectEqualStrings("セッションコンテキスト", model.session_context_label());
+    try testing.expectEqualStrings(i18n.usageProgressA11yChromeFor(.japanese, "").context_usage, model.context_usage_progress_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .progress, "コンテキスト使用量");
+    try testing.expect(findByText(tree.root, .progress, "Context usage") == null);
+    try testing.expect(findByText(tree.root, .progress, "上下文用量") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Context usage", model.context_usage_progress_label());
+    try testing.expectEqualStrings("Usage meter", model.usage_meter_label());
+    try testing.expectEqualStrings("Session context", model.session_context_label());
+    try testing.expectEqualStrings(i18n.usageProgressA11yChromeFor(.english, "ja_JP.UTF-8").context_usage, model.context_usage_progress_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectContextProgress(tree.root, 0.265);
+    try testing.expect(findByText(tree.root, .progress, "コンテキスト使用量") == null);
+    try testing.expect(findByText(tree.root, .progress, "上下文用量") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("上下文用量", model.context_usage_progress_label());
+    try testing.expectEqualStrings(i18n.usageProgressA11yChromeFor(.system, "zh_CN.UTF-8").context_usage, model.context_usage_progress_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .progress, "上下文用量");
+    try testing.expect(findByText(tree.root, .progress, "Context usage") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("コンテキスト使用量", model.context_usage_progress_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .progress, "コンテキスト使用量");
+    try testing.expect(findByText(tree.root, .progress, "上下文用量") == null);
+
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Context usage", model.context_usage_progress_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectContextProgress(tree.root, 0.265);
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(!model.settings_open);
+    try testing.expect(!model.usage_meter_open);
+    model.usage_meter_open = true;
+    model.language_preference = .simplified_chinese;
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .progress, "上下文用量");
+    _ = try expectByText(tree.root, .progress, "用量计");
+    _ = try expectByText(tree.root, .progress, "会话上下文");
+    try testing.expect(findByText(tree.root, .progress, "Context usage") == null);
+    try testing.expect(findByText(tree.root, .progress, "Usage meter") == null);
+    try testing.expect(findByText(tree.root, .progress, "Session context") == null);
+
+    model.language_preference = .japanese;
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .progress, "コンテキスト使用量");
+    _ = try expectByText(tree.root, .progress, "使用量メーター");
+    _ = try expectByText(tree.root, .progress, "セッションコンテキスト");
+    try testing.expect(findByText(tree.root, .progress, "Usage meter") == null);
+    try testing.expect(findByText(tree.root, .progress, "Session context") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("Usage meter", model.usage_meter_label());
+    try testing.expectEqualStrings("Session context", model.session_context_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .progress, "Usage meter");
+    _ = try expectByText(tree.root, .progress, "Session context");
+    _ = try expectContextProgress(tree.root, 0.265);
+    try testing.expect(findByText(tree.root, .progress, "用量计") == null);
+    try testing.expect(findByText(tree.root, .progress, "会话上下文") == null);
+}
+
 test "Settings Providers Available Not found Enable Disable Copy First-party follow Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

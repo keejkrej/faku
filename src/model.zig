@@ -5121,6 +5121,10 @@ pub const Model = struct {
         return i18n.usageChartA11yChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn usageProgressA11yChrome(model: *const Model) i18n.UsageProgressA11yChrome {
+        return i18n.usageProgressA11yChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn settingsRefreshChrome(model: *const Model) i18n.SettingsRefreshChrome {
         return i18n.settingsRefreshChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6970,6 +6974,28 @@ pub const Model = struct {
     /// English.
     pub fn usage_projects_chart_label(model: *const Model) []const u8 {
         return model.usageChartA11yChrome().projects_usage;
+    }
+
+    /// Settings Usage + composer project-row Native `<progress>` a11y
+    /// for Context usage. Distinct from numeric `context_usage_label`
+    /// occupancy and from `i18n.UsageLocalChrome` Context window heading.
+    /// Review hunk a11y stays English.
+    pub fn context_usage_progress_label(model: *const Model) []const u8 {
+        return model.usageProgressA11yChrome().context_usage;
+    }
+
+    /// Composer footer Native `<progress>` a11y for Usage meter.
+    /// Distinct from `usage_meter_progress` (share) and from
+    /// `i18n.Chrome.usage` (meter toggle "Usage").
+    pub fn usage_meter_label(model: *const Model) []const u8 {
+        return model.usageProgressA11yChrome().usage_meter;
+    }
+
+    /// Composer Usage meter panel nested Native `<progress>` a11y
+    /// for Session context. Distinct from `UsageLocalChrome` Context
+    /// window heading and from `UsageMeterChrome` Nothing measured yet.
+    pub fn session_context_label(model: *const Model) []const u8 {
+        return model.usageProgressA11yChrome().session_context;
     }
 
     pub fn usage_project_filter(model: *const Model) []const u8 {
