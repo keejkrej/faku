@@ -34,6 +34,14 @@
 //! `ReviewDiffGapLabelChrome` strings; distinct from
 //! `ReviewDiffChrome` / `ReviewHunkA11yChrome` so gap count
 //! labels stay independently evolvable; numbers stay Latin),
+//! plus first-cut Review Diff status chrome Comparing… /
+//! No changes to compare / Could not compare. / No workspace. /
+//! No hunks / Could not show diff. (same
+//! `ReviewDiffStatusChrome` strings; distinct from
+//! `ReviewDiffChrome` / `ReviewHunkA11yChrome` /
+//! `ReviewDiffGapLabelChrome` so status chrome stays
+//! independently evolvable; wire ids / on-press / git argv /
+//! paths stay English/data),
 //! and first-cut Background row kind /
 //! status / stop·dismiss chrome (same `BackgroundChrome` strings;
 //! Environment Summary + right-panel Background body), and
@@ -254,6 +262,13 @@
 //! `ReviewDiffGapLabelChrome` strings; distinct from
 //! `ReviewDiffChrome` / `ReviewHunkA11yChrome` so gap count
 //! labels stay independently evolvable; numbers stay Latin)
+//! plus Review Diff status chrome Comparing… / No changes to
+//! compare / Could not compare. / No workspace. / No hunks /
+//! Could not show diff. (same `ReviewDiffStatusChrome` strings;
+//! distinct from `ReviewDiffChrome` / `ReviewHunkA11yChrome` /
+//! `ReviewDiffGapLabelChrome` so status chrome stays
+//! independently evolvable; wire ids / on-press / git argv /
+//! paths stay English/data)
 //! plus Settings Providers Available / Not found, Enable /
 //! Disable, Use for this session, Copy install command / Copy login
 //! command, and First-party default (same `ProvidersChrome` strings;
@@ -466,6 +481,14 @@
 //! `ReviewDiffGapLabelChrome` strings; distinct from
 //! `ReviewDiffChrome` / `ReviewHunkA11yChrome` so gap count
 //! labels stay independently evolvable; numbers stay Latin).
+//! Review Diff status chrome Comparing… / No changes to
+//! compare / Could not compare. / No workspace. / No hunks /
+//! Could not show diff. follow the resolved locale this cut
+//! (same `ReviewDiffStatusChrome` strings; distinct from
+//! `ReviewDiffChrome` / `ReviewHunkA11yChrome` /
+//! `ReviewDiffGapLabelChrome` so status chrome stays
+//! independently evolvable; wire ids / on-press / git argv /
+//! paths stay English/data).
 //! Typed URL text
 //! stays data. Parked `home_url`
 //! / scene URLs stay data. OS
@@ -1126,7 +1149,9 @@ const composer_project_chrome_ja: ComposerProjectChrome = .{
 /// the Diff tab (`RightPanelTabs.diff`), not Diff. Native `<code>` /
 /// `<scroll>` a11y Review hunk / Review hunks live in
 /// `ReviewHunkA11yChrome`. Unmodified-line gap labels live in
-/// `ReviewDiffGapLabelChrome`.
+/// `ReviewDiffGapLabelChrome`. Status chrome (Comparing… /
+/// empty / fail / no workspace / No hunks / Could not show
+/// diff.) lives in `ReviewDiffStatusChrome`.
 pub const ReviewDiffChrome = struct {
     review_title: []const u8,
     cancel: []const u8,
@@ -1193,7 +1218,8 @@ const review_diff_chrome_ja: ReviewDiffChrome = .{
 /// Distinct from `ReviewDiffChrome` (title / Cancel / source chips /
 /// gap Start|End|Both|All) so hunk a11y stays independently
 /// evolvable. Unmodified-line gap labels live in
-/// `ReviewDiffGapLabelChrome`.
+/// `ReviewDiffGapLabelChrome`. Status chrome lives in
+/// `ReviewDiffStatusChrome`.
 pub const ReviewHunkA11yChrome = struct {
     review_hunk: []const u8,
     review_hunks: []const u8,
@@ -1222,8 +1248,8 @@ const review_hunk_a11y_chrome_ja: ReviewHunkA11yChrome = .{
 /// `ReviewHunkA11yChrome` (Review hunk / Review hunks) so gap
 /// count labels stay independently evolvable. Numbers stay Latin
 /// `{d}`. Plural may match singular where natural in zh-CN / ja;
-/// both fields are kept. Other Review Diff status strings stay
-/// English this cut.
+/// both fields are kept. Status chrome lives in
+/// `ReviewDiffStatusChrome`.
 pub const ReviewDiffGapLabelChrome = struct {
     unmodified_line: []const u8,
     unmodified_lines: []const u8,
@@ -1242,6 +1268,54 @@ const review_diff_gap_label_chrome_zh_cn: ReviewDiffGapLabelChrome = .{
 const review_diff_gap_label_chrome_ja: ReviewDiffGapLabelChrome = .{
     .unmodified_line = "{d} 行未変更",
     .unmodified_lines = "{d} 行未変更",
+};
+
+/// Review Diff file-list / hunk status chrome for the resolved
+/// locale. Same resolve path as ReviewDiffGapLabelChrome. English
+/// matches the former hardcoded copy (Comparing… / No changes to
+/// compare / Could not compare. / No workspace. / No hunks /
+/// Could not show diff.), including the ellipsis character and
+/// trailing periods. Distinct from `ReviewDiffChrome` (title /
+/// Cancel / source chips / gap Start|End|Both|All),
+/// `ReviewHunkA11yChrome` (Review hunk / Review hunks), and
+/// `ReviewDiffGapLabelChrome` (unmodified-line gap labels) so
+/// status chrome stays independently evolvable. Binary file
+/// changed Meta body stays English this cut. Wire ids / on-press /
+/// git argv / paths stay English/data.
+pub const ReviewDiffStatusChrome = struct {
+    comparing: []const u8,
+    empty: []const u8,
+    failed: []const u8,
+    no_workspace: []const u8,
+    hunk_empty: []const u8,
+    hunk_failed: []const u8,
+};
+
+const review_diff_status_chrome_en: ReviewDiffStatusChrome = .{
+    .comparing = "Comparing…",
+    .empty = "No changes to compare",
+    .failed = "Could not compare.",
+    .no_workspace = "No workspace.",
+    .hunk_empty = "No hunks",
+    .hunk_failed = "Could not show diff.",
+};
+
+const review_diff_status_chrome_zh_cn: ReviewDiffStatusChrome = .{
+    .comparing = "正在比较…",
+    .empty = "没有可比较的更改",
+    .failed = "无法比较。",
+    .no_workspace = "没有工作区。",
+    .hunk_empty = "没有片段",
+    .hunk_failed = "无法显示 diff。",
+};
+
+const review_diff_status_chrome_ja: ReviewDiffStatusChrome = .{
+    .comparing = "比較中…",
+    .empty = "比較する変更はありません",
+    .failed = "比較できませんでした。",
+    .no_workspace = "ワークスペースがありません。",
+    .hunk_empty = "ハンクがありません",
+    .hunk_failed = "diff を表示できませんでした。",
 };
 
 /// Background row kind / status / stop·dismiss chrome for the
@@ -3677,7 +3751,8 @@ pub fn reviewDiffChromeFor(preference: LanguagePreference, system_locale_id: []c
 /// `language_preference` + `system_locale_id`; this file does not
 /// read process env. Distinct from `reviewDiffChromeFor` so hunk
 /// a11y stays independently evolvable. Unmodified-line gap labels
-/// live in `reviewDiffGapLabelChromeFor`.
+/// live in `reviewDiffGapLabelChromeFor`. Status chrome lives in
+/// `reviewDiffStatusChromeFor`.
 pub fn reviewHunkA11yChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ReviewHunkA11yChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => review_hunk_a11y_chrome_zh_cn,
@@ -3691,6 +3766,7 @@ pub fn reviewHunkA11yChromeFor(preference: LanguagePreference, system_locale_id:
 /// this file does not read process env. Distinct from
 /// `reviewDiffChromeFor` / `reviewHunkA11yChromeFor` so gap count
 /// labels stay independently evolvable. Numbers stay Latin.
+/// Status chrome lives in `reviewDiffStatusChromeFor`.
 pub fn reviewDiffGapLabelChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ReviewDiffGapLabelChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => review_diff_gap_label_chrome_zh_cn,
@@ -3707,6 +3783,21 @@ pub fn formatReviewDiffGapLabel(chrome: ReviewDiffGapLabelChrome, arena: std.mem
     const tmpl = if (count == 1) chrome.unmodified_line else chrome.unmodified_lines;
     const suffix = if (std.mem.startsWith(u8, tmpl, "{d}")) tmpl["{d}".len..] else tmpl;
     return std.fmt.allocPrint(arena, "{d}{s}", .{ count, suffix }) catch "";
+}
+
+/// Review Diff file-list / hunk status chrome for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env.
+/// Distinct from `reviewDiffChromeFor` /
+/// `reviewHunkA11yChromeFor` / `reviewDiffGapLabelChromeFor` so
+/// status chrome stays independently evolvable. Wire ids /
+/// on-press / git argv / paths stay English/data.
+pub fn reviewDiffStatusChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ReviewDiffStatusChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => review_diff_status_chrome_zh_cn,
+        .japanese => review_diff_status_chrome_ja,
+        .system, .english => review_diff_status_chrome_en,
+    };
 }
 
 /// Background row kind / status / stop·dismiss chrome for the
@@ -5146,6 +5237,65 @@ test "reviewDiffGapLabelChromeFor english default; zh and ja chrome; english ign
         "1 unmodified line",
         formatReviewDiffGapLabel(reviewDiffGapLabelChromeFor(.english, "ja_JP.UTF-8"), arena, 1),
     );
+}
+
+test "reviewDiffStatusChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Comparing…", reviewDiffStatusChromeFor(.english, "ja").comparing);
+    try testing.expectEqualStrings("No changes to compare", reviewDiffStatusChromeFor(.english, "").empty);
+    try testing.expectEqualStrings("Could not compare.", reviewDiffStatusChromeFor(.english, "").failed);
+    try testing.expectEqualStrings("No workspace.", reviewDiffStatusChromeFor(.english, "").no_workspace);
+    try testing.expectEqualStrings("No hunks", reviewDiffStatusChromeFor(.english, "").hunk_empty);
+    try testing.expectEqualStrings("Could not show diff.", reviewDiffStatusChromeFor(.english, "").hunk_failed);
+    try testing.expectEqualStrings("Comparing…", reviewDiffStatusChromeFor(.system, "").comparing);
+    try testing.expectEqualStrings("No changes to compare", reviewDiffStatusChromeFor(.system, "").empty);
+    try testing.expectEqualStrings("Could not compare.", reviewDiffStatusChromeFor(.system, "").failed);
+    try testing.expectEqualStrings("No workspace.", reviewDiffStatusChromeFor(.system, "").no_workspace);
+    try testing.expectEqualStrings("No hunks", reviewDiffStatusChromeFor(.system, "").hunk_empty);
+    try testing.expectEqualStrings("Could not show diff.", reviewDiffStatusChromeFor(.system, "").hunk_failed);
+
+    try testing.expectEqualStrings("正在比较…", reviewDiffStatusChromeFor(.simplified_chinese, "").comparing);
+    try testing.expectEqualStrings("没有可比较的更改", reviewDiffStatusChromeFor(.simplified_chinese, "").empty);
+    try testing.expectEqualStrings("无法比较。", reviewDiffStatusChromeFor(.simplified_chinese, "").failed);
+    try testing.expectEqualStrings("没有工作区。", reviewDiffStatusChromeFor(.simplified_chinese, "").no_workspace);
+    try testing.expectEqualStrings("没有片段", reviewDiffStatusChromeFor(.simplified_chinese, "").hunk_empty);
+    try testing.expectEqualStrings("无法显示 diff。", reviewDiffStatusChromeFor(.simplified_chinese, "").hunk_failed);
+
+    try testing.expectEqualStrings("比較中…", reviewDiffStatusChromeFor(.japanese, "").comparing);
+    try testing.expectEqualStrings("比較する変更はありません", reviewDiffStatusChromeFor(.japanese, "").empty);
+    try testing.expectEqualStrings("比較できませんでした。", reviewDiffStatusChromeFor(.japanese, "").failed);
+    try testing.expectEqualStrings("ワークスペースがありません。", reviewDiffStatusChromeFor(.japanese, "").no_workspace);
+    try testing.expectEqualStrings("ハンクがありません", reviewDiffStatusChromeFor(.japanese, "").hunk_empty);
+    try testing.expectEqualStrings("diff を表示できませんでした。", reviewDiffStatusChromeFor(.japanese, "").hunk_failed);
+
+    try testing.expectEqualStrings("正在比较…", reviewDiffStatusChromeFor(.system, "zh_CN.UTF-8").comparing);
+    try testing.expectEqualStrings("没有可比较的更改", reviewDiffStatusChromeFor(.system, "zh_CN.UTF-8").empty);
+    try testing.expectEqualStrings("无法比较。", reviewDiffStatusChromeFor(.system, "zh_CN.UTF-8").failed);
+    try testing.expectEqualStrings("没有工作区。", reviewDiffStatusChromeFor(.system, "zh_CN.UTF-8").no_workspace);
+    try testing.expectEqualStrings("没有片段", reviewDiffStatusChromeFor(.system, "zh_CN.UTF-8").hunk_empty);
+    try testing.expectEqualStrings("无法显示 diff。", reviewDiffStatusChromeFor(.system, "zh_CN.UTF-8").hunk_failed);
+    try testing.expectEqualStrings("比較中…", reviewDiffStatusChromeFor(.system, "ja_JP.UTF-8").comparing);
+    try testing.expectEqualStrings("比較する変更はありません", reviewDiffStatusChromeFor(.system, "ja_JP.UTF-8").empty);
+    try testing.expectEqualStrings("比較できませんでした。", reviewDiffStatusChromeFor(.system, "ja_JP.UTF-8").failed);
+    try testing.expectEqualStrings("ワークスペースがありません。", reviewDiffStatusChromeFor(.system, "ja_JP.UTF-8").no_workspace);
+    try testing.expectEqualStrings("ハンクがありません", reviewDiffStatusChromeFor(.system, "ja_JP.UTF-8").hunk_empty);
+    try testing.expectEqualStrings("diff を表示できませんでした。", reviewDiffStatusChromeFor(.system, "ja_JP.UTF-8").hunk_failed);
+    try testing.expectEqualStrings("Comparing…", reviewDiffStatusChromeFor(.english, "ja_JP.UTF-8").comparing);
+    try testing.expectEqualStrings("No changes to compare", reviewDiffStatusChromeFor(.english, "zh_CN.UTF-8").empty);
+    try testing.expectEqualStrings("Could not compare.", reviewDiffStatusChromeFor(.english, "ja_JP.UTF-8").failed);
+    try testing.expectEqualStrings("No workspace.", reviewDiffStatusChromeFor(.english, "zh_CN.UTF-8").no_workspace);
+    try testing.expectEqualStrings("No hunks", reviewDiffStatusChromeFor(.english, "ja_JP.UTF-8").hunk_empty);
+    try testing.expectEqualStrings("Could not show diff.", reviewDiffStatusChromeFor(.english, "zh_CN.UTF-8").hunk_failed);
+
+    try testing.expect(!std.mem.eql(u8, reviewDiffStatusChromeFor(.english, "").comparing, reviewDiffStatusChromeFor(.simplified_chinese, "").comparing));
+    try testing.expect(!std.mem.eql(u8, reviewDiffStatusChromeFor(.english, "").comparing, reviewDiffStatusChromeFor(.japanese, "").comparing));
+    try testing.expect(!std.mem.eql(u8, reviewDiffStatusChromeFor(.english, "").empty, reviewDiffStatusChromeFor(.simplified_chinese, "").empty));
+    try testing.expect(!std.mem.eql(u8, reviewDiffStatusChromeFor(.english, "").failed, reviewDiffStatusChromeFor(.japanese, "").failed));
+    try testing.expect(!std.mem.eql(u8, reviewDiffStatusChromeFor(.english, "").no_workspace, reviewDiffStatusChromeFor(.simplified_chinese, "").no_workspace));
+    try testing.expect(!std.mem.eql(u8, reviewDiffStatusChromeFor(.english, "").hunk_empty, reviewDiffStatusChromeFor(.japanese, "").hunk_empty));
+    try testing.expect(!std.mem.eql(u8, reviewDiffStatusChromeFor(.english, "").hunk_failed, reviewDiffStatusChromeFor(.simplified_chinese, "").hunk_failed));
+    try testing.expect(!std.mem.eql(u8, reviewDiffStatusChromeFor(.english, "").comparing, reviewDiffChromeFor(.english, "").review_title));
+    try testing.expect(!std.mem.eql(u8, reviewDiffStatusChromeFor(.english, "").hunk_empty, reviewHunkA11yChromeFor(.english, "").review_hunks));
 }
 
 test "backgroundChromeFor english default; zh and ja chrome; english ignores ja LANG" {

@@ -3872,7 +3872,8 @@ pub const Model = struct {
     /// Review Diff Native `<code>` a11y for Review hunk. Distinct from
     /// `i18n.ReviewDiffChrome` title / Cancel / source chips / gap
     /// expand. Unmodified-line gap labels live in
-    /// `i18n.ReviewDiffGapLabelChrome`.
+    /// `i18n.ReviewDiffGapLabelChrome`. Status chrome lives in
+    /// `i18n.ReviewDiffStatusChrome`.
     pub fn review_hunk_label(model: *const Model) []const u8 {
         return model.reviewHunkA11yChrome().review_hunk;
     }
@@ -3882,6 +3883,44 @@ pub const Model = struct {
     /// `i18n.ReviewDiffChrome`.
     pub fn review_hunks_label(model: *const Model) []const u8 {
         return model.reviewHunkA11yChrome().review_hunks;
+    }
+
+    /// Review Diff file-list Comparing… status. Distinct from
+    /// `i18n.ReviewDiffChrome` / `ReviewHunkA11yChrome` /
+    /// `ReviewDiffGapLabelChrome`. English matches
+    /// `review_diff.comparing_status`.
+    pub fn review_diff_comparing_status(model: *const Model) []const u8 {
+        return model.reviewDiffStatusChrome().comparing;
+    }
+
+    /// Review Diff file-list No changes to compare status. English
+    /// matches `review_diff.empty_status`.
+    pub fn review_diff_empty_status(model: *const Model) []const u8 {
+        return model.reviewDiffStatusChrome().empty;
+    }
+
+    /// Review Diff file-list Could not compare. status. English
+    /// matches `review_diff.failed_status`.
+    pub fn review_diff_failed_status(model: *const Model) []const u8 {
+        return model.reviewDiffStatusChrome().failed;
+    }
+
+    /// Review Diff file-list No workspace. status. English matches
+    /// `review_diff.no_workspace_status`.
+    pub fn review_diff_no_workspace_status(model: *const Model) []const u8 {
+        return model.reviewDiffStatusChrome().no_workspace;
+    }
+
+    /// Review Diff hunk pane No hunks status. English matches
+    /// `review_diff.hunk_empty_status`.
+    pub fn review_diff_hunk_empty_status(model: *const Model) []const u8 {
+        return model.reviewDiffStatusChrome().hunk_empty;
+    }
+
+    /// Review Diff hunk pane Could not show diff. status. English
+    /// matches `review_diff.hunk_failed_status`.
+    pub fn review_diff_hunk_failed_status(model: *const Model) []const u8 {
+        return model.reviewDiffStatusChrome().hunk_failed;
     }
 
     /// Header Environment info a11y and dropdown header. `on-press`
@@ -4982,6 +5021,10 @@ pub const Model = struct {
 
     fn reviewHunkA11yChrome(model: *const Model) i18n.ReviewHunkA11yChrome {
         return i18n.reviewHunkA11yChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn reviewDiffStatusChrome(model: *const Model) i18n.ReviewDiffStatusChrome {
+        return i18n.reviewDiffStatusChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     fn environmentChrome(model: *const Model) i18n.EnvironmentChrome {
