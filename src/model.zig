@@ -3871,7 +3871,8 @@ pub const Model = struct {
 
     /// Review Diff Native `<code>` a11y for Review hunk. Distinct from
     /// `i18n.ReviewDiffChrome` title / Cancel / source chips / gap
-    /// expand. Unmodified-line gap labels stay English.
+    /// expand. Unmodified-line gap labels live in
+    /// `i18n.ReviewDiffGapLabelChrome`.
     pub fn review_hunk_label(model: *const Model) []const u8 {
         return model.reviewHunkA11yChrome().review_hunk;
     }

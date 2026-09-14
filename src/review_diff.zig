@@ -197,6 +197,7 @@ const composer = @import("composer.zig");
 const file_mention = @import("file_mention.zig");
 const code_language = @import("code_language.zig");
 const file_icon = @import("file_icon.zig");
+const i18n = @import("i18n.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -417,7 +418,7 @@ pub const max_review_diff_hunk_status: usize = 32;
 /// JSON lines), so a CollectReviewDiff payload larger than that is
 /// still clipped before this table.
 pub const max_review_diff_daemon_patch: usize = max_review_diff_hunk;
-/// Gap label buffer (`{n} unmodified lines`).
+/// Gap label buffer (`{d}` plus locale unmodified-line copy).
 pub const max_review_diff_gap_label: usize = 40;
 
 pub const comparing_status = "Comparing…";
@@ -1663,13 +1664,8 @@ fn gapIsExpandable(line: DiffLine) bool {
     return line.kind == .gap and line.gap_count > 0 and line.hidden_len == line.gap_count;
 }
 
-fn gapLabel(arena: std.mem.Allocator, count: u32) []const u8 {
-    if (count == 1) return "1 unmodified line";
-    var buf: [max_review_diff_gap_label]u8 = undefined;
-    const label = std.fmt.bufPrint(&buf, "{d} unmodified lines", .{count}) catch return "";
-    const out = arena.alloc(u8, label.len) catch return "";
-    @memcpy(out, label);
-    return out;
+fn gapLabel(arena: std.mem.Allocator, count: u32, chrome: i18n.ReviewDiffGapLabelChrome) []const u8 {
+    return i18n.formatReviewDiffGapLabel(chrome, arena, count);
 }
 
 fn isHunkCodeKind(kind: LineKind) bool {
@@ -1698,7 +1694,11 @@ fn paintVisibleRow(model: *const Model, arena: std.mem.Allocator, line: DiffLine
         .deletion => row.is_deletion = true,
         .gap => {
             row.is_gap = true;
-            row.text = gapLabel(arena, line.gap_count);
+            row.text = gapLabel(
+                arena,
+                line.gap_count,
+                i18n.reviewDiffGapLabelChromeFor(model.language_preference, model.systemLocaleId()),
+            );
             if (gapIsExpandable(line)) {
                 const chunked = line.gap_count > default_expansion_line_count;
                 row.can_expand_all = true;

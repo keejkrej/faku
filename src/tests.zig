@@ -25891,6 +25891,119 @@ test "Review Diff hunk a11y chrome follows Appearance language" {
     try testing.expect(findByText(tree.root, .column, "Review hunk") != null);
 }
 
+test "Review Diff unmodified-line gap labels follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{h.text}") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "1 unmodified line") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "unmodified lines") == null);
+    try testing.expect(std.mem.indexOf(u8, @embedFile("review_diff.zig"), "1 unmodified line") == null);
+    try testing.expect(std.mem.indexOf(u8, @embedFile("review_diff.zig"), "{d} unmodified lines") == null);
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings(
+        "1 unmodified line",
+        i18n.formatReviewDiffGapLabel(i18n.reviewDiffGapLabelChromeFor(.english, ""), arena, 1),
+    );
+    try testing.expectEqualStrings(
+        "20 unmodified lines",
+        i18n.formatReviewDiffGapLabel(i18n.reviewDiffGapLabelChromeFor(.english, ""), arena, 20),
+    );
+
+    main.update(&model, .show_right_panel, &fx);
+    try testing.expect(model.right_panel_open);
+    model.right_panel_tab = .diff;
+    model.review_diff_active = true;
+    try testing.expect(model.right_panel_showing_diff());
+
+    var gaps = [_]review_diff.DiffLine{
+        .{ .kind = .gap, .gap_position = .trailing, .gap_count = 1, .hidden_len = 1 },
+        .{ .kind = .gap, .gap_position = .between, .gap_count = 20, .hidden_len = 20 },
+    };
+    model.review_diff_visible_store = &gaps;
+    model.review_diff_visible_count = gaps.len;
+    model.review_diff_hunk_len = 1;
+    defer {
+        model.review_diff_visible_store = &.{};
+        model.review_diff_visible_count = 0;
+        model.review_diff_hunk_len = 0;
+    }
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "1 unmodified line") != null);
+    try testing.expect(findByText(tree.root, .text, "20 unmodified lines") != null);
+    try testing.expect(findByText(tree.root, .text, "1 行未修改") == null);
+    try testing.expect(findByText(tree.root, .text, "20 行未変更") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings(
+        "1 行未修改",
+        i18n.formatReviewDiffGapLabel(i18n.reviewDiffGapLabelChromeFor(.simplified_chinese, ""), arena, 1),
+    );
+    try testing.expectEqualStrings(
+        "20 行未修改",
+        i18n.formatReviewDiffGapLabel(i18n.reviewDiffGapLabelChromeFor(.simplified_chinese, ""), arena, 20),
+    );
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "1 行未修改") != null);
+    try testing.expect(findByText(tree.root, .text, "20 行未修改") != null);
+    try testing.expect(findByText(tree.root, .text, "1 unmodified line") == null);
+    try testing.expect(findByText(tree.root, .text, "20 unmodified lines") == null);
+    try testing.expect(findByText(tree.root, .text, "1 行未変更") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings(
+        "1 行未変更",
+        i18n.formatReviewDiffGapLabel(i18n.reviewDiffGapLabelChromeFor(.japanese, ""), arena, 1),
+    );
+    try testing.expectEqualStrings(
+        "20 行未変更",
+        i18n.formatReviewDiffGapLabel(i18n.reviewDiffGapLabelChromeFor(.japanese, ""), arena, 20),
+    );
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "1 行未変更") != null);
+    try testing.expect(findByText(tree.root, .text, "20 行未変更") != null);
+    try testing.expect(findByText(tree.root, .text, "1 unmodified line") == null);
+    try testing.expect(findByText(tree.root, .text, "20 unmodified lines") == null);
+    try testing.expect(findByText(tree.root, .text, "1 行未修改") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings(
+        "1 unmodified line",
+        i18n.formatReviewDiffGapLabel(i18n.reviewDiffGapLabelChromeFor(.english, "ja_JP.UTF-8"), arena, 1),
+    );
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "1 unmodified line") != null);
+    try testing.expect(findByText(tree.root, .text, "20 unmodified lines") != null);
+    try testing.expect(findByText(tree.root, .text, "1 行未変更") == null);
+    try testing.expect(findByText(tree.root, .text, "20 行未変更") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "1 行未修改") != null);
+    try testing.expect(findByText(tree.root, .text, "20 行未修改") != null);
+    try testing.expect(findByText(tree.root, .text, "1 unmodified line") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "1 行未変更") != null);
+    try testing.expect(findByText(tree.root, .text, "20 行未変更") != null);
+    try testing.expect(findByText(tree.root, .text, "1 行未修改") == null);
+
+    model.setSystemLocaleId("");
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "1 unmodified line") != null);
+    try testing.expect(findByText(tree.root, .text, "20 unmodified lines") != null);
+}
+
 test "Background row kind / status / stop chrome follow Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
