@@ -2128,6 +2128,7 @@ pub const Model = struct {
         "settingsRefreshChrome",
         "goalPlanRefreshChrome",
         "goalActionChrome",
+        "goalStatusChrome",
         "usageCostQualityChrome",
         "providersChrome",
         "providersDetailChrome",
@@ -4109,19 +4110,21 @@ pub const Model = struct {
     }
 
     /// Codex `ThreadGoalStatus` wire names. Hidden unless `show_goal`.
+    /// `id` stays the English wire name; `label` is localized chrome.
     pub fn goal_status_picker_rows(model: *const Model, arena: std.mem.Allocator) []const ChipPickerRow {
         const tags = std.meta.tags(protocol.ThreadGoalStatus);
         const current = if (model.sessionByIdConst(model.selected)) |session|
             session.threadGoalStatus()
         else
             "";
+        const labels = model.goalStatusChrome();
         const out = arena.alloc(ChipPickerRow, tags.len) catch return &.{};
         for (tags, 0..) |status, index| {
             const name = status.wireName();
             out[index] = .{
                 .row_id = @intCast(index + 1),
                 .id = name,
-                .label = name,
+                .label = labels.labelForId(name),
                 .selected = std.mem.eql(u8, current, name),
             };
         }
@@ -5120,6 +5123,10 @@ pub const Model = struct {
 
     fn goalEmptyChrome(model: *const Model) i18n.GoalEmptyChrome {
         return i18n.goalEmptyChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn goalStatusChrome(model: *const Model) i18n.GoalStatusChrome {
+        return i18n.goalStatusChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     fn usageCostQualityChrome(model: *const Model) i18n.UsageCostQualityChrome {
@@ -7129,8 +7136,9 @@ pub const Model = struct {
 
     /// Current objective, or a muted empty label. Markup ellipsizes.
     /// Empty chrome from `i18n.GoalEmptyChrome`. Distinct from Set/Clear
-    /// (`GoalActionChrome`), Refresh goal (`GoalPlanRefreshChrome`), and
-    /// Goal Status (`ComposerChrome`). Objective text stays data.
+    /// (`GoalActionChrome`), Refresh goal (`GoalPlanRefreshChrome`),
+    /// Goal Status placeholder (`ComposerChrome`), and Goal Status
+    /// display (`GoalStatusChrome`). Objective text stays data.
     pub fn goal_label(model: *const Model) []const u8 {
         const empty = model.goalEmptyChrome().no_goal;
         const session = model.sessionByIdConst(model.selected) orelse return empty;
@@ -7138,16 +7146,17 @@ pub const Model = struct {
         return session.threadGoalObjective();
     }
 
-    /// Current Codex `ThreadGoalStatus` wire name, or localized Status
-    /// chrome when empty. Wire names stay English (`active` / `paused` / …).
+    /// Current Codex `ThreadGoalStatus` display label, or localized Status
+    /// placeholder when empty. Wire names / stored status stay English
+    /// (`active` / `paused` / …); the painted chip uses `GoalStatusChrome`.
     pub fn goal_status_label(model: *const Model) []const u8 {
         const session = model.sessionByIdConst(model.selected) orelse return model.goal_status_placeholder();
         if (session.threadGoalStatus().len == 0) return model.goal_status_placeholder();
-        return session.threadGoalStatus();
+        return model.goalStatusChrome().labelForId(session.threadGoalStatus());
     }
 
     /// Goal status picker placeholder / empty label. Distinct from
-    /// `goal_status_label` (wire name when set). `on-press` stays
+    /// `goal_status_label` (localized display when set). `on-press` stays
     /// `toggle_goal_status_picker`.
     pub fn goal_status_placeholder(model: *const Model) []const u8 {
         return model.composerChrome().status;

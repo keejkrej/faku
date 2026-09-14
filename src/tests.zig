@@ -7090,8 +7090,9 @@ test "goal composer row is hidden without a daemon and shows Set/Clear when one 
     _ = try expectButtonMsg(tree, "Refresh goal", .goal_refresh);
     _ = try expectByText(tree.root, .text, "Ship the feature");
     try testing.expect(findByText(tree.root, .text, "12k/100k · 3m") == null);
-    _ = try expectSelectMsg(tree, "active", .toggle_goal_status_picker);
-    try testing.expectEqualStrings("active", model.goal_status_label());
+    _ = try expectSelectMsg(tree, "Active", .toggle_goal_status_picker);
+    try testing.expectEqualStrings("Active", model.goal_status_label());
+    try testing.expectEqualStrings("active", model.sessionById(id).?.threadGoalStatus());
 }
 
 test "goal usage meter formats used/budget time and tokensUsed-only" {
@@ -7169,12 +7170,14 @@ test "goal status picker lists ThreadGoalStatus; pick_goal_status writes set wit
     _ = model.appendTurn(id, .user, "started");
     if (model.sessionById(id)) |session| session.setThreadGoal("Ship the feature", "active");
     try testing.expectEqualStrings("Ship the feature", model.goal_label());
-    try testing.expectEqualStrings("active", model.goal_status_label());
+    try testing.expectEqualStrings("Active", model.goal_status_label());
+    try testing.expectEqualStrings("active", model.sessionById(id).?.threadGoalStatus());
 
     var tree = try buildTree(arena, &model);
     try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
     try testing.expect(findByText(tree.root, .menu_item, "paused") == null);
-    const chip = try expectSelectMsg(tree, "active", .toggle_goal_status_picker);
+    try testing.expect(findByText(tree.root, .menu_item, "Paused") == null);
+    const chip = try expectSelectMsg(tree, "Active", .toggle_goal_status_picker);
     main.update(&model, tree.msgForPointer(chip.id, .up).?, &fx);
     try testing.expect(model.goal_status_picker_open);
     try testing.expect(!model.access_picker_open);
@@ -7183,26 +7186,39 @@ test "goal status picker lists ThreadGoalStatus; pick_goal_status writes set wit
 
     tree = try buildTree(arena, &model);
     try testing.expect(findByKind(tree.root, .dropdown_menu) != null);
-    const rows = [_][]const u8{ "active", "paused", "blocked", "usageLimited", "budgetLimited", "complete" };
-    for (rows) |name| {
-        const item = try expectByText(tree.root, .menu_item, name);
+    const rows = [_]struct { id: []const u8, label: []const u8 }{
+        .{ .id = "active", .label = "Active" },
+        .{ .id = "paused", .label = "Paused" },
+        .{ .id = "blocked", .label = "Blocked" },
+        .{ .id = "usageLimited", .label = "Usage limited" },
+        .{ .id = "budgetLimited", .label = "Budget limited" },
+        .{ .id = "complete", .label = "Complete" },
+    };
+    for (rows) |row| {
+        const item = try expectByText(tree.root, .menu_item, row.label);
         switch (tree.msgForPointer(item.id, .up).?) {
-            .pick_goal_status => |picked| try testing.expectEqualStrings(name, picked),
+            .pick_goal_status => |picked| try testing.expectEqualStrings(row.id, picked),
             else => return error.WrongMsg,
         }
-        if (std.mem.eql(u8, name, "active")) {
+        if (std.mem.eql(u8, row.id, "active")) {
             try testing.expect(item.state.selected);
         } else {
             try testing.expect(!item.state.selected);
         }
     }
+    try testing.expect(findByText(tree.root, .menu_item, "active") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "paused") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "blocked") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "usageLimited") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "budgetLimited") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "complete") == null);
 
-    const paused = try expectByText(tree.root, .menu_item, "paused");
+    const paused = try expectByText(tree.root, .menu_item, "Paused");
     main.update(&model, tree.msgForPointer(paused.id, .up).?, &fx);
     try testing.expect(!model.goal_status_picker_open);
     try testing.expectEqualStrings("Ship the feature", model.sessionById(id).?.threadGoalObjective());
     try testing.expectEqualStrings("paused", model.sessionById(id).?.threadGoalStatus());
-    try testing.expectEqualStrings("paused", model.goal_status_label());
+    try testing.expectEqualStrings("Paused", model.goal_status_label());
 
     const spawn = findGoalOnlySpawn(&fx) orelse return error.GoalStatusSpawnMissing;
     try testing.expect(argvHas(spawn.argv, daemon_proxy.SUBCOMMAND));
@@ -7213,7 +7229,7 @@ test "goal status picker lists ThreadGoalStatus; pick_goal_status writes set wit
 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Ship the feature");
-    _ = try expectSelectMsg(tree, "paused", .toggle_goal_status_picker);
+    _ = try expectSelectMsg(tree, "Paused", .toggle_goal_status_picker);
     try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
 
     main.update(&model, .goal_clear, &fx);
@@ -29342,11 +29358,13 @@ test "Composer Image path and Status chrome follow Appearance language" {
     _ = try expectSelectMsg(tree, "状态", .toggle_goal_status_picker);
 
     if (model.sessionById(model.selected)) |session| session.setThreadGoal("Ship", "active");
-    try testing.expectEqualStrings("active", model.goal_status_label());
+    try testing.expectEqualStrings("进行中", model.goal_status_label());
     try testing.expectEqualStrings("状态", model.goal_status_placeholder());
+    try testing.expectEqualStrings("active", model.sessionById(model.selected).?.threadGoalStatus());
     tree = try buildTree(arena, &model);
-    _ = try expectSelectMsg(tree, "active", .toggle_goal_status_picker);
+    _ = try expectSelectMsg(tree, "进行中", .toggle_goal_status_picker);
     try testing.expect(findByPlaceholder(tree.root, .select, "状态") != null);
+    try testing.expect(findByText(tree.root, .select, "active") == null);
 
     model.language_preference = .japanese;
     if (model.sessionById(model.selected)) |session| session.setThreadGoal("", "");
@@ -31666,6 +31684,175 @@ test "composer Goal empty label follows Appearance language" {
     model.selected = 0;
     try testing.expectEqualStrings("目標なし", model.goal_label());
     try testing.expectEqualStrings(i18n.goalEmptyChromeFor(.system, "ja_JP.UTF-8").no_goal, model.goal_label());
+}
+
+test "composer Goal Status display labels follow Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"toggle_goal_status_picker\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"pick_goal_status:{g.id}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, ">{g.label}</menu-item>"));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Status", model.goal_status_label());
+    try testing.expectEqualStrings("Status", model.goal_status_placeholder());
+    try testing.expectEqualStrings(i18n.composerChromeFor(.english, "").status, model.goal_status_placeholder());
+    try testing.expectEqualStrings(i18n.goalStatusChromeFor(.english, "").active, i18n.goalStatusChromeFor(.english, "").labelForId("active"));
+
+    const claude_id = model.session_store[1].id;
+    try testing.expectEqual(protocol.ProviderId.claude, model.sessionById(claude_id).?.provider);
+    main.update(&model, .{ .select = claude_id }, &fx);
+    try testing.expectEqual(claude_id, model.selected);
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    try testing.expect(model.show_goal());
+    try testing.expectEqualStrings("Status", model.goal_status_label());
+    try testing.expectEqualStrings("Status", model.goal_status_placeholder());
+
+    if (model.sessionById(claude_id)) |session| session.setThreadGoal("Ship the feature", "active");
+    try testing.expectEqualStrings("Active", model.goal_status_label());
+    try testing.expectEqualStrings("active", model.sessionById(claude_id).?.threadGoalStatus());
+    try testing.expectEqualStrings(i18n.goalStatusChromeFor(.english, "").active, model.goal_status_label());
+    try testing.expectEqualStrings("Status", model.goal_status_placeholder());
+
+    var rows = model.goal_status_picker_rows(arena);
+    try testing.expectEqual(@as(usize, 6), rows.len);
+    try testing.expectEqualStrings("active", rows[0].id);
+    try testing.expectEqualStrings("Active", rows[0].label);
+    try testing.expect(rows[0].selected);
+    try testing.expectEqualStrings("paused", rows[1].id);
+    try testing.expectEqualStrings("Paused", rows[1].label);
+    try testing.expect(!rows[1].selected);
+    try testing.expectEqualStrings("blocked", rows[2].id);
+    try testing.expectEqualStrings("Blocked", rows[2].label);
+    try testing.expectEqualStrings("usageLimited", rows[3].id);
+    try testing.expectEqualStrings("Usage limited", rows[3].label);
+    try testing.expectEqualStrings("budgetLimited", rows[4].id);
+    try testing.expectEqualStrings("Budget limited", rows[4].label);
+    try testing.expectEqualStrings("complete", rows[5].id);
+    try testing.expectEqualStrings("Complete", rows[5].label);
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectSelectMsg(tree, "Active", .toggle_goal_status_picker);
+    try testing.expect(findByText(tree.root, .select, "active") == null);
+
+    main.update(&model, .toggle_goal_status_picker, &fx);
+    tree = try buildTree(arena, &model);
+    const en_paused = try expectByText(tree.root, .menu_item, "Paused");
+    switch (tree.msgForPointer(en_paused.id, .up).?) {
+        .pick_goal_status => |picked| try testing.expectEqualStrings("paused", picked),
+        else => return error.WrongMsg,
+    }
+    main.update(&model, .close_goal_status_picker, &fx);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("进行中", model.goal_status_label());
+    try testing.expectEqualStrings("状态", model.goal_status_placeholder());
+    try testing.expectEqualStrings("active", model.sessionById(claude_id).?.threadGoalStatus());
+    try testing.expectEqualStrings(i18n.goalStatusChromeFor(.simplified_chinese, "").active, model.goal_status_label());
+    rows = model.goal_status_picker_rows(arena);
+    try testing.expectEqualStrings("active", rows[0].id);
+    try testing.expectEqualStrings("进行中", rows[0].label);
+    try testing.expect(rows[0].selected);
+    try testing.expectEqualStrings("paused", rows[1].id);
+    try testing.expectEqualStrings("已暂停", rows[1].label);
+    try testing.expectEqualStrings("blocked", rows[2].id);
+    try testing.expectEqualStrings("已阻塞", rows[2].label);
+    try testing.expectEqualStrings("usageLimited", rows[3].id);
+    try testing.expectEqualStrings("用量受限", rows[3].label);
+    try testing.expectEqualStrings("budgetLimited", rows[4].id);
+    try testing.expectEqualStrings("预算受限", rows[4].label);
+    try testing.expectEqualStrings("complete", rows[5].id);
+    try testing.expectEqualStrings("已完成", rows[5].label);
+    tree = try buildTree(arena, &model);
+    _ = try expectSelectMsg(tree, "进行中", .toggle_goal_status_picker);
+    try testing.expect(findByText(tree.root, .select, "Active") == null);
+    try testing.expect(findByText(tree.root, .select, "active") == null);
+
+    main.update(&model, .toggle_goal_status_picker, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .menu_item, "进行中");
+    _ = try expectByText(tree.root, .menu_item, "已暂停");
+    _ = try expectByText(tree.root, .menu_item, "已阻塞");
+    _ = try expectByText(tree.root, .menu_item, "用量受限");
+    _ = try expectByText(tree.root, .menu_item, "预算受限");
+    const zh_complete = try expectByText(tree.root, .menu_item, "已完成");
+    try testing.expect(findByText(tree.root, .menu_item, "Active") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "usageLimited") == null);
+    switch (tree.msgForPointer(zh_complete.id, .up).?) {
+        .pick_goal_status => |picked| try testing.expectEqualStrings("complete", picked),
+        else => return error.WrongMsg,
+    }
+    main.update(&model, tree.msgForPointer(zh_complete.id, .up).?, &fx);
+    try testing.expectEqualStrings("complete", model.sessionById(claude_id).?.threadGoalStatus());
+    try testing.expectEqualStrings("已完成", model.goal_status_label());
+    try testing.expect(!model.goal_status_picker_open);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("完了", model.goal_status_label());
+    try testing.expectEqualStrings("ステータス", model.goal_status_placeholder());
+    try testing.expectEqualStrings("complete", model.sessionById(claude_id).?.threadGoalStatus());
+    try testing.expectEqualStrings(i18n.goalStatusChromeFor(.japanese, "").complete, model.goal_status_label());
+    rows = model.goal_status_picker_rows(arena);
+    try testing.expectEqualStrings("active", rows[0].id);
+    try testing.expectEqualStrings("進行中", rows[0].label);
+    try testing.expectEqualStrings("paused", rows[1].id);
+    try testing.expectEqualStrings("一時停止", rows[1].label);
+    try testing.expectEqualStrings("blocked", rows[2].id);
+    try testing.expectEqualStrings("ブロック中", rows[2].label);
+    try testing.expectEqualStrings("usageLimited", rows[3].id);
+    try testing.expectEqualStrings("使用量制限", rows[3].label);
+    try testing.expectEqualStrings("budgetLimited", rows[4].id);
+    try testing.expectEqualStrings("予算制限", rows[4].label);
+    try testing.expectEqualStrings("complete", rows[5].id);
+    try testing.expectEqualStrings("完了", rows[5].label);
+    try testing.expect(rows[5].selected);
+    tree = try buildTree(arena, &model);
+    _ = try expectSelectMsg(tree, "完了", .toggle_goal_status_picker);
+    try testing.expect(findByText(tree.root, .select, "已完成") == null);
+    try testing.expect(findByText(tree.root, .select, "Complete") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Complete", model.goal_status_label());
+    try testing.expectEqualStrings("Status", model.goal_status_placeholder());
+    try testing.expectEqualStrings(i18n.goalStatusChromeFor(.english, "ja_JP.UTF-8").complete, model.goal_status_label());
+    rows = model.goal_status_picker_rows(arena);
+    try testing.expectEqualStrings("complete", rows[5].id);
+    try testing.expectEqualStrings("Complete", rows[5].label);
+    tree = try buildTree(arena, &model);
+    _ = try expectSelectMsg(tree, "Complete", .toggle_goal_status_picker);
+    try testing.expect(findByText(tree.root, .select, "完了") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("已完成", model.goal_status_label());
+    try testing.expectEqualStrings("状态", model.goal_status_placeholder());
+    rows = model.goal_status_picker_rows(arena);
+    try testing.expectEqualStrings("complete", rows[5].id);
+    try testing.expectEqualStrings("已完成", rows[5].label);
+    tree = try buildTree(arena, &model);
+    _ = try expectSelectMsg(tree, "已完成", .toggle_goal_status_picker);
+    try testing.expect(findByText(tree.root, .select, "Complete") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("完了", model.goal_status_label());
+    try testing.expectEqualStrings("ステータス", model.goal_status_placeholder());
+    rows = model.goal_status_picker_rows(arena);
+    try testing.expectEqualStrings("complete", rows[5].id);
+    try testing.expectEqualStrings("完了", rows[5].label);
+    tree = try buildTree(arena, &model);
+    _ = try expectSelectMsg(tree, "完了", .toggle_goal_status_picker);
+
+    if (model.sessionById(claude_id)) |session| session.setThreadGoal("", "");
+    try testing.expectEqualStrings("ステータス", model.goal_status_label());
+    try testing.expectEqualStrings("ステータス", model.goal_status_placeholder());
+    try testing.expectEqual(@as(usize, 0), model.sessionById(claude_id).?.threadGoalStatus().len);
 }
 
 test "Usage Cost Tokens Model Days chips follow Appearance language" {
