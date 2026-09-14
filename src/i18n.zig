@@ -56,7 +56,11 @@
 //! `FindBarChrome` strings; distinct from `FilePreviewChrome`
 //! previous/next/close file-find so transcript find-bar chrome stays
 //! independently evolvable; `on-press` stays `find_prev` /
-//! `find_next` / `close_find`) plus header Copy session a11y and
+//! `find_next` / `close_find`) plus find-bar muted match-position
+//! No matches / k of N (same `FindMatchChrome` strings; distinct from
+//! `FindBarChrome` / `FilePreviewChrome` / `TranscriptTurnChrome.match`
+//! so transcript find-match chrome stays independently evolvable;
+//! numbers stay Latin) plus header Copy session a11y and
 //! Fork / Rewind button chrome (same `HeaderSessionChrome` strings;
 //! distinct from `Palette.copy_session_id` / `TranscriptTurnChrome`
 //! so header session chrome stays independently
@@ -241,7 +245,9 @@
 //! stays English (data). Transcript Find `on-input` / on-submit /
 //! Previous / Next / Close `on-press` stay English (`find_edit` /
 //! `find_next` / `find_prev` / `close_find`); typed query stays
-//! English (data). Header Copy session / Fork / Rewind `on-press`
+//! English (data). Find-bar muted match-position No matches / k of N
+//! follow the resolved locale this cut (same `FindMatchChrome`
+//! strings). Header Copy session / Fork / Rewind `on-press`
 //! stay English (`copy_session` / `fork` / `rewind`). Transcript
 //! turn You said / Assistant said a11y follow the resolved locale
 //! this cut (same `TranscriptRoleChrome` strings). Per-turn
@@ -1881,6 +1887,35 @@ const find_bar_chrome_ja: FindBarChrome = .{
     .close_find = "検索を閉じる",
 };
 
+/// Transcript find-bar muted match-position chrome (`No matches` /
+/// `k of N`) for the resolved locale. Same resolve path as
+/// FindBarChrome. English matches the former hardcoded copy
+/// (`No matches`, `{d} of {d}`). Distinct from `FindBarChrome`
+/// previous/next/close a11y, from `FilePreviewChrome` (file-preview
+/// still uses its own `n of m · L#line` English path), and from
+/// `TranscriptTurnChrome.match` so transcript find-match chrome
+/// stays independently evolvable. Numbers stay Latin. Wire ids /
+/// on-press / find query stay English.
+pub const FindMatchChrome = struct {
+    no_matches: []const u8,
+    of_fmt: []const u8,
+};
+
+const find_match_chrome_en: FindMatchChrome = .{
+    .no_matches = "No matches",
+    .of_fmt = "{d} of {d}",
+};
+
+const find_match_chrome_zh_cn: FindMatchChrome = .{
+    .no_matches = "无匹配",
+    .of_fmt = "{d} / {d}",
+};
+
+const find_match_chrome_ja: FindMatchChrome = .{
+    .no_matches = "一致なし",
+    .of_fmt = "{d} / {d}",
+};
+
 /// Header Copy session a11y plus Fork / Rewind button chrome for the
 /// resolved locale. Same resolve path as FindBarChrome. English
 /// matches the former hardcoded copy. Distinct from
@@ -3187,6 +3222,29 @@ pub fn findBarChromeFor(preference: LanguagePreference, system_locale_id: []cons
         .japanese => find_bar_chrome_ja,
         .system, .english => find_bar_chrome_en,
     };
+}
+
+/// Transcript find-bar muted match-position chrome for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from FindBarChrome / FilePreviewChrome / TranscriptTurnChrome.match
+/// so transcript find-match chrome stays independently evolvable.
+/// Numbers stay Latin. Wire ids / on-press / find query stay English.
+pub fn findMatchChromeFor(preference: LanguagePreference, system_locale_id: []const u8) FindMatchChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => find_match_chrome_zh_cn,
+        .japanese => find_match_chrome_ja,
+        .system, .english => find_match_chrome_en,
+    };
+}
+
+/// Format transcript find-bar `k of N` from the pack's `of_fmt`.
+/// Numbers stay Latin. `index` is 1-based.
+pub fn formatFindMatchOf(chrome: FindMatchChrome, arena: std.mem.Allocator, index: u32, count: usize) []const u8 {
+    if (std.mem.eql(u8, chrome.of_fmt, "{d} / {d}")) {
+        return std.fmt.allocPrint(arena, "{d} / {d}", .{ index, count }) catch "match";
+    }
+    return std.fmt.allocPrint(arena, "{d} of {d}", .{ index, count }) catch "match";
 }
 
 /// Header Copy session a11y plus Fork / Rewind button chrome for the
@@ -4848,6 +4906,51 @@ test "findBarChromeFor english default; zh and ja chrome; english ignores ja LAN
     try testing.expectEqualStrings("Previous match", findBarChromeFor(.english, "zh_CN.UTF-8").previous_match);
     try testing.expectEqualStrings("Next match", findBarChromeFor(.english, "zh_CN.UTF-8").next_match);
     try testing.expectEqualStrings("Close find", findBarChromeFor(.english, "zh_CN.UTF-8").close_find);
+}
+
+test "findMatchChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("No matches", findMatchChromeFor(.english, "ja").no_matches);
+    try testing.expectEqualStrings("{d} of {d}", findMatchChromeFor(.english, "ja").of_fmt);
+    try testing.expectEqualStrings("No matches", findMatchChromeFor(.english, "").no_matches);
+    try testing.expectEqualStrings("{d} of {d}", findMatchChromeFor(.english, "").of_fmt);
+    try testing.expectEqualStrings("No matches", findMatchChromeFor(.system, "").no_matches);
+    try testing.expectEqualStrings("{d} of {d}", findMatchChromeFor(.system, "").of_fmt);
+
+    try testing.expectEqualStrings("无匹配", findMatchChromeFor(.simplified_chinese, "").no_matches);
+    try testing.expectEqualStrings("{d} / {d}", findMatchChromeFor(.simplified_chinese, "").of_fmt);
+    try testing.expectEqualStrings("一致なし", findMatchChromeFor(.japanese, "").no_matches);
+    try testing.expectEqualStrings("{d} / {d}", findMatchChromeFor(.japanese, "").of_fmt);
+
+    try testing.expectEqualStrings("无匹配", findMatchChromeFor(.system, "zh_CN.UTF-8").no_matches);
+    try testing.expectEqualStrings("{d} / {d}", findMatchChromeFor(.system, "zh_CN.UTF-8").of_fmt);
+    try testing.expectEqualStrings("一致なし", findMatchChromeFor(.system, "ja_JP.UTF-8").no_matches);
+    try testing.expectEqualStrings("{d} / {d}", findMatchChromeFor(.system, "ja_JP.UTF-8").of_fmt);
+    try testing.expectEqualStrings("No matches", findMatchChromeFor(.english, "ja_JP.UTF-8").no_matches);
+    try testing.expectEqualStrings("{d} of {d}", findMatchChromeFor(.english, "ja_JP.UTF-8").of_fmt);
+    try testing.expectEqualStrings("No matches", findMatchChromeFor(.english, "zh_CN.UTF-8").no_matches);
+    try testing.expectEqualStrings("{d} of {d}", findMatchChromeFor(.english, "zh_CN.UTF-8").of_fmt);
+
+    try testing.expect(!std.mem.eql(u8, findMatchChromeFor(.english, "").no_matches, transcriptTurnChromeFor(.english, "").match));
+    try testing.expect(!std.mem.eql(u8, findMatchChromeFor(.simplified_chinese, "").no_matches, transcriptTurnChromeFor(.simplified_chinese, "").match));
+    try testing.expect(!std.mem.eql(u8, findMatchChromeFor(.japanese, "").no_matches, transcriptTurnChromeFor(.japanese, "").match));
+    try testing.expect(!std.mem.eql(u8, findMatchChromeFor(.english, "").no_matches, findBarChromeFor(.english, "").previous_match));
+    try testing.expect(!std.mem.eql(u8, findMatchChromeFor(.simplified_chinese, "").no_matches, findBarChromeFor(.simplified_chinese, "").previous_match));
+    try testing.expect(!std.mem.eql(u8, findMatchChromeFor(.japanese, "").no_matches, findBarChromeFor(.japanese, "").previous_match));
+    try testing.expect(!std.mem.eql(u8, findMatchChromeFor(.english, "").no_matches, findBarChromeFor(.english, "").next_match));
+    try testing.expect(!std.mem.eql(u8, findMatchChromeFor(.english, "").of_fmt, findBarChromeFor(.english, "").previous_match));
+    try testing.expect(!std.mem.eql(u8, findMatchChromeFor(.english, "").of_fmt, filePreviewChromeFor(.english, "").find));
+    try testing.expect(!std.mem.eql(u8, findMatchChromeFor(.simplified_chinese, "").no_matches, filePreviewChromeFor(.simplified_chinese, "").previous_file_match));
+    try testing.expect(!std.mem.eql(u8, findMatchChromeFor(.japanese, "").no_matches, filePreviewChromeFor(.japanese, "").previous_file_match));
+
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    try testing.expectEqualStrings("1 of 2", formatFindMatchOf(findMatchChromeFor(.english, ""), arena, 1, 2));
+    try testing.expectEqualStrings("1 / 2", formatFindMatchOf(findMatchChromeFor(.simplified_chinese, ""), arena, 1, 2));
+    try testing.expectEqualStrings("3 / 5", formatFindMatchOf(findMatchChromeFor(.japanese, ""), arena, 3, 5));
+    try testing.expectEqualStrings("1 / 2", formatFindMatchOf(findMatchChromeFor(.system, "zh_CN.UTF-8"), arena, 1, 2));
+    try testing.expectEqualStrings("1 of 2", formatFindMatchOf(findMatchChromeFor(.english, "ja_JP.UTF-8"), arena, 1, 2));
 }
 
 test "headerSessionChromeFor english default; zh and ja chrome; english ignores ja LANG" {
