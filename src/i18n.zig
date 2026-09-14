@@ -153,6 +153,10 @@
 //! `GoalActionChrome` strings; distinct from Refresh goal /
 //! plan Refresh so the set/clear verbs stay independently
 //! evolvable; wire ids / on-press stay English)
+//! plus composer Goal empty label `No goal` (same
+//! `GoalEmptyChrome` strings; distinct from Set/Clear /
+//! Refresh goal / Goal Status so the empty label stays
+//! independently evolvable; objective text stays data)
 //! plus Settings Usage Cost quality / LiteLLM Rates status /
 //! five-tile metric-strip labels (same `UsageCostQualityChrome`
 //! strings; distinct from UsageViewChrome Cost|Tokens chips so
@@ -311,6 +315,9 @@
 //! `copy_fx_install` / `copy_fx_login`). Refresh goal / plan Refresh `on-press`
 //! stay English (`goal_refresh` / `refresh_plan_usage`). Set goal /
 //! Clear goal `on-press` stay English (`goal_set` / `goal_clear`).
+//! Composer Goal empty label (`No goal`) follows the resolved
+//! locale this cut (same `GoalEmptyChrome` strings; objective
+//! text stays data).
 //! Typed URL text
 //! stays data. Parked `home_url`
 //! / scene URLs stay data. OS
@@ -2457,9 +2464,33 @@ const goal_action_chrome_ja: GoalActionChrome = .{
     .clear_goal = "目標をクリア",
 };
 
+/// Composer Goal empty label (`No goal`) for the resolved locale.
+/// Same resolve path as GoalActionChrome. English matches the former
+/// hardcoded copy. Distinct from Set goal / Clear goal
+/// (`GoalActionChrome`), Refresh goal / plan Refresh
+/// (`GoalPlanRefreshChrome`), and Goal Status
+/// (`ComposerChrome.status`) so the empty label stays independently
+/// evolvable. Objective text stays data. Wire ids stay English
+/// (`{goal_label}`).
+pub const GoalEmptyChrome = struct {
+    no_goal: []const u8,
+};
+
+const goal_empty_chrome_en: GoalEmptyChrome = .{
+    .no_goal = "No goal",
+};
+
+const goal_empty_chrome_zh_cn: GoalEmptyChrome = .{
+    .no_goal = "无目标",
+};
+
+const goal_empty_chrome_ja: GoalEmptyChrome = .{
+    .no_goal = "目標なし",
+};
+
 /// Settings Usage Cost quality panel, LiteLLM Rates status, and
 /// five-tile metric-strip labels for the resolved locale. Same
-/// resolve path as GoalActionChrome. English matches the former
+/// resolve path as GoalEmptyChrome. English matches the former
 /// hardcoded copy. Distinct from UsageViewChrome so Cost|Tokens
 /// chips stay independently evolvable from quality / rates /
 /// tile labels. One `cache_savings` field is shared by the quality
@@ -3506,6 +3537,19 @@ pub fn goalActionChromeFor(preference: LanguagePreference, system_locale_id: []c
         .simplified_chinese => goal_action_chrome_zh_cn,
         .japanese => goal_action_chrome_ja,
         .system, .english => goal_action_chrome_en,
+    };
+}
+
+/// Composer Goal empty label (`No goal`) for the resolved locale.
+/// Callers pass Model `language_preference` + `system_locale_id`;
+/// this file does not read process env. Distinct from Set/Clear /
+/// Refresh goal / Goal Status so the empty label stays independently
+/// evolvable. Objective text stays data. Wire ids stay English.
+pub fn goalEmptyChromeFor(preference: LanguagePreference, system_locale_id: []const u8) GoalEmptyChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => goal_empty_chrome_zh_cn,
+        .japanese => goal_empty_chrome_ja,
+        .system, .english => goal_empty_chrome_en,
     };
 }
 
@@ -5524,6 +5568,21 @@ test "goalActionChromeFor english default; zh and ja chrome; english ignores ja 
     try testing.expectEqualStrings("Clear goal", goalActionChromeFor(.english, "ja_JP.UTF-8").clear_goal);
     try testing.expectEqualStrings("Set goal", goalActionChromeFor(.english, "zh_CN.UTF-8").set_goal);
     try testing.expectEqualStrings("Clear goal", goalActionChromeFor(.english, "zh_CN.UTF-8").clear_goal);
+}
+
+test "goalEmptyChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("No goal", goalEmptyChromeFor(.english, "ja").no_goal);
+    try testing.expectEqualStrings("No goal", goalEmptyChromeFor(.english, "").no_goal);
+    try testing.expectEqualStrings("No goal", goalEmptyChromeFor(.system, "").no_goal);
+
+    try testing.expectEqualStrings("无目标", goalEmptyChromeFor(.simplified_chinese, "").no_goal);
+    try testing.expectEqualStrings("目標なし", goalEmptyChromeFor(.japanese, "").no_goal);
+
+    try testing.expectEqualStrings("无目标", goalEmptyChromeFor(.system, "zh_CN.UTF-8").no_goal);
+    try testing.expectEqualStrings("目標なし", goalEmptyChromeFor(.system, "ja_JP.UTF-8").no_goal);
+    try testing.expectEqualStrings("No goal", goalEmptyChromeFor(.english, "ja_JP.UTF-8").no_goal);
+    try testing.expectEqualStrings("No goal", goalEmptyChromeFor(.english, "zh_CN.UTF-8").no_goal);
 }
 
 test "usageCostQualityChromeFor english default; zh and ja chrome; english ignores ja LANG" {

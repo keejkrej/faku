@@ -30495,6 +30495,91 @@ test "composer Set goal and Clear goal follow Appearance language" {
     try testing.expect(findByText(tree.root, .button, "Refresh goal") == null);
 }
 
+test "composer Goal empty label follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{goal_label}"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No goal</text>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"goal_set\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"goal_clear\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"goal_refresh\""));
+
+    var model = main.initialModel();
+    model.selected = 0;
+    try testing.expectEqualStrings("No goal", model.goal_label());
+    try testing.expectEqualStrings(i18n.goalEmptyChromeFor(.english, "").no_goal, model.goal_label());
+
+    const claude_id = model.session_store[1].id;
+    try testing.expectEqual(protocol.ProviderId.claude, model.sessionById(claude_id).?.provider);
+    main.update(&model, .{ .select = claude_id }, &fx);
+    try testing.expectEqual(claude_id, model.selected);
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    try testing.expect(model.show_goal());
+    try testing.expectEqualStrings("No goal", model.goal_label());
+    try testing.expectEqualStrings(i18n.goalEmptyChromeFor(.english, "").no_goal, model.goal_label());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "No goal");
+    try testing.expect(findByText(tree.root, .text, "无目标") == null);
+    try testing.expect(findByText(tree.root, .text, "目標なし") == null);
+
+    if (model.sessionById(claude_id)) |session| session.setThreadGoal("Ship the feature", "active");
+    try testing.expectEqualStrings("Ship the feature", model.goal_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Ship the feature");
+    try testing.expect(findByText(tree.root, .text, "No goal") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("Ship the feature", model.goal_label());
+    if (model.sessionById(claude_id)) |session| session.setThreadGoal("", "");
+    try testing.expectEqualStrings("无目标", model.goal_label());
+    try testing.expectEqualStrings(i18n.goalEmptyChromeFor(.simplified_chinese, "").no_goal, model.goal_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "无目标");
+    try testing.expect(findByText(tree.root, .text, "No goal") == null);
+    try testing.expect(findByText(tree.root, .text, "目標なし") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("目標なし", model.goal_label());
+    try testing.expectEqualStrings(i18n.goalEmptyChromeFor(.japanese, "").no_goal, model.goal_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "目標なし");
+    try testing.expect(findByText(tree.root, .text, "No goal") == null);
+    try testing.expect(findByText(tree.root, .text, "无目标") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("No goal", model.goal_label());
+    try testing.expectEqualStrings(i18n.goalEmptyChromeFor(.english, "ja_JP.UTF-8").no_goal, model.goal_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "No goal");
+    try testing.expect(findByText(tree.root, .text, "目標なし") == null);
+    try testing.expect(findByText(tree.root, .text, "无目标") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("无目标", model.goal_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "无目标");
+    try testing.expect(findByText(tree.root, .text, "No goal") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("目標なし", model.goal_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "目標なし");
+    try testing.expect(findByText(tree.root, .text, "No goal") == null);
+
+    model.selected = 0;
+    try testing.expectEqualStrings("目標なし", model.goal_label());
+    try testing.expectEqualStrings(i18n.goalEmptyChromeFor(.system, "ja_JP.UTF-8").no_goal, model.goal_label());
+}
+
 test "Usage Cost Tokens Model Days chips follow Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
