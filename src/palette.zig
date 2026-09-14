@@ -171,7 +171,7 @@ pub fn rows(model: *const Model, arena: std.mem.Allocator) []const PaletteRow {
             var s: usize = 0;
             while (s < sessions_n) : (s += 1) {
                 const session = model.sessionByIdConst(session_ids[s]) orelse continue;
-                out[i] = paletteSessionRow(session, selectable == model.palette_highlight);
+                out[i] = paletteSessionRow(model, session, selectable == model.palette_highlight);
                 i += 1;
                 selectable += 1;
             }
@@ -245,10 +245,10 @@ fn paletteActionRow(spec: PaletteActionSpec, selected: bool) PaletteRow {
     };
 }
 
-fn paletteSessionRow(session: *const Session, selected: bool) PaletteRow {
+fn paletteSessionRow(model: *const Model, session: *const Session, selected: bool) PaletteRow {
     return .{
         .id = session.id,
-        .label = main.sessionDisplayTitle(session),
+        .label = model.session_display_title(session),
         .detail = session.provider_label(),
         .selected = selected,
         .is_header = false,
@@ -302,7 +302,7 @@ fn matchingPaletteSessions(model: *const Model, query: []const u8, dest: []u32) 
     var n: usize = 0;
     for (model.session_store[0..model.session_count]) |*session| {
         if (!session.hasStarted()) continue;
-        if (!sessionMatchesQuery(session, query)) continue;
+        if (!sessionMatchesQuery(model, session, query)) continue;
         if (n >= dest.len or n >= palette_max_task_results) break;
         dest[n] = session.id;
         n += 1;
@@ -310,9 +310,9 @@ fn matchingPaletteSessions(model: *const Model, query: []const u8, dest: []u32) 
     return n;
 }
 
-fn sessionMatchesQuery(session: *const Session, query: []const u8) bool {
+fn sessionMatchesQuery(model: *const Model, session: *const Session, query: []const u8) bool {
     if (query.len == 0) return true;
-    if (main.asciiContainsIgnoreCase(main.sessionDisplayTitle(session), query)) return true;
+    if (main.asciiContainsIgnoreCase(model.session_display_title(session), query)) return true;
     if (main.asciiContainsIgnoreCase(session.title(), query)) return true;
     if (main.asciiContainsIgnoreCase(session.provider_label(), query)) return true;
     if (main.asciiContainsIgnoreCase(session.projectPath(), query)) return true;

@@ -177,7 +177,7 @@ fn sessionSidebarRow(model: *const Model, session: *const Session, arena: std.me
     const relative = allocRelativeTime(arena, session.updated_at, model.now_ms, dates);
     return .{
         .id = session.id,
-        .title = main.sessionDisplayTitle(session),
+        .title = model.session_display_title(session),
         .provider = sessionProjectSubtitle(session),
         .selected = session.id == model.selected,
         .is_header = false,

@@ -86,7 +86,11 @@
 //! body text stays data)
 //! plus session
 //! title untitled placeholders (same `UntitledChrome` strings; catalog
-//! titles stay English `untitled`) plus Settings General daemon address
+//! titles stay English `untitled`) plus header untitled display title
+//! New task (same `HeaderUntitledChrome` strings; distinct from
+//! `Sidebar.new_task` so header untitled chrome stays independently
+//! evolvable; catalog titles stay English `untitled`) plus Settings
+//! General daemon address
 //! placeholder (same `DaemonAddressChrome` strings; Latin `host:port`
 //! in every locale) plus Settings General field labels Default model /
 //! Access mode / Interaction / Effort / Last project path / Daemon
@@ -257,7 +261,10 @@
 //! Dismiss all / Remove queued plus Jump to latest follow the
 //! resolved locale this cut (same `QueueChrome` strings; `on-press`
 //! stays `jump_latest` / `clear_queue` / `remove_queued:{id}` /
-//! `edit_queued:{id}`; queued message body text stays data). Session title
+//! `edit_queued:{id}`; queued message body text stays data). Header
+//! untitled New task follows the resolved locale this cut (same
+//! `HeaderUntitledChrome` strings; distinct from `Sidebar.new_task`;
+//! `on-press` stays `edit_session_title`). Session title
 //! `on-input` stays English
 //! (`session_title_edit`). Daemon address `on-input` stays English
 //! (`settings_daemon_edit`). Settings General field labels / Default
@@ -1610,6 +1617,29 @@ const untitled_chrome_zh_cn: UntitledChrome = .{
 
 const untitled_chrome_ja: UntitledChrome = .{
     .placeholder = "無題",
+};
+
+/// Header untitled display title for the resolved locale (`New task`
+/// in the 48px toolbar). Same resolve path as UntitledChrome. English
+/// matches the former hardcoded copy (sentence case). Distinct from
+/// `Sidebar.new_task` (title-case palette / sidebar New Task) so
+/// header untitled chrome stays independently evolvable. Catalog
+/// titles stay English `untitled` (data, not chrome). Wire ids /
+/// on-press stay English (`edit_session_title`).
+pub const HeaderUntitledChrome = struct {
+    new_task: []const u8,
+};
+
+const header_untitled_chrome_en: HeaderUntitledChrome = .{
+    .new_task = "New task",
+};
+
+const header_untitled_chrome_zh_cn: HeaderUntitledChrome = .{
+    .new_task = "新建任务",
+};
+
+const header_untitled_chrome_ja: HeaderUntitledChrome = .{
+    .new_task = "新しいタスク",
 };
 
 /// Settings General daemon address placeholder for the resolved
@@ -3105,6 +3135,20 @@ pub fn untitledChromeFor(preference: LanguagePreference, system_locale_id: []con
         .simplified_chinese => untitled_chrome_zh_cn,
         .japanese => untitled_chrome_ja,
         .system, .english => untitled_chrome_en,
+    };
+}
+
+/// Header untitled display title for the resolved locale. Callers
+/// pass Model `language_preference` + `system_locale_id`; this file
+/// does not read process env. Distinct from Sidebar.new_task so
+/// header untitled chrome stays independently evolvable. Catalog
+/// titles stay English `untitled` (data). Wire ids / on-press stay
+/// English (`edit_session_title`).
+pub fn headerUntitledChromeFor(preference: LanguagePreference, system_locale_id: []const u8) HeaderUntitledChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => header_untitled_chrome_zh_cn,
+        .japanese => header_untitled_chrome_ja,
+        .system, .english => header_untitled_chrome_en,
     };
 }
 
@@ -4646,6 +4690,25 @@ test "untitledChromeFor english default; zh and ja chrome; english ignores ja LA
     try testing.expectEqualStrings("無題", untitledChromeFor(.system, "ja_JP.UTF-8").placeholder);
     try testing.expectEqualStrings("untitled", untitledChromeFor(.english, "ja_JP.UTF-8").placeholder);
     try testing.expectEqualStrings("untitled", untitledChromeFor(.english, "zh_CN.UTF-8").placeholder);
+}
+
+test "headerUntitledChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("New task", headerUntitledChromeFor(.english, "ja").new_task);
+    try testing.expectEqualStrings("New task", headerUntitledChromeFor(.english, "").new_task);
+    try testing.expectEqualStrings("New task", headerUntitledChromeFor(.system, "").new_task);
+
+    try testing.expectEqualStrings("新建任务", headerUntitledChromeFor(.simplified_chinese, "").new_task);
+    try testing.expectEqualStrings("新しいタスク", headerUntitledChromeFor(.japanese, "").new_task);
+
+    try testing.expectEqualStrings("新建任务", headerUntitledChromeFor(.system, "zh_CN.UTF-8").new_task);
+    try testing.expectEqualStrings("新しいタスク", headerUntitledChromeFor(.system, "ja_JP.UTF-8").new_task);
+    try testing.expectEqualStrings("New task", headerUntitledChromeFor(.english, "ja_JP.UTF-8").new_task);
+    try testing.expectEqualStrings("New task", headerUntitledChromeFor(.english, "zh_CN.UTF-8").new_task);
+
+    try testing.expect(!std.mem.eql(u8, headerUntitledChromeFor(.english, "").new_task, sidebarFor(.english, "").new_task));
+    try testing.expectEqualStrings(headerUntitledChromeFor(.simplified_chinese, "").new_task, sidebarFor(.simplified_chinese, "").new_task);
+    try testing.expectEqualStrings(headerUntitledChromeFor(.japanese, "").new_task, sidebarFor(.japanese, "").new_task);
 }
 
 test "daemonAddressChromeFor latin host:port in every locale; english ignores ja LANG" {
