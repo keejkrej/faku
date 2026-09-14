@@ -268,6 +268,7 @@ const file_mention = @import("file_mention.zig");
 const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const protocol = @import("protocol.zig");
+const i18n = @import("i18n.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -359,7 +360,11 @@ pub const create_failed_status = "Could not create branch.";
 pub const delete_failed_status = "Could not delete branch.";
 pub const fetch_failed_status = "Could not fetch.";
 pub const push_failed_status = "Could not push.";
-pub const worktree_add_failed_status = "Could not create worktree.";
+/// English chrome fallback / test anchor. Localized Could not
+/// create worktree. uses `i18n.worktreeStatusChromeFor` via
+/// `Model.worktree_create_failed_status`. Other git attach-status
+/// leftovers stay English this cut.
+pub const worktree_add_failed_status = i18n.worktreeStatusChromeFor(.english, "").create_failed;
 
 pub const git_bin = git_branch.git_bin;
 /// PATH-resolved Windows Git (explicit `.exe` like sibling
@@ -3364,7 +3369,7 @@ pub fn beginWorktreeAdd(model: *Model, fx: *Effects, name: []const u8) void {
     writeFixed(&model.git_worktree_add_slug_storage, &model.git_worktree_add_slug_len, slug);
     if (!pickWorktreeCandidate(model, home, cwd, slug, 0)) {
         resetWorktreeAddState(model);
-        model.setAttachStatus(worktree_add_failed_status);
+        model.setAttachStatus(model.worktree_create_failed_status());
         return;
     }
 
@@ -3452,7 +3457,7 @@ pub fn handleWorktreeAddExit(model: *Model, fx: *Effects, exit: native_sdk.Effec
         const branch = model.git_worktree_add_branch_storage[0..model.git_worktree_add_branch_len];
         if (dest.len == 0 or branch.len == 0) {
             resetWorktreeAddState(model);
-            model.setAttachStatus(worktree_add_failed_status);
+            model.setAttachStatus(model.worktree_create_failed_status());
             return false;
         }
         if (dest.len > 0) model.setSelectedProjectPath(dest);
@@ -3467,7 +3472,7 @@ pub fn handleWorktreeAddExit(model: *Model, fx: *Effects, exit: native_sdk.Effec
     }
     if (retryWorktreeAdd(model, fx)) return false;
     resetWorktreeAddState(model);
-    model.setAttachStatus(worktree_add_failed_status);
+    model.setAttachStatus(model.worktree_create_failed_status());
     return false;
 }
 
@@ -4385,6 +4390,51 @@ test "handleWorktreeAddExit sets status after the last candidate fails" {
     try std.testing.expect(model.git_worktree_create_active);
     try std.testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
     try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+
+    model.clearAttachStatus();
+    model.language_preference = .simplified_chinese;
+    model.git_worktree_add_key = git_worktree_add_key_first + 2;
+    model.git_worktree_add_probe_session = id;
+    writeFixed(&model.git_worktree_add_probe_path_storage, &model.git_worktree_add_probe_path_len, "/tmp/proj");
+    writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, "/home/u/.faku/worktrees/2599eb06cf360587/feat-8");
+    writeFixed(&model.git_worktree_add_branch_storage, &model.git_worktree_add_branch_len, "faku/feat-8");
+    writeFixed(&model.git_worktree_add_slug_storage, &model.git_worktree_add_slug_len, "feat");
+    model.git_worktree_add_attempt = max_worktree_candidates - 1;
+    const exhausted_zh = handleWorktreeAddExit(&model, &fx, .{ .key = git_worktree_add_key_first + 2, .reason = .exited, .code = 1 });
+    try std.testing.expect(!exhausted_zh);
+    try std.testing.expectEqualStrings("无法创建 worktree。", model.attach_status());
+    try std.testing.expectEqualStrings(i18n.worktreeStatusChromeFor(.simplified_chinese, "").create_failed, model.attach_status());
+    try std.testing.expectEqualStrings(model.worktree_create_failed_status(), model.attach_status());
+    try std.testing.expect(!std.mem.eql(u8, worktree_add_failed_status, model.attach_status()));
+
+    model.clearAttachStatus();
+    model.language_preference = .japanese;
+    model.git_worktree_add_key = git_worktree_add_key_first + 3;
+    model.git_worktree_add_probe_session = id;
+    writeFixed(&model.git_worktree_add_probe_path_storage, &model.git_worktree_add_probe_path_len, "/tmp/proj");
+    writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, "/home/u/.faku/worktrees/2599eb06cf360587/feat-8");
+    writeFixed(&model.git_worktree_add_branch_storage, &model.git_worktree_add_branch_len, "faku/feat-8");
+    writeFixed(&model.git_worktree_add_slug_storage, &model.git_worktree_add_slug_len, "feat");
+    model.git_worktree_add_attempt = max_worktree_candidates - 1;
+    const exhausted_ja = handleWorktreeAddExit(&model, &fx, .{ .key = git_worktree_add_key_first + 3, .reason = .exited, .code = 1 });
+    try std.testing.expect(!exhausted_ja);
+    try std.testing.expectEqualStrings("worktree を作成できませんでした。", model.attach_status());
+    try std.testing.expectEqualStrings(i18n.worktreeStatusChromeFor(.japanese, "").create_failed, model.attach_status());
+
+    model.clearAttachStatus();
+    model.language_preference = .english;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    model.git_worktree_add_key = git_worktree_add_key_first + 4;
+    model.git_worktree_add_probe_session = id;
+    writeFixed(&model.git_worktree_add_probe_path_storage, &model.git_worktree_add_probe_path_len, "/tmp/proj");
+    writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, "/home/u/.faku/worktrees/2599eb06cf360587/feat-8");
+    writeFixed(&model.git_worktree_add_branch_storage, &model.git_worktree_add_branch_len, "faku/feat-8");
+    writeFixed(&model.git_worktree_add_slug_storage, &model.git_worktree_add_slug_len, "feat");
+    model.git_worktree_add_attempt = max_worktree_candidates - 1;
+    const exhausted_en = handleWorktreeAddExit(&model, &fx, .{ .key = git_worktree_add_key_first + 4, .reason = .exited, .code = 1 });
+    try std.testing.expect(!exhausted_en);
+    try std.testing.expectEqualStrings(worktree_add_failed_status, model.attach_status());
+    try std.testing.expectEqualStrings("Could not create worktree.", model.attach_status());
 }
 
 test "pickWorktreeCandidate skips listed faku/name then fails when all are taken" {
