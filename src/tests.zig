@@ -26215,6 +26215,100 @@ test "Review Diff status chrome follows Appearance language" {
     try testing.expect(findByText(tree.root, .text, "ワークスペースがありません。") == null);
 }
 
+test "Review Diff Binary file changed Meta body follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{h.text}") != null);
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Binary file changed"));
+    try testing.expect(std.mem.indexOf(u8, @embedFile("review_diff.zig"), "pub const binary_file_changed = \"Binary file changed\"") == null);
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Binary file changed", model.review_diff_binary_file_changed());
+    try testing.expectEqualStrings(review_diff.binary_file_changed, model.review_diff_binary_file_changed());
+    try testing.expectEqualStrings(i18n.reviewDiffBinaryMetaChromeFor(.english, "").binary_file_changed, model.review_diff_binary_file_changed());
+    try testing.expect(!std.mem.eql(u8, model.review_diff_binary_file_changed(), model.review_diff_hunk_empty_status()));
+    try testing.expect(!std.mem.eql(u8, model.review_diff_binary_file_changed(), model.file_preview_binary_label()));
+
+    main.update(&model, .show_right_panel, &fx);
+    try testing.expect(model.right_panel_open);
+    model.right_panel_tab = .diff;
+    model.review_diff_active = true;
+    try testing.expect(model.right_panel_showing_diff());
+
+    var hunk_buf = "Binary files a/bin.dat and b/bin.dat differ".*;
+    model.review_diff_hunk_storage = &hunk_buf;
+    model.review_diff_hunk_len = hunk_buf.len;
+    var lines = [_]review_diff.DiffLine{
+        .{ .kind = .meta, .content_off = 0, .content_len = @intCast(hunk_buf.len) },
+    };
+    model.review_diff_visible_store = &lines;
+    model.review_diff_visible_count = lines.len;
+    defer {
+        model.review_diff_visible_store = &.{};
+        model.review_diff_visible_count = 0;
+        model.review_diff_hunk_storage = &.{};
+        model.review_diff_hunk_len = 0;
+    }
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "Binary file changed") != null);
+    try testing.expect(findByText(tree.root, .text, "Binary files a/bin.dat and b/bin.dat differ") == null);
+    try testing.expect(findByText(tree.root, .text, "二进制文件已更改") == null);
+    try testing.expect(findByText(tree.root, .text, "バイナリファイルが変更されました") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("二进制文件已更改", model.review_diff_binary_file_changed());
+    try testing.expectEqualStrings(i18n.reviewDiffBinaryMetaChromeFor(.simplified_chinese, "").binary_file_changed, model.review_diff_binary_file_changed());
+    try testing.expect(!std.mem.eql(u8, review_diff.binary_file_changed, model.review_diff_binary_file_changed()));
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "二进制文件已更改") != null);
+    try testing.expect(findByText(tree.root, .text, "Binary file changed") == null);
+    try testing.expect(findByText(tree.root, .text, "Binary files a/bin.dat and b/bin.dat differ") == null);
+    try testing.expect(findByText(tree.root, .text, "バイナリファイルが変更されました") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("バイナリファイルが変更されました", model.review_diff_binary_file_changed());
+    try testing.expectEqualStrings(i18n.reviewDiffBinaryMetaChromeFor(.japanese, "").binary_file_changed, model.review_diff_binary_file_changed());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "バイナリファイルが変更されました") != null);
+    try testing.expect(findByText(tree.root, .text, "Binary file changed") == null);
+    try testing.expect(findByText(tree.root, .text, "二进制文件已更改") == null);
+    try testing.expect(findByText(tree.root, .text, "GIT binary patch") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Binary file changed", model.review_diff_binary_file_changed());
+    try testing.expectEqualStrings(i18n.reviewDiffBinaryMetaChromeFor(.english, "ja_JP.UTF-8").binary_file_changed, model.review_diff_binary_file_changed());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "Binary file changed") != null);
+    try testing.expect(findByText(tree.root, .text, "バイナリファイルが変更されました") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("二进制文件已更改", model.review_diff_binary_file_changed());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "二进制文件已更改") != null);
+    try testing.expect(findByText(tree.root, .text, "Binary file changed") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("バイナリファイルが変更されました", model.review_diff_binary_file_changed());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "バイナリファイルが変更されました") != null);
+    try testing.expect(findByText(tree.root, .text, "二进制文件已更改") == null);
+
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Binary file changed", model.review_diff_binary_file_changed());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "Binary file changed") != null);
+    try testing.expect(findByText(tree.root, .text, "バイナリファイルが変更されました") == null);
+}
+
 test "Background row kind / status / stop chrome follow Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
