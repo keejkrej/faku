@@ -190,6 +190,14 @@
 //! `GoalEmptyChrome` strings; distinct from Set/Clear /
 //! Refresh goal / Goal Status so the empty label stays
 //! independently evolvable; objective text stays data)
+//! plus composer Goal Status display labels Active / Paused /
+//! Blocked / Usage limited / Budget limited / Complete (same
+//! `GoalStatusChrome` strings; distinct from ComposerChrome
+//! Status placeholder / GoalActionChrome / GoalEmptyChrome /
+//! GoalPlanRefreshChrome / BackgroundChrome settled_completed
+//! so Goal Status stays independently evolvable; wire ids /
+//! on-press `pick_goal_status` / stored session status stay
+//! English)
 //! plus Settings Usage Cost quality / LiteLLM Rates status /
 //! five-tile metric-strip labels (same `UsageCostQualityChrome`
 //! strings; distinct from UsageViewChrome Cost|Tokens chips so
@@ -340,7 +348,7 @@
 //! (`settings_model_edit`); effort picker `on-press` stays English
 //! (`toggle_settings_effort_picker`). Composer Image path `on-input`
 //! stays English (`image_path_edit`); Goal Status picker `on-press`
-//! stays English (`toggle_goal_status_picker`); Pick image / Attach
+//! stays English (`toggle_goal_status_picker` / `pick_goal_status`); Pick image / Attach
 //! image `on-press` stays English (`pick_image`); Clear image
 //! `on-press` stays English (`clear_image_attach`); Commands chip
 //! `on-press` stays English (`toggle_commands`); composer Send /
@@ -354,7 +362,9 @@
 //! `HeaderUntitledChrome` / `ComposerPlaceholderChrome` /
 //! `QueueChrome`; real session titles and typed draft text stay
 //! data). Typed path text stays
-//! English (data). ThreadGoalStatus wire names stay English. Browser
+//! English (data). ThreadGoalStatus wire names stay English;
+//! picker-row / selected-chip display labels live in
+//! `GoalStatusChrome`. Browser
 //! address `on-input` / on-submit stay English (`browser_url_edit` /
 //! `browser_navigate`). Browser toolbar `on-press` stays English
 //! (`browser_back` / `browser_forward` / `browser_reload` /
@@ -382,7 +392,11 @@
 //! Clear goal `on-press` stay English (`goal_set` / `goal_clear`).
 //! Composer Goal empty label (`No goal`) follows the resolved
 //! locale this cut (same `GoalEmptyChrome` strings; objective
-//! text stays data).
+//! text stays data). Composer Goal Status display labels
+//! follow the resolved locale this cut (same
+//! `GoalStatusChrome` strings; distinct from ComposerChrome
+//! Status placeholder; wire ids / on-press `pick_goal_status`
+//! / stored session status stay English).
 //! Typed URL text
 //! stays data. Parked `home_url`
 //! / scene URLs stay data. OS
@@ -2033,7 +2047,8 @@ const os_image_dialog_chrome_ja: OsImageDialogChrome = .{
 /// English (`image_path_edit` / `toggle_goal_status_picker` /
 /// `pick_image` / `clear_image_attach` / `toggle_commands`). Typed
 /// path text stays data. ThreadGoalStatus wire names stay English
-/// (`active` / `paused` / …). Commands wording matches
+/// (`active` / `paused` / …); picker-row / selected-chip display
+/// labels live in `GoalStatusChrome`. Commands wording matches
 /// `PaletteChrome.commands` (命令 / コマンド) but lives here so the
 /// composer chip stays distinct from the palette overlay header.
 pub const ComposerChrome = struct {
@@ -2773,8 +2788,9 @@ const goal_action_chrome_ja: GoalActionChrome = .{
 /// Same resolve path as GoalActionChrome. English matches the former
 /// hardcoded copy. Distinct from Set goal / Clear goal
 /// (`GoalActionChrome`), Refresh goal / plan Refresh
-/// (`GoalPlanRefreshChrome`), and Goal Status
-/// (`ComposerChrome.status`) so the empty label stays independently
+/// (`GoalPlanRefreshChrome`), Goal Status placeholder
+/// (`ComposerChrome.status`), and Goal Status display
+/// (`GoalStatusChrome`) so the empty label stays independently
 /// evolvable. Objective text stays data. Wire ids stay English
 /// (`{goal_label}`).
 pub const GoalEmptyChrome = struct {
@@ -2791,6 +2807,67 @@ const goal_empty_chrome_zh_cn: GoalEmptyChrome = .{
 
 const goal_empty_chrome_ja: GoalEmptyChrome = .{
     .no_goal = "目標なし",
+};
+
+/// Composer Goal Status picker-row and selected-chip display labels
+/// for the resolved locale. Same resolve path as GoalEmptyChrome.
+/// English is title-case chrome for Codex / Waku `ThreadGoalStatus`
+/// (`Active` / `Paused` / `Blocked` / `Usage limited` /
+/// `Budget limited` / `Complete`). Distinct from Goal Status
+/// placeholder (`ComposerChrome.status`), Set/Clear
+/// (`GoalActionChrome`), empty No goal (`GoalEmptyChrome`),
+/// Refresh goal / plan Refresh (`GoalPlanRefreshChrome`), and
+/// Background settled Completed (`BackgroundChrome.settled_completed`)
+/// so Goal Status stays independently evolvable. Wire names /
+/// on-press `pick_goal_status` / stored session status stay English
+/// (`active` / `paused` / `blocked` / `usageLimited` /
+/// `budgetLimited` / `complete`).
+pub const GoalStatusChrome = struct {
+    active: []const u8,
+    paused: []const u8,
+    blocked: []const u8,
+    usage_limited: []const u8,
+    budget_limited: []const u8,
+    complete: []const u8,
+
+    /// `id` is a Codex `ThreadGoalStatus` wire name (`active` /
+    /// `paused` / `blocked` / `usageLimited` / `budgetLimited` /
+    /// `complete`). Unknown ids fall through to Active.
+    pub fn labelForId(self: GoalStatusChrome, id: []const u8) []const u8 {
+        if (std.mem.eql(u8, id, "paused")) return self.paused;
+        if (std.mem.eql(u8, id, "blocked")) return self.blocked;
+        if (std.mem.eql(u8, id, "usageLimited")) return self.usage_limited;
+        if (std.mem.eql(u8, id, "budgetLimited")) return self.budget_limited;
+        if (std.mem.eql(u8, id, "complete")) return self.complete;
+        return self.active;
+    }
+};
+
+const goal_status_chrome_en: GoalStatusChrome = .{
+    .active = "Active",
+    .paused = "Paused",
+    .blocked = "Blocked",
+    .usage_limited = "Usage limited",
+    .budget_limited = "Budget limited",
+    .complete = "Complete",
+};
+
+const goal_status_chrome_zh_cn: GoalStatusChrome = .{
+    .active = "进行中",
+    .paused = "已暂停",
+    .blocked = "已阻塞",
+    .usage_limited = "用量受限",
+    .budget_limited = "预算受限",
+    .complete = "已完成",
+};
+
+const goal_status_chrome_ja: GoalStatusChrome = .{
+    .active = "進行中",
+    .paused = "一時停止",
+    .blocked = "ブロック中",
+    .usage_limited = "使用量制限",
+    .budget_limited = "予算制限",
+    .complete = "完了",
 };
 
 /// Settings Usage Cost quality panel, LiteLLM Rates status, and
@@ -3615,7 +3692,8 @@ pub fn osImageDialogChromeFor(preference: LanguagePreference, system_locale_id: 
 /// resolved locale. Callers pass Model `language_preference` +
 /// `system_locale_id`; this file does not read process env. Wire
 /// ids / on-press / on-input stay English. Typed path text stays
-/// data. ThreadGoalStatus wire names stay English. Commands
+/// data. ThreadGoalStatus wire names stay English; picker-row /
+/// selected-chip display labels live in `GoalStatusChrome`. Commands
 /// `on-press` stays `toggle_commands`. Clear image `on-press`
 /// stays `clear_image_attach`.
 pub fn composerChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ComposerChrome {
@@ -3958,13 +4036,30 @@ pub fn goalActionChromeFor(preference: LanguagePreference, system_locale_id: []c
 /// Composer Goal empty label (`No goal`) for the resolved locale.
 /// Callers pass Model `language_preference` + `system_locale_id`;
 /// this file does not read process env. Distinct from Set/Clear /
-/// Refresh goal / Goal Status so the empty label stays independently
-/// evolvable. Objective text stays data. Wire ids stay English.
+/// Refresh goal / Goal Status placeholder / Goal Status display
+/// so the empty label stays independently evolvable. Objective
+/// text stays data. Wire ids stay English.
 pub fn goalEmptyChromeFor(preference: LanguagePreference, system_locale_id: []const u8) GoalEmptyChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => goal_empty_chrome_zh_cn,
         .japanese => goal_empty_chrome_ja,
         .system, .english => goal_empty_chrome_en,
+    };
+}
+
+/// Composer Goal Status picker-row and selected-chip display labels
+/// for the resolved locale. Callers pass Model `language_preference`
+/// + `system_locale_id`; this file does not read process env.
+/// Distinct from ComposerChrome Status placeholder / GoalActionChrome
+/// / GoalEmptyChrome / GoalPlanRefreshChrome / BackgroundChrome
+/// settled_completed so Goal Status stays independently evolvable.
+/// Wire ids / on-press `pick_goal_status` / stored session status
+/// stay English.
+pub fn goalStatusChromeFor(preference: LanguagePreference, system_locale_id: []const u8) GoalStatusChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => goal_status_chrome_zh_cn,
+        .japanese => goal_status_chrome_ja,
+        .system, .english => goal_status_chrome_en,
     };
 }
 
@@ -6322,6 +6417,59 @@ test "goalEmptyChromeFor english default; zh and ja chrome; english ignores ja L
     try testing.expectEqualStrings("目標なし", goalEmptyChromeFor(.system, "ja_JP.UTF-8").no_goal);
     try testing.expectEqualStrings("No goal", goalEmptyChromeFor(.english, "ja_JP.UTF-8").no_goal);
     try testing.expectEqualStrings("No goal", goalEmptyChromeFor(.english, "zh_CN.UTF-8").no_goal);
+}
+
+test "goalStatusChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Active", goalStatusChromeFor(.english, "ja").active);
+    try testing.expectEqualStrings("Paused", goalStatusChromeFor(.english, "ja").paused);
+    try testing.expectEqualStrings("Active", goalStatusChromeFor(.english, "").active);
+    try testing.expectEqualStrings("Paused", goalStatusChromeFor(.english, "").paused);
+    try testing.expectEqualStrings("Blocked", goalStatusChromeFor(.english, "").blocked);
+    try testing.expectEqualStrings("Usage limited", goalStatusChromeFor(.english, "").usage_limited);
+    try testing.expectEqualStrings("Budget limited", goalStatusChromeFor(.english, "").budget_limited);
+    try testing.expectEqualStrings("Complete", goalStatusChromeFor(.english, "").complete);
+    try testing.expectEqualStrings("Active", goalStatusChromeFor(.system, "").active);
+    try testing.expectEqualStrings("Paused", goalStatusChromeFor(.system, "").paused);
+    try testing.expectEqualStrings("Active", goalStatusChromeFor(.english, "").labelForId("active"));
+    try testing.expectEqualStrings("Paused", goalStatusChromeFor(.english, "").labelForId("paused"));
+    try testing.expectEqualStrings("Blocked", goalStatusChromeFor(.english, "").labelForId("blocked"));
+    try testing.expectEqualStrings("Usage limited", goalStatusChromeFor(.english, "").labelForId("usageLimited"));
+    try testing.expectEqualStrings("Budget limited", goalStatusChromeFor(.english, "").labelForId("budgetLimited"));
+    try testing.expectEqualStrings("Complete", goalStatusChromeFor(.english, "").labelForId("complete"));
+    try testing.expectEqualStrings("Active", goalStatusChromeFor(.english, "").labelForId(""));
+    try testing.expectEqualStrings("Active", goalStatusChromeFor(.english, "").labelForId("nope"));
+
+    try testing.expectEqualStrings("进行中", goalStatusChromeFor(.simplified_chinese, "").active);
+    try testing.expectEqualStrings("已暂停", goalStatusChromeFor(.simplified_chinese, "").paused);
+    try testing.expectEqualStrings("已阻塞", goalStatusChromeFor(.simplified_chinese, "").blocked);
+    try testing.expectEqualStrings("用量受限", goalStatusChromeFor(.simplified_chinese, "").usage_limited);
+    try testing.expectEqualStrings("预算受限", goalStatusChromeFor(.simplified_chinese, "").budget_limited);
+    try testing.expectEqualStrings("已完成", goalStatusChromeFor(.simplified_chinese, "").complete);
+    try testing.expectEqualStrings("进行中", goalStatusChromeFor(.simplified_chinese, "").labelForId("active"));
+    try testing.expectEqualStrings("用量受限", goalStatusChromeFor(.simplified_chinese, "").labelForId("usageLimited"));
+    try testing.expectEqualStrings("预算受限", goalStatusChromeFor(.simplified_chinese, "").labelForId("budgetLimited"));
+    try testing.expectEqualStrings("進行中", goalStatusChromeFor(.japanese, "").active);
+    try testing.expectEqualStrings("一時停止", goalStatusChromeFor(.japanese, "").paused);
+    try testing.expectEqualStrings("ブロック中", goalStatusChromeFor(.japanese, "").blocked);
+    try testing.expectEqualStrings("使用量制限", goalStatusChromeFor(.japanese, "").usage_limited);
+    try testing.expectEqualStrings("予算制限", goalStatusChromeFor(.japanese, "").budget_limited);
+    try testing.expectEqualStrings("完了", goalStatusChromeFor(.japanese, "").complete);
+    try testing.expectEqualStrings("進行中", goalStatusChromeFor(.japanese, "").labelForId("active"));
+    try testing.expectEqualStrings("使用量制限", goalStatusChromeFor(.japanese, "").labelForId("usageLimited"));
+
+    try testing.expectEqualStrings("进行中", goalStatusChromeFor(.system, "zh_CN.UTF-8").active);
+    try testing.expectEqualStrings("已暂停", goalStatusChromeFor(.system, "zh_CN.UTF-8").paused);
+    try testing.expectEqualStrings("用量受限", goalStatusChromeFor(.system, "zh_CN.UTF-8").usage_limited);
+    try testing.expectEqualStrings("進行中", goalStatusChromeFor(.system, "ja_JP.UTF-8").active);
+    try testing.expectEqualStrings("一時停止", goalStatusChromeFor(.system, "ja_JP.UTF-8").paused);
+    try testing.expectEqualStrings("使用量制限", goalStatusChromeFor(.system, "ja_JP.UTF-8").usage_limited);
+    try testing.expectEqualStrings("Active", goalStatusChromeFor(.english, "ja_JP.UTF-8").active);
+    try testing.expectEqualStrings("Paused", goalStatusChromeFor(.english, "ja_JP.UTF-8").paused);
+    try testing.expectEqualStrings("Usage limited", goalStatusChromeFor(.english, "ja_JP.UTF-8").usage_limited);
+    try testing.expectEqualStrings("Active", goalStatusChromeFor(.english, "zh_CN.UTF-8").active);
+    try testing.expectEqualStrings("Budget limited", goalStatusChromeFor(.english, "zh_CN.UTF-8").budget_limited);
+    try testing.expectEqualStrings("Complete", goalStatusChromeFor(.english, "zh_CN.UTF-8").complete);
 }
 
 test "usageCostQualityChromeFor english default; zh and ja chrome; english ignores ja LANG" {
