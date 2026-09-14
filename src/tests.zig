@@ -12877,7 +12877,7 @@ test "cmd-shift-r Hard Reload blanks then restores on the next update tick" {
     try testing.expectEqual(@as(usize, 2), model.browser_slots[0].history_count);
     try testing.expectEqual(@as(usize, 1), model.browser_slots[0].history_index);
 
-    main.update(&model, .clipboard_done, &fx);
+    main.update(&model, .jump_latest, &fx);
     _ = browser_pane.webPanes(&model, &panes);
     try testing.expect(!model.browser_slots[0].hard_reload_pending);
     try testing.expectEqualStrings("https://b.example", panes[0].url);
