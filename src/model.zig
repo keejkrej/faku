@@ -4941,6 +4941,10 @@ pub const Model = struct {
         return i18n.worktreeStatusChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn branchOpStatusChrome(model: *const Model) i18n.BranchOpStatusChrome {
+        return i18n.branchOpStatusChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn daemonDirChrome(model: *const Model) i18n.DaemonDirChrome {
         return i18n.daemonDirChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6154,11 +6158,54 @@ pub const Model = struct {
     }
 
     /// Send-prep / New worktree… Could not create worktree. attach
-    /// status. Distinct from Could not push / checkout / create
-    /// branch leftovers. Worktree stays Latin in zh-CN / ja.
-    /// English matches `git_checkout.worktree_add_failed_status`.
+    /// status. Distinct from `BranchOpStatusChrome` checkout /
+    /// create-branch / push failures. Worktree stays Latin in
+    /// zh-CN / ja. English matches
+    /// `git_checkout.worktree_add_failed_status`.
     pub fn worktree_create_failed_status(model: *const Model) []const u8 {
         return model.worktreeStatusChrome().create_failed;
+    }
+
+    /// Branch-menu Could not check out branch. attach status.
+    /// Distinct from `BranchChrome` / `CommitChrome` /
+    /// `WorktreeStatusChrome`. English matches
+    /// `git_checkout.checkout_failed_status`.
+    pub fn checkout_failed_status(model: *const Model) []const u8 {
+        return model.branchOpStatusChrome().checkout_failed;
+    }
+
+    /// Branch-menu Already checked out in another worktree. attach
+    /// status. Worktree stays Latin in zh-CN / ja. English matches
+    /// `git_checkout.occupied_checkout_status`.
+    pub fn occupied_checkout_status(model: *const Model) []const u8 {
+        return model.branchOpStatusChrome().occupied_checkout;
+    }
+
+    /// Branch-menu Could not create branch. attach status. Distinct
+    /// from `worktree_create_failed_status`. English matches
+    /// `git_checkout.create_failed_status`.
+    pub fn create_failed_status(model: *const Model) []const u8 {
+        return model.branchOpStatusChrome().create_failed;
+    }
+
+    /// Branch-menu Could not delete branch. attach status. English
+    /// matches `git_checkout.delete_failed_status`.
+    pub fn delete_failed_status(model: *const Model) []const u8 {
+        return model.branchOpStatusChrome().delete_failed;
+    }
+
+    /// Branch-menu Could not fetch. attach status. Distinct from
+    /// `BranchChrome.fetch_menu`. English matches
+    /// `git_checkout.fetch_failed_status`.
+    pub fn fetch_failed_status(model: *const Model) []const u8 {
+        return model.branchOpStatusChrome().fetch_failed;
+    }
+
+    /// Branch-menu / push-after-commit Could not push. attach
+    /// status. Distinct from `CommitChrome` Pushing…. English
+    /// matches `git_checkout.push_failed_status`.
+    pub fn push_failed_status(model: *const Model) []const u8 {
+        return model.branchOpStatusChrome().push_failed;
     }
 
     /// Daemon-dir browser Up. `on-press` stays `daemon_dir_browser_up`.

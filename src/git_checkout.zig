@@ -353,16 +353,23 @@ pub const git_worktree_base_key_first: u64 = 390;
 pub const max_local_branches: usize = 64;
 pub const max_remote_branches: usize = 32;
 pub const max_listed_branches: usize = max_local_branches + max_remote_branches;
-pub const checkout_failed_status = "Could not check out branch.";
-pub const occupied_checkout_status = "Already checked out in another worktree.";
+/// English chrome fallbacks / test anchors. Localized branch-op
+/// attach statuses use `i18n.branchOpStatusChromeFor` via Model
+/// getters (`checkout_failed_status` / `occupied_checkout_status` /
+/// `create_failed_status` / `delete_failed_status` /
+/// `fetch_failed_status` / `push_failed_status`). Commit
+/// attach-status leftovers stay English this cut.
+pub const checkout_failed_status = i18n.branchOpStatusChromeFor(.english, "").checkout_failed;
+pub const occupied_checkout_status = i18n.branchOpStatusChromeFor(.english, "").occupied_checkout;
 pub const occupied_picker_suffix = " (worktree)";
-pub const create_failed_status = "Could not create branch.";
-pub const delete_failed_status = "Could not delete branch.";
-pub const fetch_failed_status = "Could not fetch.";
-pub const push_failed_status = "Could not push.";
+pub const create_failed_status = i18n.branchOpStatusChromeFor(.english, "").create_failed;
+pub const delete_failed_status = i18n.branchOpStatusChromeFor(.english, "").delete_failed;
+pub const fetch_failed_status = i18n.branchOpStatusChromeFor(.english, "").fetch_failed;
+pub const push_failed_status = i18n.branchOpStatusChromeFor(.english, "").push_failed;
 /// English chrome fallback / test anchor. Localized Could not
 /// create worktree. uses `i18n.worktreeStatusChromeFor` via
-/// `Model.worktree_create_failed_status`. Other git attach-status
+/// `Model.worktree_create_failed_status`. Branch-op attach statuses
+/// live on `i18n.BranchOpStatusChrome`. Commit attach-status
 /// leftovers stay English this cut.
 pub const worktree_add_failed_status = i18n.worktreeStatusChromeFor(.english, "").create_failed;
 
@@ -2325,7 +2332,7 @@ fn failPush(model: *Model) void {
     model.git_push_key = 0;
     resetPushState(model);
     closeCommitCard(model);
-    model.setAttachStatus(push_failed_status);
+    model.setAttachStatus(model.push_failed_status());
 }
 
 fn applyRemoteCandidate(model: *Model, name: []const u8) void {
@@ -2808,7 +2815,7 @@ pub fn pickBranch(model: *Model, fx: *Effects, name: []const u8) void {
     const remote = isListedRemoteName(model, name);
     if (!remote and std.mem.eql(u8, name, git_branch.gitBranchLabel(model))) return;
     if (!remote and listedLocalNameIsOccupied(model, name)) {
-        model.setAttachStatus(occupied_checkout_status);
+        model.setAttachStatus(model.occupied_checkout_status());
         return;
     }
     if (!probeSupported()) return;
@@ -2917,7 +2924,7 @@ pub fn handleCheckoutExit(model: *Model, fx: *Effects, exit: native_sdk.EffectEx
         refreshWorkspaceProbes(model, fx);
         return;
     }
-    model.setAttachStatus(checkout_failed_status);
+    model.setAttachStatus(model.checkout_failed_status());
 }
 
 /// Confirm the create card: plausible draft one-shots `git checkout -b`.
@@ -2963,7 +2970,7 @@ pub fn handleCreateExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
         refreshWorkspaceProbes(model, fx);
         return;
     }
-    model.setAttachStatus(create_failed_status);
+    model.setAttachStatus(model.create_failed_status());
 }
 
 /// Confirm the delete card: a listed non-current, unoccupied name
@@ -3010,7 +3017,7 @@ pub fn handleDeleteExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
         refreshWorkspaceProbes(model, fx);
         return;
     }
-    model.setAttachStatus(delete_failed_status);
+    model.setAttachStatus(model.delete_failed_status());
 }
 
 /// Fetch… closes the picker and one-shots `git fetch --prune`.
@@ -3055,7 +3062,7 @@ pub fn handleFetchExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit)
         refreshWorkspaceProbes(model, fx);
         return;
     }
-    model.setAttachStatus(fetch_failed_status);
+    model.setAttachStatus(model.fetch_failed_status());
 }
 
 fn spawnUpstreamProbe(model: *Model, fx: *Effects, cwd: []const u8) void {
@@ -3135,13 +3142,13 @@ pub fn beginPushAfterCommit(model: *Model, fx: *Effects) void {
     preparePushUi(model, fx, true);
     if (gitMutationInFlight(model) or model.is_streaming() or !probeSupported()) {
         closeCommitCard(model);
-        model.setAttachStatus(push_failed_status);
+        model.setAttachStatus(model.push_failed_status());
         return;
     }
     const cwd = probePath(model);
     if (cwd.len == 0) {
         closeCommitCard(model);
-        model.setAttachStatus(push_failed_status);
+        model.setAttachStatus(model.push_failed_status());
         return;
     }
     spawnUpstreamProbe(model, fx, cwd);
@@ -3215,7 +3222,7 @@ pub fn handlePushExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) 
                 refreshWorkspaceProbes(model, fx);
                 return;
             }
-            model.setAttachStatus(push_failed_status);
+            model.setAttachStatus(model.push_failed_status());
         },
     }
 }
@@ -6459,4 +6466,170 @@ test "failed CheckoutBranch create response does not pretend success" {
     try std.testing.expect(model.git_branch_create_active);
     try std.testing.expectEqualStrings("main", git_branch.gitBranchLabel(&model));
     try std.testing.expectEqualStrings(create_failed_status, model.attach_status());
+}
+
+test "branch-op attach status follows Appearance language" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try std.testing.expectEqualStrings("Could not check out branch.", checkout_failed_status);
+    try std.testing.expectEqualStrings(i18n.branchOpStatusChromeFor(.english, "").checkout_failed, checkout_failed_status);
+    try std.testing.expectEqualStrings("Already checked out in another worktree.", occupied_checkout_status);
+    try std.testing.expectEqualStrings(i18n.branchOpStatusChromeFor(.english, "").occupied_checkout, occupied_checkout_status);
+    try std.testing.expectEqualStrings("Could not create branch.", create_failed_status);
+    try std.testing.expectEqualStrings(i18n.branchOpStatusChromeFor(.english, "").create_failed, create_failed_status);
+    try std.testing.expectEqualStrings("Could not delete branch.", delete_failed_status);
+    try std.testing.expectEqualStrings(i18n.branchOpStatusChromeFor(.english, "").delete_failed, delete_failed_status);
+    try std.testing.expectEqualStrings("Could not fetch.", fetch_failed_status);
+    try std.testing.expectEqualStrings(i18n.branchOpStatusChromeFor(.english, "").fetch_failed, fetch_failed_status);
+    try std.testing.expectEqualStrings("Could not push.", push_failed_status);
+    try std.testing.expectEqualStrings(i18n.branchOpStatusChromeFor(.english, "").push_failed, push_failed_status);
+
+    var model = Model{};
+    const id = model.addSession("branch op i18n", .fx);
+    model.selected = id;
+    model.git_branch_list_store[0].set("feat", false, false);
+    model.git_branch_list_store[1].set("main", false, false);
+    model.git_branch_list_store[2].set("occupied", false, true);
+    model.git_branch_list_count = 3;
+    writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+
+    const paint = struct {
+        fn occupied(m: *Model, efx: *Effects) void {
+            pickBranch(m, efx, "occupied");
+        }
+
+        fn checkout(m: *Model, efx: *Effects, sid: u32) void {
+            m.clearAttachStatus();
+            m.git_checkout_key = git_checkout_key_first;
+            m.git_checkout_probe_session = sid;
+            handleCheckoutExit(m, efx, .{ .key = git_checkout_key_first, .reason = .exited, .code = 1 });
+        }
+
+        fn create(m: *Model, efx: *Effects, sid: u32) void {
+            m.clearAttachStatus();
+            m.git_create_key = git_create_key_first;
+            m.git_create_probe_session = sid;
+            handleCreateExit(m, efx, .{ .key = git_create_key_first, .reason = .exited, .code = 1 });
+        }
+
+        fn delete(m: *Model, efx: *Effects, sid: u32) void {
+            m.clearAttachStatus();
+            m.git_delete_key = git_delete_key_first;
+            m.git_delete_probe_session = sid;
+            handleDeleteExit(m, efx, .{ .key = git_delete_key_first, .reason = .exited, .code = 1 });
+        }
+
+        fn fetch(m: *Model, efx: *Effects, sid: u32) void {
+            m.clearAttachStatus();
+            m.git_fetch_key = git_fetch_key_first;
+            m.git_fetch_probe_session = sid;
+            handleFetchExit(m, efx, .{ .key = git_fetch_key_first, .reason = .exited, .code = 1 });
+        }
+
+        fn push(m: *Model, efx: *Effects) void {
+            m.clearAttachStatus();
+            m.git_commit_active = true;
+            beginPushAfterCommit(m, efx);
+        }
+    };
+
+    model.language_preference = .simplified_chinese;
+    paint.occupied(&model, &fx);
+    try std.testing.expectEqualStrings("已在另一个 worktree 中检出。", model.attach_status());
+    try std.testing.expectEqualStrings(i18n.branchOpStatusChromeFor(.simplified_chinese, "").occupied_checkout, model.attach_status());
+    try std.testing.expectEqualStrings(model.occupied_checkout_status(), model.attach_status());
+    try std.testing.expect(!std.mem.eql(u8, occupied_checkout_status, model.attach_status()));
+    try std.testing.expect(std.mem.indexOf(u8, model.attach_status(), "worktree") != null);
+
+    paint.checkout(&model, &fx, id);
+    try std.testing.expectEqualStrings("无法检出分支。", model.attach_status());
+    try std.testing.expectEqualStrings(model.checkout_failed_status(), model.attach_status());
+    try std.testing.expect(!std.mem.eql(u8, checkout_failed_status, model.attach_status()));
+
+    paint.create(&model, &fx, id);
+    try std.testing.expectEqualStrings("无法创建分支。", model.attach_status());
+    try std.testing.expectEqualStrings(model.create_failed_status(), model.attach_status());
+    try std.testing.expect(!std.mem.eql(u8, create_failed_status, model.attach_status()));
+    try std.testing.expect(!std.mem.eql(u8, model.create_failed_status(), model.worktree_create_failed_status()));
+
+    paint.delete(&model, &fx, id);
+    try std.testing.expectEqualStrings("无法删除分支。", model.attach_status());
+    try std.testing.expectEqualStrings(model.delete_failed_status(), model.attach_status());
+
+    paint.fetch(&model, &fx, id);
+    try std.testing.expectEqualStrings("无法获取。", model.attach_status());
+    try std.testing.expectEqualStrings(model.fetch_failed_status(), model.attach_status());
+
+    paint.push(&model, &fx);
+    try std.testing.expectEqualStrings("无法推送。", model.attach_status());
+    try std.testing.expectEqualStrings(model.push_failed_status(), model.attach_status());
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(!model.git_commit_active);
+
+    model.language_preference = .japanese;
+    paint.occupied(&model, &fx);
+    try std.testing.expectEqualStrings("別の worktree で既にチェックアウトされています。", model.attach_status());
+    try std.testing.expectEqualStrings(i18n.branchOpStatusChromeFor(.japanese, "").occupied_checkout, model.attach_status());
+    try std.testing.expect(std.mem.indexOf(u8, model.attach_status(), "worktree") != null);
+
+    paint.checkout(&model, &fx, id);
+    try std.testing.expectEqualStrings("ブランチをチェックアウトできませんでした。", model.attach_status());
+    paint.create(&model, &fx, id);
+    try std.testing.expectEqualStrings("ブランチを作成できませんでした。", model.attach_status());
+    paint.delete(&model, &fx, id);
+    try std.testing.expectEqualStrings("ブランチを削除できませんでした。", model.attach_status());
+    paint.fetch(&model, &fx, id);
+    try std.testing.expectEqualStrings("フェッチできませんでした。", model.attach_status());
+    paint.push(&model, &fx);
+    try std.testing.expectEqualStrings("プッシュできませんでした。", model.attach_status());
+    try std.testing.expect(!std.mem.eql(u8, push_failed_status, model.attach_status()));
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    paint.occupied(&model, &fx);
+    try std.testing.expectEqualStrings(occupied_checkout_status, model.attach_status());
+    try std.testing.expectEqualStrings("Already checked out in another worktree.", model.attach_status());
+    paint.checkout(&model, &fx, id);
+    try std.testing.expectEqualStrings(checkout_failed_status, model.attach_status());
+    try std.testing.expectEqualStrings("Could not check out branch.", model.attach_status());
+    paint.create(&model, &fx, id);
+    try std.testing.expectEqualStrings(create_failed_status, model.attach_status());
+    paint.delete(&model, &fx, id);
+    try std.testing.expectEqualStrings(delete_failed_status, model.attach_status());
+    paint.fetch(&model, &fx, id);
+    try std.testing.expectEqualStrings(fetch_failed_status, model.attach_status());
+    paint.push(&model, &fx);
+    try std.testing.expectEqualStrings(push_failed_status, model.attach_status());
+    try std.testing.expectEqualStrings("Could not push.", model.attach_status());
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    paint.occupied(&model, &fx);
+    try std.testing.expectEqualStrings("已在另一个 worktree 中检出。", model.attach_status());
+    paint.checkout(&model, &fx, id);
+    try std.testing.expectEqualStrings("无法检出分支。", model.attach_status());
+    paint.create(&model, &fx, id);
+    try std.testing.expectEqualStrings("无法创建分支。", model.attach_status());
+    paint.delete(&model, &fx, id);
+    try std.testing.expectEqualStrings("无法删除分支。", model.attach_status());
+    paint.fetch(&model, &fx, id);
+    try std.testing.expectEqualStrings("无法获取。", model.attach_status());
+    paint.push(&model, &fx);
+    try std.testing.expectEqualStrings("无法推送。", model.attach_status());
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    paint.occupied(&model, &fx);
+    try std.testing.expectEqualStrings("別の worktree で既にチェックアウトされています。", model.attach_status());
+    paint.checkout(&model, &fx, id);
+    try std.testing.expectEqualStrings("ブランチをチェックアウトできませんでした。", model.attach_status());
+    paint.create(&model, &fx, id);
+    try std.testing.expectEqualStrings("ブランチを作成できませんでした。", model.attach_status());
+    paint.delete(&model, &fx, id);
+    try std.testing.expectEqualStrings("ブランチを削除できませんでした。", model.attach_status());
+    paint.fetch(&model, &fx, id);
+    try std.testing.expectEqualStrings("フェッチできませんでした。", model.attach_status());
+    paint.push(&model, &fx);
+    try std.testing.expectEqualStrings("プッシュできませんでした。", model.attach_status());
 }
