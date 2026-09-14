@@ -12862,11 +12862,12 @@ test "cmd-shift-r Hard Reload blanks then restores on the next update tick" {
 
     main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://a.example" } }, &fx);
     main.update(&model, .browser_navigate, &fx);
-    main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://b.example" } }, &fx);
+    model.setBrowserUrlDraft("https://b.example");
     main.update(&model, .browser_navigate, &fx);
     _ = browser_pane.webPanes(&model, &panes);
     const before = panes[0].reload_token;
     try testing.expectEqual(@as(usize, 2), model.browser_slots[0].history_count);
+    try testing.expectEqualStrings("https://b.example", browser_pane.currentUrl(&model));
 
     main.update(&model, keys.onKey(cmd_shift_r).?, &fx);
     _ = browser_pane.webPanes(&model, &panes);
@@ -12877,7 +12878,7 @@ test "cmd-shift-r Hard Reload blanks then restores on the next update tick" {
     try testing.expectEqual(@as(usize, 2), model.browser_slots[0].history_count);
     try testing.expectEqual(@as(usize, 1), model.browser_slots[0].history_index);
 
-    main.update(&model, .jump_latest, &fx);
+    main.update(&model, .close_find, &fx);
     _ = browser_pane.webPanes(&model, &panes);
     try testing.expect(!model.browser_slots[0].hard_reload_pending);
     try testing.expectEqualStrings("https://b.example", panes[0].url);
