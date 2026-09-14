@@ -36,6 +36,12 @@
 //! usage / No matching projects (same `FilterChrome` strings), and first-cut Files
 //! right-panel file-preview toolbar / find-replace / discard /
 //! truncated·binary chrome (same `FilePreviewChrome` strings), and
+//! first-cut Files preview error/save Cannot read file / File not
+//! found / Cannot save truncated preview — open in editor /
+//! Cannot save binary file / Cannot save file (same
+//! `FilePreviewErrorChrome` strings; distinct from
+//! `FilePreviewChrome` / `FilePreviewFindMatchChrome`; paths /
+//! file contents stay English/data), and
 //! first-cut Commit message composer chrome (same `CommitChrome`
 //! strings), and first-cut composer branch-picker dropdown plus
 //! New branch / New worktree / Delete branch / Push-confirm
@@ -303,7 +309,13 @@
 //! strings). Files preview find muted match-position
 //! `n of m · L#line` / `invalid` / `0` follow the resolved locale
 //! this cut (same `FilePreviewFindMatchChrome` strings; `on-press`
-//! / on-input / find query / replace text stay English). Header
+//! / on-input / find query / replace text stay English). Files
+//! preview error/save Cannot read file / File not found / Cannot
+//! save truncated preview — open in editor / Cannot save binary
+//! file / Cannot save file follow the resolved locale this cut
+//! (same `FilePreviewErrorChrome` strings; distinct from
+//! `FilePreviewChrome` / `FilePreviewFindMatchChrome`; paths /
+//! file contents stay English/data). Header
 //! Copy session / Fork / Rewind `on-press`
 //! stay English (`copy_session` / `fork` / `rewind`). Transcript
 //! turn You said / Assistant said a11y follow the resolved locale
@@ -1274,8 +1286,11 @@ const filter_chrome_ja: FilterChrome = .{
 /// `toggle_file_preview_find_replace` / `file_preview_find_edit` /
 /// `file_preview_find_replace_edit`). English matches the former
 /// hardcoded copy. Distinct from composer `Open in Editor` (title
-/// case) and from `FilePreviewFindMatchChrome` (file-preview
-/// `n of m · L#line` / `invalid` / `0`). Aa / Ab / .* glyphs stay. Path text and body content stay
+/// case), from `FilePreviewFindMatchChrome` (file-preview
+/// `n of m · L#line` / `invalid` / `0`), and from
+/// `FilePreviewErrorChrome` (Cannot read file / File not found /
+/// Cannot save truncated preview — open in editor / Cannot save
+/// binary file / Cannot save file). Aa / Ab / .* glyphs stay. Path text and body content stay
 /// data. Transcript Find placeholder reuses `find` via a distinct
 /// Model getter; a11y reuses `Palette.find_in_transcript`.
 pub const FilePreviewChrome = struct {
@@ -1384,6 +1399,48 @@ const file_preview_chrome_ja: FilePreviewChrome = .{
     .keep_editing = "編集を続ける",
     .truncated = "切り詰め済み — 先頭 256 KB を表示",
     .binary_file = "バイナリファイル — 非表示",
+};
+
+/// Files preview error/save chrome for the resolved locale. Same
+/// resolve path as FilePreviewChrome. English matches the former
+/// hardcoded copy (`Cannot read file` / `File not found` /
+/// `Cannot save truncated preview — open in editor` / `Cannot
+/// save binary file` / `Cannot save file`). Distinct from
+/// `FilePreviewChrome` toolbar Unsaved / Preview / Save / …
+/// Truncated — showing first 256 KB / Binary file — not shown and
+/// from `FilePreviewFindMatchChrome` so file-preview error/save
+/// chrome stays independently evolvable. Wire ids / on-press /
+/// paths / file contents stay English/data.
+pub const FilePreviewErrorChrome = struct {
+    unreadable: []const u8,
+    missing: []const u8,
+    truncated_save: []const u8,
+    binary_save: []const u8,
+    cannot_save: []const u8,
+};
+
+const file_preview_error_chrome_en: FilePreviewErrorChrome = .{
+    .unreadable = "Cannot read file",
+    .missing = "File not found",
+    .truncated_save = "Cannot save truncated preview — open in editor",
+    .binary_save = "Cannot save binary file",
+    .cannot_save = "Cannot save file",
+};
+
+const file_preview_error_chrome_zh_cn: FilePreviewErrorChrome = .{
+    .unreadable = "无法读取文件",
+    .missing = "找不到文件",
+    .truncated_save = "无法保存已截断的预览 — 请在编辑器中打开",
+    .binary_save = "无法保存二进制文件",
+    .cannot_save = "无法保存文件",
+};
+
+const file_preview_error_chrome_ja: FilePreviewErrorChrome = .{
+    .unreadable = "ファイルを読み取れません",
+    .missing = "ファイルが見つかりません",
+    .truncated_save = "切り詰められたプレビューは保存できません — エディターで開いてください",
+    .binary_save = "バイナリファイルは保存できません",
+    .cannot_save = "ファイルを保存できません",
 };
 
 /// Commit message composer chrome for the resolved locale. Same
@@ -2168,7 +2225,7 @@ const find_match_chrome_ja: FindMatchChrome = .{
 /// FindMatchChrome. English matches the former hardcoded copy
 /// (`{d} of {d}{s} · L{d}`, `invalid`, `0`, allocPrint fallback
 /// `match`). Distinct from `FindMatchChrome` / `FindBarChrome` /
-/// `FilePreviewChrome` so file-preview match chrome stays
+/// `FilePreviewChrome` / `FilePreviewErrorChrome` so file-preview match chrome stays
 /// independently evolvable. Numbers stay Latin. `+` cap marker and
 /// middle-dot ` · ` stay. Wire ids / on-press / on-input / find
 /// query / replace text stay English.
@@ -3328,6 +3385,20 @@ pub fn filePreviewChromeFor(preference: LanguagePreference, system_locale_id: []
     };
 }
 
+/// Files preview error/save chrome for the resolved locale. Callers
+/// pass Model `language_preference` + `system_locale_id`; this file
+/// does not read process env. Distinct from FilePreviewChrome
+/// toolbar / truncated·binary banners and from
+/// FilePreviewFindMatchChrome. Paths / file contents stay
+/// English/data.
+pub fn filePreviewErrorChromeFor(preference: LanguagePreference, system_locale_id: []const u8) FilePreviewErrorChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => file_preview_error_chrome_zh_cn,
+        .japanese => file_preview_error_chrome_ja,
+        .system, .english => file_preview_error_chrome_en,
+    };
+}
+
 /// Commit message composer chrome for the resolved locale. Callers
 /// pass Model `language_preference` + `system_locale_id`; this file
 /// does not read process env. Wire ids / on-press / on-input stay
@@ -3638,8 +3709,9 @@ pub fn formatFindMatchOf(chrome: FindMatchChrome, arena: std.mem.Allocator, inde
 /// Files preview find muted match-position chrome for the resolved
 /// locale. Callers pass Model `language_preference` +
 /// `system_locale_id`; this file does not read process env. Distinct
-/// from FindMatchChrome / FindBarChrome / FilePreviewChrome so
-/// file-preview match chrome stays independently evolvable.
+/// from FindMatchChrome / FindBarChrome / FilePreviewChrome /
+/// FilePreviewErrorChrome so file-preview match chrome stays
+/// independently evolvable.
 /// Numbers stay Latin. `+` cap and ` · ` stay. Wire ids / on-press /
 /// on-input / find query / replace text stay English.
 pub fn filePreviewFindMatchChromeFor(preference: LanguagePreference, system_locale_id: []const u8) FilePreviewFindMatchChrome {
@@ -4806,6 +4878,68 @@ test "filePreviewChromeFor english default; zh and ja chrome; english ignores ja
     try testing.expectEqualStrings("Find in file", filePreviewChromeFor(.english, "ja_JP.UTF-8").find_in_file);
     try testing.expectEqualStrings("Keep editing", filePreviewChromeFor(.english, "zh_CN.UTF-8").keep_editing);
     try testing.expectEqualStrings("Binary file — not shown", filePreviewChromeFor(.english, "ja_JP.UTF-8").binary_file);
+}
+
+test "filePreviewErrorChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Cannot read file", filePreviewErrorChromeFor(.english, "ja").unreadable);
+    try testing.expectEqualStrings("File not found", filePreviewErrorChromeFor(.english, "ja").missing);
+    try testing.expectEqualStrings("Cannot save truncated preview — open in editor", filePreviewErrorChromeFor(.english, "ja").truncated_save);
+    try testing.expectEqualStrings("Cannot save binary file", filePreviewErrorChromeFor(.english, "ja").binary_save);
+    try testing.expectEqualStrings("Cannot save file", filePreviewErrorChromeFor(.english, "ja").cannot_save);
+    try testing.expectEqualStrings("Cannot read file", filePreviewErrorChromeFor(.english, "").unreadable);
+    try testing.expectEqualStrings("File not found", filePreviewErrorChromeFor(.english, "").missing);
+    try testing.expectEqualStrings("Cannot save truncated preview — open in editor", filePreviewErrorChromeFor(.english, "").truncated_save);
+    try testing.expectEqualStrings("Cannot save binary file", filePreviewErrorChromeFor(.english, "").binary_save);
+    try testing.expectEqualStrings("Cannot save file", filePreviewErrorChromeFor(.english, "").cannot_save);
+    try testing.expectEqualStrings("Cannot read file", filePreviewErrorChromeFor(.system, "").unreadable);
+    try testing.expectEqualStrings("File not found", filePreviewErrorChromeFor(.system, "").missing);
+    try testing.expectEqualStrings("Cannot save truncated preview — open in editor", filePreviewErrorChromeFor(.system, "").truncated_save);
+    try testing.expectEqualStrings("Cannot save binary file", filePreviewErrorChromeFor(.system, "").binary_save);
+    try testing.expectEqualStrings("Cannot save file", filePreviewErrorChromeFor(.system, "").cannot_save);
+
+    try testing.expectEqualStrings("无法读取文件", filePreviewErrorChromeFor(.simplified_chinese, "").unreadable);
+    try testing.expectEqualStrings("找不到文件", filePreviewErrorChromeFor(.simplified_chinese, "").missing);
+    try testing.expectEqualStrings("无法保存已截断的预览 — 请在编辑器中打开", filePreviewErrorChromeFor(.simplified_chinese, "").truncated_save);
+    try testing.expectEqualStrings("无法保存二进制文件", filePreviewErrorChromeFor(.simplified_chinese, "").binary_save);
+    try testing.expectEqualStrings("无法保存文件", filePreviewErrorChromeFor(.simplified_chinese, "").cannot_save);
+    try testing.expectEqualStrings("ファイルを読み取れません", filePreviewErrorChromeFor(.japanese, "").unreadable);
+    try testing.expectEqualStrings("ファイルが見つかりません", filePreviewErrorChromeFor(.japanese, "").missing);
+    try testing.expectEqualStrings("切り詰められたプレビューは保存できません — エディターで開いてください", filePreviewErrorChromeFor(.japanese, "").truncated_save);
+    try testing.expectEqualStrings("バイナリファイルは保存できません", filePreviewErrorChromeFor(.japanese, "").binary_save);
+    try testing.expectEqualStrings("ファイルを保存できません", filePreviewErrorChromeFor(.japanese, "").cannot_save);
+
+    try testing.expectEqualStrings("无法读取文件", filePreviewErrorChromeFor(.system, "zh_CN.UTF-8").unreadable);
+    try testing.expectEqualStrings("找不到文件", filePreviewErrorChromeFor(.system, "zh_CN.UTF-8").missing);
+    try testing.expectEqualStrings("无法保存已截断的预览 — 请在编辑器中打开", filePreviewErrorChromeFor(.system, "zh_CN.UTF-8").truncated_save);
+    try testing.expectEqualStrings("无法保存二进制文件", filePreviewErrorChromeFor(.system, "zh_CN.UTF-8").binary_save);
+    try testing.expectEqualStrings("无法保存文件", filePreviewErrorChromeFor(.system, "zh_CN.UTF-8").cannot_save);
+    try testing.expectEqualStrings("ファイルを読み取れません", filePreviewErrorChromeFor(.system, "ja_JP.UTF-8").unreadable);
+    try testing.expectEqualStrings("ファイルが見つかりません", filePreviewErrorChromeFor(.system, "ja_JP.UTF-8").missing);
+    try testing.expectEqualStrings("切り詰められたプレビューは保存できません — エディターで開いてください", filePreviewErrorChromeFor(.system, "ja_JP.UTF-8").truncated_save);
+    try testing.expectEqualStrings("バイナリファイルは保存できません", filePreviewErrorChromeFor(.system, "ja_JP.UTF-8").binary_save);
+    try testing.expectEqualStrings("ファイルを保存できません", filePreviewErrorChromeFor(.system, "ja_JP.UTF-8").cannot_save);
+    try testing.expectEqualStrings("Cannot read file", filePreviewErrorChromeFor(.english, "ja_JP.UTF-8").unreadable);
+    try testing.expectEqualStrings("File not found", filePreviewErrorChromeFor(.english, "zh_CN.UTF-8").missing);
+    try testing.expectEqualStrings("Cannot save truncated preview — open in editor", filePreviewErrorChromeFor(.english, "zh_CN.UTF-8").truncated_save);
+    try testing.expectEqualStrings("Cannot save binary file", filePreviewErrorChromeFor(.english, "ja_JP.UTF-8").binary_save);
+    try testing.expectEqualStrings("Cannot save file", filePreviewErrorChromeFor(.english, "ja_JP.UTF-8").cannot_save);
+
+    try testing.expect(!std.mem.eql(u8, filePreviewErrorChromeFor(.english, "").unreadable, filePreviewErrorChromeFor(.english, "").missing));
+    try testing.expect(!std.mem.eql(u8, filePreviewErrorChromeFor(.english, "").truncated_save, filePreviewErrorChromeFor(.english, "").binary_save));
+    try testing.expect(!std.mem.eql(u8, filePreviewErrorChromeFor(.english, "").binary_save, filePreviewErrorChromeFor(.english, "").cannot_save));
+    try testing.expect(!std.mem.eql(u8, filePreviewErrorChromeFor(.english, "").cannot_save, filePreviewErrorChromeFor(.english, "").unreadable));
+    try testing.expect(!std.mem.eql(u8, filePreviewErrorChromeFor(.english, "").truncated_save, filePreviewChromeFor(.english, "").truncated));
+    try testing.expect(!std.mem.eql(u8, filePreviewErrorChromeFor(.english, "").binary_save, filePreviewChromeFor(.english, "").binary_file));
+    try testing.expect(!std.mem.eql(u8, filePreviewErrorChromeFor(.english, "").cannot_save, filePreviewChromeFor(.english, "").save));
+    try testing.expect(!std.mem.eql(u8, filePreviewErrorChromeFor(.english, "").unreadable, filePreviewFindMatchChromeFor(.english, "").invalid));
+    try testing.expect(std.mem.indexOf(u8, filePreviewErrorChromeFor(.english, "").truncated_save, "—") != null);
+    try testing.expect(!std.mem.eql(u8, filePreviewErrorChromeFor(.simplified_chinese, "").truncated_save, filePreviewChromeFor(.simplified_chinese, "").truncated));
+    try testing.expect(!std.mem.eql(u8, filePreviewErrorChromeFor(.japanese, "").truncated_save, filePreviewChromeFor(.japanese, "").truncated));
+    try testing.expect(!std.mem.eql(u8, filePreviewErrorChromeFor(.simplified_chinese, "").binary_save, filePreviewChromeFor(.simplified_chinese, "").binary_file));
+    try testing.expect(!std.mem.eql(u8, filePreviewErrorChromeFor(.japanese, "").binary_save, filePreviewChromeFor(.japanese, "").binary_file));
+    try testing.expect(!std.mem.eql(u8, filePreviewErrorChromeFor(.simplified_chinese, "").unreadable, filePreviewErrorChromeFor(.english, "").unreadable));
+    try testing.expect(!std.mem.eql(u8, filePreviewErrorChromeFor(.japanese, "").missing, filePreviewErrorChromeFor(.english, "").missing));
 }
 
 test "commitChromeFor english default; zh and ja chrome; english ignores ja LANG" {

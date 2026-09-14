@@ -3614,6 +3614,41 @@ pub const Model = struct {
         return model.filePreviewChrome().binary_file;
     }
 
+    /// Files preview Cannot read file error. Distinct from
+    /// `FilePreviewChrome` truncated/binary banners. English matches
+    /// `right_panel.unreadable_file_label`. Paths / file contents
+    /// stay data.
+    pub fn file_preview_unreadable_label(model: *const Model) []const u8 {
+        return model.filePreviewErrorChrome().unreadable;
+    }
+
+    /// Files preview File not found error. English matches
+    /// `right_panel.missing_file_label`. Paths stay data.
+    pub fn file_preview_missing_label(model: *const Model) []const u8 {
+        return model.filePreviewErrorChrome().missing;
+    }
+
+    /// Files preview Cannot save truncated preview — open in editor
+    /// status. Distinct from `file_preview_truncated_label`. English
+    /// matches `right_panel.truncated_save_label`.
+    pub fn file_preview_truncated_save_label(model: *const Model) []const u8 {
+        return model.filePreviewErrorChrome().truncated_save;
+    }
+
+    /// Files preview Cannot save binary file status. Distinct from
+    /// `file_preview_binary_label`. English matches
+    /// `right_panel.binary_save_label`.
+    pub fn file_preview_binary_save_label(model: *const Model) []const u8 {
+        return model.filePreviewErrorChrome().binary_save;
+    }
+
+    /// Files preview Cannot save file status. Distinct from
+    /// `FilePreviewChrome.save`. English matches
+    /// `right_panel.cannot_save_label`.
+    pub fn file_preview_cannot_save_label(model: *const Model) []const u8 {
+        return model.filePreviewErrorChrome().cannot_save;
+    }
+
     /// Textarea autofocus only while the find bar is closed so Cmd-F
     /// can arm the find field.
     pub fn file_preview_editor_autofocus(model: *const Model) bool {
@@ -4923,6 +4958,10 @@ pub const Model = struct {
 
     fn filePreviewChrome(model: *const Model) i18n.FilePreviewChrome {
         return i18n.filePreviewChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn filePreviewErrorChrome(model: *const Model) i18n.FilePreviewErrorChrome {
+        return i18n.filePreviewErrorChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     fn commitChrome(model: *const Model) i18n.CommitChrome {

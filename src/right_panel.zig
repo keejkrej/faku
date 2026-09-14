@@ -203,7 +203,13 @@
 //! resolved locale this cut (same `i18n.FilePreviewFindMatchChrome`
 //! strings; distinct from transcript `FindMatchChrome`; numbers stay
 //! Latin; `+` cap and ` · ` stay; wire ids / on-press / on-input /
-//! find query / replace text stay English).
+//! find query / replace text stay English). Error/save Cannot read
+//! file / File not found / Cannot save truncated preview — open in
+//! editor / Cannot save binary file / Cannot save file follow the
+//! resolved locale this cut (same `i18n.FilePreviewErrorChrome`
+//! strings; distinct from `FilePreviewChrome` /
+//! `FilePreviewFindMatchChrome`; paths / file contents stay
+//! English/data).
 //! Enter in the find `search-field` is FindNext via Native `on-submit`
 //! (same `find_next` as the next chevron / Cmd-G). Enter in Replace is
 //! `file_preview_find_replace_one` via `text-field` `on-submit` (plain tag;
@@ -417,11 +423,21 @@ pub const file_preview_find_max_matches: usize = file_preview_find.max_matches;
 
 pub const binary_file_label = "Binary file — not shown";
 pub const truncated_file_label = "Truncated — showing first 256 KB";
-pub const unreadable_file_label = "Cannot read file";
-pub const missing_file_label = "File not found";
-pub const truncated_save_label = "Cannot save truncated preview — open in editor";
-pub const binary_save_label = "Cannot save binary file";
-pub const cannot_save_label = "Cannot save file";
+
+/// English chrome fallbacks / test anchors. Localized Files preview
+/// error/save chrome uses `i18n.filePreviewErrorChromeFor` via Model
+/// getters (`file_preview_unreadable_label` /
+/// `file_preview_missing_label` /
+/// `file_preview_truncated_save_label` /
+/// `file_preview_binary_save_label` /
+/// `file_preview_cannot_save_label`). Distinct from
+/// `i18n.FilePreviewChrome` truncated/binary banners and from
+/// `i18n.FilePreviewFindMatchChrome`.
+pub const unreadable_file_label = i18n.filePreviewErrorChromeFor(.english, "").unreadable;
+pub const missing_file_label = i18n.filePreviewErrorChromeFor(.english, "").missing;
+pub const truncated_save_label = i18n.filePreviewErrorChromeFor(.english, "").truncated_save;
+pub const binary_save_label = i18n.filePreviewErrorChromeFor(.english, "").binary_save;
+pub const cannot_save_label = i18n.filePreviewErrorChromeFor(.english, "").cannot_save;
 
 /// Documented Native `language=` lexer name for a preview path. Unknown
 /// extensions and well-known names Native has no lexer for
@@ -1191,10 +1207,10 @@ fn setPreviewError(model: *Model, message: []const u8) void {
     );
 }
 
-fn previewReadError(err: anyerror) []const u8 {
+fn previewReadError(model: *const Model, err: anyerror) []const u8 {
     return switch (err) {
-        error.FileNotFound => missing_file_label,
-        else => unreadable_file_label,
+        error.FileNotFound => model.file_preview_missing_label(),
+        else => model.file_preview_unreadable_label(),
     };
 }
 
@@ -1252,12 +1268,12 @@ fn loadFilePreviewBodyLocal(model: *Model) void {
     const abs = model.right_panel_file_preview_abs_storage[0..model.right_panel_file_preview_abs_len];
     const io = model.store_io;
     if (io == null or abs.len == 0) {
-        setPreviewError(model, unreadable_file_label);
+        setPreviewError(model, model.file_preview_unreadable_label());
         clearPreviewDiskFingerprint(model);
         return;
     }
     const read = readPreviewWindow(io.?, abs) catch |err| {
-        setPreviewError(model, previewReadError(err));
+        setPreviewError(model, previewReadError(model, err));
         clearPreviewDiskFingerprint(model);
         return;
     };
@@ -1287,7 +1303,7 @@ fn paintPreviewWindow(model: *Model, raw: []const u8, truncated: bool) void {
     };
 
     const buf = std.heap.page_allocator.alloc(u8, window.len) catch {
-        setPreviewError(model, unreadable_file_label);
+        setPreviewError(model, model.file_preview_unreadable_label());
         return;
     };
     @memcpy(buf, window);
@@ -1516,9 +1532,9 @@ pub fn openPreviewInEditor(model: *Model, fx: *Effects) void {
 pub fn startFilePreviewEdit(model: *Model) void {
     if (!canStartPreviewEdit(model)) {
         if (model.right_panel_file_preview_truncated) {
-            setPreviewStatus(model, truncated_save_label);
+            setPreviewStatus(model, model.file_preview_truncated_save_label());
         } else if (model.right_panel_file_preview_binary) {
-            setPreviewStatus(model, binary_save_label);
+            setPreviewStatus(model, model.file_preview_binary_save_label());
         }
         return;
     }
@@ -1800,7 +1816,7 @@ fn replacePreviewBody(model: *Model, bytes: []const u8) void {
     model.right_panel_file_preview_len = 0;
     if (bytes.len == 0) return;
     const buf = std.heap.page_allocator.alloc(u8, bytes.len) catch {
-        setPreviewError(model, unreadable_file_label);
+        setPreviewError(model, model.file_preview_unreadable_label());
         return;
     };
     @memcpy(buf, bytes);
@@ -1827,12 +1843,12 @@ fn adoptSavedPreview(model: *Model, fx: *Effects, bytes: []const u8) void {
 
 fn saveFilePreviewLocal(model: *Model, fx: *Effects, bytes: []const u8) void {
     const io = model.store_io orelse {
-        setPreviewStatus(model, cannot_save_label);
+        setPreviewStatus(model, model.file_preview_cannot_save_label());
         return;
     };
     const abs = model.right_panel_file_preview_abs_storage[0..model.right_panel_file_preview_abs_len];
     atomicWriteAbs(io, abs, bytes) catch {
-        setPreviewStatus(model, cannot_save_label);
+        setPreviewStatus(model, model.file_preview_cannot_save_label());
         return;
     };
     adoptSavedPreview(model, fx, bytes);
@@ -1915,15 +1931,15 @@ pub fn handleDaemonSaveExit(model: *Model, fx: *Effects, exit: native_sdk.Effect
 pub fn saveFilePreview(model: *Model, fx: *Effects) void {
     if (model.right_panel_file_preview_id == 0) return;
     if (model.right_panel_file_preview_binary) {
-        setPreviewStatus(model, binary_save_label);
+        setPreviewStatus(model, model.file_preview_binary_save_label());
         return;
     }
     if (model.right_panel_file_preview_truncated) {
-        setPreviewStatus(model, truncated_save_label);
+        setPreviewStatus(model, model.file_preview_truncated_save_label());
         return;
     }
     if (model.right_panel_file_preview_abs_len == 0) {
-        setPreviewStatus(model, cannot_save_label);
+        setPreviewStatus(model, model.file_preview_cannot_save_label());
         return;
     }
     if (!model.right_panel_file_preview_editing or !isPreviewDirty(model)) return;
@@ -2912,6 +2928,8 @@ test "inline preview missing path is a one-line error" {
     pickFile(&model, 1);
     try std.testing.expect(model.file_preview_has_error());
     try std.testing.expectEqualStrings(missing_file_label, model.file_preview_error());
+    try std.testing.expectEqualStrings(i18n.filePreviewErrorChromeFor(.english, "").missing, model.file_preview_error());
+    try std.testing.expectEqualStrings("File not found", model.file_preview_error());
     try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_len);
     try std.testing.expect(!model.file_preview_binary());
     try std.testing.expectEqual(@as(usize, 0), model.file_preview_line_rows(std.testing.allocator).len);
@@ -3622,6 +3640,175 @@ test "Files preview find match-position follows Appearance language" {
     try std.testing.expectEqualStrings("1 / 2 · L1", model.file_preview_find_match_label(arena));
 }
 
+test "Files preview error/save chrome follows Appearance language" {
+    try std.testing.expectEqualStrings("Cannot read file", unreadable_file_label);
+    try std.testing.expectEqualStrings(i18n.filePreviewErrorChromeFor(.english, "").unreadable, unreadable_file_label);
+    try std.testing.expectEqualStrings("File not found", missing_file_label);
+    try std.testing.expectEqualStrings(i18n.filePreviewErrorChromeFor(.english, "").missing, missing_file_label);
+    try std.testing.expectEqualStrings("Cannot save truncated preview — open in editor", truncated_save_label);
+    try std.testing.expectEqualStrings(i18n.filePreviewErrorChromeFor(.english, "").truncated_save, truncated_save_label);
+    try std.testing.expectEqualStrings("Cannot save binary file", binary_save_label);
+    try std.testing.expectEqualStrings(i18n.filePreviewErrorChromeFor(.english, "").binary_save, binary_save_label);
+    try std.testing.expectEqualStrings("Cannot save file", cannot_save_label);
+    try std.testing.expectEqualStrings(i18n.filePreviewErrorChromeFor(.english, "").cannot_save, cannot_save_label);
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-error-i18n-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var note_buf: [300]u8 = undefined;
+    const note_abs = try std.fmt.bufPrint(&note_buf, "{s}/note.txt", .{project});
+    try writePreviewFile(std.testing.io, note_abs, "disk\n");
+
+    var nul_buf: [300]u8 = undefined;
+    const nul_abs = try std.fmt.bufPrint(&nul_buf, "{s}/nul.bin", .{project});
+    try writePreviewFile(std.testing.io, nul_abs, "ok\x00still");
+
+    var big_buf: [300]u8 = undefined;
+    const big_abs = try std.fmt.bufPrint(&big_buf, "{s}/big.txt", .{project});
+    const over = max_file_preview_bytes + 8;
+    const blob = try std.testing.allocator.alloc(u8, over);
+    defer std.testing.allocator.free(blob);
+    @memset(blob, 'a');
+    try writePreviewFile(std.testing.io, big_abs, blob);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("preview error i18n", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(&model, "gone.txt\nnote.txt\nnul.bin\nbig.txt\n");
+    defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
+
+    try std.testing.expectEqualStrings("Cannot read file", model.file_preview_unreadable_label());
+    try std.testing.expectEqualStrings("File not found", model.file_preview_missing_label());
+    try std.testing.expectEqualStrings("Cannot save truncated preview — open in editor", model.file_preview_truncated_save_label());
+    try std.testing.expectEqualStrings("Cannot save binary file", model.file_preview_binary_save_label());
+    try std.testing.expectEqualStrings("Cannot save file", model.file_preview_cannot_save_label());
+    try std.testing.expect(!std.mem.eql(u8, model.file_preview_truncated_save_label(), model.file_preview_truncated_label()));
+    try std.testing.expect(!std.mem.eql(u8, model.file_preview_binary_save_label(), model.file_preview_binary_label()));
+    try std.testing.expect(!std.mem.eql(u8, model.file_preview_cannot_save_label(), model.file_preview_save_label()));
+
+    pickFile(&model, 1);
+    try std.testing.expectEqualStrings("File not found", model.file_preview_error());
+    try std.testing.expectEqualStrings(missing_file_label, model.file_preview_error());
+
+    pickFile(&model, 3);
+    startFilePreviewEdit(&model);
+    try std.testing.expectEqualStrings("Cannot save binary file", model.file_preview_status());
+    savePreview(&model);
+    try std.testing.expectEqualStrings(binary_save_label, model.file_preview_status());
+
+    pickFile(&model, 4);
+    startFilePreviewEdit(&model);
+    try std.testing.expectEqualStrings("Cannot save truncated preview — open in editor", model.file_preview_status());
+    savePreview(&model);
+    try std.testing.expectEqualStrings(truncated_save_label, model.file_preview_status());
+
+    pickFile(&model, 2);
+    startFilePreviewEdit(&model);
+    applyFilePreviewEdit(&model, .{ .insert_text = "x" });
+    model.right_panel_file_preview_abs_len = 0;
+    savePreview(&model);
+    try std.testing.expectEqualStrings("Cannot save file", model.file_preview_status());
+    try std.testing.expectEqualStrings(cannot_save_label, model.file_preview_status());
+
+    model.language_preference = .simplified_chinese;
+    try std.testing.expectEqualStrings("无法读取文件", model.file_preview_unreadable_label());
+    try std.testing.expectEqualStrings("找不到文件", model.file_preview_missing_label());
+    try std.testing.expectEqualStrings("无法保存已截断的预览 — 请在编辑器中打开", model.file_preview_truncated_save_label());
+    try std.testing.expectEqualStrings("无法保存二进制文件", model.file_preview_binary_save_label());
+    try std.testing.expectEqualStrings("无法保存文件", model.file_preview_cannot_save_label());
+    try std.testing.expectEqualStrings(i18n.filePreviewErrorChromeFor(.simplified_chinese, "").missing, model.file_preview_missing_label());
+    try std.testing.expect(!std.mem.eql(u8, missing_file_label, model.file_preview_missing_label()));
+    try std.testing.expect(!std.mem.eql(u8, model.file_preview_truncated_save_label(), model.file_preview_truncated_label()));
+    try std.testing.expect(!std.mem.eql(u8, model.file_preview_binary_save_label(), model.file_preview_binary_label()));
+
+    pickFile(&model, 1);
+    try std.testing.expectEqualStrings("找不到文件", model.file_preview_error());
+    try std.testing.expect(std.mem.indexOf(u8, model.file_preview_error(), "File not found") == null);
+
+    pickFile(&model, 3);
+    startFilePreviewEdit(&model);
+    try std.testing.expectEqualStrings("无法保存二进制文件", model.file_preview_status());
+    try std.testing.expect(std.mem.indexOf(u8, model.file_preview_status(), "Cannot save binary file") == null);
+
+    pickFile(&model, 4);
+    startFilePreviewEdit(&model);
+    try std.testing.expectEqualStrings("无法保存已截断的预览 — 请在编辑器中打开", model.file_preview_status());
+    try std.testing.expect(std.mem.indexOf(u8, model.file_preview_status(), "Cannot save truncated preview") == null);
+
+    pickFile(&model, 2);
+    startFilePreviewEdit(&model);
+    applyFilePreviewEdit(&model, .{ .insert_text = "x" });
+    model.right_panel_file_preview_abs_len = 0;
+    savePreview(&model);
+    try std.testing.expectEqualStrings("无法保存文件", model.file_preview_status());
+    try std.testing.expect(std.mem.indexOf(u8, model.file_preview_status(), "Cannot save file") == null);
+
+    model.language_preference = .japanese;
+    try std.testing.expectEqualStrings("ファイルを読み取れません", model.file_preview_unreadable_label());
+    try std.testing.expectEqualStrings("ファイルが見つかりません", model.file_preview_missing_label());
+    try std.testing.expectEqualStrings("切り詰められたプレビューは保存できません — エディターで開いてください", model.file_preview_truncated_save_label());
+    try std.testing.expectEqualStrings("バイナリファイルは保存できません", model.file_preview_binary_save_label());
+    try std.testing.expectEqualStrings("ファイルを保存できません", model.file_preview_cannot_save_label());
+    try std.testing.expectEqualStrings(i18n.filePreviewErrorChromeFor(.japanese, "").unreadable, model.file_preview_unreadable_label());
+
+    pickFile(&model, 1);
+    try std.testing.expectEqualStrings("ファイルが見つかりません", model.file_preview_error());
+    try std.testing.expect(std.mem.indexOf(u8, model.file_preview_error(), "File not found") == null);
+    try std.testing.expect(std.mem.indexOf(u8, model.file_preview_error(), "找不到文件") == null);
+
+    pickFile(&model, 3);
+    startFilePreviewEdit(&model);
+    try std.testing.expectEqualStrings("バイナリファイルは保存できません", model.file_preview_status());
+
+    pickFile(&model, 4);
+    startFilePreviewEdit(&model);
+    try std.testing.expectEqualStrings("切り詰められたプレビューは保存できません — エディターで開いてください", model.file_preview_status());
+
+    pickFile(&model, 2);
+    startFilePreviewEdit(&model);
+    applyFilePreviewEdit(&model, .{ .insert_text = "x" });
+    model.right_panel_file_preview_abs_len = 0;
+    savePreview(&model);
+    try std.testing.expectEqualStrings("ファイルを保存できません", model.file_preview_status());
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try std.testing.expectEqualStrings("Cannot read file", model.file_preview_unreadable_label());
+    try std.testing.expectEqualStrings("File not found", model.file_preview_missing_label());
+    try std.testing.expectEqualStrings("Cannot save truncated preview — open in editor", model.file_preview_truncated_save_label());
+    try std.testing.expectEqualStrings("Cannot save binary file", model.file_preview_binary_save_label());
+    try std.testing.expectEqualStrings("Cannot save file", model.file_preview_cannot_save_label());
+    try std.testing.expectEqualStrings(i18n.filePreviewErrorChromeFor(.english, "ja_JP.UTF-8").missing, model.file_preview_missing_label());
+    pickFile(&model, 1);
+    try std.testing.expectEqualStrings("File not found", model.file_preview_error());
+    try std.testing.expect(std.mem.indexOf(u8, model.file_preview_error(), "ファイルが見つかりません") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try std.testing.expectEqualStrings("无法读取文件", model.file_preview_unreadable_label());
+    try std.testing.expectEqualStrings("找不到文件", model.file_preview_missing_label());
+    pickFile(&model, 1);
+    try std.testing.expectEqualStrings("找不到文件", model.file_preview_error());
+    try std.testing.expect(std.mem.indexOf(u8, model.file_preview_error(), "File not found") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try std.testing.expectEqualStrings("ファイルを読み取れません", model.file_preview_unreadable_label());
+    try std.testing.expectEqualStrings("ファイルが見つかりません", model.file_preview_missing_label());
+    pickFile(&model, 1);
+    try std.testing.expectEqualStrings("ファイルが見つかりません", model.file_preview_error());
+
+    model.setSystemLocaleId("");
+    try std.testing.expectEqualStrings("Cannot read file", model.file_preview_unreadable_label());
+    try std.testing.expectEqualStrings("File not found", model.file_preview_missing_label());
+}
+
 test "reload discards dirty buffer; truncated and binary refuse save" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -3677,6 +3864,7 @@ test "reload discards dirty buffer; truncated and binary refuse save" {
     startFilePreviewEdit(&model);
     try std.testing.expect(!model.file_preview_editing());
     try std.testing.expectEqualStrings(binary_save_label, model.file_preview_status());
+    try std.testing.expectEqualStrings(i18n.filePreviewErrorChromeFor(.english, "").binary_save, model.file_preview_status());
     savePreview(&model);
     try std.testing.expectEqualStrings(binary_save_label, model.file_preview_status());
     const bin_still = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, nul_abs, std.testing.allocator, .limited(64));
@@ -3691,6 +3879,7 @@ test "reload discards dirty buffer; truncated and binary refuse save" {
     startFilePreviewEdit(&model);
     try std.testing.expect(!model.file_preview_editing());
     try std.testing.expectEqualStrings(truncated_save_label, model.file_preview_status());
+    try std.testing.expectEqualStrings(i18n.filePreviewErrorChromeFor(.english, "").truncated_save, model.file_preview_status());
     savePreview(&model);
     try std.testing.expectEqualStrings(truncated_save_label, model.file_preview_status());
     try std.testing.expectEqual(max_file_preview_bytes, model.right_panel_file_preview_len);
@@ -4427,4 +4616,5 @@ test "WriteTextFile stdin overflow falls back to local write; truncated stays lo
     saveFilePreview(&model, &fx);
     try std.testing.expectEqual(@as(u64, 0), model.file_preview_save_key);
     try std.testing.expectEqualStrings(truncated_save_label, model.file_preview_status());
+    try std.testing.expectEqualStrings(i18n.filePreviewErrorChromeFor(.english, "").truncated_save, model.file_preview_status());
 }

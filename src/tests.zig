@@ -27984,6 +27984,249 @@ test "Files preview find match-position follows Appearance language" {
     try testing.expect(findByText(tree.root, .text, "1 of 2 · L1") == null);
 }
 
+test "Files preview error/save chrome follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try absCopyProjectDir(tmp, "preview-error-i18n", &project_buf);
+    var note_buf: [320]u8 = undefined;
+    const note_path = try std.fmt.bufPrint(&note_buf, "{s}/note.txt", .{project});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = note_path,
+        .data = "disk\n",
+    });
+    var bin_buf: [320]u8 = undefined;
+    const bin_path = try std.fmt.bufPrint(&bin_buf, "{s}/nul.bin", .{project});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = bin_path,
+        .data = "ok\x00still",
+    });
+    var big_buf: [320]u8 = undefined;
+    const big_path = try std.fmt.bufPrint(&big_buf, "{s}/big.txt", .{project});
+    const over = right_panel.max_file_preview_bytes + 8;
+    const blob = try testing.allocator.alloc(u8, over);
+    defer testing.allocator.free(blob);
+    @memset(blob, 'a');
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = big_path,
+        .data = blob,
+    });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{file_preview_error}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{file_preview_has_error}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{file_preview_status}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{file_preview_has_status}"));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">{file_preview_error}</text>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">{file_preview_status}</text>") != null);
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Cannot read file"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "File not found"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Cannot save truncated preview — open in editor"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Cannot save binary file"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Cannot save file<"));
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("preview error i18n", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    defer right_panel.clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
+
+    try testing.expectEqualStrings("Cannot read file", model.file_preview_unreadable_label());
+    try testing.expectEqualStrings("File not found", model.file_preview_missing_label());
+    try testing.expectEqualStrings("Cannot save truncated preview — open in editor", model.file_preview_truncated_save_label());
+    try testing.expectEqualStrings("Cannot save binary file", model.file_preview_binary_save_label());
+    try testing.expectEqualStrings("Cannot save file", model.file_preview_cannot_save_label());
+    try testing.expectEqualStrings(i18n.filePreviewErrorChromeFor(.english, "").unreadable, model.file_preview_unreadable_label());
+    try testing.expectEqualStrings(i18n.filePreviewErrorChromeFor(.english, "").missing, model.file_preview_missing_label());
+    try testing.expectEqualStrings(i18n.filePreviewErrorChromeFor(.english, "").truncated_save, model.file_preview_truncated_save_label());
+    try testing.expectEqualStrings(i18n.filePreviewErrorChromeFor(.english, "").binary_save, model.file_preview_binary_save_label());
+    try testing.expectEqualStrings(i18n.filePreviewErrorChromeFor(.english, "").cannot_save, model.file_preview_cannot_save_label());
+    try testing.expectEqualStrings(right_panel.unreadable_file_label, model.file_preview_unreadable_label());
+    try testing.expectEqualStrings(right_panel.missing_file_label, model.file_preview_missing_label());
+    try testing.expectEqualStrings(right_panel.truncated_save_label, model.file_preview_truncated_save_label());
+    try testing.expectEqualStrings(right_panel.binary_save_label, model.file_preview_binary_save_label());
+    try testing.expectEqualStrings(right_panel.cannot_save_label, model.file_preview_cannot_save_label());
+    try testing.expect(!std.mem.eql(u8, model.file_preview_truncated_save_label(), model.file_preview_truncated_label()));
+    try testing.expect(!std.mem.eql(u8, model.file_preview_binary_save_label(), model.file_preview_binary_label()));
+    try testing.expect(!std.mem.eql(u8, model.file_preview_cannot_save_label(), model.file_preview_save_label()));
+
+    main.update(&model, .show_right_panel, &fx);
+    file_mention.applyStdoutPaths(&model, "gone.txt\nnote.txt\nnul.bin\nbig.txt\n");
+
+    const expect_en = struct {
+        fn missing(m: *Model, efx: *Effects, alloc: std.mem.Allocator) !void {
+            main.update(m, .{ .open_right_panel_file = 1 }, efx);
+            try testing.expectEqualStrings("File not found", m.file_preview_error());
+            var tree = try buildTree(alloc, m);
+            _ = try expectByText(tree.root, .text, "File not found");
+            try testing.expect(findByText(tree.root, .text, "找不到文件") == null);
+            try testing.expect(findByText(tree.root, .text, "ファイルが見つかりません") == null);
+        }
+
+        fn binary(m: *Model, efx: *Effects, alloc: std.mem.Allocator) !void {
+            main.update(m, .{ .open_right_panel_file = 3 }, efx);
+            main.update(m, .open_right_panel_file_edit, efx);
+            try testing.expectEqualStrings("Cannot save binary file", m.file_preview_status());
+            var tree = try buildTree(alloc, m);
+            _ = try expectByText(tree.root, .text, "Cannot save binary file");
+            try testing.expect(findByText(tree.root, .text, "无法保存二进制文件") == null);
+        }
+
+        fn truncated(m: *Model, efx: *Effects, alloc: std.mem.Allocator) !void {
+            main.update(m, .{ .open_right_panel_file = 4 }, efx);
+            main.update(m, .open_right_panel_file_edit, efx);
+            try testing.expectEqualStrings("Cannot save truncated preview — open in editor", m.file_preview_status());
+            var tree = try buildTree(alloc, m);
+            _ = try expectByText(tree.root, .text, "Cannot save truncated preview — open in editor");
+            try testing.expect(findByText(tree.root, .text, "无法保存已截断的预览 — 请在编辑器中打开") == null);
+        }
+
+        fn cannotSave(m: *Model, efx: *Effects, alloc: std.mem.Allocator) !void {
+            main.update(m, .{ .open_right_panel_file = 2 }, efx);
+            main.update(m, .open_right_panel_file_edit, efx);
+            main.update(m, .{ .file_preview_edit = .{ .insert_text = "x" } }, efx);
+            m.right_panel_file_preview_abs_len = 0;
+            main.update(m, .file_preview_save, efx);
+            try testing.expectEqualStrings("Cannot save file", m.file_preview_status());
+            var tree = try buildTree(alloc, m);
+            _ = try expectByText(tree.root, .text, "Cannot save file");
+            try testing.expect(findByText(tree.root, .text, "无法保存文件") == null);
+        }
+    };
+
+    try expect_en.missing(&model, &fx, arena);
+    try expect_en.binary(&model, &fx, arena);
+    try expect_en.truncated(&model, &fx, arena);
+    try expect_en.cannotSave(&model, &fx, arena);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("无法读取文件", model.file_preview_unreadable_label());
+    try testing.expectEqualStrings("找不到文件", model.file_preview_missing_label());
+    try testing.expectEqualStrings("无法保存已截断的预览 — 请在编辑器中打开", model.file_preview_truncated_save_label());
+    try testing.expectEqualStrings("无法保存二进制文件", model.file_preview_binary_save_label());
+    try testing.expectEqualStrings("无法保存文件", model.file_preview_cannot_save_label());
+    try testing.expectEqualStrings(i18n.filePreviewErrorChromeFor(.simplified_chinese, "").missing, model.file_preview_missing_label());
+    try testing.expect(!std.mem.eql(u8, right_panel.missing_file_label, model.file_preview_missing_label()));
+    try testing.expect(!std.mem.eql(u8, model.file_preview_truncated_save_label(), model.file_preview_truncated_label()));
+    try testing.expect(!std.mem.eql(u8, model.file_preview_binary_save_label(), model.file_preview_binary_label()));
+
+    main.update(&model, .{ .open_right_panel_file = 1 }, &fx);
+    try testing.expectEqualStrings("找不到文件", model.file_preview_error());
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "找不到文件");
+    try testing.expect(findByText(tree.root, .text, "File not found") == null);
+
+    main.update(&model, .{ .open_right_panel_file = 3 }, &fx);
+    main.update(&model, .open_right_panel_file_edit, &fx);
+    try testing.expectEqualStrings("无法保存二进制文件", model.file_preview_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "无法保存二进制文件");
+    try testing.expect(findByText(tree.root, .text, "Cannot save binary file") == null);
+
+    main.update(&model, .{ .open_right_panel_file = 4 }, &fx);
+    main.update(&model, .open_right_panel_file_edit, &fx);
+    try testing.expectEqualStrings("无法保存已截断的预览 — 请在编辑器中打开", model.file_preview_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "无法保存已截断的预览 — 请在编辑器中打开");
+    try testing.expect(findByText(tree.root, .text, "Cannot save truncated preview — open in editor") == null);
+
+    main.update(&model, .{ .open_right_panel_file = 2 }, &fx);
+    main.update(&model, .open_right_panel_file_edit, &fx);
+    main.update(&model, .{ .file_preview_edit = .{ .insert_text = "x" } }, &fx);
+    model.right_panel_file_preview_abs_len = 0;
+    main.update(&model, .file_preview_save, &fx);
+    try testing.expectEqualStrings("无法保存文件", model.file_preview_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "无法保存文件");
+    try testing.expect(findByText(tree.root, .text, "Cannot save file") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("ファイルを読み取れません", model.file_preview_unreadable_label());
+    try testing.expectEqualStrings("ファイルが見つかりません", model.file_preview_missing_label());
+    try testing.expectEqualStrings("切り詰められたプレビューは保存できません — エディターで開いてください", model.file_preview_truncated_save_label());
+    try testing.expectEqualStrings("バイナリファイルは保存できません", model.file_preview_binary_save_label());
+    try testing.expectEqualStrings("ファイルを保存できません", model.file_preview_cannot_save_label());
+    try testing.expectEqualStrings(i18n.filePreviewErrorChromeFor(.japanese, "").cannot_save, model.file_preview_cannot_save_label());
+
+    main.update(&model, .{ .open_right_panel_file = 1 }, &fx);
+    try testing.expectEqualStrings("ファイルが見つかりません", model.file_preview_error());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "ファイルが見つかりません");
+    try testing.expect(findByText(tree.root, .text, "File not found") == null);
+    try testing.expect(findByText(tree.root, .text, "找不到文件") == null);
+
+    main.update(&model, .{ .open_right_panel_file = 3 }, &fx);
+    main.update(&model, .open_right_panel_file_edit, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "バイナリファイルは保存できません");
+
+    main.update(&model, .{ .open_right_panel_file = 4 }, &fx);
+    main.update(&model, .open_right_panel_file_edit, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "切り詰められたプレビューは保存できません — エディターで開いてください");
+
+    main.update(&model, .{ .open_right_panel_file = 2 }, &fx);
+    main.update(&model, .open_right_panel_file_edit, &fx);
+    main.update(&model, .{ .file_preview_edit = .{ .insert_text = "x" } }, &fx);
+    model.right_panel_file_preview_abs_len = 0;
+    main.update(&model, .file_preview_save, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "ファイルを保存できません");
+    try testing.expect(findByText(tree.root, .text, "Cannot save file") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Cannot read file", model.file_preview_unreadable_label());
+    try testing.expectEqualStrings("File not found", model.file_preview_missing_label());
+    try testing.expectEqualStrings("Cannot save truncated preview — open in editor", model.file_preview_truncated_save_label());
+    try testing.expectEqualStrings("Cannot save binary file", model.file_preview_binary_save_label());
+    try testing.expectEqualStrings("Cannot save file", model.file_preview_cannot_save_label());
+    try testing.expectEqualStrings(i18n.filePreviewErrorChromeFor(.english, "ja_JP.UTF-8").unreadable, model.file_preview_unreadable_label());
+    try expect_en.missing(&model, &fx, arena);
+    try expect_en.binary(&model, &fx, arena);
+    try expect_en.truncated(&model, &fx, arena);
+    try expect_en.cannotSave(&model, &fx, arena);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("无法读取文件", model.file_preview_unreadable_label());
+    try testing.expectEqualStrings("找不到文件", model.file_preview_missing_label());
+    try testing.expectEqualStrings("无法保存已截断的预览 — 请在编辑器中打开", model.file_preview_truncated_save_label());
+    try testing.expectEqualStrings("无法保存二进制文件", model.file_preview_binary_save_label());
+    try testing.expectEqualStrings("无法保存文件", model.file_preview_cannot_save_label());
+    main.update(&model, .{ .open_right_panel_file = 1 }, &fx);
+    try testing.expectEqualStrings("找不到文件", model.file_preview_error());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "找不到文件");
+    try testing.expect(findByText(tree.root, .text, "File not found") == null);
+    main.update(&model, .{ .open_right_panel_file = 3 }, &fx);
+    main.update(&model, .open_right_panel_file_edit, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "无法保存二进制文件");
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("ファイルを読み取れません", model.file_preview_unreadable_label());
+    try testing.expectEqualStrings("ファイルが見つかりません", model.file_preview_missing_label());
+    main.update(&model, .{ .open_right_panel_file = 1 }, &fx);
+    try testing.expectEqualStrings("ファイルが見つかりません", model.file_preview_error());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "ファイルが見つかりません");
+    try testing.expect(findByText(tree.root, .text, "File not found") == null);
+    main.update(&model, .{ .open_right_panel_file = 4 }, &fx);
+    main.update(&model, .open_right_panel_file_edit, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "切り詰められたプレビューは保存できません — エディターで開いてください");
+}
+
 test "header Copy session / Fork / Rewind chrome follows Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
