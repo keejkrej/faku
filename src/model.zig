@@ -4945,6 +4945,10 @@ pub const Model = struct {
         return i18n.branchOpStatusChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn commitAttachStatusChrome(model: *const Model) i18n.CommitAttachStatusChrome {
+        return i18n.commitAttachStatusChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn daemonDirChrome(model: *const Model) i18n.DaemonDirChrome {
         return i18n.daemonDirChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6206,6 +6210,33 @@ pub const Model = struct {
     /// matches `git_checkout.push_failed_status`.
     pub fn push_failed_status(model: *const Model) []const u8 {
         return model.branchOpStatusChrome().push_failed;
+    }
+
+    /// Commit… Enter a commit message. attach status. Distinct from
+    /// `CommitChrome.commit_message`. English matches
+    /// `git_commit.empty_message_status`.
+    pub fn empty_message_status(model: *const Model) []const u8 {
+        return model.commitAttachStatusChrome().empty_message;
+    }
+
+    /// Commit… Could not commit. attach status. Distinct from
+    /// `CommitChrome` Committing… / `BranchOpStatusChrome` Could not
+    /// push. English matches `git_commit.commit_failed_status`.
+    pub fn commit_failed_status(model: *const Model) []const u8 {
+        return model.commitAttachStatusChrome().commit_failed;
+    }
+
+    /// Commit… Nothing staged to commit. attach status. English
+    /// matches `git_commit.nothing_staged_status`.
+    pub fn nothing_staged_status(model: *const Model) []const u8 {
+        return model.commitAttachStatusChrome().nothing_staged;
+    }
+
+    /// Commit… Could not generate a commit message. attach status.
+    /// Distinct from `CommitChrome` Generating…. English matches
+    /// `git_commit.generate_failed_status`.
+    pub fn generate_failed_status(model: *const Model) []const u8 {
+        return model.commitAttachStatusChrome().generate_failed;
     }
 
     /// Daemon-dir browser Up. `on-press` stays `daemon_dir_browser_up`.

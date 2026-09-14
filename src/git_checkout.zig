@@ -358,7 +358,7 @@ pub const max_listed_branches: usize = max_local_branches + max_remote_branches;
 /// getters (`checkout_failed_status` / `occupied_checkout_status` /
 /// `create_failed_status` / `delete_failed_status` /
 /// `fetch_failed_status` / `push_failed_status`). Commit
-/// attach-status leftovers stay English this cut.
+/// attach-status lives on `i18n.CommitAttachStatusChrome`.
 pub const checkout_failed_status = i18n.branchOpStatusChromeFor(.english, "").checkout_failed;
 pub const occupied_checkout_status = i18n.branchOpStatusChromeFor(.english, "").occupied_checkout;
 pub const occupied_picker_suffix = " (worktree)";
@@ -370,7 +370,7 @@ pub const push_failed_status = i18n.branchOpStatusChromeFor(.english, "").push_f
 /// create worktree. uses `i18n.worktreeStatusChromeFor` via
 /// `Model.worktree_create_failed_status`. Branch-op attach statuses
 /// live on `i18n.BranchOpStatusChrome`. Commit attach-status
-/// leftovers stay English this cut.
+/// lives on `i18n.CommitAttachStatusChrome`.
 pub const worktree_add_failed_status = i18n.worktreeStatusChromeFor(.english, "").create_failed;
 
 pub const git_bin = git_branch.git_bin;
@@ -2577,7 +2577,7 @@ pub fn refresh(model: *Model, fx: *Effects) void {
         fx.cancel(model.git_commit_generate_key);
         model.git_commit_generate_key = 0;
         model.git_commit_generate_stdout_len = 0;
-        model.setAttachStatus("Could not commit.");
+        model.setAttachStatus(model.commit_failed_status());
     }
     if (model.git_commit_key != 0) {
         fx.cancel(model.git_commit_key);
@@ -2585,7 +2585,7 @@ pub fn refresh(model: *Model, fx: *Effects) void {
         model.git_commit_phase = .idle;
         model.git_commit_message_len = 0;
         model.git_commit_via_daemon = false;
-        model.setAttachStatus("Could not commit.");
+        model.setAttachStatus(model.commit_failed_status());
     }
     model.git_commit_then_push = false;
     dropCommitSnapshot(model, fx);

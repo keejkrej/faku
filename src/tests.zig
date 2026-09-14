@@ -29899,6 +29899,159 @@ test "branch-op attach status follows Appearance language" {
     _ = try expectByText(tree.root, .text, "プッシュできませんでした。");
 }
 
+test "commit attach status follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{attach_status}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "test=\"{has_attach_status}\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Enter a commit message."));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Could not commit."));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Nothing staged to commit."));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Could not generate a commit message."));
+
+    var model = Model{};
+    try testing.expectEqualStrings("Enter a commit message.", model.empty_message_status());
+    try testing.expectEqualStrings("Could not commit.", model.commit_failed_status());
+    try testing.expectEqualStrings("Nothing staged to commit.", model.nothing_staged_status());
+    try testing.expectEqualStrings("Could not generate a commit message.", model.generate_failed_status());
+    try testing.expectEqualStrings(i18n.commitAttachStatusChromeFor(.english, "").empty_message, model.empty_message_status());
+    try testing.expectEqualStrings(i18n.commitAttachStatusChromeFor(.english, "").commit_failed, model.commit_failed_status());
+    try testing.expectEqualStrings(i18n.commitAttachStatusChromeFor(.english, "").nothing_staged, model.nothing_staged_status());
+    try testing.expectEqualStrings(i18n.commitAttachStatusChromeFor(.english, "").generate_failed, model.generate_failed_status());
+    try testing.expectEqualStrings(git_commit.empty_message_status, model.empty_message_status());
+    try testing.expectEqualStrings(git_commit.commit_failed_status, model.commit_failed_status());
+    try testing.expectEqualStrings(git_commit.nothing_staged_status, model.nothing_staged_status());
+    try testing.expectEqualStrings(git_commit.generate_failed_status, model.generate_failed_status());
+    try testing.expect(!std.mem.eql(u8, model.empty_message_status(), model.git_commit_message_placeholder()));
+    try testing.expect(!std.mem.eql(u8, model.commit_failed_status(), model.git_commit_committing_label()));
+    try testing.expect(!std.mem.eql(u8, model.generate_failed_status(), model.git_commit_generating_label()));
+    try testing.expect(!std.mem.eql(u8, model.commit_failed_status(), model.push_failed_status()));
+
+    const expect_en = struct {
+        fn run(m: *Model, alloc: std.mem.Allocator) !void {
+            m.setAttachStatus(m.empty_message_status());
+            try testing.expectEqualStrings("Enter a commit message.", m.attach_status());
+            var tree = try buildTree(alloc, m);
+            _ = try expectByText(tree.root, .text, "Enter a commit message.");
+            try testing.expect(findByText(tree.root, .text, "请输入提交信息。") == null);
+            try testing.expect(findByText(tree.root, .text, "コミットメッセージを入力してください。") == null);
+
+            m.setAttachStatus(m.commit_failed_status());
+            try testing.expectEqualStrings("Could not commit.", m.attach_status());
+            tree = try buildTree(alloc, m);
+            _ = try expectByText(tree.root, .text, "Could not commit.");
+
+            m.setAttachStatus(m.nothing_staged_status());
+            try testing.expectEqualStrings("Nothing staged to commit.", m.attach_status());
+            tree = try buildTree(alloc, m);
+            _ = try expectByText(tree.root, .text, "Nothing staged to commit.");
+
+            m.setAttachStatus(m.generate_failed_status());
+            try testing.expectEqualStrings("Could not generate a commit message.", m.attach_status());
+            tree = try buildTree(alloc, m);
+            _ = try expectByText(tree.root, .text, "Could not generate a commit message.");
+            try testing.expect(findByText(tree.root, .text, "无法生成提交信息。") == null);
+            try testing.expect(findByText(tree.root, .text, "コミットメッセージを生成できませんでした。") == null);
+        }
+    };
+
+    try expect_en.run(&model, arena);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("请输入提交信息。", model.empty_message_status());
+    try testing.expectEqualStrings("无法提交。", model.commit_failed_status());
+    try testing.expectEqualStrings("没有可提交的暂存更改。", model.nothing_staged_status());
+    try testing.expectEqualStrings("无法生成提交信息。", model.generate_failed_status());
+    try testing.expectEqualStrings(i18n.commitAttachStatusChromeFor(.simplified_chinese, "").empty_message, model.empty_message_status());
+    try testing.expect(!std.mem.eql(u8, model.commit_failed_status(), model.git_commit_committing_label()));
+    try testing.expect(!std.mem.eql(u8, model.generate_failed_status(), model.git_commit_generating_label()));
+    try testing.expect(!std.mem.eql(u8, model.commit_failed_status(), model.push_failed_status()));
+    try testing.expect(!std.mem.eql(u8, git_commit.empty_message_status, model.empty_message_status()));
+
+    model.setAttachStatus(model.empty_message_status());
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "请输入提交信息。");
+    try testing.expect(findByText(tree.root, .text, "Enter a commit message.") == null);
+
+    model.setAttachStatus(model.commit_failed_status());
+    try testing.expectEqualStrings("无法提交。", model.attach_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "无法提交。");
+    try testing.expect(findByText(tree.root, .text, "Could not commit.") == null);
+
+    model.setAttachStatus(model.nothing_staged_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "没有可提交的暂存更改。");
+    try testing.expect(findByText(tree.root, .text, "Nothing staged to commit.") == null);
+
+    model.setAttachStatus(model.generate_failed_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "无法生成提交信息。");
+    try testing.expect(findByText(tree.root, .text, "Could not generate a commit message.") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("コミットメッセージを入力してください。", model.empty_message_status());
+    try testing.expectEqualStrings("コミットできませんでした。", model.commit_failed_status());
+    try testing.expectEqualStrings("コミットするステージ済みの変更がありません。", model.nothing_staged_status());
+    try testing.expectEqualStrings("コミットメッセージを生成できませんでした。", model.generate_failed_status());
+    try testing.expectEqualStrings(i18n.commitAttachStatusChromeFor(.japanese, "").commit_failed, model.commit_failed_status());
+
+    model.setAttachStatus(model.empty_message_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "コミットメッセージを入力してください。");
+    try testing.expect(findByText(tree.root, .text, "请输入提交信息。") == null);
+
+    model.setAttachStatus(model.commit_failed_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "コミットできませんでした。");
+
+    model.setAttachStatus(model.nothing_staged_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "コミットするステージ済みの変更がありません。");
+
+    model.setAttachStatus(model.generate_failed_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "コミットメッセージを生成できませんでした。");
+    try testing.expect(findByText(tree.root, .text, "Could not generate a commit message.") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Enter a commit message.", model.empty_message_status());
+    try testing.expectEqualStrings("Could not commit.", model.commit_failed_status());
+    try testing.expectEqualStrings("Nothing staged to commit.", model.nothing_staged_status());
+    try testing.expectEqualStrings("Could not generate a commit message.", model.generate_failed_status());
+    try testing.expectEqualStrings(i18n.commitAttachStatusChromeFor(.english, "ja_JP.UTF-8").empty_message, model.empty_message_status());
+    try expect_en.run(&model, arena);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("请输入提交信息。", model.empty_message_status());
+    try testing.expectEqualStrings("无法提交。", model.commit_failed_status());
+    try testing.expectEqualStrings("没有可提交的暂存更改。", model.nothing_staged_status());
+    try testing.expectEqualStrings("无法生成提交信息。", model.generate_failed_status());
+    model.setAttachStatus(model.empty_message_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "请输入提交信息。");
+    try testing.expect(findByText(tree.root, .text, "Enter a commit message.") == null);
+    model.setAttachStatus(model.commit_failed_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "无法提交。");
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("コミットメッセージを入力してください。", model.empty_message_status());
+    try testing.expectEqualStrings("コミットできませんでした。", model.commit_failed_status());
+    try testing.expectEqualStrings("コミットするステージ済みの変更がありません。", model.nothing_staged_status());
+    try testing.expectEqualStrings("コミットメッセージを生成できませんでした。", model.generate_failed_status());
+    model.setAttachStatus(model.empty_message_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "コミットメッセージを入力してください。");
+    model.setAttachStatus(model.generate_failed_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "コミットメッセージを生成できませんでした。");
+}
+
 test "Browser Address field chrome follows Appearance language; placeholder stays Latin" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
