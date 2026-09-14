@@ -29518,6 +29518,96 @@ test "composer textarea placeholders follow Appearance language" {
     try testing.expect(findByPlaceholder(tree.root, .textarea, "Queue a follow-up...") == null);
 }
 
+test "empty transcript welcome chrome follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{welcome_title}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{welcome_subtitle}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<span weight=\"bold\">{welcome_title}</span>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "What should we build?"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Pick a project, or just start typing."));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("What should we build?", model.welcome_title());
+    try testing.expectEqualStrings("Pick a project, or just start typing.", model.welcome_subtitle());
+    try testing.expectEqualStrings(i18n.welcomeChromeFor(.english, "").title, model.welcome_title());
+    try testing.expectEqualStrings(i18n.welcomeChromeFor(.english, "").subtitle, model.welcome_subtitle());
+    try testing.expect(!std.mem.eql(u8, model.welcome_title(), model.header_title()));
+    try testing.expect(!std.mem.eql(u8, model.welcome_title(), model.composer_placeholder()));
+    try testing.expect(!std.mem.eql(u8, model.welcome_subtitle(), model.composer_placeholder()));
+    try testing.expect(!std.mem.eql(u8, model.welcome_subtitle(), model.queued_header_label()));
+
+    main.update(&model, .new_session, &fx);
+    try testing.expectEqualStrings("untitled", model.selected_title());
+    try testing.expectEqualStrings("What should we build?", model.welcome_title());
+    try testing.expectEqualStrings("Pick a project, or just start typing.", model.welcome_subtitle());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "What should we build?");
+    _ = try expectByText(tree.root, .text, "Pick a project, or just start typing.");
+    try testing.expect(findByText(tree.root, .text, "我们要构建什么？") == null);
+    try testing.expect(findByText(tree.root, .text, "何を作りましょうか？") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("我们要构建什么？", model.welcome_title());
+    try testing.expectEqualStrings("选择一个项目，或直接开始输入。", model.welcome_subtitle());
+    try testing.expectEqualStrings(i18n.welcomeChromeFor(.simplified_chinese, "").title, model.welcome_title());
+    try testing.expectEqualStrings(i18n.welcomeChromeFor(.simplified_chinese, "").subtitle, model.welcome_subtitle());
+    try testing.expectEqualStrings("untitled", model.selected_title());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "我们要构建什么？");
+    _ = try expectByText(tree.root, .text, "选择一个项目，或直接开始输入。");
+    try testing.expect(findByText(tree.root, .text, "What should we build?") == null);
+    try testing.expect(findByText(tree.root, .text, "Pick a project, or just start typing.") == null);
+    try testing.expect(findByText(tree.root, .text, "何を作りましょうか？") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("何を作りましょうか？", model.welcome_title());
+    try testing.expectEqualStrings("プロジェクトを選ぶか、そのまま入力を始めてください。", model.welcome_subtitle());
+    try testing.expectEqualStrings(i18n.welcomeChromeFor(.japanese, "").title, model.welcome_title());
+    try testing.expectEqualStrings(i18n.welcomeChromeFor(.japanese, "").subtitle, model.welcome_subtitle());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "何を作りましょうか？");
+    _ = try expectByText(tree.root, .text, "プロジェクトを選ぶか、そのまま入力を始めてください。");
+    try testing.expect(findByText(tree.root, .text, "What should we build?") == null);
+    try testing.expect(findByText(tree.root, .text, "我们要构建什么？") == null);
+    try testing.expect(findByText(tree.root, .text, "选择一个项目，或直接开始输入。") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("What should we build?", model.welcome_title());
+    try testing.expectEqualStrings("Pick a project, or just start typing.", model.welcome_subtitle());
+    try testing.expectEqualStrings(i18n.welcomeChromeFor(.english, "ja_JP.UTF-8").title, model.welcome_title());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "What should we build?");
+    _ = try expectByText(tree.root, .text, "Pick a project, or just start typing.");
+    try testing.expect(findByText(tree.root, .text, "何を作りましょうか？") == null);
+    try testing.expect(findByText(tree.root, .text, "我们要构建什么？") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("我们要构建什么？", model.welcome_title());
+    try testing.expectEqualStrings("选择一个项目，或直接开始输入。", model.welcome_subtitle());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "我们要构建什么？");
+    _ = try expectByText(tree.root, .text, "选择一个项目，或直接开始输入。");
+    try testing.expect(findByText(tree.root, .text, "What should we build?") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("何を作りましょうか？", model.welcome_title());
+    try testing.expectEqualStrings("プロジェクトを選ぶか、そのまま入力を始めてください。", model.welcome_subtitle());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "何を作りましょうか？");
+    _ = try expectByText(tree.root, .text, "プロジェクトを選ぶか、そのまま入力を始めてください。");
+    try testing.expect(findByText(tree.root, .text, "What should we build?") == null);
+}
+
 test "Browser Address field chrome follows Appearance language; placeholder stays Latin" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

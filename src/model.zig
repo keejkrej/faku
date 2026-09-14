@@ -2110,6 +2110,7 @@ pub const Model = struct {
         "composerChrome",
         "composerSendStopChrome",
         "composerPlaceholderChrome",
+        "welcomeChrome",
         "browserAddressChrome",
         "browserToolbarChrome",
         "browserStartIconChrome",
@@ -4354,6 +4355,19 @@ pub const Model = struct {
         return if (model.is_streaming()) chrome.streaming else chrome.idle;
     }
 
+    /// Empty-transcript welcome display title. Distinct from
+    /// `HeaderUntitledChrome` / `ComposerPlaceholderChrome` /
+    /// `QueueChrome`. Real session titles stay data.
+    pub fn welcome_title(model: *const Model) []const u8 {
+        return model.welcomeChrome().title;
+    }
+
+    /// Empty-transcript welcome muted subtitle. Distinct from
+    /// `ComposerPlaceholderChrome`. Typed draft text stays data.
+    pub fn welcome_subtitle(model: *const Model) []const u8 {
+        return model.welcomeChrome().subtitle;
+    }
+
     /// Composer Send/Stop visible label. Idle vs streaming from
     /// `i18n.ComposerSendStopChrome` (same pack as composer Send/Stop
     /// a11y). Distinct from `BackgroundChrome.daemon_stop` /
@@ -4959,6 +4973,10 @@ pub const Model = struct {
 
     fn composerPlaceholderChrome(model: *const Model) i18n.ComposerPlaceholderChrome {
         return i18n.composerPlaceholderChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn welcomeChrome(model: *const Model) i18n.WelcomeChrome {
+        return i18n.welcomeChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     fn findBarChrome(model: *const Model) i18n.FindBarChrome {

@@ -121,6 +121,11 @@
 //! composer placeholders stay independently evolvable; `on-input`
 //! / on-submit stay `draft_edit` / `composer_enter`; draft text
 //! stays data)
+//! plus empty-transcript welcome title / subtitle (same
+//! `WelcomeChrome` strings; distinct from `HeaderUntitledChrome` /
+//! `ComposerPlaceholderChrome` / `QueueChrome` so welcome wording
+//! stays independently evolvable; real session titles and typed
+//! draft text stay data)
 //! plus Browser address-field Address label and
 //! `https://example.com` placeholder (same `BrowserAddressChrome`
 //! strings; Latin `https://example.com` in every locale)
@@ -297,7 +302,12 @@
 //! textarea idle / streaming placeholders follow the resolved
 //! locale this cut (same `ComposerPlaceholderChrome` strings;
 //! `on-input` / on-submit stay English (`draft_edit` /
-//! `composer_enter`); draft text stays data). Typed path text stays
+//! `composer_enter`); draft text stays data). Empty-transcript
+//! welcome title / subtitle follow the resolved locale this cut
+//! (same `WelcomeChrome` strings; distinct from
+//! `HeaderUntitledChrome` / `ComposerPlaceholderChrome` /
+//! `QueueChrome`; real session titles and typed draft text stay
+//! data). Typed path text stays
 //! English (data). ThreadGoalStatus wire names stay English. Browser
 //! address `on-input` / on-submit stay English (`browser_url_edit` /
 //! `browser_navigate`). Browser toolbar `on-press` stays English
@@ -1908,6 +1918,34 @@ const composer_placeholder_chrome_ja: ComposerPlaceholderChrome = .{
     .streaming = "フォローアップをキュー...",
 };
 
+/// Empty-transcript welcome title / subtitle for the resolved locale
+/// (centered empty state above the composer). Same resolve path as
+/// ComposerPlaceholderChrome. English matches the former hardcoded
+/// copy. Distinct from `HeaderUntitledChrome` (toolbar New task),
+/// `ComposerPlaceholderChrome` (textarea placeholders), and
+/// `QueueChrome` (queue card / Jump to latest) so welcome wording
+/// stays independently evolvable. Wire ids stay English. Real
+/// session titles and typed draft text stay data.
+pub const WelcomeChrome = struct {
+    title: []const u8,
+    subtitle: []const u8,
+};
+
+const welcome_chrome_en: WelcomeChrome = .{
+    .title = "What should we build?",
+    .subtitle = "Pick a project, or just start typing.",
+};
+
+const welcome_chrome_zh_cn: WelcomeChrome = .{
+    .title = "我们要构建什么？",
+    .subtitle = "选择一个项目，或直接开始输入。",
+};
+
+const welcome_chrome_ja: WelcomeChrome = .{
+    .title = "何を作りましょうか？",
+    .subtitle = "プロジェクトを選ぶか、そのまま入力を始めてください。",
+};
+
 /// Transcript find-bar Previous match / Next match / Close find a11y
 /// labels for the resolved locale. Same resolve path as
 /// ComposerSendStopChrome. English matches the former hardcoded copy.
@@ -3336,6 +3374,20 @@ pub fn composerPlaceholderChromeFor(preference: LanguagePreference, system_local
         .simplified_chinese => composer_placeholder_chrome_zh_cn,
         .japanese => composer_placeholder_chrome_ja,
         .system, .english => composer_placeholder_chrome_en,
+    };
+}
+
+/// Empty-transcript welcome title / subtitle for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from HeaderUntitledChrome / ComposerPlaceholderChrome / QueueChrome
+/// so welcome wording stays independently evolvable. Wire ids stay
+/// English. Real session titles and typed draft text stay data.
+pub fn welcomeChromeFor(preference: LanguagePreference, system_locale_id: []const u8) WelcomeChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => welcome_chrome_zh_cn,
+        .japanese => welcome_chrome_ja,
+        .system, .english => welcome_chrome_en,
     };
 }
 
@@ -5071,6 +5123,38 @@ test "composerPlaceholderChromeFor english default; zh and ja chrome; english ig
     try testing.expect(!std.mem.eql(u8, composerPlaceholderChromeFor(.japanese, "").streaming, queueChromeFor(.japanese, "").queued));
     try testing.expect(!std.mem.eql(u8, composerPlaceholderChromeFor(.english, "").idle, composerChromeFor(.english, "").image_path));
     try testing.expect(!std.mem.eql(u8, composerPlaceholderChromeFor(.english, "").idle, composerSendStopChromeFor(.english, "").send));
+}
+
+test "welcomeChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("What should we build?", welcomeChromeFor(.english, "ja").title);
+    try testing.expectEqualStrings("Pick a project, or just start typing.", welcomeChromeFor(.english, "ja").subtitle);
+    try testing.expectEqualStrings("What should we build?", welcomeChromeFor(.english, "").title);
+    try testing.expectEqualStrings("Pick a project, or just start typing.", welcomeChromeFor(.english, "").subtitle);
+    try testing.expectEqualStrings("What should we build?", welcomeChromeFor(.system, "").title);
+    try testing.expectEqualStrings("Pick a project, or just start typing.", welcomeChromeFor(.system, "").subtitle);
+
+    try testing.expectEqualStrings("我们要构建什么？", welcomeChromeFor(.simplified_chinese, "").title);
+    try testing.expectEqualStrings("选择一个项目，或直接开始输入。", welcomeChromeFor(.simplified_chinese, "").subtitle);
+    try testing.expectEqualStrings("何を作りましょうか？", welcomeChromeFor(.japanese, "").title);
+    try testing.expectEqualStrings("プロジェクトを選ぶか、そのまま入力を始めてください。", welcomeChromeFor(.japanese, "").subtitle);
+
+    try testing.expectEqualStrings("我们要构建什么？", welcomeChromeFor(.system, "zh_CN.UTF-8").title);
+    try testing.expectEqualStrings("选择一个项目，或直接开始输入。", welcomeChromeFor(.system, "zh_CN.UTF-8").subtitle);
+    try testing.expectEqualStrings("何を作りましょうか？", welcomeChromeFor(.system, "ja_JP.UTF-8").title);
+    try testing.expectEqualStrings("プロジェクトを選ぶか、そのまま入力を始めてください。", welcomeChromeFor(.system, "ja_JP.UTF-8").subtitle);
+    try testing.expectEqualStrings("What should we build?", welcomeChromeFor(.english, "ja_JP.UTF-8").title);
+    try testing.expectEqualStrings("Pick a project, or just start typing.", welcomeChromeFor(.english, "ja_JP.UTF-8").subtitle);
+    try testing.expectEqualStrings("What should we build?", welcomeChromeFor(.english, "zh_CN.UTF-8").title);
+    try testing.expectEqualStrings("Pick a project, or just start typing.", welcomeChromeFor(.english, "zh_CN.UTF-8").subtitle);
+
+    try testing.expect(!std.mem.eql(u8, welcomeChromeFor(.english, "").title, welcomeChromeFor(.english, "").subtitle));
+    try testing.expect(!std.mem.eql(u8, welcomeChromeFor(.english, "").title, headerUntitledChromeFor(.english, "").new_task));
+    try testing.expect(!std.mem.eql(u8, welcomeChromeFor(.english, "").title, composerPlaceholderChromeFor(.english, "").idle));
+    try testing.expect(!std.mem.eql(u8, welcomeChromeFor(.english, "").subtitle, composerPlaceholderChromeFor(.english, "").idle));
+    try testing.expect(!std.mem.eql(u8, welcomeChromeFor(.english, "").subtitle, queueChromeFor(.english, "").queued));
+    try testing.expect(!std.mem.eql(u8, welcomeChromeFor(.simplified_chinese, "").title, headerUntitledChromeFor(.simplified_chinese, "").new_task));
+    try testing.expect(!std.mem.eql(u8, welcomeChromeFor(.japanese, "").title, headerUntitledChromeFor(.japanese, "").new_task));
 }
 
 test "findBarChromeFor english default; zh and ja chrome; english ignores ja LANG" {
