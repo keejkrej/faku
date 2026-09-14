@@ -1635,6 +1635,7 @@
               <button variant="ghost" size="icon" icon="chevron-left" label="{browser_back_label}" on-press="browser_back" disabled="{browser_back_disabled}"></button>
               <button variant="ghost" size="icon" icon="chevron-right" label="{browser_forward_label}" on-press="browser_forward" disabled="{browser_forward_disabled}"></button>
               <button variant="ghost" size="icon" icon="refresh-cw" label="{browser_reload_label}" on-press="browser_reload" disabled="{browser_reload_disabled}"></button>
+              <button variant="ghost" size="icon" icon="refresh-cw" label="{browser_hard_reload_label}" on-press="browser_hard_reload" disabled="{browser_reload_disabled}"></button>
               <if test="{browser_url_secure}">
                 <icon name="app:lock" width="11" height="11" foreground="text_muted" label="{browser_secure_label}" />
               </if>
