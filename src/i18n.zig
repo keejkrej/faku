@@ -228,6 +228,10 @@
 //! `UsageMonthlyEmptyChrome` strings; distinct from FilterChrome
 //! no_project_usage / UsageLocalChrome / UsageViewChrome so Monthly
 //! empty stays independently evolvable; wire ids stay English)
+//! plus Settings Usage chart a11y Daily usage / Monthly usage /
+//! Projects usage (same `UsageChartA11yChrome` strings; distinct from
+//! UsageViewChrome Daily/Monthly/Projects chips so chart a11y stays
+//! independently evolvable; series Claude/Codex stay English)
 //! plus Settings Providers Available / Not found, Enable /
 //! Disable, Use for this session, Copy install command / Copy login
 //! command, and First-party default (same `ProvidersChrome` strings;
@@ -420,6 +424,11 @@
 //! strings; distinct from FilterChrome no_project_usage /
 //! UsageLocalChrome / UsageViewChrome so Monthly empty stays
 //! independently evolvable; wire ids stay English).
+//! Settings Usage chart a11y Daily usage / Monthly usage /
+//! Projects usage follow the resolved locale this cut (same
+//! `UsageChartA11yChrome` strings; distinct from UsageViewChrome
+//! Daily/Monthly/Projects chips so chart a11y stays independently
+//! evolvable; series Claude/Codex stay English).
 //! Typed URL text
 //! stays data. Parked `home_url`
 //! / scene URLs stay data. OS
@@ -3158,7 +3167,8 @@ const usage_local_chrome_ja: UsageLocalChrome = .{
 /// / `no_matching_projects`, UsageLocalChrome session-card
 /// empties, and UsageViewChrome Monthly chip so Monthly empty
 /// stays independently evolvable. Wire ids stay English. Chart
-/// a11y `Monthly usage` / series names stay English this cut.
+/// a11y lives in `UsageChartA11yChrome`; series Claude/Codex stay
+/// English.
 pub const UsageMonthlyEmptyChrome = struct {
     no_monthly_usage: []const u8,
 };
@@ -3173,6 +3183,36 @@ const usage_monthly_empty_chrome_zh_cn: UsageMonthlyEmptyChrome = .{
 
 const usage_monthly_empty_chrome_ja: UsageMonthlyEmptyChrome = .{
     .no_monthly_usage = "月次の使用量はありません",
+};
+
+/// Settings Usage Native `<chart>` a11y labels for Daily / Monthly /
+/// Projects for the resolved locale. Same resolve path as
+/// UsageMonthlyEmptyChrome. English matches the former hardcoded
+/// copy. Distinct from UsageViewChrome Daily/Monthly/Projects chips
+/// so chart a11y stays independently evolvable. Series Claude/Codex
+/// stay English.
+pub const UsageChartA11yChrome = struct {
+    daily_usage: []const u8,
+    monthly_usage: []const u8,
+    projects_usage: []const u8,
+};
+
+const usage_chart_a11y_chrome_en: UsageChartA11yChrome = .{
+    .daily_usage = "Daily usage",
+    .monthly_usage = "Monthly usage",
+    .projects_usage = "Projects usage",
+};
+
+const usage_chart_a11y_chrome_zh_cn: UsageChartA11yChrome = .{
+    .daily_usage = "每日用量",
+    .monthly_usage = "月度用量",
+    .projects_usage = "项目用量",
+};
+
+const usage_chart_a11y_chrome_ja: UsageChartA11yChrome = .{
+    .daily_usage = "日次使用量",
+    .monthly_usage = "月次使用量",
+    .projects_usage = "プロジェクト使用量",
 };
 
 /// Settings Providers status, Enable/Disable chip, Apply, Copy
@@ -4229,13 +4269,27 @@ pub fn usageLocalChromeFor(preference: LanguagePreference, system_locale_id: []c
 /// `system_locale_id`; this file does not read process env.
 /// Distinct from FilterChrome `no_project_usage` / UsageLocalChrome
 /// / UsageViewChrome so Monthly empty stays independently
-/// evolvable. Wire ids stay English. Chart a11y `Monthly usage`
-/// stays English this cut.
+/// evolvable. Wire ids stay English. Chart a11y lives in
+/// `usageChartA11yChromeFor`; series Claude/Codex stay English.
 pub fn usageMonthlyEmptyChromeFor(preference: LanguagePreference, system_locale_id: []const u8) UsageMonthlyEmptyChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => usage_monthly_empty_chrome_zh_cn,
         .japanese => usage_monthly_empty_chrome_ja,
         .system, .english => usage_monthly_empty_chrome_en,
+    };
+}
+
+/// Settings Usage Native `<chart>` a11y Daily usage / Monthly
+/// usage / Projects usage for the resolved locale. Callers pass
+/// Model `language_preference` + `system_locale_id`; this file does
+/// not read process env. Distinct from UsageViewChrome chips so
+/// chart a11y stays independently evolvable. Series Claude/Codex stay
+/// English.
+pub fn usageChartA11yChromeFor(preference: LanguagePreference, system_locale_id: []const u8) UsageChartA11yChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => usage_chart_a11y_chrome_zh_cn,
+        .japanese => usage_chart_a11y_chrome_ja,
+        .system, .english => usage_chart_a11y_chrome_en,
     };
 }
 
@@ -6812,6 +6866,33 @@ test "usageMonthlyEmptyChromeFor english default; zh and ja chrome; english igno
     try testing.expectEqualStrings("月次の使用量はありません", usageMonthlyEmptyChromeFor(.system, "ja_JP.UTF-8").no_monthly_usage);
     try testing.expectEqualStrings("No monthly usage", usageMonthlyEmptyChromeFor(.english, "ja_JP.UTF-8").no_monthly_usage);
     try testing.expectEqualStrings("No monthly usage", usageMonthlyEmptyChromeFor(.english, "zh_CN.UTF-8").no_monthly_usage);
+}
+
+test "usageChartA11yChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Daily usage", usageChartA11yChromeFor(.english, "ja").daily_usage);
+    try testing.expectEqualStrings("Monthly usage", usageChartA11yChromeFor(.english, "").monthly_usage);
+    try testing.expectEqualStrings("Projects usage", usageChartA11yChromeFor(.english, "").projects_usage);
+    try testing.expectEqualStrings("Daily usage", usageChartA11yChromeFor(.system, "").daily_usage);
+    try testing.expectEqualStrings("Monthly usage", usageChartA11yChromeFor(.system, "").monthly_usage);
+    try testing.expectEqualStrings("Projects usage", usageChartA11yChromeFor(.system, "").projects_usage);
+
+    try testing.expectEqualStrings("每日用量", usageChartA11yChromeFor(.simplified_chinese, "").daily_usage);
+    try testing.expectEqualStrings("月度用量", usageChartA11yChromeFor(.simplified_chinese, "").monthly_usage);
+    try testing.expectEqualStrings("项目用量", usageChartA11yChromeFor(.simplified_chinese, "").projects_usage);
+    try testing.expectEqualStrings("日次使用量", usageChartA11yChromeFor(.japanese, "").daily_usage);
+    try testing.expectEqualStrings("月次使用量", usageChartA11yChromeFor(.japanese, "").monthly_usage);
+    try testing.expectEqualStrings("プロジェクト使用量", usageChartA11yChromeFor(.japanese, "").projects_usage);
+
+    try testing.expectEqualStrings("每日用量", usageChartA11yChromeFor(.system, "zh_CN.UTF-8").daily_usage);
+    try testing.expectEqualStrings("月度用量", usageChartA11yChromeFor(.system, "zh_CN.UTF-8").monthly_usage);
+    try testing.expectEqualStrings("项目用量", usageChartA11yChromeFor(.system, "zh_CN.UTF-8").projects_usage);
+    try testing.expectEqualStrings("日次使用量", usageChartA11yChromeFor(.system, "ja_JP.UTF-8").daily_usage);
+    try testing.expectEqualStrings("月次使用量", usageChartA11yChromeFor(.system, "ja_JP.UTF-8").monthly_usage);
+    try testing.expectEqualStrings("プロジェクト使用量", usageChartA11yChromeFor(.system, "ja_JP.UTF-8").projects_usage);
+    try testing.expectEqualStrings("Daily usage", usageChartA11yChromeFor(.english, "ja_JP.UTF-8").daily_usage);
+    try testing.expectEqualStrings("Monthly usage", usageChartA11yChromeFor(.english, "zh_CN.UTF-8").monthly_usage);
+    try testing.expectEqualStrings("Projects usage", usageChartA11yChromeFor(.english, "zh_CN.UTF-8").projects_usage);
 }
 
 test "providersChromeFor english default; zh and ja chrome; english ignores ja LANG" {

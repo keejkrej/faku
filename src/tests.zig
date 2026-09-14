@@ -14791,6 +14791,8 @@ test "settings Usage Daily Days paints nested Claude/Codex byProvider bars" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "usage_daily_chart_claude_on_top") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "usage_daily_chart_values") == null);
     try testing.expectEqual(@as(usize, 12), countNeedle(main.app_markup, "stroke-width=\"2\""));
+    try testing.expectEqual(@as(usize, 4), countNeedle(main.app_markup, "label=\"{usage_daily_chart_label}\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Daily usage\"") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "kind=\"bar\"") == null);
 
     var spawn_i: usize = 0;
@@ -14884,7 +14886,8 @@ test "settings Usage Monthly paints nested Claude/Codex byProvider bars" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "usage_monthly_chart_claude_on_top") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "usage_monthly_chart_values") == null);
     try testing.expectEqual(@as(usize, 12), countNeedle(main.app_markup, "stroke-width=\"2\""));
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Monthly usage\"") != null);
+    try testing.expectEqual(@as(usize, 4), countNeedle(main.app_markup, "label=\"{usage_monthly_chart_label}\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Monthly usage\"") == null);
 
     main.update(&model, .set_usage_view_monthly, &fx);
     try testing.expect(model.usage_view_monthly());
@@ -14994,7 +14997,8 @@ test "settings Usage Projects paints nested Claude/Codex byProvider bars" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "usage_projects_chart_claude_on_top") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "usage_projects_chart_values") == null);
     try testing.expectEqual(@as(usize, 12), countNeedle(main.app_markup, "stroke-width=\"2\""));
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Projects usage\"") != null);
+    try testing.expectEqual(@as(usize, 4), countNeedle(main.app_markup, "label=\"{usage_projects_chart_label}\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Projects usage\"") == null);
 
     main.update(&model, .set_usage_view_projects, &fx);
     try testing.expect(model.usage_view_projects());
@@ -32597,9 +32601,12 @@ test "settings Usage Monthly empty chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No monthly usage</text>"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{no_project_usage_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{no_context_usage_label}"));
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Monthly usage\"") != null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Daily usage\"") != null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Projects usage\"") != null);
+    try testing.expectEqual(@as(usize, 4), countNeedle(main.app_markup, "label=\"{usage_monthly_chart_label}\""));
+    try testing.expectEqual(@as(usize, 4), countNeedle(main.app_markup, "label=\"{usage_daily_chart_label}\""));
+    try testing.expectEqual(@as(usize, 4), countNeedle(main.app_markup, "label=\"{usage_projects_chart_label}\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Monthly usage\"") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Daily usage\"") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Projects usage\"") == null);
 
     var model = main.initialModel();
     try testing.expectEqualStrings("No monthly usage", model.no_monthly_usage_label());
@@ -32684,6 +32691,157 @@ test "settings Usage Monthly empty chrome follows Appearance language" {
     _ = try expectByText(tree.root, .text, "No project usage");
     try testing.expect(findByText(tree.root, .text, "No monthly usage") == null);
     try testing.expect(findByText(tree.root, .text, "暂无月度用量") == null);
+}
+
+test "settings Usage chart a11y chrome follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 4), countNeedle(main.app_markup, "label=\"{usage_daily_chart_label}\""));
+    try testing.expectEqual(@as(usize, 4), countNeedle(main.app_markup, "label=\"{usage_monthly_chart_label}\""));
+    try testing.expectEqual(@as(usize, 4), countNeedle(main.app_markup, "label=\"{usage_projects_chart_label}\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Daily usage\"") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Monthly usage\"") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Projects usage\"") == null);
+    try testing.expectEqual(@as(usize, 12), countNeedle(main.app_markup, "label=\"Claude\""));
+    try testing.expectEqual(@as(usize, 12), countNeedle(main.app_markup, "label=\"Codex\""));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Daily usage", model.usage_daily_chart_label());
+    try testing.expectEqualStrings("Monthly usage", model.usage_monthly_chart_label());
+    try testing.expectEqualStrings("Projects usage", model.usage_projects_chart_label());
+    try testing.expectEqualStrings(i18n.usageChartA11yChromeFor(.english, "").daily_usage, model.usage_daily_chart_label());
+    try testing.expectEqualStrings(i18n.usageChartA11yChromeFor(.english, "").monthly_usage, model.usage_monthly_chart_label());
+    try testing.expectEqualStrings(i18n.usageChartA11yChromeFor(.english, "").projects_usage, model.usage_projects_chart_label());
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_usage, &fx);
+    try testing.expect(model.settings_page_usage());
+    try testing.expect(model.usage_view_daily());
+    model.usage_history.present = true;
+    model.usage_history.window = .{ .trailing_days = 30 };
+    const day = "2026-09-05";
+    model.usage_history.daily_count = 1;
+    @memcpy(model.usage_history.daily[0].day_storage[0..day.len], day);
+    model.usage_history.daily[0].day_len = day.len;
+    model.usage_history.daily[0].total_tokens = 100;
+    model.usage_history.daily[0].cost_usd = 1.0;
+    model.usage_history.daily[0].by_provider[0].cost_usd = 0.25;
+    model.usage_history.daily[0].by_provider[0].total_tokens = 40;
+    model.usage_history.daily[0].by_provider[1].cost_usd = 0.75;
+    model.usage_history.daily[0].by_provider[1].total_tokens = 60;
+    main.update(&model, .set_usage_breakdown_days, &fx);
+    try testing.expect(model.usage_breakdown_days());
+    try testing.expect(model.has_usage_daily_chart());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectUsageDailyChart(tree.root, 0.75);
+    try testing.expect(findByText(tree.root, .chart, "每日用量") == null);
+    try testing.expect(findByText(tree.root, .chart, "日次使用量") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("每日用量", model.usage_daily_chart_label());
+    try testing.expectEqualStrings("月度用量", model.usage_monthly_chart_label());
+    try testing.expectEqualStrings("项目用量", model.usage_projects_chart_label());
+    try testing.expectEqualStrings(i18n.usageChartA11yChromeFor(.simplified_chinese, "").daily_usage, model.usage_daily_chart_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectUsagePeriodChart(tree.root, "每日用量", 0.75, false);
+    try testing.expect(findByText(tree.root, .chart, "Daily usage") == null);
+    try testing.expect(findByText(tree.root, .chart, "日次使用量") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("日次使用量", model.usage_daily_chart_label());
+    try testing.expectEqualStrings("月次使用量", model.usage_monthly_chart_label());
+    try testing.expectEqualStrings("プロジェクト使用量", model.usage_projects_chart_label());
+    try testing.expectEqualStrings(i18n.usageChartA11yChromeFor(.japanese, "").daily_usage, model.usage_daily_chart_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectUsagePeriodChart(tree.root, "日次使用量", 0.75, false);
+    try testing.expect(findByText(tree.root, .chart, "Daily usage") == null);
+    try testing.expect(findByText(tree.root, .chart, "每日用量") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Daily usage", model.usage_daily_chart_label());
+    try testing.expectEqualStrings(i18n.usageChartA11yChromeFor(.english, "ja_JP.UTF-8").daily_usage, model.usage_daily_chart_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectUsageDailyChart(tree.root, 0.75);
+    try testing.expect(findByText(tree.root, .chart, "日次使用量") == null);
+    try testing.expect(findByText(tree.root, .chart, "每日用量") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("每日用量", model.usage_daily_chart_label());
+    try testing.expectEqualStrings(i18n.usageChartA11yChromeFor(.system, "zh_CN.UTF-8").daily_usage, model.usage_daily_chart_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectUsagePeriodChart(tree.root, "每日用量", 0.75, false);
+    try testing.expect(findByText(tree.root, .chart, "Daily usage") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("日次使用量", model.usage_daily_chart_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectUsagePeriodChart(tree.root, "日次使用量", 0.75, false);
+    try testing.expect(findByText(tree.root, .chart, "每日用量") == null);
+
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Daily usage", model.usage_daily_chart_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectUsageDailyChart(tree.root, 0.75);
+
+    const month_day = "2026-09-01";
+    main.update(&model, .set_usage_view_monthly, &fx);
+    model.usage_history.window = .{ .months = 12 };
+    model.usage_history.month_count = 1;
+    @memcpy(model.usage_history.months[0].first_day_storage[0..month_day.len], month_day);
+    model.usage_history.months[0].first_day_len = month_day.len;
+    model.usage_history.months[0].total_tokens = 100;
+    model.usage_history.months[0].cost_usd = 1.0;
+    model.usage_history.months[0].by_provider[0].cost_usd = 0.25;
+    model.usage_history.months[0].by_provider[1].cost_usd = 0.75;
+    try testing.expect(model.usage_view_monthly());
+    try testing.expect(model.has_usage_monthly_chart());
+    tree = try buildTree(arena, &model);
+    _ = try expectUsageMonthlyChart(tree.root, 0.75);
+    try testing.expect(findByText(tree.root, .chart, "Daily usage") == null);
+    try testing.expect(findByText(tree.root, .chart, "Projects usage") == null);
+
+    model.language_preference = .simplified_chinese;
+    tree = try buildTree(arena, &model);
+    _ = try expectUsagePeriodChart(tree.root, "月度用量", 0.75, false);
+    try testing.expect(findByText(tree.root, .chart, "Monthly usage") == null);
+
+    model.language_preference = .japanese;
+    tree = try buildTree(arena, &model);
+    _ = try expectUsagePeriodChart(tree.root, "月次使用量", 0.75, false);
+    try testing.expect(findByText(tree.root, .chart, "Monthly usage") == null);
+
+    const path = "/tmp/faku";
+    main.update(&model, .set_usage_view_projects, &fx);
+    model.usage_history.window = .{ .trailing_days = 30 };
+    model.usage_history.project_count = 1;
+    @memcpy(model.usage_history.projects[0].path_storage[0..path.len], path);
+    model.usage_history.projects[0].path_len = path.len;
+    model.usage_history.projects[0].total_tokens = 100;
+    model.usage_history.projects[0].cost_usd = 1.0;
+    model.usage_history.projects[0].by_provider[0].cost_usd = 0.25;
+    model.usage_history.projects[0].by_provider[1].cost_usd = 0.75;
+    try testing.expect(model.usage_view_projects());
+    try testing.expect(model.has_usage_projects_chart());
+    tree = try buildTree(arena, &model);
+    _ = try expectUsagePeriodChart(tree.root, "プロジェクト使用量", 0.75, false);
+    try testing.expect(findByText(tree.root, .chart, "Projects usage") == null);
+    try testing.expect(findByText(tree.root, .chart, "Monthly usage") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("Projects usage", model.usage_projects_chart_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectUsageProjectsChart(tree.root, 0.75);
+    try testing.expect(findByText(tree.root, .chart, "项目用量") == null);
 }
 
 test "Settings Providers Available Not found Enable Disable Copy First-party follow Appearance language" {
