@@ -232,6 +232,12 @@
 //! Projects usage (same `UsageChartA11yChrome` strings; distinct from
 //! UsageViewChrome Daily/Monthly/Projects chips so chart a11y stays
 //! independently evolvable; series Claude/Codex stay English)
+//! plus Settings Usage + composer Usage meter Native `<progress>`
+//! a11y Context usage / Usage meter / Session context (same
+//! `UsageProgressA11yChrome` strings; distinct from
+//! `UsageChartA11yChrome` / `UsageLocalChrome` Context window
+//! heading / `UsageMeterChrome` plan-usage hints / `Chrome.usage`
+//! so progress a11y stays independently evolvable)
 //! plus Settings Providers Available / Not found, Enable /
 //! Disable, Use for this session, Copy install command / Copy login
 //! command, and First-party default (same `ProvidersChrome` strings;
@@ -429,6 +435,13 @@
 //! `UsageChartA11yChrome` strings; distinct from UsageViewChrome
 //! Daily/Monthly/Projects chips so chart a11y stays independently
 //! evolvable; series Claude/Codex stay English).
+//! Settings Usage + composer Usage meter Native `<progress>` a11y
+//! Context usage / Usage meter / Session context follow the
+//! resolved locale this cut (same `UsageProgressA11yChrome`
+//! strings; distinct from `UsageChartA11yChrome` /
+//! `UsageLocalChrome` Context window heading / `UsageMeterChrome`
+//! plan-usage hints / `Chrome.usage` so progress a11y stays
+//! independently evolvable). Review hunk a11y stays English.
 //! Typed URL text
 //! stays data. Parked `home_url`
 //! / scene URLs stay data. OS
@@ -3215,6 +3228,39 @@ const usage_chart_a11y_chrome_ja: UsageChartA11yChrome = .{
     .projects_usage = "プロジェクト使用量",
 };
 
+/// Settings Usage + composer Usage meter Native `<progress>` a11y
+/// labels (Context usage / Usage meter / Session context) for the
+/// resolved locale. Same resolve path as UsageChartA11yChrome.
+/// English matches the former hardcoded copy. Distinct from
+/// `UsageChartA11yChrome` (Daily/Monthly/Projects chart a11y),
+/// `UsageLocalChrome` (Context window heading), `UsageMeterChrome`
+/// (plan-usage hints / Nothing measured yet / Plan limits), and
+/// `Chrome.usage` (nav / meter toggle "Usage") so progress a11y stays
+/// independently evolvable. Review hunk a11y stays English.
+pub const UsageProgressA11yChrome = struct {
+    context_usage: []const u8,
+    usage_meter: []const u8,
+    session_context: []const u8,
+};
+
+const usage_progress_a11y_chrome_en: UsageProgressA11yChrome = .{
+    .context_usage = "Context usage",
+    .usage_meter = "Usage meter",
+    .session_context = "Session context",
+};
+
+const usage_progress_a11y_chrome_zh_cn: UsageProgressA11yChrome = .{
+    .context_usage = "上下文用量",
+    .usage_meter = "用量计",
+    .session_context = "会话上下文",
+};
+
+const usage_progress_a11y_chrome_ja: UsageProgressA11yChrome = .{
+    .context_usage = "コンテキスト使用量",
+    .usage_meter = "使用量メーター",
+    .session_context = "セッションコンテキスト",
+};
+
 /// Settings Providers status, Enable/Disable chip, Apply, Copy
 /// install/login, and First-party default for the resolved locale.
 /// Same resolve path as UsageSessionsChrome. English matches the
@@ -4290,6 +4336,22 @@ pub fn usageChartA11yChromeFor(preference: LanguagePreference, system_locale_id:
         .simplified_chinese => usage_chart_a11y_chrome_zh_cn,
         .japanese => usage_chart_a11y_chrome_ja,
         .system, .english => usage_chart_a11y_chrome_en,
+    };
+}
+
+/// Settings Usage + composer Usage meter Native `<progress>` a11y
+/// Context usage / Usage meter / Session context for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from `usageChartA11yChromeFor` / `usageLocalChromeFor` Context
+/// window heading / `usageMeterChromeFor` plan-usage hints /
+/// `Chrome.usage` so progress a11y stays independently evolvable.
+/// Review hunk a11y stays English.
+pub fn usageProgressA11yChromeFor(preference: LanguagePreference, system_locale_id: []const u8) UsageProgressA11yChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => usage_progress_a11y_chrome_zh_cn,
+        .japanese => usage_progress_a11y_chrome_ja,
+        .system, .english => usage_progress_a11y_chrome_en,
     };
 }
 
@@ -6893,6 +6955,33 @@ test "usageChartA11yChromeFor english default; zh and ja chrome; english ignores
     try testing.expectEqualStrings("Daily usage", usageChartA11yChromeFor(.english, "ja_JP.UTF-8").daily_usage);
     try testing.expectEqualStrings("Monthly usage", usageChartA11yChromeFor(.english, "zh_CN.UTF-8").monthly_usage);
     try testing.expectEqualStrings("Projects usage", usageChartA11yChromeFor(.english, "zh_CN.UTF-8").projects_usage);
+}
+
+test "usageProgressA11yChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Context usage", usageProgressA11yChromeFor(.english, "ja").context_usage);
+    try testing.expectEqualStrings("Usage meter", usageProgressA11yChromeFor(.english, "").usage_meter);
+    try testing.expectEqualStrings("Session context", usageProgressA11yChromeFor(.english, "").session_context);
+    try testing.expectEqualStrings("Context usage", usageProgressA11yChromeFor(.system, "").context_usage);
+    try testing.expectEqualStrings("Usage meter", usageProgressA11yChromeFor(.system, "").usage_meter);
+    try testing.expectEqualStrings("Session context", usageProgressA11yChromeFor(.system, "").session_context);
+
+    try testing.expectEqualStrings("上下文用量", usageProgressA11yChromeFor(.simplified_chinese, "").context_usage);
+    try testing.expectEqualStrings("用量计", usageProgressA11yChromeFor(.simplified_chinese, "").usage_meter);
+    try testing.expectEqualStrings("会话上下文", usageProgressA11yChromeFor(.simplified_chinese, "").session_context);
+    try testing.expectEqualStrings("コンテキスト使用量", usageProgressA11yChromeFor(.japanese, "").context_usage);
+    try testing.expectEqualStrings("使用量メーター", usageProgressA11yChromeFor(.japanese, "").usage_meter);
+    try testing.expectEqualStrings("セッションコンテキスト", usageProgressA11yChromeFor(.japanese, "").session_context);
+
+    try testing.expectEqualStrings("上下文用量", usageProgressA11yChromeFor(.system, "zh_CN.UTF-8").context_usage);
+    try testing.expectEqualStrings("用量计", usageProgressA11yChromeFor(.system, "zh_CN.UTF-8").usage_meter);
+    try testing.expectEqualStrings("会话上下文", usageProgressA11yChromeFor(.system, "zh_CN.UTF-8").session_context);
+    try testing.expectEqualStrings("コンテキスト使用量", usageProgressA11yChromeFor(.system, "ja_JP.UTF-8").context_usage);
+    try testing.expectEqualStrings("使用量メーター", usageProgressA11yChromeFor(.system, "ja_JP.UTF-8").usage_meter);
+    try testing.expectEqualStrings("セッションコンテキスト", usageProgressA11yChromeFor(.system, "ja_JP.UTF-8").session_context);
+    try testing.expectEqualStrings("Context usage", usageProgressA11yChromeFor(.english, "ja_JP.UTF-8").context_usage);
+    try testing.expectEqualStrings("Usage meter", usageProgressA11yChromeFor(.english, "zh_CN.UTF-8").usage_meter);
+    try testing.expectEqualStrings("Session context", usageProgressA11yChromeFor(.english, "zh_CN.UTF-8").session_context);
 }
 
 test "providersChromeFor english default; zh and ja chrome; english ignores ja LANG" {

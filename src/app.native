@@ -442,7 +442,7 @@
                     <text>{context_window_label}</text>
                     <if test="{has_context_usage}">
                       <text wrap="false" overflow="ellipsis">{context_usage_label}</text>
-                      <progress value="{context_usage}" width="48" height="6" label="Context usage" />
+                      <progress value="{context_usage}" width="48" height="6" label="{context_usage_progress_label}" />
                     </if>
                     <else>
                       <text wrap="true" foreground="text_muted">{no_context_usage_label}</text>
@@ -1061,7 +1061,7 @@
             <if test="{usage_meter_available}">
               <stack>
                 <row gap="8" cross="center">
-                  <progress value="{usage_meter_progress}" width="48" height="6" label="Usage meter" />
+                  <progress value="{usage_meter_progress}" width="48" height="6" label="{usage_meter_label}" />
                   <button variant="ghost" size="sm" selected="{usage_meter_open}" on-press="toggle_usage_meter">Usage</button>
                 </row>
                 <if test="{usage_meter_open}">
@@ -1070,7 +1070,7 @@
                       <column gap="8">
                         <text>{context_window_label}</text>
                         <text wrap="false" overflow="ellipsis" foreground="text_muted">{usage_meter_context_label}</text>
-                        <progress value="{usage_meter_progress}" width="48" height="6" label="Session context" />
+                        <progress value="{usage_meter_progress}" width="48" height="6" label="{session_context_label}" />
                         <if test="{usage_meter_plan_visible}">
                           <if test="{has_usage_meter_plan}">
                             <text wrap="false" overflow="ellipsis" foreground="text_muted">{usage_meter_plan_header}</text>
@@ -1327,7 +1327,7 @@
                 </if>
                 <spacer grow="1" />
                 <if test="{has_context_usage}">
-                  <progress value="{context_usage}" width="48" height="6" label="Context usage" />
+                  <progress value="{context_usage}" width="48" height="6" label="{context_usage_progress_label}" />
                 </if>
               </row>
             </if>
@@ -1412,7 +1412,7 @@
                 </if>
                 <spacer grow="1" />
                 <if test="{has_context_usage}">
-                  <progress value="{context_usage}" width="48" height="6" label="Context usage" />
+                  <progress value="{context_usage}" width="48" height="6" label="{context_usage_progress_label}" />
                 </if>
               </row>
             </else>
