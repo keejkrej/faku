@@ -25779,6 +25779,117 @@ test "Review Diff gap expand Start / End / Both / All follow Appearance language
     try testing.expectEqualStrings("All", model.review_diff_gap_expand_all_label());
 }
 
+test "Review Diff hunk a11y chrome follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 16), countNeedle(main.app_markup, "label=\"{review_hunk_label}\""));
+    try testing.expectEqual(@as(usize, 2), countNeedle(main.app_markup, "label=\"{review_hunks_label}\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Review hunk\"") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Review hunks\"") == null);
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Review hunk", model.review_hunk_label());
+    try testing.expectEqualStrings("Review hunks", model.review_hunks_label());
+    try testing.expectEqualStrings(i18n.reviewHunkA11yChromeFor(.english, "").review_hunk, model.review_hunk_label());
+    try testing.expectEqualStrings(i18n.reviewHunkA11yChromeFor(.english, "").review_hunks, model.review_hunks_label());
+
+    main.update(&model, .show_right_panel, &fx);
+    try testing.expect(model.right_panel_open);
+    model.right_panel_tab = .diff;
+    model.review_diff_active = true;
+    try testing.expect(model.right_panel_showing_diff());
+
+    const path = "src/a.zig";
+    @memcpy(model.review_diff_hunk_path_storage[0..path.len], path);
+    model.review_diff_hunk_path_len = path.len;
+    const src = "hello";
+    @memcpy(model.review_diff_hunk_storage[0..src.len], src);
+    model.review_diff_hunk_len = src.len;
+    var lines = [_]review_diff.DiffLine{
+        .{ .kind = .addition, .content_off = 0, .content_len = @intCast(src.len), .new_line = 1 },
+    };
+    model.review_diff_visible_store = &lines;
+    model.review_diff_visible_count = lines.len;
+    defer {
+        model.review_diff_visible_store = &.{};
+        model.review_diff_visible_count = 0;
+        model.review_diff_hunk_len = 0;
+        model.review_diff_hunk_path_len = 0;
+    }
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .scroll_view, "Review hunks") != null);
+    try testing.expect(findByText(tree.root, .code, "Review hunk") != null);
+    try testing.expect(findByText(tree.root, .scroll_view, "审阅片段") == null);
+    try testing.expect(findByText(tree.root, .code, "审阅片段") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("审阅片段", model.review_hunk_label());
+    try testing.expectEqualStrings("审阅片段", model.review_hunks_label());
+    try testing.expectEqualStrings(i18n.reviewHunkA11yChromeFor(.simplified_chinese, "").review_hunk, model.review_hunk_label());
+    try testing.expectEqualStrings(i18n.reviewHunkA11yChromeFor(.simplified_chinese, "").review_hunks, model.review_hunks_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .scroll_view, "审阅片段") != null);
+    try testing.expect(findByText(tree.root, .code, "审阅片段") != null);
+    try testing.expect(findByText(tree.root, .scroll_view, "Review hunks") == null);
+    try testing.expect(findByText(tree.root, .code, "Review hunk") == null);
+    try testing.expect(findByText(tree.root, .scroll_view, "レビューハンク") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("レビューハンク", model.review_hunk_label());
+    try testing.expectEqualStrings("レビューハンク", model.review_hunks_label());
+    try testing.expectEqualStrings(i18n.reviewHunkA11yChromeFor(.japanese, "").review_hunk, model.review_hunk_label());
+    try testing.expectEqualStrings(i18n.reviewHunkA11yChromeFor(.japanese, "").review_hunks, model.review_hunks_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .scroll_view, "レビューハンク") != null);
+    try testing.expect(findByText(tree.root, .code, "レビューハンク") != null);
+    try testing.expect(findByText(tree.root, .scroll_view, "Review hunks") == null);
+    try testing.expect(findByText(tree.root, .code, "Review hunk") == null);
+    try testing.expect(findByText(tree.root, .scroll_view, "审阅片段") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Review hunk", model.review_hunk_label());
+    try testing.expectEqualStrings("Review hunks", model.review_hunks_label());
+    try testing.expectEqualStrings(i18n.reviewHunkA11yChromeFor(.english, "ja_JP.UTF-8").review_hunk, model.review_hunk_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .scroll_view, "Review hunks") != null);
+    try testing.expect(findByText(tree.root, .code, "Review hunk") != null);
+    try testing.expect(findByText(tree.root, .scroll_view, "レビューハンク") == null);
+    try testing.expect(findByText(tree.root, .code, "レビューハンク") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("审阅片段", model.review_hunk_label());
+    try testing.expectEqualStrings("审阅片段", model.review_hunks_label());
+    try testing.expectEqualStrings(i18n.reviewHunkA11yChromeFor(.system, "zh_CN.UTF-8").review_hunk, model.review_hunk_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .scroll_view, "审阅片段") != null);
+    try testing.expect(findByText(tree.root, .code, "审阅片段") != null);
+    try testing.expect(findByText(tree.root, .scroll_view, "Review hunks") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("レビューハンク", model.review_hunk_label());
+    try testing.expectEqualStrings("レビューハンク", model.review_hunks_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .scroll_view, "レビューハンク") != null);
+    try testing.expect(findByText(tree.root, .code, "レビューハンク") != null);
+    try testing.expect(findByText(tree.root, .scroll_view, "审阅片段") == null);
+
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Review hunk", model.review_hunk_label());
+    try testing.expectEqualStrings("Review hunks", model.review_hunks_label());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .scroll_view, "Review hunks") != null);
+    try testing.expect(findByText(tree.root, .code, "Review hunk") != null);
+}
+
 test "Background row kind / status / stop chrome follow Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
@@ -32859,7 +32970,6 @@ test "settings Usage progress a11y chrome follows Appearance language" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Context usage\"") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Usage meter\"") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Session context\"") == null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Review hunk\"") != null);
 
     var model = main.initialModel();
     try testing.expectEqualStrings("Context usage", model.context_usage_progress_label());
@@ -34619,6 +34729,10 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "removed-lines=\"{h.removed_lines}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "template=\"review-hunk-rows\"") != null);
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "template=\"review-hunk-rows\""));
+    try testing.expectEqual(@as(usize, 16), countNeedle(main.app_markup, "label=\"{review_hunk_label}\""));
+    try testing.expectEqual(@as(usize, 2), countNeedle(main.app_markup, "label=\"{review_hunks_label}\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Review hunk\"") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Review hunks\"") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{review_diff_hunk_language == 'zig'}") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "foreground=\"success\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "foreground=\"destructive\"") != null);
@@ -34697,6 +34811,7 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expect(hunk_source.codeLineNumberDigits() > 0);
     _ = try expectByText(tree.root, .text, "src/a.zig");
     try testing.expect(findByText(tree.root, .scroll_view, "Review hunks") != null);
+    try testing.expect(findByText(tree.root, .code, "Review hunk") != null);
     try testing.expect(findByText(tree.root, .scroll_view, "Review files") != null);
     const selected_row = try expectButtonMsg(tree, "a.zig", .{ .select_review_diff_file = 1 });
     try testing.expect(selected_row.state.selected);
