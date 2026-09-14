@@ -10445,7 +10445,7 @@ test "right panel Files, Diff, Browser, Terminal, and Background tabs switch sur
     _ = try expectButtonMsg(tree, "Navigate", .browser_navigate);
     const reload = findByText(tree.root, .button, "Reload") orelse return error.WidgetNotFound;
     try testing.expect(reload.state.disabled);
-    const hard_reload = try expectButtonMsg(tree, "Hard Reload", .browser_hard_reload);
+    const hard_reload = findByText(tree.root, .button, "Hard Reload") orelse return error.WidgetNotFound;
     try testing.expect(hard_reload.state.disabled);
     try testing.expectEqual(reload.state.disabled, hard_reload.state.disabled);
     const open_browser = findByText(tree.root, .button, "Open in browser") orelse return error.WidgetNotFound;
@@ -12926,8 +12926,8 @@ test "Browser Hard Reload toolbar shares Reload disable gate and drives blank ho
     try testing.expect(model.browser_reload_disabled());
 
     var tree = try buildTree(arena, &model);
-    const reload_empty = try expectButtonMsg(tree, "Reload", .browser_reload);
-    const hard_empty = try expectButtonMsg(tree, "Hard Reload", .browser_hard_reload);
+    const reload_empty = findByText(tree.root, .button, "Reload") orelse return error.WidgetNotFound;
+    const hard_empty = findByText(tree.root, .button, "Hard Reload") orelse return error.WidgetNotFound;
     try testing.expect(reload_empty.state.disabled);
     try testing.expect(hard_empty.state.disabled);
     try testing.expectEqual(reload_empty.state.disabled, hard_empty.state.disabled);
@@ -30586,7 +30586,7 @@ test "Browser toolbar chrome follows Appearance language" {
     try testing.expect(findNthByText(tree.root, .button, "Back", 1) != null);
     try testing.expect(findNthByText(tree.root, .button, "Forward", 1) != null);
     _ = try expectByText(tree.root, .button, "Reload");
-    _ = try expectButtonMsg(tree, "Hard Reload", .browser_hard_reload);
+    _ = try expectByText(tree.root, .button, "Hard Reload");
     _ = try expectButtonMsg(tree, "Navigate", .browser_navigate);
     _ = try expectByText(tree.root, .button, "Back");
     _ = try expectByText(tree.root, .button, "Forward");
@@ -30600,6 +30600,7 @@ test "Browser toolbar chrome follows Appearance language" {
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .icon, "Secure");
     try testing.expect(findByText(tree.root, .icon, "Not secure") == null);
+    _ = try expectButtonMsg(tree, "Hard Reload", .browser_hard_reload);
 
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("返回", model.browser_back_label());
