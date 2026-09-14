@@ -4346,8 +4346,15 @@ pub const Model = struct {
         return if (model.is_streaming()) chrome.streaming else chrome.idle;
     }
 
+    /// Composer Send/Stop visible label. Idle vs streaming from
+    /// `i18n.ComposerSendStopChrome` (same pack as composer Send/Stop
+    /// a11y). Distinct from `BackgroundChrome.daemon_stop` /
+    /// `ComposerChrome`. Wire ids / on-press stay `send` /
+    /// `stop_turn`. Icon-button a11y stays
+    /// `composer_send_label` / `composer_stop_label`.
     pub fn send_label(model: *const Model) []const u8 {
-        return if (model.is_streaming()) "Stop" else "Send";
+        const chrome = model.composerSendStopChrome();
+        return if (model.is_streaming()) chrome.stop else chrome.send;
     }
 
     pub fn sidebar_expanded(model: *const Model) bool {
@@ -6993,12 +7000,14 @@ pub const Model = struct {
 
     /// Composer primary Send circle a11y. `on-press` stays `send`.
     /// Distinct from `i18n.ComposerChrome` image/goal/commands chrome.
+    /// Visible idle/streaming `send_label` reuses this pack.
     pub fn composer_send_label(model: *const Model) []const u8 {
         return model.composerSendStopChrome().send;
     }
 
     /// Composer Stop turn a11y. `on-press` stays `stop_turn`.
     /// Distinct from `i18n.BackgroundChrome.daemon_stop`.
+    /// Visible idle/streaming `send_label` reuses this pack.
     pub fn composer_stop_label(model: *const Model) []const u8 {
         return model.composerSendStopChrome().stop;
     }
