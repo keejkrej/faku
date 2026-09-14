@@ -2960,7 +2960,7 @@ pub const Model = struct {
         for (model.session_store[0..model.session_count]) |*session| {
             out[i] = .{
                 .id = session.id,
-                .title = main.sessionDisplayTitle(session),
+                .title = model.session_display_title(session),
                 .provider = session.provider_label(),
                 .selected = session.id == model.selected,
             };
@@ -3863,7 +3863,7 @@ pub const Model = struct {
             const session = model.sessionByIdConst(id) orelse continue;
             out[n] = .{
                 .id = session.id,
-                .title = main.sessionDisplayTitle(session),
+                .title = model.session_display_title(session),
                 .provider = session.provider_label(),
                 .selected = i == model.switcher_highlight,
             };
@@ -4142,12 +4142,23 @@ pub const Model = struct {
         return "untitled";
     }
 
+    /// 48px header toolbar title. Empty / untitled sessions use
+    /// `i18n.HeaderUntitledChrome.new_task` (sentence-case EN `New task`,
+    /// distinct from `Sidebar.new_task`). Real titles stay session data.
     pub fn header_title(model: *const Model) []const u8 {
+        const chrome = model.headerUntitledChrome();
         if (model.activeSessionConst()) |session| {
-            if (session.untitled) return "New task";
+            if (session.untitled) return chrome.new_task;
             return session.title();
         }
-        return "New task";
+        return chrome.new_task;
+    }
+
+    /// Sidebar / palette / switcher display title. Untitled or catalog
+    /// `untitled` use the same `HeaderUntitledChrome` pack as the header;
+    /// real titles stay session data.
+    pub fn session_display_title(model: *const Model, session: *const Session) []const u8 {
+        return main.sessionDisplayTitle(session, model.headerUntitledChrome());
     }
 
     pub fn selected_provider(model: *const Model) []const u8 {
@@ -4909,6 +4920,10 @@ pub const Model = struct {
 
     fn untitledChrome(model: *const Model) i18n.UntitledChrome {
         return i18n.untitledChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn headerUntitledChrome(model: *const Model) i18n.HeaderUntitledChrome {
+        return i18n.headerUntitledChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     fn daemonAddressChrome(model: *const Model) i18n.DaemonAddressChrome {

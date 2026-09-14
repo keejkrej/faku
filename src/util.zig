@@ -1,6 +1,7 @@
 //! Leftover util helpers and daemon-env bind.
 //!
-//! `sessionDisplayTitle` / `stampSessionActivity` /
+//! `sessionDisplayTitle` (untitled chrome via `i18n.HeaderUntitledChrome`) /
+//! `stampSessionActivity` /
 //! `asciiContainsIgnoreCase` / `directoryExists` / `fileExists` /
 //! `fx_ask_chdir_script` / `bindDaemonEnv` live here.
 //! `update` / `initFx` live in `update.zig`. `initialModel` lives in
@@ -14,12 +15,16 @@ const std = @import("std");
 const protocol = @import("protocol.zig");
 const session_mod = @import("session.zig");
 const model_mod = @import("model.zig");
+const i18n = @import("i18n.zig");
 
 const Session = session_mod.Session;
 const Model = model_mod.Model;
 
-pub fn sessionDisplayTitle(session: *const Session) []const u8 {
-    if (session.untitled or std.mem.eql(u8, session.title(), "untitled")) return "New task";
+/// Untitled / catalog-`untitled` display title. Locale from
+/// `i18n.HeaderUntitledChrome` (sentence-case EN `New task`, distinct
+/// from `Sidebar.new_task`). Real titles stay session data.
+pub fn sessionDisplayTitle(session: *const Session, chrome: i18n.HeaderUntitledChrome) []const u8 {
+    if (session.untitled or std.mem.eql(u8, session.title(), "untitled")) return chrome.new_task;
     return session.title();
 }
 
@@ -71,4 +76,30 @@ pub fn bindDaemonEnv(model: *Model, init: std.process.Init) void {
     }
     const args = init.minimal.args.toSlice(init.arena.allocator()) catch return;
     if (args.len > 0 and args[0].len > 0) model.setSidecarPath(args[0]);
+}
+
+test "sessionDisplayTitle uses HeaderUntitledChrome for untitled; real titles stay data" {
+    const testing = std.testing;
+    const chrome_en = i18n.headerUntitledChromeFor(.english, "");
+    const chrome_zh = i18n.headerUntitledChromeFor(.simplified_chinese, "");
+    const chrome_ja = i18n.headerUntitledChromeFor(.japanese, "");
+
+    var flagged = Session{ .untitled = true };
+    try testing.expectEqualStrings("New task", sessionDisplayTitle(&flagged, chrome_en));
+    try testing.expectEqualStrings("新建任务", sessionDisplayTitle(&flagged, chrome_zh));
+    try testing.expectEqualStrings("新しいタスク", sessionDisplayTitle(&flagged, chrome_ja));
+
+    var catalog = Session{};
+    catalog.setTitle("untitled");
+    try testing.expect(!catalog.untitled);
+    try testing.expectEqualStrings("untitled", catalog.title());
+    try testing.expectEqualStrings("New task", sessionDisplayTitle(&catalog, chrome_en));
+    try testing.expectEqualStrings("新建任务", sessionDisplayTitle(&catalog, chrome_zh));
+    try testing.expectEqualStrings("新しいタスク", sessionDisplayTitle(&catalog, chrome_ja));
+
+    var named = Session{};
+    named.setTitle("Review auth");
+    try testing.expectEqualStrings("Review auth", sessionDisplayTitle(&named, chrome_en));
+    try testing.expectEqualStrings("Review auth", sessionDisplayTitle(&named, chrome_zh));
+    try testing.expectEqualStrings("Review auth", sessionDisplayTitle(&named, chrome_ja));
 }

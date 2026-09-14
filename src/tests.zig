@@ -28466,6 +28466,113 @@ test "session title untitled placeholders follow Appearance language" {
     try testing.expect(findByPlaceholder(tree.root, .text_field, "無題") != null);
 }
 
+test "header untitled New task chrome follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{header_title}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"edit_session_title\""));
+
+    var empty = Model{};
+    try testing.expectEqualStrings("New task", empty.header_title());
+    try testing.expectEqualStrings("New task", empty.settings_usage_session_label());
+    try testing.expectEqualStrings(i18n.headerUntitledChromeFor(.english, "").new_task, empty.header_title());
+    try testing.expect(!std.mem.eql(u8, empty.header_title(), empty.new_task_label()));
+
+    empty.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("新建任务", empty.header_title());
+    try testing.expectEqualStrings(i18n.headerUntitledChromeFor(.simplified_chinese, "").new_task, empty.header_title());
+    empty.language_preference = .japanese;
+    try testing.expectEqualStrings("新しいタスク", empty.header_title());
+    try testing.expectEqualStrings(i18n.headerUntitledChromeFor(.japanese, "").new_task, empty.header_title());
+    empty.language_preference = .english;
+    empty.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("New task", empty.header_title());
+    empty.language_preference = .system;
+    empty.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("新建任务", empty.header_title());
+    empty.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("新しいタスク", empty.header_title());
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("port waku to zig", model.header_title());
+    try testing.expectEqualStrings("New Task", model.new_task_label());
+    try testing.expect(!std.mem.eql(u8, model.header_title(), model.new_task_label()));
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("port waku to zig", model.header_title());
+    try testing.expectEqualStrings("新建任务", model.new_task_label());
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("port waku to zig", model.header_title());
+    try testing.expectEqualStrings("新しいタスク", model.new_task_label());
+    model.language_preference = .english;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("port waku to zig", model.header_title());
+    try testing.expectEqualStrings("New Task", model.new_task_label());
+
+    main.update(&model, .new_session, &fx);
+    const untitled = model.sessionByIdConst(model.selected).?;
+    try testing.expect(untitled.untitled);
+    try testing.expectEqualStrings("untitled", untitled.title());
+    try testing.expectEqualStrings("New task", model.header_title());
+    try testing.expectEqualStrings("New task", model.session_display_title(untitled));
+    try testing.expectEqualStrings("New Task", model.new_task_label());
+    try testing.expectEqualStrings(i18n.headerUntitledChromeFor(.english, "").new_task, model.header_title());
+
+    var tree = try buildTree(arena, &model);
+    const toolbar = try expectByText(tree.root, .row, "Toolbar");
+    _ = try expectByText(toolbar, .text, "New task");
+    _ = try expectButton(tree.root, "New Task");
+    _ = try expectButton(tree.root, "New task");
+    try testing.expect(findByText(toolbar, .text, "untitled") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("新建任务", model.header_title());
+    try testing.expectEqualStrings("新建任务", model.session_display_title(untitled));
+    try testing.expectEqualStrings("新建任务", model.new_task_label());
+    try testing.expectEqualStrings("untitled", untitled.title());
+    tree = try buildTree(arena, &model);
+    const zh_toolbar = try expectByText(tree.root, .row, "Toolbar");
+    _ = try expectByText(zh_toolbar, .text, "新建任务");
+    try testing.expect(findByText(zh_toolbar, .text, "New task") == null);
+    try testing.expect(findByText(tree.root, .button, "New Task") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("新しいタスク", model.header_title());
+    try testing.expectEqualStrings("新しいタスク", model.session_display_title(untitled));
+    try testing.expectEqualStrings("新しいタスク", model.new_task_label());
+    tree = try buildTree(arena, &model);
+    const ja_toolbar = try expectByText(tree.root, .row, "Toolbar");
+    _ = try expectByText(ja_toolbar, .text, "新しいタスク");
+    try testing.expect(findByText(ja_toolbar, .text, "新建任务") == null);
+    try testing.expect(findByText(ja_toolbar, .text, "New task") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("New task", model.header_title());
+    try testing.expectEqualStrings("New Task", model.new_task_label());
+    tree = try buildTree(arena, &model);
+    const en_toolbar = try expectByText(tree.root, .row, "Toolbar");
+    _ = try expectByText(en_toolbar, .text, "New task");
+    _ = try expectButton(tree.root, "New Task");
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("新建任务", model.header_title());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("新しいタスク", model.header_title());
+
+    model.language_preference = .english;
+    const port = model.sessionByIdConst(model.session_store[0].id).?;
+    try testing.expectEqualStrings("port waku to zig", model.session_display_title(port));
+    try testing.expectEqualStrings("port waku to zig", port.title());
+}
+
 test "Settings General daemon address placeholder follows Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
