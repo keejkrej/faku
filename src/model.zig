@@ -4519,6 +4519,62 @@ pub const Model = struct {
         return model.composerRegionChrome().message_composer;
     }
 
+    /// Window-drag Toolbar Native `<row>` a11y. Distinct from
+    /// `i18n.BrowserToolbarChrome` / `HeaderUntitledChrome`. Native
+    /// surfaces `label=` as the accessible name.
+    pub fn toolbar_label(model: *const Model) []const u8 {
+        return model.structuralRegionChrome().toolbar;
+    }
+
+    /// Sidebar titlebar Native `<row>` a11y. Distinct from
+    /// `i18n.SidebarHistoryChrome` Back / Forward. Native surfaces
+    /// `label=` as the accessible name.
+    pub fn sidebar_titlebar_label(model: *const Model) []const u8 {
+        return model.structuralRegionChrome().sidebar_titlebar;
+    }
+
+    /// Terminal tab column Native `<column>` a11y. Distinct from
+    /// `right_panel_tab_terminal_label` (visible tab chip). Native
+    /// surfaces `label=` as the accessible name.
+    pub fn terminal_label(model: *const Model) []const u8 {
+        return model.structuralRegionChrome().terminal;
+    }
+
+    /// Embedded Native `<terminal>` a11y. Distinct from
+    /// `i18n.TerminalRestartChrome` / `SessionChipsChrome`. Native
+    /// surfaces `label=` as the accessible name.
+    pub fn embedded_terminal_label(model: *const Model) []const u8 {
+        return model.structuralRegionChrome().embedded_terminal;
+    }
+
+    /// Files preview column Native `<column>` a11y. Distinct from
+    /// `i18n.FilePreviewChrome` toolbar chips. Native surfaces
+    /// `label=` as the accessible name.
+    pub fn file_preview_label(model: *const Model) []const u8 {
+        return model.structuralRegionChrome().file_preview;
+    }
+
+    /// Files preview editor Native `<textarea>` a11y. Distinct from
+    /// `file_preview_edit_label` (Edit chip). Native surfaces
+    /// `label=` as the accessible name.
+    pub fn file_preview_editor_label(model: *const Model) []const u8 {
+        return model.structuralRegionChrome().file_preview_editor;
+    }
+
+    /// Files preview body Native `<scroll>` a11y. Distinct from
+    /// `file_preview_body` (file contents). Native surfaces `label=`
+    /// as the accessible name.
+    pub fn file_preview_body_label(model: *const Model) []const u8 {
+        return model.structuralRegionChrome().file_preview_body;
+    }
+
+    /// Files preview source Native `<code>` a11y. Distinct from
+    /// `file_preview_source_label` (markdown Source chip). Native
+    /// surfaces `label=` as the accessible name.
+    pub fn file_preview_source_region_label(model: *const Model) []const u8 {
+        return model.structuralRegionChrome().file_preview_source;
+    }
+
     /// Empty-transcript welcome display title. Distinct from
     /// `HeaderUntitledChrome` / `ComposerPlaceholderChrome` /
     /// `QueueChrome`. Real session titles stay data.
@@ -5169,6 +5225,10 @@ pub const Model = struct {
 
     fn composerRegionChrome(model: *const Model) i18n.ComposerRegionChrome {
         return i18n.composerRegionChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn structuralRegionChrome(model: *const Model) i18n.StructuralRegionChrome {
+        return i18n.structuralRegionChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     fn welcomeChrome(model: *const Model) i18n.WelcomeChrome {
