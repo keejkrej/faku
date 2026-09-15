@@ -4,8 +4,8 @@
 //! toplevel / common-dir keys, plus file_mention, review diff, skills,
 //! Files Preview issue-link, CLI `--help` probe, and LiteLLM rate-table
 //! keys. Owning modules keep the values; this file only re-exports them.
-//! Re-exported from `main.zig` so `main.git_branch_key_first` /
-//! `main.litellm_rates_key` call sites keep working. Behavior is
+//! Callers import this module directly (`git_keys.git_branch_key_first` /
+//! `git_keys.litellm_rates_key`). Not re-exported from `main`. Behavior is
 //! unchanged from the former `main` constants.
 
 const std = @import("std");
