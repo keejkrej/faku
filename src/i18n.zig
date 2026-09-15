@@ -191,7 +191,9 @@
 //! accessible name)
 //! plus structural region Native `label=` a11y Toolbar / Sidebar
 //! titlebar / Terminal / Embedded terminal / File preview /
-//! File preview editor / File preview body / File preview source
+//! File preview editor / File preview body / File preview source /
+//! Transcript / Conversation history / Review files /
+//! Background work / Background output / Browser
 //! (same `StructuralRegionChrome` strings; distinct from
 //! `FilePreviewChrome` / `FilePreviewFindToggleChrome` /
 //! `FilePreviewErrorChrome` / `FilePreviewFindMatchChrome` /
@@ -474,7 +476,9 @@
 //! accessible name). Structural region Native `label=` a11y
 //! Toolbar / Sidebar titlebar / Terminal / Embedded terminal /
 //! File preview / File preview editor / File preview body /
-//! File preview source follows the resolved locale this cut
+//! File preview source / Transcript / Conversation history /
+//! Review files / Background work / Background output / Browser
+//! follows the resolved locale this cut
 //! (same `StructuralRegionChrome` strings; distinct from
 //! `FilePreviewChrome` / `FilePreviewFindToggleChrome` /
 //! `FilePreviewErrorChrome` / `FilePreviewFindMatchChrome` /
@@ -1097,8 +1101,10 @@ const palette_chrome_ja: PaletteChrome = .{
 /// Loading files…) / Background empty / Browser start page /
 /// Open in browser / Open in Terminal chrome live in
 /// `RightPanelChrome`. Background row kind / status / stop·dismiss
-/// chrome live in `BackgroundChrome`. Pane `label=` attributes stay
-/// English.
+/// chrome live in `BackgroundChrome`. Pane Native `label=` a11y
+/// (Review files / Browser / Background work / Background output /
+/// Terminal) lives in `StructuralRegionChrome`, distinct from these
+/// tab chips.
 pub const RightPanelTabs = struct {
     files: []const u8,
     diff: []const u8,
@@ -2494,15 +2500,17 @@ const composer_region_chrome_ja: ComposerRegionChrome = .{
 /// Structural region Native `label=` a11y for the resolved locale
 /// (Toolbar / Sidebar titlebar / Terminal / Embedded terminal /
 /// File preview / File preview editor / File preview body /
-/// File preview source). Same resolve path as ComposerRegionChrome.
+/// File preview source / Transcript / Conversation history /
+/// Review files / Background work / Background output / Browser).
+/// Same resolve path as ComposerRegionChrome.
 /// English matches the former hardcoded copy. Distinct from
 /// `FilePreviewChrome` (toolbar Unsaved/Preview/Source/…),
 /// `FilePreviewFindToggleChrome`, `FilePreviewErrorChrome`,
 /// `FilePreviewFindMatchChrome`, `TerminalRestartChrome`,
 /// `BrowserToolbarChrome`, `SessionChipsChrome`, `RightPanelTabs`
-/// (visible Terminal tab), and `ComposerRegionChrome` so those
-/// packs stay independently evolvable. Native surfaces `label=`
-/// as the accessible name.
+/// (visible Files/Review/Browser/Terminal/Background tab chips),
+/// and `ComposerRegionChrome` so those packs stay independently
+/// evolvable. Native surfaces `label=` as the accessible name.
 pub const StructuralRegionChrome = struct {
     toolbar: []const u8,
     sidebar_titlebar: []const u8,
@@ -2512,6 +2520,12 @@ pub const StructuralRegionChrome = struct {
     file_preview_editor: []const u8,
     file_preview_body: []const u8,
     file_preview_source: []const u8,
+    transcript: []const u8,
+    conversation_history: []const u8,
+    review_files: []const u8,
+    background_work: []const u8,
+    background_output: []const u8,
+    browser: []const u8,
 };
 
 const structural_region_chrome_en: StructuralRegionChrome = .{
@@ -2523,6 +2537,12 @@ const structural_region_chrome_en: StructuralRegionChrome = .{
     .file_preview_editor = "File preview editor",
     .file_preview_body = "File preview body",
     .file_preview_source = "File preview source",
+    .transcript = "Transcript",
+    .conversation_history = "Conversation history",
+    .review_files = "Review files",
+    .background_work = "Background work",
+    .background_output = "Background output",
+    .browser = "Browser",
 };
 
 const structural_region_chrome_zh_cn: StructuralRegionChrome = .{
@@ -2534,6 +2554,12 @@ const structural_region_chrome_zh_cn: StructuralRegionChrome = .{
     .file_preview_editor = "文件预览编辑器",
     .file_preview_body = "文件预览正文",
     .file_preview_source = "文件预览源码",
+    .transcript = "对话记录",
+    .conversation_history = "对话历史",
+    .review_files = "审阅文件",
+    .background_work = "后台工作",
+    .background_output = "后台输出",
+    .browser = "浏览器",
 };
 
 const structural_region_chrome_ja: StructuralRegionChrome = .{
@@ -2545,6 +2571,12 @@ const structural_region_chrome_ja: StructuralRegionChrome = .{
     .file_preview_editor = "ファイルプレビューエディター",
     .file_preview_body = "ファイルプレビュー本文",
     .file_preview_source = "ファイルプレビューソース",
+    .transcript = "トランスクリプト",
+    .conversation_history = "会話履歴",
+    .review_files = "レビューファイル",
+    .background_work = "バックグラウンド作業",
+    .background_output = "バックグラウンド出力",
+    .browser = "ブラウザ",
 };
 
 /// Empty-transcript welcome title / subtitle for the resolved locale
@@ -4402,7 +4434,10 @@ pub fn composerRegionChromeFor(preference: LanguagePreference, system_locale_id:
 /// TerminalRestartChrome / BrowserToolbarChrome /
 /// SessionChipsChrome / RightPanelTabs / ComposerRegionChrome so
 /// those packs stay independently evolvable. Native surfaces
-/// `label=` as the accessible name.
+/// `label=` as the accessible name. Transcript / Conversation
+/// history / Review files / Background work / Background output /
+/// Browser region a11y live here too (distinct from RightPanelTabs
+/// tab chips and ReviewHunkA11yChrome Review hunks).
 pub fn structuralRegionChromeFor(preference: LanguagePreference, system_locale_id: []const u8) StructuralRegionChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => structural_region_chrome_zh_cn,
@@ -6669,8 +6704,16 @@ test "structuralRegionChromeFor english default; zh and ja chrome; english ignor
     try testing.expectEqualStrings("File preview editor", structuralRegionChromeFor(.english, "").file_preview_editor);
     try testing.expectEqualStrings("File preview body", structuralRegionChromeFor(.english, "").file_preview_body);
     try testing.expectEqualStrings("File preview source", structuralRegionChromeFor(.english, "").file_preview_source);
+    try testing.expectEqualStrings("Transcript", structuralRegionChromeFor(.english, "").transcript);
+    try testing.expectEqualStrings("Conversation history", structuralRegionChromeFor(.english, "").conversation_history);
+    try testing.expectEqualStrings("Review files", structuralRegionChromeFor(.english, "").review_files);
+    try testing.expectEqualStrings("Background work", structuralRegionChromeFor(.english, "").background_work);
+    try testing.expectEqualStrings("Background output", structuralRegionChromeFor(.english, "").background_output);
+    try testing.expectEqualStrings("Browser", structuralRegionChromeFor(.english, "").browser);
     try testing.expectEqualStrings("Toolbar", structuralRegionChromeFor(.system, "").toolbar);
     try testing.expectEqualStrings("File preview source", structuralRegionChromeFor(.system, "").file_preview_source);
+    try testing.expectEqualStrings("Transcript", structuralRegionChromeFor(.system, "").transcript);
+    try testing.expectEqualStrings("Browser", structuralRegionChromeFor(.system, "").browser);
 
     try testing.expectEqualStrings("工具栏", structuralRegionChromeFor(.simplified_chinese, "").toolbar);
     try testing.expectEqualStrings("侧边栏标题栏", structuralRegionChromeFor(.simplified_chinese, "").sidebar_titlebar);
@@ -6680,6 +6723,12 @@ test "structuralRegionChromeFor english default; zh and ja chrome; english ignor
     try testing.expectEqualStrings("文件预览编辑器", structuralRegionChromeFor(.simplified_chinese, "").file_preview_editor);
     try testing.expectEqualStrings("文件预览正文", structuralRegionChromeFor(.simplified_chinese, "").file_preview_body);
     try testing.expectEqualStrings("文件预览源码", structuralRegionChromeFor(.simplified_chinese, "").file_preview_source);
+    try testing.expectEqualStrings("对话记录", structuralRegionChromeFor(.simplified_chinese, "").transcript);
+    try testing.expectEqualStrings("对话历史", structuralRegionChromeFor(.simplified_chinese, "").conversation_history);
+    try testing.expectEqualStrings("审阅文件", structuralRegionChromeFor(.simplified_chinese, "").review_files);
+    try testing.expectEqualStrings("后台工作", structuralRegionChromeFor(.simplified_chinese, "").background_work);
+    try testing.expectEqualStrings("后台输出", structuralRegionChromeFor(.simplified_chinese, "").background_output);
+    try testing.expectEqualStrings("浏览器", structuralRegionChromeFor(.simplified_chinese, "").browser);
     try testing.expectEqualStrings("ツールバー", structuralRegionChromeFor(.japanese, "").toolbar);
     try testing.expectEqualStrings("サイドバータイトルバー", structuralRegionChromeFor(.japanese, "").sidebar_titlebar);
     try testing.expectEqualStrings("ターミナル", structuralRegionChromeFor(.japanese, "").terminal);
@@ -6688,13 +6737,25 @@ test "structuralRegionChromeFor english default; zh and ja chrome; english ignor
     try testing.expectEqualStrings("ファイルプレビューエディター", structuralRegionChromeFor(.japanese, "").file_preview_editor);
     try testing.expectEqualStrings("ファイルプレビュー本文", structuralRegionChromeFor(.japanese, "").file_preview_body);
     try testing.expectEqualStrings("ファイルプレビューソース", structuralRegionChromeFor(.japanese, "").file_preview_source);
+    try testing.expectEqualStrings("トランスクリプト", structuralRegionChromeFor(.japanese, "").transcript);
+    try testing.expectEqualStrings("会話履歴", structuralRegionChromeFor(.japanese, "").conversation_history);
+    try testing.expectEqualStrings("レビューファイル", structuralRegionChromeFor(.japanese, "").review_files);
+    try testing.expectEqualStrings("バックグラウンド作業", structuralRegionChromeFor(.japanese, "").background_work);
+    try testing.expectEqualStrings("バックグラウンド出力", structuralRegionChromeFor(.japanese, "").background_output);
+    try testing.expectEqualStrings("ブラウザ", structuralRegionChromeFor(.japanese, "").browser);
 
     try testing.expectEqualStrings("工具栏", structuralRegionChromeFor(.system, "zh_CN.UTF-8").toolbar);
     try testing.expectEqualStrings("文件预览源码", structuralRegionChromeFor(.system, "zh_CN.UTF-8").file_preview_source);
+    try testing.expectEqualStrings("对话记录", structuralRegionChromeFor(.system, "zh_CN.UTF-8").transcript);
+    try testing.expectEqualStrings("浏览器", structuralRegionChromeFor(.system, "zh_CN.UTF-8").browser);
     try testing.expectEqualStrings("ツールバー", structuralRegionChromeFor(.system, "ja_JP.UTF-8").toolbar);
     try testing.expectEqualStrings("ファイルプレビューソース", structuralRegionChromeFor(.system, "ja_JP.UTF-8").file_preview_source);
+    try testing.expectEqualStrings("トランスクリプト", structuralRegionChromeFor(.system, "ja_JP.UTF-8").transcript);
+    try testing.expectEqualStrings("ブラウザ", structuralRegionChromeFor(.system, "ja_JP.UTF-8").browser);
     try testing.expectEqualStrings("Toolbar", structuralRegionChromeFor(.english, "ja_JP.UTF-8").toolbar);
     try testing.expectEqualStrings("File preview source", structuralRegionChromeFor(.english, "zh_CN.UTF-8").file_preview_source);
+    try testing.expectEqualStrings("Transcript", structuralRegionChromeFor(.english, "zh_CN.UTF-8").transcript);
+    try testing.expectEqualStrings("Browser", structuralRegionChromeFor(.english, "ja_JP.UTF-8").browser);
 
     try testing.expect(!std.mem.eql(u8, structuralRegionChromeFor(.english, "").file_preview_source, filePreviewChromeFor(.english, "").source));
     try testing.expect(!std.mem.eql(u8, structuralRegionChromeFor(.simplified_chinese, "").file_preview_source, filePreviewChromeFor(.simplified_chinese, "").source));
@@ -6704,8 +6765,13 @@ test "structuralRegionChromeFor english default; zh and ja chrome; english ignor
     try testing.expect(!std.mem.eql(u8, structuralRegionChromeFor(.english, "").toolbar, browserToolbarChromeFor(.english, "").reload));
     try testing.expect(!std.mem.eql(u8, structuralRegionChromeFor(.english, "").sidebar_titlebar, sidebarHistoryChromeFor(.english, "").back));
     try testing.expect(!std.mem.eql(u8, structuralRegionChromeFor(.english, "").file_preview_editor, composerRegionChromeFor(.english, "").message_composer));
+    try testing.expect(!std.mem.eql(u8, structuralRegionChromeFor(.english, "").review_files, reviewHunkA11yChromeFor(.english, "").review_hunks));
+    try testing.expect(!std.mem.eql(u8, structuralRegionChromeFor(.english, "").background_work, rightPanelTabsFor(.english, "").background));
+    try testing.expect(!std.mem.eql(u8, structuralRegionChromeFor(.english, "").transcript, structuralRegionChromeFor(.english, "").conversation_history));
     try testing.expect(!std.mem.eql(u8, structuralRegionChromeFor(.simplified_chinese, "").toolbar, structuralRegionChromeFor(.english, "").toolbar));
     try testing.expect(!std.mem.eql(u8, structuralRegionChromeFor(.japanese, "").toolbar, structuralRegionChromeFor(.english, "").toolbar));
+    try testing.expect(!std.mem.eql(u8, structuralRegionChromeFor(.simplified_chinese, "").transcript, structuralRegionChromeFor(.english, "").transcript));
+    try testing.expect(!std.mem.eql(u8, structuralRegionChromeFor(.japanese, "").browser, structuralRegionChromeFor(.english, "").browser));
 }
 
 test "welcomeChromeFor english default; zh and ja chrome; english ignores ja LANG" {

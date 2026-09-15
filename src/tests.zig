@@ -26582,8 +26582,10 @@ test "Environment menu chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{environment_dismiss_all_settled_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{environment_background_section_label}"));
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{right_panel_tab_background_label}") != null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Background work\"") != null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Background output\"") != null);
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{background_work_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{background_output_label}\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Background work\"") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Background output\"") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"toggle_environment_summary\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-dismiss=\"close_environment_summary\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"environment_commit_or_push\"") != null);
@@ -30824,6 +30826,12 @@ test "structural region a11y follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_editor_label}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_body_label}\""));
     try testing.expectEqual(@as(usize, 17), countNeedle(main.app_markup, "label=\"{file_preview_source_region_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{transcript_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{conversation_history_label}\""));
+    try testing.expectEqual(@as(usize, 2), countNeedle(main.app_markup, "label=\"{review_files_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{background_work_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{background_output_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{browser_label}\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Toolbar\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Sidebar titlebar\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Embedded terminal\""));
@@ -30831,7 +30839,13 @@ test "structural region a11y follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"File preview editor\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"File preview body\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"File preview source\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Transcript\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Conversation history\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Review files\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Background work\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Background output\""));
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Terminal\"") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Browser\"") == null);
 
     var model = main.initialModel();
     model.store_io = testing.io;
@@ -30847,21 +30861,37 @@ test "structural region a11y follows Appearance language" {
     try testing.expectEqualStrings("File preview editor", model.file_preview_editor_label());
     try testing.expectEqualStrings("File preview body", model.file_preview_body_label());
     try testing.expectEqualStrings("File preview source", model.file_preview_source_region_label());
+    try testing.expectEqualStrings("Transcript", model.transcript_label());
+    try testing.expectEqualStrings("Conversation history", model.conversation_history_label());
+    try testing.expectEqualStrings("Review files", model.review_files_label());
+    try testing.expectEqualStrings("Background work", model.background_work_label());
+    try testing.expectEqualStrings("Background output", model.background_output_label());
+    try testing.expectEqualStrings("Browser", model.browser_label());
     try testing.expectEqualStrings(i18n.structuralRegionChromeFor(.english, "").toolbar, model.toolbar_label());
     try testing.expectEqualStrings(i18n.structuralRegionChromeFor(.english, "").file_preview_source, model.file_preview_source_region_label());
+    try testing.expectEqualStrings(i18n.structuralRegionChromeFor(.english, "").transcript, model.transcript_label());
+    try testing.expectEqualStrings(i18n.structuralRegionChromeFor(.english, "").browser, model.browser_label());
     try testing.expect(!std.mem.eql(u8, model.file_preview_source_region_label(), model.file_preview_source_label()));
     try testing.expect(!std.mem.eql(u8, model.file_preview_label(), model.file_preview_preview_label()));
     try testing.expect(!std.mem.eql(u8, model.file_preview_editor_label(), model.file_preview_edit_label()));
     try testing.expect(!std.mem.eql(u8, model.embedded_terminal_label(), model.terminal_restart_label()));
     try testing.expect(!std.mem.eql(u8, model.sidebar_titlebar_label(), model.sidebar_history_back_label()));
     try testing.expect(!std.mem.eql(u8, model.toolbar_label(), model.browser_reload_label()));
+    try testing.expect(!std.mem.eql(u8, model.transcript_label(), model.conversation_history_label()));
+    try testing.expect(!std.mem.eql(u8, model.review_files_label(), model.review_hunks_label()));
+    try testing.expect(!std.mem.eql(u8, model.background_work_label(), model.right_panel_tab_background_label()));
+    try testing.expect(!std.mem.eql(u8, model.background_output_label(), model.background_work_no_output_label()));
 
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .row, "Toolbar");
     _ = try expectByText(tree.root, .row, "Sidebar titlebar");
+    _ = try expectByText(tree.root, .scroll_view, "Transcript");
+    _ = try expectByText(tree.root, .column, "Conversation history");
     try testing.expect(findByText(tree.root, .row, "工具栏") == null);
     try testing.expect(findByText(tree.root, .row, "ツールバー") == null);
     try testing.expect(findByText(tree.root, .row, "侧边栏标题栏") == null);
+    try testing.expect(findByText(tree.root, .scroll_view, "对话记录") == null);
+    try testing.expect(findByText(tree.root, .column, "对话历史") == null);
 
     main.update(&model, .show_right_panel, &fx);
     main.update(&model, .set_right_panel_tab_terminal, &fx);
@@ -30871,6 +30901,19 @@ test "structural region a11y follows Appearance language" {
     _ = try expectByText(tree.root, .terminal, "Embedded terminal");
     try testing.expect(findByText(tree.root, .column, "终端") == null);
     try testing.expect(findByText(tree.root, .terminal, "嵌入式终端") == null);
+
+    main.update(&model, .set_right_panel_tab_browser, &fx);
+    try testing.expect(model.right_panel_showing_browser());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .column, "Browser");
+    try testing.expect(findByText(tree.root, .column, "浏览器") == null);
+
+    main.update(&model, .set_right_panel_tab_background, &fx);
+    try testing.expect(model.right_panel_showing_background());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .column, "Background work");
+    try testing.expect(findByText(tree.root, .column, "后台工作") == null);
+    try testing.expect(findByText(tree.root, .scroll_view, "Background output") == null);
 
     main.update(&model, .set_right_panel_tab_files, &fx);
     file_mention.applyStdoutPaths(&model, "src/main.zig\n");
@@ -30891,6 +30934,12 @@ test "structural region a11y follows Appearance language" {
     try testing.expect(findByText(tree.root, .textarea, "文件预览编辑器") == null);
 
     model.right_panel_file_preview_editing = false;
+    // Stuff Diff files without `set_right_panel_tab_diff` / `ensureDiff`
+    // (that path starts a git probe and clears the store).
+    model.review_diff_active = true;
+    model.review_diff_file_store[0].setCounts('M', "src/a.zig", 2, 1);
+    model.review_diff_file_count = 1;
+    try testing.expect(model.has_review_diff_files());
 
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("工具栏", model.toolbar_label());
@@ -30901,16 +30950,26 @@ test "structural region a11y follows Appearance language" {
     try testing.expectEqualStrings("文件预览编辑器", model.file_preview_editor_label());
     try testing.expectEqualStrings("文件预览正文", model.file_preview_body_label());
     try testing.expectEqualStrings("文件预览源码", model.file_preview_source_region_label());
+    try testing.expectEqualStrings("对话记录", model.transcript_label());
+    try testing.expectEqualStrings("对话历史", model.conversation_history_label());
+    try testing.expectEqualStrings("审阅文件", model.review_files_label());
+    try testing.expectEqualStrings("后台工作", model.background_work_label());
+    try testing.expectEqualStrings("后台输出", model.background_output_label());
+    try testing.expectEqualStrings("浏览器", model.browser_label());
     try testing.expectEqualStrings(i18n.structuralRegionChromeFor(.simplified_chinese, "").toolbar, model.toolbar_label());
     try testing.expect(!std.mem.eql(u8, model.file_preview_source_region_label(), model.file_preview_source_label()));
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .row, "工具栏");
     _ = try expectByText(tree.root, .row, "侧边栏标题栏");
+    _ = try expectByText(tree.root, .scroll_view, "对话记录");
+    _ = try expectByText(tree.root, .column, "对话历史");
     _ = try expectByText(tree.root, .column, "文件预览");
     _ = try expectByText(tree.root, .scroll_view, "文件预览正文");
     try testing.expect(findByText(tree.root, .column, "文件预览源码") != null);
     try testing.expect(findByText(tree.root, .row, "Toolbar") == null);
     try testing.expect(findByText(tree.root, .row, "Sidebar titlebar") == null);
+    try testing.expect(findByText(tree.root, .scroll_view, "Transcript") == null);
+    try testing.expect(findByText(tree.root, .column, "Conversation history") == null);
     try testing.expect(findByText(tree.root, .column, "File preview") == null);
     try testing.expect(findByText(tree.root, .scroll_view, "File preview body") == null);
     try testing.expect(findByText(tree.root, .textarea, "File preview editor") == null);
@@ -30922,6 +30981,21 @@ test "structural region a11y follows Appearance language" {
     try testing.expect(findByText(tree.root, .column, "Terminal") == null);
     try testing.expect(findByText(tree.root, .terminal, "Embedded terminal") == null);
 
+    main.update(&model, .set_right_panel_tab_browser, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .column, "浏览器");
+    try testing.expect(findByText(tree.root, .column, "Browser") == null);
+
+    main.update(&model, .set_right_panel_tab_background, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .column, "后台工作");
+    try testing.expect(findByText(tree.root, .column, "Background work") == null);
+
+    model.right_panel_tab = .diff;
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .scroll_view, "审阅文件");
+    try testing.expect(findByText(tree.root, .scroll_view, "Review files") == null);
+
     model.language_preference = .japanese;
     try testing.expectEqualStrings("ツールバー", model.toolbar_label());
     try testing.expectEqualStrings("サイドバータイトルバー", model.sidebar_titlebar_label());
@@ -30931,15 +31005,39 @@ test "structural region a11y follows Appearance language" {
     try testing.expectEqualStrings("ファイルプレビューエディター", model.file_preview_editor_label());
     try testing.expectEqualStrings("ファイルプレビュー本文", model.file_preview_body_label());
     try testing.expectEqualStrings("ファイルプレビューソース", model.file_preview_source_region_label());
+    try testing.expectEqualStrings("トランスクリプト", model.transcript_label());
+    try testing.expectEqualStrings("会話履歴", model.conversation_history_label());
+    try testing.expectEqualStrings("レビューファイル", model.review_files_label());
+    try testing.expectEqualStrings("バックグラウンド作業", model.background_work_label());
+    try testing.expectEqualStrings("バックグラウンド出力", model.background_output_label());
+    try testing.expectEqualStrings("ブラウザ", model.browser_label());
     try testing.expectEqualStrings(i18n.structuralRegionChromeFor(.japanese, "").embedded_terminal, model.embedded_terminal_label());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .row, "ツールバー");
     _ = try expectByText(tree.root, .row, "サイドバータイトルバー");
-    _ = try expectByText(tree.root, .column, "ターミナル");
-    _ = try expectByText(tree.root, .terminal, "埋め込みターミナル");
+    _ = try expectByText(tree.root, .scroll_view, "トランスクリプト");
+    _ = try expectByText(tree.root, .column, "会話履歴");
+    _ = try expectByText(tree.root, .scroll_view, "レビューファイル");
     try testing.expect(findByText(tree.root, .row, "工具栏") == null);
     try testing.expect(findByText(tree.root, .column, "终端") == null);
+    try testing.expect(findByText(tree.root, .scroll_view, "Transcript") == null);
+    try testing.expect(findByText(tree.root, .scroll_view, "审阅文件") == null);
+
+    main.update(&model, .set_right_panel_tab_terminal, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .column, "ターミナル");
+    _ = try expectByText(tree.root, .terminal, "埋め込みターミナル");
     try testing.expect(findByText(tree.root, .terminal, "埋め込みターミナル") != null);
+
+    main.update(&model, .set_right_panel_tab_browser, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .column, "ブラウザ");
+    try testing.expect(findByText(tree.root, .column, "浏览器") == null);
+
+    main.update(&model, .set_right_panel_tab_background, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .column, "バックグラウンド作業");
+    try testing.expect(findByText(tree.root, .column, "后台工作") == null);
 
     main.update(&model, .set_right_panel_tab_files, &fx);
     tree = try buildTree(arena, &model);
@@ -30952,16 +31050,22 @@ test "structural region a11y follows Appearance language" {
     model.setSystemLocaleId("ja_JP.UTF-8");
     try testing.expectEqualStrings("Toolbar", model.toolbar_label());
     try testing.expectEqualStrings("File preview source", model.file_preview_source_region_label());
+    try testing.expectEqualStrings("Transcript", model.transcript_label());
+    try testing.expectEqualStrings("Browser", model.browser_label());
     try testing.expectEqualStrings(i18n.structuralRegionChromeFor(.english, "ja_JP.UTF-8").toolbar, model.toolbar_label());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .row, "Toolbar");
     _ = try expectByText(tree.root, .column, "File preview");
+    _ = try expectByText(tree.root, .scroll_view, "Transcript");
     try testing.expect(findByText(tree.root, .row, "ツールバー") == null);
+    try testing.expect(findByText(tree.root, .scroll_view, "トランスクリプト") == null);
 
     model.language_preference = .system;
     model.setSystemLocaleId("zh_CN.UTF-8");
     try testing.expectEqualStrings("工具栏", model.toolbar_label());
     try testing.expectEqualStrings("文件预览源码", model.file_preview_source_region_label());
+    try testing.expectEqualStrings("对话记录", model.transcript_label());
+    try testing.expectEqualStrings("浏览器", model.browser_label());
     try testing.expectEqualStrings(i18n.structuralRegionChromeFor(.system, "zh_CN.UTF-8").sidebar_titlebar, model.sidebar_titlebar_label());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .row, "工具栏");
@@ -30971,6 +31075,8 @@ test "structural region a11y follows Appearance language" {
     model.setSystemLocaleId("ja_JP.UTF-8");
     try testing.expectEqualStrings("ツールバー", model.toolbar_label());
     try testing.expectEqualStrings("埋め込みターミナル", model.embedded_terminal_label());
+    try testing.expectEqualStrings("トランスクリプト", model.transcript_label());
+    try testing.expectEqualStrings("ブラウザ", model.browser_label());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .row, "ツールバー");
     try testing.expect(findByText(tree.root, .row, "工具栏") == null);
@@ -30978,9 +31084,13 @@ test "structural region a11y follows Appearance language" {
     model.setSystemLocaleId("");
     try testing.expectEqualStrings("Toolbar", model.toolbar_label());
     try testing.expectEqualStrings("Sidebar titlebar", model.sidebar_titlebar_label());
+    try testing.expectEqualStrings("Transcript", model.transcript_label());
+    try testing.expectEqualStrings("Conversation history", model.conversation_history_label());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .row, "Toolbar");
     _ = try expectByText(tree.root, .row, "Sidebar titlebar");
+    _ = try expectByText(tree.root, .scroll_view, "Transcript");
+    _ = try expectByText(tree.root, .column, "Conversation history");
 }
 
 test "empty transcript welcome chrome follows Appearance language" {
