@@ -1770,8 +1770,9 @@ Honest gaps this cut does not implement:
   `sidecar_keys.zig` with no thin `main` re-exports; git / review /
   skills / probe spawn effect keys live in `git_keys.zig` with no
   thin `main` re-exports; Model / Msg barrel re-exports live in
-  `model_exports.zig` with no thin `main` re-exports; remaining
-  `main.zig` leftovers are `main()` + demo seed strings)
+  `model_exports.zig` with no thin `main` re-exports; command palette
+  ids / rows live in `palette.zig` with no thin `main` re-exports;
+  remaining `main.zig` leftovers are `main()` + demo seed strings)
 - Embedded Browser first-cut (right-panel Browser is a Native canvas
   webview via `web_panes` / scene `.webview` `browser-web-0`..`3`;
   **Open in browser** stays OS-open via `open` / `xdg-open` / Windows

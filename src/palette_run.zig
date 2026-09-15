@@ -43,9 +43,9 @@ const pick_folder = @import("pick_folder.zig");
 
 const Model = model_exports.Model;
 const Effects = main.Effects;
-const PaletteAction = main.PaletteAction;
-const palette_action_id_base = main.palette_action_id_base;
-const palette_header_id_base = main.palette_header_id_base;
+const PaletteAction = palette.PaletteAction;
+const palette_action_id_base = palette.palette_action_id_base;
+const palette_header_id_base = palette.palette_header_id_base;
 
 pub fn openPalette(model: *Model) void {
     session_switcher.closeSwitcher(model);
