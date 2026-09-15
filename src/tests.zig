@@ -11526,9 +11526,9 @@ test "sidebar Search opens the command palette; title match stays in Tasks" {
     _ = try expectButton(tree.root, "port waku to zig");
     _ = try expectButton(tree.root, "fix auth listener");
     _ = try expectByText(tree.root, .text, "Today");
-    const palette = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
-    _ = try expectButton(palette, "port waku to zig");
-    try testing.expect(findPressableContaining(palette, "fix auth listener") == null);
+    const palette_dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    _ = try expectButton(palette_dialog, "port waku to zig");
+    try testing.expect(findPressableContaining(palette_dialog, "fix auth listener") == null);
 
     main.update(&model, .{ .search_edit = .clear }, &fx);
     try testing.expectEqualStrings("", model.search_query());
@@ -12227,9 +12227,9 @@ test "cmd-f and ctrl-f open transcript find via onKey" {
     try testing.expect(model.find_active);
 
     tree = try buildTree(arena, &model);
-    const palette = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
-    try testing.expectEqualStrings("Command palette", widgetName(palette));
-    if (findByKind(palette, .search_field)) |field| {
+    const palette_dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    try testing.expectEqualStrings("Command palette", widgetName(palette_dialog));
+    if (findByKind(palette_dialog, .search_field)) |field| {
         try testing.expectEqualStrings("Search", field.placeholder);
     } else return error.WidgetNotFound;
     _ = try expectByText(tree.root, .search_field, "Find in transcript");
@@ -17055,9 +17055,9 @@ test "palette Tasks still matches session titles across folders" {
     _ = try expectButton(tree.root, "fix auth listener");
     _ = try expectByText(tree.root, .text, "Today");
     _ = try expectByText(tree.root, .list_item, "New folder");
-    const palette = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
-    _ = try expectButton(palette, "port waku to zig");
-    try testing.expect(findPressableContaining(palette, "fix auth listener") == null);
+    const palette_dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    _ = try expectButton(palette_dialog, "port waku to zig");
+    try testing.expect(findPressableContaining(palette_dialog, "fix auth listener") == null);
 
     main.update(&model, .{ .toggle_folder = folder_id }, &fx);
     try expectSidebarTitles(model.sidebar_rows(arena), &.{
@@ -17256,9 +17256,9 @@ test "grouped folder sessions get a Native guide rail; Today rows stay flush" {
     _ = try expectByText(tree.root, .list_item, "rewrite the parser");
     _ = try expectButton(tree.root, "port waku to zig");
     try testing.expect(sessionRowHasGroupRail(tree.root, "rewrite the parser"));
-    const palette = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
-    _ = try expectButton(palette, "rewrite the parser");
-    try testing.expect(findPressableContaining(palette, "port waku to zig") == null);
+    const palette_dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    _ = try expectButton(palette_dialog, "rewrite the parser");
+    try testing.expect(findPressableContaining(palette_dialog, "port waku to zig") == null);
 
     main.update(&model, .stop, &fx);
     main.update(&model, .{ .toggle_folder = folder_id }, &fx);
