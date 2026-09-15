@@ -33512,6 +33512,104 @@ test "settings Usage progress a11y chrome follows Appearance language" {
     try testing.expect(findByText(tree.root, .progress, "会话上下文") == null);
 }
 
+test "composer Usage meter toggle follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{usage_meter_toggle_label}"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Usage</button>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"toggle_usage_meter\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "selected=\"{usage_meter_open}\""));
+    try testing.expectEqual(@as(usize, 1), countNeedle(main.app_markup, "label=\"{usage_meter_label}\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"toggle_usage_meter\">Usage</button>") == null);
+
+    var model = main.initialModel();
+    try testing.expect(model.usage_meter_available());
+    try testing.expectEqualStrings("Usage", model.usage_meter_toggle_label());
+    try testing.expectEqualStrings("Usage meter", model.usage_meter_label());
+    try testing.expectEqualStrings(i18n.chromeFor(.english, "").usage, model.usage_meter_toggle_label());
+    try testing.expectEqualStrings(model.settings_nav_usage(), model.usage_meter_toggle_label());
+    try testing.expect(!std.mem.eql(u8, model.usage_meter_toggle_label(), model.usage_meter_label()));
+
+    var tree = try buildTree(arena, &model);
+    const usage_btn = try expectButtonMsg(tree, "Usage", .toggle_usage_meter);
+    try testing.expect(!usage_btn.state.selected);
+    _ = try expectByText(tree.root, .progress, "Usage meter");
+    try testing.expect(findByText(tree.root, .button, "用量") == null);
+    try testing.expect(findByText(tree.root, .button, "使用量") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("用量", model.usage_meter_toggle_label());
+    try testing.expectEqualStrings("用量计", model.usage_meter_label());
+    try testing.expectEqualStrings(i18n.chromeFor(.simplified_chinese, "").usage, model.usage_meter_toggle_label());
+    try testing.expectEqualStrings(model.settings_nav_usage(), model.usage_meter_toggle_label());
+    try testing.expect(!std.mem.eql(u8, model.usage_meter_toggle_label(), model.usage_meter_label()));
+    tree = try buildTree(arena, &model);
+    const zh_btn = try expectButtonMsg(tree, "用量", .toggle_usage_meter);
+    try testing.expect(!zh_btn.state.selected);
+    _ = try expectByText(tree.root, .progress, "用量计");
+    try testing.expect(findByText(tree.root, .button, "Usage") == null);
+    try testing.expect(findByText(tree.root, .progress, "Usage meter") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("使用量", model.usage_meter_toggle_label());
+    try testing.expectEqualStrings("使用量メーター", model.usage_meter_label());
+    try testing.expectEqualStrings(i18n.chromeFor(.japanese, "").usage, model.usage_meter_toggle_label());
+    try testing.expectEqualStrings(model.settings_nav_usage(), model.usage_meter_toggle_label());
+    try testing.expect(!std.mem.eql(u8, model.usage_meter_toggle_label(), model.usage_meter_label()));
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "使用量", .toggle_usage_meter);
+    _ = try expectByText(tree.root, .progress, "使用量メーター");
+    try testing.expect(findByText(tree.root, .button, "Usage") == null);
+    try testing.expect(findByText(tree.root, .button, "用量") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("Usage", model.usage_meter_toggle_label());
+    try testing.expectEqualStrings("Usage meter", model.usage_meter_label());
+    try testing.expectEqualStrings(i18n.chromeFor(.english, "zh_CN.UTF-8").usage, model.usage_meter_toggle_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Usage", .toggle_usage_meter);
+    _ = try expectByText(tree.root, .progress, "Usage meter");
+    try testing.expect(findByText(tree.root, .button, "用量") == null);
+    try testing.expect(findByText(tree.root, .progress, "用量计") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("用量", model.usage_meter_toggle_label());
+    try testing.expectEqualStrings(i18n.chromeFor(.system, "zh_CN.UTF-8").usage, model.usage_meter_toggle_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "用量", .toggle_usage_meter);
+    try testing.expect(findByText(tree.root, .button, "Usage") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("使用量", model.usage_meter_toggle_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "使用量", .toggle_usage_meter);
+    try testing.expect(findByText(tree.root, .button, "用量") == null);
+
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Usage", model.usage_meter_toggle_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Usage", .toggle_usage_meter);
+
+    model.language_preference = .simplified_chinese;
+    tree = try buildTree(arena, &model);
+    const selected_btn = try expectButtonMsg(tree, "用量", .toggle_usage_meter);
+    try testing.expect(!selected_btn.state.selected);
+    main.update(&model, .toggle_usage_meter, &fx);
+    try testing.expect(model.usage_meter_open);
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "用量", .toggle_usage_meter)).state.selected);
+    _ = try expectByText(tree.root, .progress, "用量计");
+    try testing.expect(findByText(tree.root, .button, "Usage") == null);
+}
+
 test "Settings Providers Available Not found Enable Disable Copy First-party follow Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

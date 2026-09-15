@@ -262,6 +262,9 @@
 //! `UsageChartA11yChrome` / `UsageLocalChrome` Context window
 //! heading / `UsageMeterChrome` plan-usage hints / `Chrome.usage`
 //! so progress a11y stays independently evolvable)
+//! plus composer Usage meter toggle (same `Chrome.usage` as
+//! Settings nav Usage; distinct from `UsageProgressA11yChrome`
+//! Usage meter progress a11y)
 //! plus Review Diff Native `<code>` / `<scroll>` a11y Review hunk /
 //! Review hunks (same `ReviewHunkA11yChrome` strings; distinct from
 //! `ReviewDiffChrome` so hunk a11y stays independently evolvable)
@@ -486,7 +489,10 @@
 //! strings; distinct from `UsageChartA11yChrome` /
 //! `UsageLocalChrome` Context window heading / `UsageMeterChrome`
 //! plan-usage hints / `Chrome.usage` so progress a11y stays
-//! independently evolvable). Review Diff Native `<code>` /
+//! independently evolvable). Composer footer Usage meter toggle
+//! follows the resolved locale this cut (same `Chrome.usage` as
+//! Settings nav Usage; distinct from `UsageProgressA11yChrome`
+//! Usage meter progress a11y). Review Diff Native `<code>` /
 //! `<scroll>` a11y Review hunk / Review hunks follow the
 //! resolved locale this cut (same `ReviewHunkA11yChrome`
 //! strings; distinct from `ReviewDiffChrome` so hunk a11y

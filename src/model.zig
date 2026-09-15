@@ -7060,11 +7060,22 @@ pub const Model = struct {
         return model.usageProgressA11yChrome().context_usage;
     }
 
-    /// Composer footer Native `<progress>` a11y for Usage meter.
-    /// Distinct from `usage_meter_progress` (share) and from
-    /// `i18n.Chrome.usage` (meter toggle "Usage").
+    /// Composer footer Native `<progress>` a11y for Usage meter
+    /// (`i18n.UsageProgressA11yChrome.usage_meter`, "Usage meter" /
+    /// longer forms). Distinct from `usage_meter_progress` (share)
+    /// and from `usage_meter_toggle_label` (visible toggle via
+    /// `i18n.Chrome.usage`).
     pub fn usage_meter_label(model: *const Model) []const u8 {
         return model.usageProgressA11yChrome().usage_meter;
+    }
+
+    /// Composer footer Usage meter toggle. Same `i18n.Chrome.usage`
+    /// as Settings nav Usage. Distinct getter from `settings_nav_usage`.
+    /// Distinct from `usage_meter_label`
+    /// (`i18n.UsageProgressA11yChrome.usage_meter`). `on-press` stays
+    /// `toggle_usage_meter`.
+    pub fn usage_meter_toggle_label(model: *const Model) []const u8 {
+        return model.settingsChrome().usage;
     }
 
     /// Composer Usage meter panel nested Native `<progress>` a11y
