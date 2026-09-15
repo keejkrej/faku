@@ -6964,6 +6964,8 @@ pub const Model = struct {
         return usage_meter.planHeader(model, arena);
     }
 
+    /// Known Session/Weekly/5h window labels via `i18n.PlanWindowChrome`.
+    /// Unknown labels and cache storage stay wire English data.
     pub fn usage_meter_plan_rows(model: *const Model, arena: std.mem.Allocator) []UsageMeterRow {
         if (!model.usage_meter_open) return &.{};
         return usage_meter.planRows(model, arena);

@@ -34,8 +34,10 @@
 //! T3 layered Usage chart. Amend/force and remote `--track` stay
 //! local (not daemon WorkspaceOperation variants). Plan-usage meter
 //! chrome follows `i18n.UsageMeterChrome` (distinct from Settings
-//! Usage history `UsageSessionsChrome`); daemon plan window labels /
-//! planLabel stay English data.
+//! Usage history `UsageSessionsChrome`). Known Session/Weekly/5h
+//! plan window labels follow `i18n.PlanWindowChrome` at paint time
+//! (`planRows`); cache stays wire text. planLabel and unknown
+//! window labels stay English data.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -77,6 +79,10 @@ pub const nothing_measured = usage_meter_chrome_en.nothing_measured;
 
 fn meterChrome(model: *const Model) i18n.UsageMeterChrome {
     return i18n.usageMeterChromeFor(model.language_preference, model.systemLocaleId());
+}
+
+fn windowChrome(model: *const Model) i18n.PlanWindowChrome {
+    return i18n.planWindowChromeFor(model.language_preference, model.systemLocaleId());
 }
 
 pub const Row = struct {
@@ -517,6 +523,7 @@ pub fn planRows(model: *const Model, arena: std.mem.Allocator) []Row {
     const count = cache.window_count;
     if (count == 0) return &.{};
     const chrome = meterChrome(model);
+    const windows = windowChrome(model);
     const rows = arena.alloc(Row, count) catch return &.{};
     var i: usize = 0;
     while (i < count) : (i += 1) {
@@ -528,7 +535,7 @@ pub fn planRows(model: *const Model, arena: std.mem.Allocator) []Row {
         const resets = if (window.resets_at) |at| formatResets(&reset_buf, at, model.now_ms, chrome) else "";
         rows[i] = .{
             .id = @intCast(i + 1),
-            .line = copyArena(arena, window.label()),
+            .line = copyArena(arena, windows.labelForWire(window.label())),
             .share = share,
             .percent = copyArena(arena, percent),
             .resets = copyArena(arena, resets),
@@ -564,6 +571,7 @@ fn pendingSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
 
 const plan_usage_ok_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000018\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"planUsage\",\"usage\":{\"planLabel\":\"Max (5x)\",\"windows\":[{\"label\":\"Session\",\"percent\":42,\"resetsAt\":1750003600},{\"label\":\"Weekly\",\"percent\":80,\"resetsAt\":1750086400}]}}}}";
 const plan_usage_codex_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000018\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"planUsage\",\"usage\":{\"planLabel\":\"Plus\",\"windows\":[{\"label\":\"5h\",\"percent\":10,\"resetsAt\":1750003600}]}}}}";
+const plan_usage_custom_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000018\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"planUsage\",\"usage\":{\"planLabel\":\"Max (5x)\",\"windows\":[{\"label\":\"CustomWindow\",\"percent\":10,\"resetsAt\":1750003600}]}}}}";
 const plan_usage_null_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000018\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"planUsage\",\"usage\":null}}}";
 const plan_usage_ack_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000018\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"ack\"}}}";
 
@@ -1371,6 +1379,9 @@ test "hint, contextLabel, planHeader, and formatResets follow Appearance languag
     try std.testing.expectEqual(@as(usize, 2), en_rows.len);
     try std.testing.expectEqualStrings("Resets in 1h", en_rows[0].resets);
     try std.testing.expectEqualStrings("Session", en_rows[0].line);
+    try std.testing.expectEqualStrings("Weekly", en_rows[1].line);
+    try std.testing.expectEqualStrings("Session", model.plan_usage.claude.cache.windows[0].label());
+    try std.testing.expectEqualStrings("Weekly", model.plan_usage.claude.cache.windows[1].label());
 
     var reset_buf: [48]u8 = undefined;
     const en = i18n.usageMeterChromeFor(.english, "");
@@ -1381,6 +1392,9 @@ test "hint, contextLabel, planHeader, and formatResets follow Appearance languag
 
     model.language_preference = .simplified_chinese;
     try std.testing.expectEqualStrings("套餐限额 · Max (5x)", planHeader(&model, arena));
+    try std.testing.expectEqualStrings("会话", planRows(&model, arena)[0].line);
+    try std.testing.expectEqualStrings("每周", planRows(&model, arena)[1].line);
+    try std.testing.expectEqualStrings("Session", model.plan_usage.claude.cache.windows[0].label());
     try std.testing.expectEqualStrings("剩余 1h", planRows(&model, arena)[0].resets);
     const zh = i18n.usageMeterChromeFor(.simplified_chinese, "");
     try std.testing.expectEqualStrings("即将重置", formatResets(&reset_buf, 1_750_000_000, 1_750_000_000_000, zh));
@@ -1393,6 +1407,8 @@ test "hint, contextLabel, planHeader, and formatResets follow Appearance languag
 
     model.language_preference = .japanese;
     try std.testing.expectEqualStrings("プラン上限 · Max (5x)", planHeader(&model, arena));
+    try std.testing.expectEqualStrings("セッション", planRows(&model, arena)[0].line);
+    try std.testing.expectEqualStrings("週間", planRows(&model, arena)[1].line);
     try std.testing.expectEqualStrings("あと 1h", planRows(&model, arena)[0].resets);
     const ja = i18n.usageMeterChromeFor(.japanese, "");
     try std.testing.expectEqualStrings("まもなくリセット", formatResets(&reset_buf, 1_750_000_000, 1_750_000_000_000, ja));
@@ -1404,8 +1420,81 @@ test "hint, contextLabel, planHeader, and formatResets follow Appearance languag
     model.setSystemLocaleId("ja_JP.UTF-8");
     try std.testing.expectEqualStrings("Plan limits · Max (5x)", planHeader(&model, arena));
     try std.testing.expectEqualStrings("Resets in 1h", planRows(&model, arena)[0].resets);
+    try std.testing.expectEqualStrings("Session", planRows(&model, arena)[0].line);
 
     model.language_preference = .system;
     try std.testing.expectEqualStrings("プラン上限 · Max (5x)", planHeader(&model, arena));
     try std.testing.expectEqualStrings("あと 1h", planRows(&model, arena)[0].resets);
+    try std.testing.expectEqualStrings("セッション", planRows(&model, arena)[0].line);
+}
+
+test "planRows maps known Session/Weekly/5h window labels; unknown and cache stay wire" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    model.now_ms = 1_750_000_000_000;
+    const id = model.addSession("usage window labels", .claude);
+    model.selected = id;
+    open(&model, &fx);
+    finishPlanUsageOk(&model);
+
+    try std.testing.expectEqualStrings("Session", planRows(&model, arena)[0].line);
+    try std.testing.expectEqualStrings("Weekly", planRows(&model, arena)[1].line);
+    try std.testing.expectEqualStrings("Session", model.plan_usage.claude.cache.windows[0].label());
+    try std.testing.expectEqualStrings("Weekly", model.plan_usage.claude.cache.windows[1].label());
+    try std.testing.expectEqualStrings("Plan limits · Max (5x)", planHeader(&model, arena));
+
+    model.language_preference = .simplified_chinese;
+    try std.testing.expectEqualStrings("会话", planRows(&model, arena)[0].line);
+    try std.testing.expectEqualStrings("每周", planRows(&model, arena)[1].line);
+    try std.testing.expectEqualStrings("Session", model.plan_usage.claude.cache.windows[0].label());
+    try std.testing.expectEqualStrings("Weekly", model.plan_usage.claude.cache.windows[1].label());
+    try std.testing.expectEqualStrings("套餐限额 · Max (5x)", planHeader(&model, arena));
+
+    model.language_preference = .japanese;
+    try std.testing.expectEqualStrings("セッション", planRows(&model, arena)[0].line);
+    try std.testing.expectEqualStrings("週間", planRows(&model, arena)[1].line);
+    try std.testing.expectEqualStrings("Session", model.plan_usage.claude.cache.windows[0].label());
+    try std.testing.expectEqualStrings("プラン上限 · Max (5x)", planHeader(&model, arena));
+
+    model.language_preference = .english;
+    const codex_id = model.addSession("usage window 5h", .codex);
+    model.selected = codex_id;
+    open(&model, &fx);
+    finishPlanUsageLine(&model, plan_usage_codex_line);
+    try std.testing.expectEqualStrings("5h", planRows(&model, arena)[0].line);
+    try std.testing.expectEqualStrings("5h", model.plan_usage.codex.cache.windows[0].label());
+    try std.testing.expectEqualStrings("Plan limits · Plus", planHeader(&model, arena));
+
+    model.language_preference = .simplified_chinese;
+    try std.testing.expectEqualStrings("5h", planRows(&model, arena)[0].line);
+    try std.testing.expectEqualStrings("5h", model.plan_usage.codex.cache.windows[0].label());
+    try std.testing.expectEqualStrings("套餐限额 · Plus", planHeader(&model, arena));
+
+    model.language_preference = .japanese;
+    try std.testing.expectEqualStrings("5h", planRows(&model, arena)[0].line);
+    try std.testing.expectEqualStrings("あと 1h", planRows(&model, arena)[0].resets);
+
+    model.language_preference = .english;
+    model.selected = id;
+    open(&model, &fx);
+    finishPlanUsageLine(&model, plan_usage_custom_line);
+    try std.testing.expectEqualStrings("CustomWindow", planRows(&model, arena)[0].line);
+    try std.testing.expectEqualStrings("CustomWindow", model.plan_usage.claude.cache.windows[0].label());
+
+    model.language_preference = .simplified_chinese;
+    try std.testing.expectEqualStrings("CustomWindow", planRows(&model, arena)[0].line);
+    try std.testing.expectEqualStrings("CustomWindow", model.plan_usage.claude.cache.windows[0].label());
+    try std.testing.expectEqualStrings("套餐限额 · Max (5x)", planHeader(&model, arena));
+
+    model.language_preference = .japanese;
+    try std.testing.expectEqualStrings("CustomWindow", planRows(&model, arena)[0].line);
 }
