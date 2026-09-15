@@ -183,6 +183,12 @@
 //! composer placeholders stay independently evolvable; `on-input`
 //! / on-submit stay `draft_edit` / `composer_enter`; draft text
 //! stays data)
+//! plus composer Message composer Native `<input-group>` a11y
+//! (same `ComposerRegionChrome` strings; distinct from
+//! `ComposerChrome` / `ComposerSendStopChrome` /
+//! `ComposerPlaceholderChrome` so the region a11y stays
+//! independently evolvable; Native surfaces `label=` as the
+//! accessible name)
 //! plus empty-transcript welcome title / subtitle (same
 //! `WelcomeChrome` strings; distinct from `HeaderUntitledChrome` /
 //! `ComposerPlaceholderChrome` / `QueueChrome` so welcome wording
@@ -449,7 +455,13 @@
 //! textarea idle / streaming placeholders follow the resolved
 //! locale this cut (same `ComposerPlaceholderChrome` strings;
 //! `on-input` / on-submit stay English (`draft_edit` /
-//! `composer_enter`); draft text stays data). Empty-transcript
+//! `composer_enter`); draft text stays data). Composer Message
+//! composer Native `<input-group>` a11y follows the resolved
+//! locale this cut (same `ComposerRegionChrome` strings; distinct
+//! from `ComposerChrome` / `ComposerSendStopChrome` /
+//! `ComposerPlaceholderChrome` so the region a11y stays
+//! independently evolvable; Native surfaces `label=` as the
+//! accessible name). Empty-transcript
 //! welcome title / subtitle follow the resolved locale this cut
 //! (same `WelcomeChrome` strings; distinct from
 //! `HeaderUntitledChrome` / `ComposerPlaceholderChrome` /
@@ -2435,6 +2447,29 @@ const composer_placeholder_chrome_ja: ComposerPlaceholderChrome = .{
     .streaming = "フォローアップをキュー...",
 };
 
+/// Composer Message composer Native `<input-group>` a11y for the
+/// resolved locale. Same resolve path as ComposerPlaceholderChrome.
+/// English matches the former hardcoded copy. Distinct from
+/// `ComposerChrome` (image/goal/commands), `ComposerSendStopChrome`
+/// (Send/Stop), and `ComposerPlaceholderChrome` (textarea
+/// placeholders) so the region a11y stays independently evolvable.
+/// Native surfaces `label=` as the accessible name.
+pub const ComposerRegionChrome = struct {
+    message_composer: []const u8,
+};
+
+const composer_region_chrome_en: ComposerRegionChrome = .{
+    .message_composer = "Message composer",
+};
+
+const composer_region_chrome_zh_cn: ComposerRegionChrome = .{
+    .message_composer = "消息输入区",
+};
+
+const composer_region_chrome_ja: ComposerRegionChrome = .{
+    .message_composer = "メッセージ入力",
+};
+
 /// Empty-transcript welcome title / subtitle for the resolved locale
 /// (centered empty state above the composer). Same resolve path as
 /// ComposerPlaceholderChrome. English matches the former hardcoded
@@ -4265,6 +4300,20 @@ pub fn composerPlaceholderChromeFor(preference: LanguagePreference, system_local
         .simplified_chinese => composer_placeholder_chrome_zh_cn,
         .japanese => composer_placeholder_chrome_ja,
         .system, .english => composer_placeholder_chrome_en,
+    };
+}
+
+/// Composer Message composer Native `<input-group>` a11y for the
+/// resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from ComposerChrome / ComposerSendStopChrome /
+/// ComposerPlaceholderChrome so the region a11y stays independently
+/// evolvable. Native surfaces `label=` as the accessible name.
+pub fn composerRegionChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ComposerRegionChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => composer_region_chrome_zh_cn,
+        .japanese => composer_region_chrome_ja,
+        .system, .english => composer_region_chrome_en,
     };
 }
 
@@ -6491,6 +6540,29 @@ test "composerPlaceholderChromeFor english default; zh and ja chrome; english ig
     try testing.expect(!std.mem.eql(u8, composerPlaceholderChromeFor(.japanese, "").streaming, queueChromeFor(.japanese, "").queued));
     try testing.expect(!std.mem.eql(u8, composerPlaceholderChromeFor(.english, "").idle, composerChromeFor(.english, "").image_path));
     try testing.expect(!std.mem.eql(u8, composerPlaceholderChromeFor(.english, "").idle, composerSendStopChromeFor(.english, "").send));
+}
+
+test "composerRegionChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Message composer", composerRegionChromeFor(.english, "ja").message_composer);
+    try testing.expectEqualStrings("Message composer", composerRegionChromeFor(.english, "").message_composer);
+    try testing.expectEqualStrings("Message composer", composerRegionChromeFor(.system, "").message_composer);
+
+    try testing.expectEqualStrings("消息输入区", composerRegionChromeFor(.simplified_chinese, "").message_composer);
+    try testing.expectEqualStrings("メッセージ入力", composerRegionChromeFor(.japanese, "").message_composer);
+
+    try testing.expectEqualStrings("消息输入区", composerRegionChromeFor(.system, "zh_CN.UTF-8").message_composer);
+    try testing.expectEqualStrings("メッセージ入力", composerRegionChromeFor(.system, "ja_JP.UTF-8").message_composer);
+    try testing.expectEqualStrings("Message composer", composerRegionChromeFor(.english, "ja_JP.UTF-8").message_composer);
+    try testing.expectEqualStrings("Message composer", composerRegionChromeFor(.english, "zh_CN.UTF-8").message_composer);
+
+    try testing.expect(!std.mem.eql(u8, composerRegionChromeFor(.english, "").message_composer, composerChromeFor(.english, "").attach_image));
+    try testing.expect(!std.mem.eql(u8, composerRegionChromeFor(.english, "").message_composer, composerSendStopChromeFor(.english, "").send));
+    try testing.expect(!std.mem.eql(u8, composerRegionChromeFor(.english, "").message_composer, composerPlaceholderChromeFor(.english, "").idle));
+    try testing.expect(!std.mem.eql(u8, composerRegionChromeFor(.simplified_chinese, "").message_composer, composerRegionChromeFor(.english, "").message_composer));
+    try testing.expect(!std.mem.eql(u8, composerRegionChromeFor(.japanese, "").message_composer, composerRegionChromeFor(.english, "").message_composer));
+    try testing.expect(!std.mem.eql(u8, composerRegionChromeFor(.simplified_chinese, "").message_composer, composerPlaceholderChromeFor(.simplified_chinese, "").idle));
+    try testing.expect(!std.mem.eql(u8, composerRegionChromeFor(.japanese, "").message_composer, composerPlaceholderChromeFor(.japanese, "").idle));
 }
 
 test "welcomeChromeFor english default; zh and ja chrome; english ignores ja LANG" {

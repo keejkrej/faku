@@ -30721,6 +30721,78 @@ test "composer textarea placeholders follow Appearance language" {
     try testing.expect(findByPlaceholder(tree.root, .textarea, "Queue a follow-up...") == null);
 }
 
+test "composer Message composer a11y follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{message_composer_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<input-group grow=\"1\" label=\"{message_composer_label}\" height=\"88\">"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Message composer\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "<input-group grow=\"1\" label=\"Message composer\" height=\"88\">"));
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Message composer", model.message_composer_label());
+    try testing.expectEqualStrings(i18n.composerRegionChromeFor(.english, "").message_composer, model.message_composer_label());
+    try testing.expect(!std.mem.eql(u8, model.message_composer_label(), model.composer_placeholder()));
+    try testing.expect(!std.mem.eql(u8, model.message_composer_label(), model.composer_send_label()));
+    try testing.expect(!std.mem.eql(u8, model.message_composer_label(), model.attach_image_label()));
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .input_group, "Message composer");
+    try testing.expect(findByText(tree.root, .input_group, "消息输入区") == null);
+    try testing.expect(findByText(tree.root, .input_group, "メッセージ入力") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("消息输入区", model.message_composer_label());
+    try testing.expectEqualStrings(i18n.composerRegionChromeFor(.simplified_chinese, "").message_composer, model.message_composer_label());
+    try testing.expect(!std.mem.eql(u8, model.message_composer_label(), model.composer_placeholder()));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .input_group, "消息输入区");
+    try testing.expect(findByText(tree.root, .input_group, "Message composer") == null);
+    try testing.expect(findByText(tree.root, .input_group, "メッセージ入力") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("メッセージ入力", model.message_composer_label());
+    try testing.expectEqualStrings(i18n.composerRegionChromeFor(.japanese, "").message_composer, model.message_composer_label());
+    try testing.expect(!std.mem.eql(u8, model.message_composer_label(), model.composer_placeholder()));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .input_group, "メッセージ入力");
+    try testing.expect(findByText(tree.root, .input_group, "消息输入区") == null);
+    try testing.expect(findByText(tree.root, .input_group, "Message composer") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Message composer", model.message_composer_label());
+    try testing.expectEqualStrings(i18n.composerRegionChromeFor(.english, "ja_JP.UTF-8").message_composer, model.message_composer_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .input_group, "Message composer");
+    try testing.expect(findByText(tree.root, .input_group, "メッセージ入力") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("消息输入区", model.message_composer_label());
+    try testing.expectEqualStrings(i18n.composerRegionChromeFor(.system, "zh_CN.UTF-8").message_composer, model.message_composer_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .input_group, "消息输入区");
+    try testing.expect(findByText(tree.root, .input_group, "Message composer") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("メッセージ入力", model.message_composer_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .input_group, "メッセージ入力");
+    try testing.expect(findByText(tree.root, .input_group, "消息输入区") == null);
+
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Message composer", model.message_composer_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .input_group, "Message composer");
+}
+
 test "empty transcript welcome chrome follows Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
