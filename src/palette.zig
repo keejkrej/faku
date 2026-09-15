@@ -13,7 +13,9 @@
 //! (`i18n.PaletteChrome.dialog_title`).
 //! Ids / `PaletteAction` / keywords stay English. Matching checks the
 //! English spec label, the localized label, and English keywords.
-//! Behavior is otherwise unchanged from the former `main` palette helpers.
+//! Callers import this module directly (`palette.PaletteRow` /
+//! `palette.paletteActionId`). Not re-exported from `main`. Behavior
+//! is otherwise unchanged from the former `main` palette helpers.
 
 const std = @import("std");
 const main = @import("main.zig");

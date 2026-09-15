@@ -55,7 +55,6 @@ const daemon_proxy = @import("daemon_proxy.zig");
 const acp_proxy = @import("acp_proxy.zig");
 const rewind = @import("rewind.zig");
 const keys = @import("keys.zig");
-const palette = @import("palette.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
 const goal = @import("goal.zig");
 const composer = @import("composer.zig");
@@ -96,14 +95,6 @@ pub const folder_row_id_base: u32 = 1_000_000;
 pub const date_row_id_base = sidebar_row_helpers.date_row_id_base;
 /// Runtime-only Ctrl-Tab switcher snapshot. Same cap as Waku's overlay.
 pub const switcher_cap = session_switcher.switcher_cap;
-pub const palette_action_id_base = palette.palette_action_id_base;
-pub const palette_header_id_base = palette.palette_header_id_base;
-pub const palette_max_task_results = palette.palette_max_task_results;
-pub const palette_result_row_height = palette.palette_result_row_height;
-pub const palette_search_row_height = palette.palette_search_row_height;
-pub const palette_section_header_height = palette.palette_section_header_height;
-pub const palette_card_width = palette.palette_card_width;
-pub const palette_card_height = palette.palette_card_height;
 pub const fx_env_bin = "/usr/bin/env";
 pub const max_line_keep = 4096;
 
@@ -127,11 +118,6 @@ pub const accessLabel = composer.accessLabel;
 pub const nextReasoningEffort = composer.nextReasoningEffort;
 pub const effortLabel = composer.effortLabel;
 pub const imagePathFromDrop = composer.imagePathFromDrop;
-
-pub const PaletteRow = palette.PaletteRow;
-pub const PaletteAction = palette.PaletteAction;
-pub const PaletteActionSpec = palette.PaletteActionSpec;
-pub const paletteActionId = palette.paletteActionId;
 
 pub const BackgroundRow = environment_summary.BackgroundRow;
 pub const FilePreviewLineRow = right_panel.FilePreviewLineRow;

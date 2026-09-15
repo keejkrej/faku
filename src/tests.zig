@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
 const model_exports = @import("model_exports.zig");
+const palette = @import("palette.zig");
 const effect_keys = @import("effect_keys.zig");
 const layout_mod = @import("layout.zig");
 const shell = @import("shell.zig");
@@ -5121,7 +5122,7 @@ test "palette Reveal project folder runs the same handler" {
     const empty = model.palette_rows(arena);
     try testing.expect(paletteHasLabel(empty, "Reveal project folder"));
     try testing.expect(paletteRowIsAction(empty, "Reveal project folder"));
-    try testing.expectEqual(main.paletteActionId(.reveal_folder), paletteRowId(empty, "Reveal project folder"));
+    try testing.expectEqual(palette.paletteActionId(.reveal_folder), paletteRowId(empty, "Reveal project folder"));
 
     main.update(&model, .{ .search_edit = .{ .insert_text = "finder" } }, &fx);
     try testing.expect(paletteHasLabel(model.palette_rows(arena), "Reveal project folder"));
@@ -5132,7 +5133,7 @@ test "palette Reveal project folder runs the same handler" {
     const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
     const pick = try expectButton(dialog, "Reveal project folder");
     try testing.expectEqual(
-        Msg{ .palette_pick = main.paletteActionId(.reveal_folder) },
+        Msg{ .palette_pick = palette.paletteActionId(.reveal_folder) },
         tree.msgForPointer(pick.id, .up).?,
     );
     main.update(&model, tree.msgForPointer(pick.id, .up).?, &fx);
@@ -5405,7 +5406,7 @@ test "palette Open project in Terminal runs the same handler" {
     const empty = model.palette_rows(arena);
     try testing.expect(paletteHasLabel(empty, "Open project in Terminal"));
     try testing.expect(paletteRowIsAction(empty, "Open project in Terminal"));
-    try testing.expectEqual(main.paletteActionId(.open_terminal), paletteRowId(empty, "Open project in Terminal"));
+    try testing.expectEqual(palette.paletteActionId(.open_terminal), paletteRowId(empty, "Open project in Terminal"));
 
     main.update(&model, .{ .search_edit = .{ .insert_text = "iterm" } }, &fx);
     try testing.expect(paletteHasLabel(model.palette_rows(arena), "Open project in Terminal"));
@@ -5416,7 +5417,7 @@ test "palette Open project in Terminal runs the same handler" {
     const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
     const pick = try expectButton(dialog, "Open project in Terminal");
     try testing.expectEqual(
-        Msg{ .palette_pick = main.paletteActionId(.open_terminal) },
+        Msg{ .palette_pick = palette.paletteActionId(.open_terminal) },
         tree.msgForPointer(pick.id, .up).?,
     );
     main.update(&model, tree.msgForPointer(pick.id, .up).?, &fx);
@@ -5696,7 +5697,7 @@ test "palette Open project in Editor runs the same handler" {
     const empty = model.palette_rows(arena);
     try testing.expect(paletteHasLabel(empty, "Open project in Editor"));
     try testing.expect(paletteRowIsAction(empty, "Open project in Editor"));
-    try testing.expectEqual(main.paletteActionId(.open_editor), paletteRowId(empty, "Open project in Editor"));
+    try testing.expectEqual(palette.paletteActionId(.open_editor), paletteRowId(empty, "Open project in Editor"));
 
     main.update(&model, .{ .search_edit = .{ .insert_text = "vscode" } }, &fx);
     try testing.expect(paletteHasLabel(model.palette_rows(arena), "Open project in Editor"));
@@ -5707,7 +5708,7 @@ test "palette Open project in Editor runs the same handler" {
     const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
     const pick = try expectButton(dialog, "Open project in Editor");
     try testing.expectEqual(
-        Msg{ .palette_pick = main.paletteActionId(.open_editor) },
+        Msg{ .palette_pick = palette.paletteActionId(.open_editor) },
         tree.msgForPointer(pick.id, .up).?,
     );
     main.update(&model, tree.msgForPointer(pick.id, .up).?, &fx);
@@ -5977,7 +5978,7 @@ test "palette Copy project path runs the same handler" {
     const empty = model.palette_rows(arena);
     try testing.expect(paletteHasLabel(empty, "Copy project path"));
     try testing.expect(paletteRowIsAction(empty, "Copy project path"));
-    try testing.expectEqual(main.paletteActionId(.copy_project_path), paletteRowId(empty, "Copy project path"));
+    try testing.expectEqual(palette.paletteActionId(.copy_project_path), paletteRowId(empty, "Copy project path"));
 
     main.update(&model, .{ .search_edit = .{ .insert_text = "cwd" } }, &fx);
     try testing.expect(paletteHasLabel(model.palette_rows(arena), "Copy project path"));
@@ -5988,7 +5989,7 @@ test "palette Copy project path runs the same handler" {
     const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
     const pick = try expectButton(dialog, "Copy project path");
     try testing.expectEqual(
-        Msg{ .palette_pick = main.paletteActionId(.copy_project_path) },
+        Msg{ .palette_pick = palette.paletteActionId(.copy_project_path) },
         tree.msgForPointer(pick.id, .up).?,
     );
     try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
@@ -10346,13 +10347,13 @@ test "palette Show right panel and Hide right panel toggle the Files pane" {
     const empty = model.palette_rows(arena);
     try testing.expect(paletteHasLabel(empty, "Show right panel"));
     try testing.expect(!paletteHasLabel(empty, "Hide right panel"));
-    try testing.expectEqual(main.paletteActionId(.show_right_panel), paletteRowId(empty, "Show right panel"));
+    try testing.expectEqual(palette.paletteActionId(.show_right_panel), paletteRowId(empty, "Show right panel"));
 
     var tree = try buildTree(arena, &model);
     const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
     const show = try expectButton(dialog, "Show right panel");
     try testing.expectEqual(
-        Msg{ .palette_pick = main.paletteActionId(.show_right_panel) },
+        Msg{ .palette_pick = palette.paletteActionId(.show_right_panel) },
         tree.msgForPointer(show.id, .up).?,
     );
     main.update(&model, tree.msgForPointer(show.id, .up).?, &fx);
@@ -10363,13 +10364,13 @@ test "palette Show right panel and Hide right panel toggle the Files pane" {
     const open_rows = model.palette_rows(arena);
     try testing.expect(!paletteHasLabel(open_rows, "Show right panel"));
     try testing.expect(paletteHasLabel(open_rows, "Hide right panel"));
-    try testing.expectEqual(main.paletteActionId(.hide_right_panel), paletteRowId(open_rows, "Hide right panel"));
+    try testing.expectEqual(palette.paletteActionId(.hide_right_panel), paletteRowId(open_rows, "Hide right panel"));
 
     tree = try buildTree(arena, &model);
     const hide_dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
     const hide = try expectButton(hide_dialog, "Hide right panel");
     try testing.expectEqual(
-        Msg{ .palette_pick = main.paletteActionId(.hide_right_panel) },
+        Msg{ .palette_pick = palette.paletteActionId(.hide_right_panel) },
         tree.msgForPointer(hide.id, .up).?,
     );
     main.update(&model, tree.msgForPointer(hide.id, .up).?, &fx);
@@ -10912,17 +10913,17 @@ test "palette Show Browser tab and Show Terminal tab open the wide surfaces" {
     const empty = model.palette_rows(arena);
     try testing.expect(paletteHasLabel(empty, "Show Browser tab"));
     try testing.expect(paletteHasLabel(empty, "Show Terminal tab"));
-    try testing.expectEqual(main.paletteActionId(.show_browser_tab), paletteRowId(empty, "Show Browser tab"));
-    try testing.expectEqual(main.paletteActionId(.show_terminal_tab), paletteRowId(empty, "Show Terminal tab"));
+    try testing.expectEqual(palette.paletteActionId(.show_browser_tab), paletteRowId(empty, "Show Browser tab"));
+    try testing.expectEqual(palette.paletteActionId(.show_terminal_tab), paletteRowId(empty, "Show Terminal tab"));
 
-    main.update(&model, .{ .palette_pick = main.paletteActionId(.show_browser_tab) }, &fx);
+    main.update(&model, .{ .palette_pick = palette.paletteActionId(.show_browser_tab) }, &fx);
     try testing.expect(!model.palette_open);
     try testing.expect(model.right_panel_open);
     try testing.expect(model.right_panel_tab_browser());
     try testing.expectEqual(@as(u32, 460), model.rightPanelWidthPixels());
 
     main.update(&model, .start_search, &fx);
-    main.update(&model, .{ .palette_pick = main.paletteActionId(.show_terminal_tab) }, &fx);
+    main.update(&model, .{ .palette_pick = palette.paletteActionId(.show_terminal_tab) }, &fx);
     try testing.expect(model.right_panel_tab_terminal());
     try testing.expectEqual(@as(u32, 460), model.rightPanelWidthPixels());
 }
@@ -11415,21 +11416,21 @@ fn expectSidebarTitles(rows: []const model_exports.SidebarRow, expected: []const
     }
 }
 
-fn paletteHasLabel(rows: []const main.PaletteRow, label: []const u8) bool {
+fn paletteHasLabel(rows: []const palette.PaletteRow, label: []const u8) bool {
     for (rows) |row| {
         if (std.mem.eql(u8, row.label, label)) return true;
     }
     return false;
 }
 
-fn paletteRowId(rows: []const main.PaletteRow, label: []const u8) u32 {
+fn paletteRowId(rows: []const palette.PaletteRow, label: []const u8) u32 {
     for (rows) |row| {
         if (std.mem.eql(u8, row.label, label)) return row.id;
     }
     return 0;
 }
 
-fn paletteRowIsAction(rows: []const main.PaletteRow, label: []const u8) bool {
+fn paletteRowIsAction(rows: []const palette.PaletteRow, label: []const u8) bool {
     for (rows) |row| {
         if (std.mem.eql(u8, row.label, label)) return row.is_action and !row.is_header and !row.is_session;
     }
@@ -11784,22 +11785,22 @@ test "empty palette lists New Task; query new t still includes it" {
     try testing.expect(!paletteHasLabel(empty, "Open project in Terminal"));
     try testing.expect(!paletteHasLabel(empty, "Open project in Editor"));
     try testing.expect(!paletteHasLabel(empty, "Copy project path"));
-    try testing.expectEqual(main.paletteActionId(.copy_session_id), paletteRowId(empty, "Copy session id"));
-    try testing.expectEqual(main.paletteActionId(.copy_fx_session_id), paletteRowId(empty, "Copy provider session id"));
-    try testing.expectEqual(main.paletteActionId(.reveal_folder), paletteRowId(empty, "Reveal project folder"));
+    try testing.expectEqual(palette.paletteActionId(.copy_session_id), paletteRowId(empty, "Copy session id"));
+    try testing.expectEqual(palette.paletteActionId(.copy_fx_session_id), paletteRowId(empty, "Copy provider session id"));
+    try testing.expectEqual(palette.paletteActionId(.reveal_folder), paletteRowId(empty, "Reveal project folder"));
     try testing.expect(!paletteHasLabel(empty, "Collapse all folders"));
     try testing.expect(!paletteHasLabel(empty, "Open Project"));
     try testing.expect(!paletteHasLabel(empty, "port waku to zig"));
     try testing.expect(empty[1].selected);
     try testing.expect(empty[1].is_action);
     try testing.expect(!empty[1].is_session);
-    try testing.expectEqual(main.paletteActionId(.new_task), empty[1].id);
+    try testing.expectEqual(palette.paletteActionId(.new_task), empty[1].id);
 
     var tree = try buildTree(arena, &model);
     const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
     const new_task = try expectButton(dialog, "New Task");
     try testing.expectEqual(
-        Msg{ .palette_pick = main.paletteActionId(.new_task) },
+        Msg{ .palette_pick = palette.paletteActionId(.new_task) },
         tree.msgForPointer(new_task.id, .up).?,
     );
 
@@ -11831,7 +11832,7 @@ test "palette Collapse all folders follows Appearance language when folders exis
     try testing.expect(paletteHasLabel(model.palette_rows(arena), "Collapse all folders"));
     try testing.expect(paletteHasLabel(model.palette_rows(arena), "New Task"));
     try testing.expectEqual(
-        main.paletteActionId(.collapse_folders),
+        palette.paletteActionId(.collapse_folders),
         paletteRowId(model.palette_rows(arena), "Collapse all folders"),
     );
 
@@ -11915,12 +11916,12 @@ test "palette copies local session id and fx session id; empty fx id skips clipb
     const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
     const copy_local = try expectButton(dialog, "Copy session id");
     try testing.expectEqual(
-        Msg{ .palette_pick = main.paletteActionId(.copy_session_id) },
+        Msg{ .palette_pick = palette.paletteActionId(.copy_session_id) },
         tree.msgForPointer(copy_local.id, .up).?,
     );
     const copy_fx = try expectButton(dialog, "Copy provider session id");
     try testing.expectEqual(
-        Msg{ .palette_pick = main.paletteActionId(.copy_fx_session_id) },
+        Msg{ .palette_pick = palette.paletteActionId(.copy_fx_session_id) },
         tree.msgForPointer(copy_fx.id, .up).?,
     );
 
@@ -12014,7 +12015,7 @@ test "palette Tasks match session model; miss query shows no-results copy" {
     try testing.expect(!miss[0].selected);
     try testing.expect(!miss[0].is_action);
     try testing.expect(!miss[0].is_session);
-    try testing.expectEqual(main.palette_header_id_base + 4, miss[0].id);
+    try testing.expectEqual(palette.palette_header_id_base + 4, miss[0].id);
     try testing.expectEqualStrings("Try a task title, project, provider, model, or command", miss[1].label);
     try testing.expect(miss[1].is_header);
     try testing.expect(!miss[1].selected);
@@ -24605,15 +24606,15 @@ test "palette action labels follow Appearance language" {
     try testing.expect(!paletteHasLabel(model.palette_rows(arena), "Hide right panel"));
     try testing.expect(!paletteHasLabel(model.palette_rows(arena), "隐藏右侧面板"));
     try testing.expectEqual(
-        main.paletteActionId(.focus_composer),
+        palette.paletteActionId(.focus_composer),
         paletteRowId(model.palette_rows(arena), "聚焦输入框"),
     );
     try testing.expectEqual(
-        main.paletteActionId(.new_task),
+        palette.paletteActionId(.new_task),
         paletteRowId(model.palette_rows(arena), "新建任务"),
     );
     try testing.expectEqual(
-        main.paletteActionId(.settings),
+        palette.paletteActionId(.settings),
         paletteRowId(model.palette_rows(arena), "设置"),
     );
 
@@ -24773,8 +24774,8 @@ test "palette section headers and empty-state follow Appearance language" {
     try testing.expect(paletteHasLabel(empty, "Suggested"));
     try testing.expect(paletteHasLabel(empty, "Commands"));
     try testing.expect(!paletteHasLabel(empty, "Tasks"));
-    try testing.expectEqual(main.palette_header_id_base + 1, paletteRowId(empty, "Suggested"));
-    try testing.expectEqual(main.palette_header_id_base + 2, paletteRowId(empty, "Commands"));
+    try testing.expectEqual(palette.palette_header_id_base + 1, paletteRowId(empty, "Suggested"));
+    try testing.expectEqual(palette.palette_header_id_base + 2, paletteRowId(empty, "Commands"));
     try testing.expect(!paletteRowIsAction(empty, "Suggested"));
     try testing.expect(!paletteRowIsAction(empty, "Commands"));
     try testing.expect(paletteHasLabel(empty, "New Task"));
@@ -24794,7 +24795,7 @@ test "palette section headers and empty-state follow Appearance language" {
     const tasks = model.palette_rows(arena);
     try testing.expect(paletteHasLabel(tasks, "Tasks"));
     try testing.expect(paletteHasLabel(tasks, "port waku to zig"));
-    try testing.expectEqual(main.palette_header_id_base + 3, paletteRowId(tasks, "Tasks"));
+    try testing.expectEqual(palette.palette_header_id_base + 3, paletteRowId(tasks, "Tasks"));
     try testing.expect(!paletteRowIsAction(tasks, "Tasks"));
     try testing.expect(!paletteHasLabel(tasks, "Suggested"));
     try testing.expect(!paletteHasLabel(tasks, "Commands"));
@@ -24805,7 +24806,7 @@ test "palette section headers and empty-state follow Appearance language" {
     try testing.expectEqual(@as(usize, 2), miss.len);
     try testing.expectEqualStrings("No matching tasks or commands", miss[0].label);
     try testing.expect(miss[0].is_header);
-    try testing.expectEqual(main.palette_header_id_base + 4, miss[0].id);
+    try testing.expectEqual(palette.palette_header_id_base + 4, miss[0].id);
     try testing.expectEqualStrings("Try a task title, project, provider, model, or command", miss[1].label);
     try testing.expect(miss[1].is_header);
     main.update(&model, .palette_cancel, &fx);
@@ -24827,8 +24828,8 @@ test "palette section headers and empty-state follow Appearance language" {
     try testing.expect(!paletteHasLabel(zh_empty, "Suggested"));
     try testing.expect(!paletteHasLabel(zh_empty, "Commands"));
     try testing.expect(paletteHasLabel(zh_empty, "新建任务"));
-    try testing.expectEqual(main.palette_header_id_base + 1, paletteRowId(zh_empty, "建议"));
-    try testing.expectEqual(main.palette_header_id_base + 2, paletteRowId(zh_empty, "命令"));
+    try testing.expectEqual(palette.palette_header_id_base + 1, paletteRowId(zh_empty, "建议"));
+    try testing.expectEqual(palette.palette_header_id_base + 2, paletteRowId(zh_empty, "命令"));
     tree = try buildTree(arena, &model);
     const zh_dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
     try testing.expectEqualStrings("命令面板", widgetName(zh_dialog));
@@ -24846,7 +24847,7 @@ test "palette section headers and empty-state follow Appearance language" {
     try testing.expect(paletteHasLabel(zh_tasks, "任务"));
     try testing.expect(!paletteHasLabel(zh_tasks, "Tasks"));
     try testing.expect(paletteHasLabel(zh_tasks, "port waku to zig"));
-    try testing.expectEqual(main.palette_header_id_base + 3, paletteRowId(zh_tasks, "任务"));
+    try testing.expectEqual(palette.palette_header_id_base + 3, paletteRowId(zh_tasks, "任务"));
 
     main.update(&model, .{ .search_edit = .clear }, &fx);
     main.update(&model, .{ .search_edit = .{ .insert_text = "zzzznonexistent" } }, &fx);
@@ -24854,7 +24855,7 @@ test "palette section headers and empty-state follow Appearance language" {
     try testing.expectEqual(@as(usize, 2), zh_miss.len);
     try testing.expectEqualStrings("没有匹配的任务或命令", zh_miss[0].label);
     try testing.expect(zh_miss[0].is_header);
-    try testing.expectEqual(main.palette_header_id_base + 4, zh_miss[0].id);
+    try testing.expectEqual(palette.palette_header_id_base + 4, zh_miss[0].id);
     try testing.expectEqualStrings("试试任务标题、项目、提供商、模型或命令", zh_miss[1].label);
     try testing.expect(!paletteHasLabel(zh_miss, "No matching tasks or commands"));
     try testing.expect(!paletteHasLabel(zh_miss, "New Task"));
@@ -24882,8 +24883,8 @@ test "palette section headers and empty-state follow Appearance language" {
     try testing.expect(!paletteHasLabel(ja_empty, "Suggested"));
     try testing.expect(!paletteHasLabel(ja_empty, "建议"));
     try testing.expect(paletteHasLabel(ja_empty, "新しいタスク"));
-    try testing.expectEqual(main.palette_header_id_base + 1, paletteRowId(ja_empty, "おすすめ"));
-    try testing.expectEqual(main.palette_header_id_base + 2, paletteRowId(ja_empty, "コマンド"));
+    try testing.expectEqual(palette.palette_header_id_base + 1, paletteRowId(ja_empty, "おすすめ"));
+    try testing.expectEqual(palette.palette_header_id_base + 2, paletteRowId(ja_empty, "コマンド"));
     tree = try buildTree(arena, &model);
     const ja_dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
     try testing.expectEqualStrings("コマンドパレット", widgetName(ja_dialog));
