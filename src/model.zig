@@ -5,9 +5,10 @@
 //! `update.zig` (re-exported from `main`). `initialModel` lives in
 //! `boot.zig` (re-exported from `main`). Shell scene / app icons live
 //! in `shell.zig`. Layout chrome widths live in `layout.zig`. Spawn / stream effect
-//! keys live in `effect_keys.zig` (re-exported from `main`). Helpers that `@import("main.zig")` keep working
-//! via re-exports. Behavior is unchanged from the former `main` Model
-//! cluster.
+//! keys live in `effect_keys.zig` (re-exported from `main`). `app_icons` stays
+//! re-exported from `main` so Native `native check` sees the model-contract
+//! table. Helpers that `@import("main.zig")` keep working via re-exports.
+//! Behavior is unchanged from the former `main` Model cluster.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");

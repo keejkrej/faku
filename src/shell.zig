@@ -8,6 +8,9 @@
 //! `app:zig` / `app:rust` / `app:ruby` / … resolve. Callers import this
 //! module directly (`shell.shell_scene` / `shell.registerIcons` /
 //! `shell.app_icons` / `shell.main_window_label` / `shell.window_width`).
+//! Native `native check` still requires `pub const app_icons` on the
+//! app root, so `main` keeps that one-line re-export for the model
+//! contract.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");

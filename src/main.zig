@@ -91,6 +91,8 @@ const window_width = shell_mod.window_width;
 const window_height = shell_mod.window_height;
 const shell_scene = shell_mod.shell_scene;
 const registerIcons = shell_mod.registerIcons;
+/// Native model contract looks for `pub const app_icons` on the app root.
+pub const app_icons = shell_mod.app_icons;
 pub const max_sessions = model_exports.max_sessions;
 /// Sidebar folder-header keys sit above session ids so `for` keys stay unique.
 pub const folder_row_id_base: u32 = 1_000_000;
