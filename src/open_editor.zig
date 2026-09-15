@@ -16,7 +16,11 @@
 //! This is the third honest cut of Waku 0.1.11 "Open in.." — Cursor /
 //! VS Code only, not a full app picker, not a persisted `open_in_app`,
 //! and not an embedded editor panel. Spawn stdin is unused
-//! (write-once then close).
+//! (write-once then close). Window-status missing-tool / no-project
+//! lines follow the resolved locale this cut (same
+//! `i18n.OsHelperStatusChrome` strings; distinct from
+//! `OsFolderDialogChrome` / `OsImageDialogChrome`; binary names stay
+//! Latin).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -24,6 +28,7 @@ const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
+const i18n = @import("i18n.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -39,10 +44,10 @@ pub const max_open_path = main.max_project_path + 256;
 
 pub const missing_exit: u8 = 2;
 
-pub const linux_missing_status = "No OS editor (install cursor or code).";
-pub const macos_missing_status = "Cursor / VS Code / open missing";
-pub const windows_missing_status = "No OS editor (install cursor or code).";
-pub const no_project_status = "No project folder for Editor.";
+pub const linux_missing_status = i18n.osHelperStatusChromeFor(.english, "").editor_linux_missing;
+pub const macos_missing_status = i18n.osHelperStatusChromeFor(.english, "").editor_macos_missing;
+pub const windows_missing_status = i18n.osHelperStatusChromeFor(.english, "").editor_windows_missing;
+pub const no_project_status = i18n.osHelperStatusChromeFor(.english, "").editor_no_project;
 
 pub const cursor_bin = "cursor";
 pub const code_bin = "code";
@@ -102,11 +107,20 @@ pub fn nextStage(stage: Stage) ?Stage {
 }
 
 pub fn hostMissingStatus() []const u8 {
+    return hostMissingStatusFor(.english, "");
+}
+
+pub fn hostMissingStatusFor(preference: i18n.LanguagePreference, system_locale_id: []const u8) []const u8 {
+    const chrome = i18n.osHelperStatusChromeFor(preference, system_locale_id);
     return switch (builtin.os.tag) {
-        .macos => macos_missing_status,
-        .windows => windows_missing_status,
-        else => linux_missing_status,
+        .macos => chrome.editor_macos_missing,
+        .windows => chrome.editor_windows_missing,
+        else => chrome.editor_linux_missing,
     };
+}
+
+pub fn noProjectStatusFor(preference: i18n.LanguagePreference, system_locale_id: []const u8) []const u8 {
+    return i18n.osHelperStatusChromeFor(preference, system_locale_id).editor_no_project;
 }
 
 pub fn binFor(tool: Tool) []const u8 {
@@ -172,7 +186,7 @@ pub fn resolveOpenPath(model: *const Model) ?[]const u8 {
 pub fn startOpenEditor(model: *Model, fx: *Effects) void {
     if (model.open_editor_live) return;
     const path = resolveOpenPath(model) orelse {
-        model.setWindowStatus(no_project_status);
+        model.setWindowStatus(noProjectStatusFor(model.language_preference, model.systemLocaleId()));
         return;
     };
     startOpenEditorAt(model, fx, path);
@@ -185,11 +199,11 @@ pub fn startOpenEditor(model: *Model, fx: *Effects) void {
 pub fn startOpenEditorAt(model: *Model, fx: *Effects, path: []const u8) void {
     if (model.open_editor_live) return;
     if (path.len == 0) {
-        model.setWindowStatus(no_project_status);
+        model.setWindowStatus(noProjectStatusFor(model.language_preference, model.systemLocaleId()));
         return;
     }
     const tool = hostTool(.first) orelse {
-        model.setWindowStatus(hostMissingStatus());
+        model.setWindowStatus(hostMissingStatusFor(model.language_preference, model.systemLocaleId()));
         return;
     };
     main.writeFixed(&model.open_editor_path_storage, &model.open_editor_path_len, path);
@@ -226,7 +240,7 @@ pub fn handleOpenEditorExit(model: *Model, fx: *Effects, exit: native_sdk.Effect
             }
         }
         if (!model.has_window_status()) {
-            model.setWindowStatus(hostMissingStatus());
+            model.setWindowStatus(hostMissingStatusFor(model.language_preference, model.systemLocaleId()));
         }
     }
     model.open_editor_live = false;
@@ -397,4 +411,39 @@ test "open_editor_key is 26 and distinct from terminal/reveal/pick neighbors" {
     try std.testing.expect(open_editor_key != copy.copy_turn_key);
     try std.testing.expect(open_editor_key != 3);
     try std.testing.expect(open_editor_key < 64);
+}
+
+test "editor missing status follows resolved locale" {
+    const zh = i18n.osHelperStatusChromeFor(.simplified_chinese, "");
+    const ja = i18n.osHelperStatusChromeFor(.japanese, "");
+    const en = i18n.osHelperStatusChromeFor(.english, "");
+
+    try std.testing.expectEqualStrings(en.editor_linux_missing, linux_missing_status);
+    try std.testing.expectEqualStrings(en.editor_macos_missing, macos_missing_status);
+    try std.testing.expectEqualStrings(en.editor_windows_missing, windows_missing_status);
+    try std.testing.expectEqualStrings(en.editor_no_project, no_project_status);
+    try std.testing.expectEqualStrings(hostMissingStatusFor(.english, ""), hostMissingStatus());
+    try std.testing.expectEqualStrings(hostMissingStatusFor(.english, ""), hostMissingStatusFor(.english, "ja_JP.UTF-8"));
+    try std.testing.expectEqualStrings(hostMissingStatusFor(.simplified_chinese, ""), hostMissingStatusFor(.system, "zh_CN.UTF-8"));
+    try std.testing.expectEqualStrings(hostMissingStatusFor(.japanese, ""), hostMissingStatusFor(.system, "ja_JP.UTF-8"));
+    try std.testing.expectEqualStrings(en.editor_no_project, noProjectStatusFor(.english, ""));
+    try std.testing.expectEqualStrings(zh.editor_no_project, noProjectStatusFor(.simplified_chinese, ""));
+    try std.testing.expectEqualStrings(ja.editor_no_project, noProjectStatusFor(.japanese, ""));
+    switch (builtin.os.tag) {
+        .macos => {
+            try std.testing.expectEqualStrings(en.editor_macos_missing, hostMissingStatus());
+            try std.testing.expectEqualStrings(zh.editor_macos_missing, hostMissingStatusFor(.simplified_chinese, ""));
+            try std.testing.expectEqualStrings(ja.editor_macos_missing, hostMissingStatusFor(.japanese, ""));
+        },
+        .windows => {
+            try std.testing.expectEqualStrings(en.editor_windows_missing, hostMissingStatus());
+            try std.testing.expectEqualStrings(zh.editor_windows_missing, hostMissingStatusFor(.simplified_chinese, ""));
+            try std.testing.expectEqualStrings(ja.editor_windows_missing, hostMissingStatusFor(.japanese, ""));
+        },
+        else => {
+            try std.testing.expectEqualStrings(en.editor_linux_missing, hostMissingStatus());
+            try std.testing.expectEqualStrings(zh.editor_linux_missing, hostMissingStatusFor(.simplified_chinese, ""));
+            try std.testing.expectEqualStrings(ja.editor_linux_missing, hostMissingStatusFor(.japanese, ""));
+        },
+    }
 }

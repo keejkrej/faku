@@ -13,11 +13,16 @@
 //!
 //! This is not Waku's Open-in app picker and not an invented Native
 //! effect. Spawn stdin is unused (write-once then close).
+//! Window-status missing-tool / no-project lines follow the resolved
+//! locale this cut (same `i18n.OsHelperStatusChrome` strings; distinct
+//! from `OsFolderDialogChrome` / `OsImageDialogChrome`; binary names
+//! stay Latin).
 
 const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const i18n = @import("i18n.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -29,10 +34,10 @@ pub const reveal_folder_key: u64 = 28;
 
 pub const missing_exit: u8 = 2;
 
-pub const linux_missing_status = "No OS folder reveal (install xdg-open).";
-pub const macos_missing_status = "No OS folder reveal (open missing).";
-pub const windows_missing_status = "No OS folder reveal (explorer.exe missing).";
-pub const no_project_status = "No project folder to reveal.";
+pub const linux_missing_status = i18n.osHelperStatusChromeFor(.english, "").reveal_linux_missing;
+pub const macos_missing_status = i18n.osHelperStatusChromeFor(.english, "").reveal_macos_missing;
+pub const windows_missing_status = i18n.osHelperStatusChromeFor(.english, "").reveal_windows_missing;
+pub const no_project_status = i18n.osHelperStatusChromeFor(.english, "").reveal_no_project;
 
 pub const macos_bin = "open";
 pub const linux_bin = "xdg-open";
@@ -60,11 +65,20 @@ pub fn hostBin() ?[]const u8 {
 }
 
 pub fn hostMissingStatus() []const u8 {
+    return hostMissingStatusFor(.english, "");
+}
+
+pub fn hostMissingStatusFor(preference: i18n.LanguagePreference, system_locale_id: []const u8) []const u8 {
+    const chrome = i18n.osHelperStatusChromeFor(preference, system_locale_id);
     return switch (builtin.os.tag) {
-        .macos => macos_missing_status,
-        .windows => windows_missing_status,
-        else => linux_missing_status,
+        .macos => chrome.reveal_macos_missing,
+        .windows => chrome.reveal_windows_missing,
+        else => chrome.reveal_linux_missing,
     };
+}
+
+pub fn noProjectStatusFor(preference: i18n.LanguagePreference, system_locale_id: []const u8) []const u8 {
+    return i18n.osHelperStatusChromeFor(preference, system_locale_id).reveal_no_project;
 }
 
 pub fn binFor(tool: Tool) []const u8 {
@@ -126,11 +140,11 @@ fn existingProjectDir(model: *const Model) ?[]const u8 {
 pub fn startRevealFolder(model: *Model, fx: *Effects) void {
     if (model.reveal_folder_live) return;
     const path = resolveRevealPath(model) orelse {
-        model.setWindowStatus(no_project_status);
+        model.setWindowStatus(noProjectStatusFor(model.language_preference, model.systemLocaleId()));
         return;
     };
     if (hostBin() == null) {
-        model.setWindowStatus(hostMissingStatus());
+        model.setWindowStatus(hostMissingStatusFor(model.language_preference, model.systemLocaleId()));
         return;
     }
     model.reveal_folder_live = true;
@@ -193,7 +207,7 @@ fn isMissingRevealExit(exit: native_sdk.EffectExit) bool {
 
 pub fn handleRevealFolderExit(model: *Model, exit: native_sdk.EffectExit) void {
     if (isMissingRevealExit(exit) and !model.has_window_status()) {
-        model.setWindowStatus(hostMissingStatus());
+        model.setWindowStatus(hostMissingStatusFor(model.language_preference, model.systemLocaleId()));
     }
     model.reveal_folder_live = false;
 }
@@ -295,4 +309,39 @@ test "reveal_folder_key is distinct from pick_folder and neighbors" {
     try std.testing.expect(reveal_folder_key != copy.copy_turn_key);
     try std.testing.expect(reveal_folder_key != 3);
     try std.testing.expect(reveal_folder_key < 64);
+}
+
+test "reveal missing status follows resolved locale" {
+    const zh = i18n.osHelperStatusChromeFor(.simplified_chinese, "");
+    const ja = i18n.osHelperStatusChromeFor(.japanese, "");
+    const en = i18n.osHelperStatusChromeFor(.english, "");
+
+    try std.testing.expectEqualStrings(en.reveal_linux_missing, linux_missing_status);
+    try std.testing.expectEqualStrings(en.reveal_macos_missing, macos_missing_status);
+    try std.testing.expectEqualStrings(en.reveal_windows_missing, windows_missing_status);
+    try std.testing.expectEqualStrings(en.reveal_no_project, no_project_status);
+    try std.testing.expectEqualStrings(hostMissingStatusFor(.english, ""), hostMissingStatus());
+    try std.testing.expectEqualStrings(hostMissingStatusFor(.english, ""), hostMissingStatusFor(.english, "ja_JP.UTF-8"));
+    try std.testing.expectEqualStrings(hostMissingStatusFor(.simplified_chinese, ""), hostMissingStatusFor(.system, "zh_CN.UTF-8"));
+    try std.testing.expectEqualStrings(hostMissingStatusFor(.japanese, ""), hostMissingStatusFor(.system, "ja_JP.UTF-8"));
+    try std.testing.expectEqualStrings(en.reveal_no_project, noProjectStatusFor(.english, ""));
+    try std.testing.expectEqualStrings(zh.reveal_no_project, noProjectStatusFor(.simplified_chinese, ""));
+    try std.testing.expectEqualStrings(ja.reveal_no_project, noProjectStatusFor(.japanese, ""));
+    switch (builtin.os.tag) {
+        .macos => {
+            try std.testing.expectEqualStrings(en.reveal_macos_missing, hostMissingStatus());
+            try std.testing.expectEqualStrings(zh.reveal_macos_missing, hostMissingStatusFor(.simplified_chinese, ""));
+            try std.testing.expectEqualStrings(ja.reveal_macos_missing, hostMissingStatusFor(.japanese, ""));
+        },
+        .windows => {
+            try std.testing.expectEqualStrings(en.reveal_windows_missing, hostMissingStatus());
+            try std.testing.expectEqualStrings(zh.reveal_windows_missing, hostMissingStatusFor(.simplified_chinese, ""));
+            try std.testing.expectEqualStrings(ja.reveal_windows_missing, hostMissingStatusFor(.japanese, ""));
+        },
+        else => {
+            try std.testing.expectEqualStrings(en.reveal_linux_missing, hostMissingStatus());
+            try std.testing.expectEqualStrings(zh.reveal_linux_missing, hostMissingStatusFor(.simplified_chinese, ""));
+            try std.testing.expectEqualStrings(ja.reveal_linux_missing, hostMissingStatusFor(.japanese, ""));
+        },
+    }
 }
