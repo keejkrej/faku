@@ -32150,6 +32150,65 @@ test "Terminal Restart chrome follows Appearance language" {
     try testing.expect(findByText(tree.root, .button, "Restart") == null);
 }
 
+test "Terminal Shell ended/failed status follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{term_status}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{has_term_status}"));
+
+    var model = main.initialModel();
+    main.update(&model, .set_right_panel_tab_terminal, &fx);
+    try testing.expect(model.term_session_live());
+
+    try fx.feedPtyExit(pty_terminal.pty_shell_key, 0, 0, .exited, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.term_session_live());
+    const stored = model.term_slots[0].status_storage[0..model.term_slots[0].status_len];
+    try testing.expectEqualStrings(pty_terminal.ended_status, stored);
+    try testing.expectEqualStrings("Shell ended.", stored);
+    try testing.expectEqualStrings(pty_terminal.ended_status, model.term_status());
+    try testing.expectEqualStrings(i18n.shellStatusChromeFor(.english, "").ended, model.term_status());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, pty_terminal.ended_status);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings(pty_terminal.ended_status, stored);
+    try testing.expectEqualStrings("Shell 已结束。", model.term_status());
+    try testing.expectEqualStrings(i18n.shellStatusChromeFor(.simplified_chinese, "").ended, model.term_status());
+    try testing.expect(!std.mem.eql(u8, pty_terminal.ended_status, model.term_status()));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Shell 已结束。");
+    try testing.expect(findByText(tree.root, .text, pty_terminal.ended_status) == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings(pty_terminal.ended_status, stored);
+    try testing.expectEqualStrings("Shell が終了しました。", model.term_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Shell が終了しました。");
+    try testing.expect(findByText(tree.root, .text, "Shell 已结束。") == null);
+    try testing.expect(findByText(tree.root, .text, pty_terminal.ended_status) == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings(pty_terminal.ended_status, model.term_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, pty_terminal.ended_status);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("Shell 已结束。", model.term_status());
+    try testing.expectEqualStrings(pty_terminal.ended_status, stored);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Shell 已结束。");
+}
+
 test "Computer Use page chrome follows Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

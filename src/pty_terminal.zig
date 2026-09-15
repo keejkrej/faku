@@ -17,6 +17,10 @@
 //! scrollback, status, and live PTY process state stay runtime-only.
 //! Not Waku right-panel surface UUID tabs. Open in Terminal
 //! (`open_terminal.zig`, key 27) stays the OS-host fallback.
+//! Shell ended / Shell failed follow the resolved locale this cut
+//! (same `i18n.ShellStatusChrome` strings; slot storage stays the
+//! English wires; paint maps known wires; unknown status text stays
+//! data). Restart / New / Close chips stay on their existing packs.
 //!
 //! `ptySpawn` has no documented cwd field; the child inherits the host
 //! environment plus `TERM`. When the selected session's `project_path`
@@ -33,6 +37,7 @@ const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
 const util = @import("util.zig");
 const open_terminal = @import("open_terminal.zig");
+const i18n = @import("i18n.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -49,8 +54,8 @@ pub const pty_shell_key_last: u64 = pty_shell_key + max_sessions - 1;
 pub const default_cols: u16 = 80;
 pub const default_rows: u16 = 24;
 
-pub const ended_status = "Shell ended.";
-pub const failed_status = "Shell failed.";
+pub const ended_status = i18n.shellStatusChromeFor(.english, "").ended;
+pub const failed_status = i18n.shellStatusChromeFor(.english, "").failed;
 
 pub const macos_shell = "/bin/zsh";
 pub const unix_shell = "/bin/sh";
@@ -204,9 +209,14 @@ pub fn has_term_status(model: *const Model) bool {
     return activeSlotConst(model).status_len > 0;
 }
 
+/// Painted Terminal status. Known English ended/failed wires map
+/// through `i18n.ShellStatusChrome` so a language switch after exit
+/// re-localizes; unknown stored text passes through. Slot storage
+/// stays the English wires (`ended_status` / `failed_status`).
 pub fn term_status(model: *const Model) []const u8 {
     const slot = activeSlotConst(model);
-    return slot.status_storage[0..slot.status_len];
+    const stored = slot.status_storage[0..slot.status_len];
+    return i18n.shellStatusChromeFor(model.language_preference, model.systemLocaleId()).labelForStored(stored);
 }
 
 pub fn term_scrollback(model: *const Model) u32 {
@@ -660,6 +670,9 @@ test "handlePtyEvent exit sets muted ended or failed status" {
     try std.testing.expect(!model.term_slots[0].live);
     try std.testing.expect(model.term_slots[0].ended);
     try std.testing.expectEqualStrings(ended_status, term_status(&model));
+    try std.testing.expectEqualStrings("Shell ended.", ended_status);
+    try std.testing.expectEqualStrings(i18n.shellStatusChromeFor(.english, "").ended, ended_status);
+    try std.testing.expectEqualStrings(ended_status, model.term_slots[0].status_storage[0..model.term_slots[0].status_len]);
     try std.testing.expect(can_restart_terminal(&model));
 
     model.term_slots[0].live = true;
@@ -670,6 +683,66 @@ test "handlePtyEvent exit sets muted ended or failed status" {
         .code = -1,
     });
     try std.testing.expectEqualStrings(failed_status, term_status(&model));
+    try std.testing.expectEqualStrings("Shell failed.", failed_status);
+    try std.testing.expectEqualStrings(i18n.shellStatusChromeFor(.english, "").failed, failed_status);
+    try std.testing.expectEqualStrings(failed_status, model.term_slots[0].status_storage[0..model.term_slots[0].status_len]);
+}
+
+test "term_status paints localized ended/failed; slot storage stays English" {
+    var model = Model{};
+    model.term_slots[0].live = true;
+    handlePtyEvent(&model, .{
+        .key = pty_shell_key,
+        .kind = .exit,
+        .reason = .exited,
+        .code = 0,
+    });
+    const stored_ended = model.term_slots[0].status_storage[0..model.term_slots[0].status_len];
+    try std.testing.expectEqualStrings(ended_status, stored_ended);
+    try std.testing.expectEqualStrings(ended_status, term_status(&model));
+    try std.testing.expectEqualStrings(ended_status, model.term_status());
+
+    model.language_preference = .simplified_chinese;
+    try std.testing.expectEqualStrings(ended_status, stored_ended);
+    try std.testing.expectEqualStrings("Shell 已结束。", term_status(&model));
+    try std.testing.expectEqualStrings(i18n.shellStatusChromeFor(.simplified_chinese, "").ended, term_status(&model));
+    try std.testing.expectEqualStrings("Shell 已结束。", model.term_status());
+    try std.testing.expect(!std.mem.eql(u8, ended_status, term_status(&model)));
+
+    model.language_preference = .japanese;
+    try std.testing.expectEqualStrings(ended_status, stored_ended);
+    try std.testing.expectEqualStrings("Shell が終了しました。", term_status(&model));
+    try std.testing.expectEqualStrings(i18n.shellStatusChromeFor(.japanese, "").ended, term_status(&model));
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try std.testing.expectEqualStrings(ended_status, term_status(&model));
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try std.testing.expectEqualStrings("Shell 已结束。", term_status(&model));
+    try std.testing.expectEqualStrings(ended_status, stored_ended);
+
+    model.term_slots[0].live = true;
+    handlePtyEvent(&model, .{
+        .key = pty_shell_key,
+        .kind = .exit,
+        .reason = .spawn_failed,
+        .code = -1,
+    });
+    const stored_failed = model.term_slots[0].status_storage[0..model.term_slots[0].status_len];
+    try std.testing.expectEqualStrings(failed_status, stored_failed);
+    try std.testing.expectEqualStrings("Shell 失败。", term_status(&model));
+    try std.testing.expectEqualStrings(i18n.shellStatusChromeFor(.simplified_chinese, "").failed, term_status(&model));
+
+    model.language_preference = .japanese;
+    try std.testing.expectEqualStrings(failed_status, stored_failed);
+    try std.testing.expectEqualStrings("Shell が失敗しました。", term_status(&model));
+
+    setSlotStatus(&model.term_slots[0], "custom status");
+    try std.testing.expectEqualStrings("custom status", term_status(&model));
+    model.language_preference = .english;
+    try std.testing.expectEqualStrings("custom status", term_status(&model));
 }
 
 test "applyTermState echoes scrollback onto the active slot" {
