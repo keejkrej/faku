@@ -4575,6 +4575,48 @@ pub const Model = struct {
         return model.structuralRegionChrome().file_preview_source;
     }
 
+    /// Transcript Native `<scroll>` a11y. Distinct from
+    /// `find_in_transcript_label` / `TranscriptRoleChrome`. Native
+    /// surfaces `label=` as the accessible name.
+    pub fn transcript_label(model: *const Model) []const u8 {
+        return model.structuralRegionChrome().transcript;
+    }
+
+    /// Transcript inner Native `<column>` a11y. Distinct from
+    /// `transcript_label` (outer scroll). Native surfaces `label=`
+    /// as the accessible name.
+    pub fn conversation_history_label(model: *const Model) []const u8 {
+        return model.structuralRegionChrome().conversation_history;
+    }
+
+    /// Review Diff file-list Native `<scroll>` a11y. Distinct from
+    /// `review_hunks_label` / `right_panel_tab_diff_label`. Native
+    /// surfaces `label=` as the accessible name.
+    pub fn review_files_label(model: *const Model) []const u8 {
+        return model.structuralRegionChrome().review_files;
+    }
+
+    /// Background panel Native `<column>` a11y. Distinct from
+    /// `right_panel_tab_background_label` / `background_work_empty_label`.
+    /// Native surfaces `label=` as the accessible name.
+    pub fn background_work_label(model: *const Model) []const u8 {
+        return model.structuralRegionChrome().background_work;
+    }
+
+    /// Background output Native `<scroll>` a11y. Distinct from
+    /// `background_work_no_output_label` / `background_work_output`.
+    /// Native surfaces `label=` as the accessible name.
+    pub fn background_output_label(model: *const Model) []const u8 {
+        return model.structuralRegionChrome().background_output;
+    }
+
+    /// Browser panel body Native `<column>` a11y. Distinct from
+    /// `right_panel_tab_browser_label` (visible tab chip). Native
+    /// surfaces `label=` as the accessible name.
+    pub fn browser_label(model: *const Model) []const u8 {
+        return model.structuralRegionChrome().browser;
+    }
+
     /// Empty-transcript welcome display title. Distinct from
     /// `HeaderUntitledChrome` / `ComposerPlaceholderChrome` /
     /// `QueueChrome`. Real session titles stay data.

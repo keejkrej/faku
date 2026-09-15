@@ -906,8 +906,8 @@
           <button variant="ghost" size="icon" icon="x" label="{close_find_label}" on-press="close_find"></button>
         </row>
       </if>
-      <scroll grow="1" value="{transcript_scroll}" on-scroll="transcript_scrolled" label="Transcript">
-        <column grow="1" padding="16" gap="12" cross="stretch" label="Conversation history">
+      <scroll grow="1" value="{transcript_scroll}" on-scroll="transcript_scrolled" label="{transcript_label}">
+        <column grow="1" padding="16" gap="12" cross="stretch" label="{conversation_history_label}">
           <for each="visible_turns" key="id" as="t">
             <!-- Current find hit: muted Match on the turn chrome row.
                  Row-level Native chrome, not Waku glyph washes. -->
@@ -1479,7 +1479,7 @@
                   <row>
                     <search-field grow="1" height="24" placeholder="{review_diff_filter_placeholder}" text="{review_diff_filter}" on-input="review_diff_filter_edit" label="right-panel-diff-filter" />
                   </row>
-                  <scroll grow="1" label="Review files">
+                  <scroll grow="1" label="{review_files_label}">
                     <column gap="2">
                       <!-- Diff tree reuses Files `file_icon` (`r.icon`): dirs
                            folder / folder-open, files Material `app:`
@@ -1542,7 +1542,7 @@
                 <row>
                   <search-field grow="1" height="24" placeholder="{review_diff_filter_placeholder}" text="{review_diff_filter}" on-input="review_diff_filter_edit" label="right-panel-diff-filter" />
                 </row>
-                <scroll grow="1" label="Review files">
+                <scroll grow="1" label="{review_files_label}">
                   <column gap="2">
                     <for each="review_diff_rows" key="id" as="r">
                       <if test="{r.is_directory}">
@@ -1619,7 +1619,7 @@
           </if>
         </if>
         <if test="{right_panel_showing_browser}">
-          <column grow="1" gap="8" padding="10" label="Browser">
+          <column grow="1" gap="8" padding="10" label="{browser_label}">
             <row gap="8" cross="center">
               <for each="browser_session_rows" key="id" as="b">
                 <button variant="ghost" size="sm" selected="{b.selected}" on-press="select_browser_session:{b.id}">{b.label}</button>
@@ -1700,7 +1700,7 @@
           </column>
         </if>
         <if test="{right_panel_showing_background}">
-          <column grow="1" gap="6" padding="10" label="Background work">
+          <column grow="1" gap="6" padding="10" label="{background_work_label}">
             <if test="{background_work_empty}">
               <text foreground="text_muted">{background_work_empty_label}</text>
             </if>
@@ -1717,7 +1717,7 @@
                 <button variant="ghost" size="sm" on-press="environment_stop_background:{background_work_row_id}">{background_work_stop_label}</button>
               </if>
               <if test="{background_work_has_output}">
-                <scroll grow="1" label="Background output">
+                <scroll grow="1" label="{background_output_label}">
                   <text wrap="true" foreground="text_muted">{background_work_output}</text>
                 </scroll>
               </if>
