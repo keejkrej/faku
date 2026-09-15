@@ -13502,9 +13502,9 @@ test "cmd-f routes to Files preview find when a preview is open" {
     try testing.expect(findByText(tree.root, .search_field, "Find in transcript") == null);
     _ = try expectButton(tree.root, "Close file find");
     _ = try expectButton(tree.root, "Show replace");
-    _ = try expectButton(tree.root, "Aa");
-    _ = try expectButton(tree.root, "Ab");
-    _ = try expectButton(tree.root, ".*");
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">Aa</button>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">Ab</button>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, ">.*</button>") != null);
     _ = try expectButtonMsg(tree, "Match case", .toggle_file_preview_find_case);
     _ = try expectButtonMsg(tree, "Match whole word", .toggle_file_preview_find_whole_word);
     _ = try expectButtonMsg(tree, "Use regular expression", .toggle_file_preview_find_regex);
@@ -27109,6 +27109,9 @@ test "Files preview toolbar chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_find_match_case_label}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_find_match_whole_word_label}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_find_use_regex_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, ">Aa</button>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, ">Ab</button>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, ">.*</button>"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_previous_match_label}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_next_match_label}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_close_find_label}\""));
@@ -27277,9 +27280,6 @@ test "Files preview toolbar chrome follows Appearance language" {
     _ = try expectButton(tree.root, "Close file find");
     _ = try expectButton(tree.root, "Previous file match");
     _ = try expectButton(tree.root, "Next file match");
-    _ = try expectButton(tree.root, "Aa");
-    _ = try expectButton(tree.root, "Ab");
-    _ = try expectButton(tree.root, ".*");
     _ = try expectButtonMsg(tree, "Match case", .toggle_file_preview_find_case);
     _ = try expectButtonMsg(tree, "Match whole word", .toggle_file_preview_find_whole_word);
     _ = try expectButtonMsg(tree, "Use regular expression", .toggle_file_preview_find_regex);
@@ -27305,7 +27305,6 @@ test "Files preview toolbar chrome follows Appearance language" {
     _ = try expectByText(tree.root, .search_field, "在文件中查找");
     try testing.expect(findByPlaceholder(tree.root, .search_field, "查找") != null);
     _ = try expectButtonMsg(tree, "隐藏替换", .toggle_file_preview_find_replace);
-    _ = try expectButton(tree.root, "Aa");
     _ = try expectButtonMsg(tree, "匹配大小写", .toggle_file_preview_find_case);
     _ = try expectButtonMsg(tree, "全字匹配", .toggle_file_preview_find_whole_word);
     _ = try expectButtonMsg(tree, "使用正则表达式", .toggle_file_preview_find_regex);
@@ -27427,12 +27426,12 @@ test "Files preview find-option toggle a11y follows Appearance language" {
     try testing.expect(model.file_preview_find_active);
 
     var tree = try buildTree(arena, &model);
-    _ = try expectButton(tree.root, "Aa");
-    _ = try expectButton(tree.root, "Ab");
-    _ = try expectButton(tree.root, ".*");
     _ = try expectButtonMsg(tree, "Match case", .toggle_file_preview_find_case);
     _ = try expectButtonMsg(tree, "Match whole word", .toggle_file_preview_find_whole_word);
     _ = try expectButtonMsg(tree, "Use regular expression", .toggle_file_preview_find_regex);
+    try testing.expect(findByText(tree.root, .button, "Aa") == null);
+    try testing.expect(findByText(tree.root, .button, "Ab") == null);
+    try testing.expect(findByText(tree.root, .button, ".*") == null);
     try testing.expect(findByText(tree.root, .button, "匹配大小写") == null);
     try testing.expect(findByText(tree.root, .button, "大文字と小文字を区別する") == null);
 
@@ -27442,12 +27441,10 @@ test "Files preview find-option toggle a11y follows Appearance language" {
     try testing.expectEqualStrings("使用正则表达式", model.file_preview_find_use_regex_label());
     try testing.expectEqualStrings(i18n.filePreviewFindToggleChromeFor(.simplified_chinese, "").match_case, model.file_preview_find_match_case_label());
     tree = try buildTree(arena, &model);
-    _ = try expectButton(tree.root, "Aa");
-    _ = try expectButton(tree.root, "Ab");
-    _ = try expectButton(tree.root, ".*");
     _ = try expectButtonMsg(tree, "匹配大小写", .toggle_file_preview_find_case);
     _ = try expectButtonMsg(tree, "全字匹配", .toggle_file_preview_find_whole_word);
     _ = try expectButtonMsg(tree, "使用正则表达式", .toggle_file_preview_find_regex);
+    try testing.expect(findByText(tree.root, .button, "Aa") == null);
     try testing.expect(findByText(tree.root, .button, "Match case") == null);
     try testing.expect(findByText(tree.root, .button, "大文字と小文字を区別する") == null);
 
@@ -27457,12 +27454,10 @@ test "Files preview find-option toggle a11y follows Appearance language" {
     try testing.expectEqualStrings("正規表現を使用する", model.file_preview_find_use_regex_label());
     try testing.expectEqualStrings(i18n.filePreviewFindToggleChromeFor(.japanese, "").match_case, model.file_preview_find_match_case_label());
     tree = try buildTree(arena, &model);
-    _ = try expectButton(tree.root, "Aa");
-    _ = try expectButton(tree.root, "Ab");
-    _ = try expectButton(tree.root, ".*");
     _ = try expectButtonMsg(tree, "大文字と小文字を区別する", .toggle_file_preview_find_case);
     _ = try expectButtonMsg(tree, "単語単位で検索", .toggle_file_preview_find_whole_word);
     _ = try expectButtonMsg(tree, "正規表現を使用する", .toggle_file_preview_find_regex);
+    try testing.expect(findByText(tree.root, .button, "Aa") == null);
     try testing.expect(findByText(tree.root, .button, "Match case") == null);
     try testing.expect(findByText(tree.root, .button, "匹配大小写") == null);
 
@@ -27472,7 +27467,7 @@ test "Files preview find-option toggle a11y follows Appearance language" {
     try testing.expectEqualStrings(i18n.filePreviewFindToggleChromeFor(.english, "ja_JP.UTF-8").match_case, model.file_preview_find_match_case_label());
     tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "Match case", .toggle_file_preview_find_case);
-    _ = try expectButton(tree.root, "Aa");
+    try testing.expect(findByText(tree.root, .button, "Aa") == null);
     try testing.expect(findByText(tree.root, .button, "大文字と小文字を区別する") == null);
 
     model.language_preference = .system;
@@ -27481,7 +27476,7 @@ test "Files preview find-option toggle a11y follows Appearance language" {
     try testing.expectEqualStrings(i18n.filePreviewFindToggleChromeFor(.system, "zh_CN.UTF-8").match_case, model.file_preview_find_match_case_label());
     tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "匹配大小写", .toggle_file_preview_find_case);
-    _ = try expectButton(tree.root, "Aa");
+    try testing.expect(findByText(tree.root, .button, "Aa") == null);
     try testing.expect(findByText(tree.root, .button, "Match case") == null);
 
     model.setSystemLocaleId("ja_JP.UTF-8");
@@ -27490,14 +27485,14 @@ test "Files preview find-option toggle a11y follows Appearance language" {
     try testing.expectEqualStrings("正規表現を使用する", model.file_preview_find_use_regex_label());
     tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "大文字と小文字を区別する", .toggle_file_preview_find_case);
-    _ = try expectButton(tree.root, "Aa");
+    try testing.expect(findByText(tree.root, .button, "Aa") == null);
     try testing.expect(findByText(tree.root, .button, "匹配大小写") == null);
 
     model.setSystemLocaleId("");
     try testing.expectEqualStrings("Match case", model.file_preview_find_match_case_label());
     tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "Match case", .toggle_file_preview_find_case);
-    _ = try expectButton(tree.root, "Aa");
+    try testing.expect(findByText(tree.root, .button, "Aa") == null);
 }
 
 test "Commit message composer chrome follows Appearance language" {
