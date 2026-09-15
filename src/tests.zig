@@ -29359,7 +29359,7 @@ test "transcript You said / Assistant said chrome follows Appearance language" {
     try testing.expectEqualStrings(i18n.transcriptRoleChromeFor(.simplified_chinese, "").you_said, model.you_said_label());
     try testing.expectEqualStrings(i18n.transcriptRoleChromeFor(.simplified_chinese, "").assistant_said, model.assistant_said_label());
     tree = try buildTree(arena, &model);
-    const zh_transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const zh_transcript = try expectByText(tree.root, .scroll_view, "对话记录");
     const zh_user = try expectByText(zh_transcript, .row, "hello there");
     _ = try expectByText(zh_user, .column, "你说");
     const zh_assistant = try expectByText(zh_transcript, .column, "a wrapped assistant reply that should stay on the left");
@@ -29375,7 +29375,7 @@ test "transcript You said / Assistant said chrome follows Appearance language" {
     try testing.expectEqualStrings(i18n.transcriptRoleChromeFor(.japanese, "").you_said, model.you_said_label());
     try testing.expectEqualStrings(i18n.transcriptRoleChromeFor(.japanese, "").assistant_said, model.assistant_said_label());
     tree = try buildTree(arena, &model);
-    const ja_transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const ja_transcript = try expectByText(tree.root, .scroll_view, "トランスクリプト");
     const ja_user = try expectByText(ja_transcript, .row, "hello there");
     _ = try expectByText(ja_user, .column, "あなたが言った");
     const ja_assistant = try expectByText(ja_transcript, .column, "a wrapped assistant reply that should stay on the left");
@@ -29404,7 +29404,7 @@ test "transcript You said / Assistant said chrome follows Appearance language" {
     try testing.expectEqualStrings("你说", model.you_said_label());
     try testing.expectEqualStrings("助手说", model.assistant_said_label());
     tree = try buildTree(arena, &model);
-    const sys_zh_transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const sys_zh_transcript = try expectByText(tree.root, .scroll_view, "对话记录");
     const sys_zh_user = try expectByText(sys_zh_transcript, .row, "hello there");
     _ = try expectByText(sys_zh_user, .column, "你说");
     const sys_zh_assistant = try expectByText(sys_zh_transcript, .column, "a wrapped assistant reply that should stay on the left");
@@ -29416,7 +29416,7 @@ test "transcript You said / Assistant said chrome follows Appearance language" {
     try testing.expectEqualStrings("あなたが言った", model.you_said_label());
     try testing.expectEqualStrings("アシスタントが言った", model.assistant_said_label());
     tree = try buildTree(arena, &model);
-    const sys_ja_transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const sys_ja_transcript = try expectByText(tree.root, .scroll_view, "トランスクリプト");
     const sys_ja_user = try expectByText(sys_ja_transcript, .row, "hello there");
     _ = try expectByText(sys_ja_user, .column, "あなたが言った");
     const sys_ja_assistant = try expectByText(sys_ja_transcript, .column, "a wrapped assistant reply that should stay on the left");
@@ -29497,7 +29497,7 @@ test "transcript Match / Copy / Fork chrome follows Appearance language" {
     try testing.expectEqualStrings(i18n.transcriptTurnChromeFor(.simplified_chinese, "").fork, model.fork_turn_label());
     try testing.expect(!std.mem.eql(u8, model.copy_turn_label(), model.copy_session_label()));
     tree = try buildTree(arena, &model);
-    const zh_transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const zh_transcript = try expectByText(tree.root, .scroll_view, "对话记录");
     const zh_user = try expectByText(zh_transcript, .row, "alpha hello");
     try testing.expectEqual(@as(usize, 1), countByText(tree.root, .text, "匹配"));
     try testing.expect(findAnyText(zh_user, "匹配"));
@@ -29519,7 +29519,7 @@ test "transcript Match / Copy / Fork chrome follows Appearance language" {
     try testing.expectEqualStrings(i18n.transcriptTurnChromeFor(.japanese, "").copy, model.copy_turn_label());
     try testing.expectEqualStrings(i18n.transcriptTurnChromeFor(.japanese, "").fork, model.fork_turn_label());
     tree = try buildTree(arena, &model);
-    const ja_transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const ja_transcript = try expectByText(tree.root, .scroll_view, "トランスクリプト");
     const ja_user = try expectByText(ja_transcript, .row, "alpha hello");
     try testing.expectEqual(@as(usize, 1), countByText(tree.root, .text, "一致"));
     try testing.expect(findAnyText(ja_user, "一致"));
@@ -29552,7 +29552,7 @@ test "transcript Match / Copy / Fork chrome follows Appearance language" {
     try testing.expectEqualStrings("复制", model.copy_turn_label());
     try testing.expectEqualStrings("分叉", model.fork_turn_label());
     tree = try buildTree(arena, &model);
-    const sys_zh_transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const sys_zh_transcript = try expectByText(tree.root, .scroll_view, "对话记录");
     const sys_zh_user = try expectByText(sys_zh_transcript, .row, "alpha hello");
     try testing.expect(findAnyText(sys_zh_user, "匹配"));
     const sys_zh_copy = try expectButton(sys_zh_user, "复制");
@@ -29567,7 +29567,7 @@ test "transcript Match / Copy / Fork chrome follows Appearance language" {
     try testing.expectEqualStrings("コピー", model.copy_turn_label());
     try testing.expectEqualStrings("フォーク", model.fork_turn_label());
     tree = try buildTree(arena, &model);
-    const sys_ja_transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const sys_ja_transcript = try expectByText(tree.root, .scroll_view, "トランスクリプト");
     const sys_ja_user = try expectByText(sys_ja_transcript, .row, "alpha hello");
     try testing.expect(findAnyText(sys_ja_user, "一致"));
     _ = try expectButton(sys_ja_user, "コピー");
