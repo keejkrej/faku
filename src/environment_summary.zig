@@ -245,6 +245,7 @@
 
 const std = @import("std");
 const main = @import("main.zig");
+const sidecar_keys = @import("sidecar_keys.zig");
 const i18n = @import("i18n.zig");
 const protocol = @import("protocol.zig");
 const git_commit = @import("git_commit.zig");
@@ -2514,7 +2515,7 @@ test "copyTaskId writes the local session id and no-ops without a selection" {
     try std.testing.expect(!model.environment_summary_open);
     try std.testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
     const first = fx.pendingClipboardAt(0).?;
-    try std.testing.expectEqual(main.copy_turn_key, first.key);
+    try std.testing.expectEqual(sidecar_keys.copy_turn_key, first.key);
     try std.testing.expectEqual(@import("native_sdk").EffectClipboardOp.write, first.op);
     var id_buf: [16]u8 = undefined;
     const expected = try std.fmt.bufPrint(&id_buf, "{d}", .{id});
@@ -2548,7 +2549,7 @@ test "copyAgentCliThreadId writes fx_session_id; empty and no selection match co
     try std.testing.expect(!model.environment_summary_open);
     try std.testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
     const first = fx.pendingClipboardAt(0).?;
-    try std.testing.expectEqual(main.copy_turn_key, first.key);
+    try std.testing.expectEqual(sidecar_keys.copy_turn_key, first.key);
     try std.testing.expectEqual(@import("native_sdk").EffectClipboardOp.write, first.op);
     try std.testing.expectEqualStrings("fx-sess-env", first.text);
 

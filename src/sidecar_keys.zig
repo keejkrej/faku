@@ -3,9 +3,10 @@
 //! One-shot maximize / picker / reveal / URL / terminal / pty / editor
 //! keys, clipboard + notify fallback constants, and attach / Files /
 //! transcript preview ImageId bands. Owning modules keep the values;
-//! this file only re-exports them. Re-exported from `main.zig` so
-//! `main.maximize_window_key` / `main.copy_turn_key` call sites keep
-//! working. Behavior is unchanged from the former `main` constants.
+//! this file only re-exports them. Callers import this module directly
+//! (`sidecar_keys.maximize_window_key` / `sidecar_keys.copy_turn_key`).
+//! Not re-exported from `main`. Behavior is unchanged from the former
+//! `main` constants.
 
 const std = @import("std");
 const maximize_window = @import("maximize_window.zig");
