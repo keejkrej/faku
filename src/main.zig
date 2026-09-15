@@ -53,14 +53,12 @@ const acp = @import("acp.zig");
 const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const acp_proxy = @import("acp_proxy.zig");
-const maximize_window = @import("maximize_window.zig");
 const rewind = @import("rewind.zig");
 const keys = @import("keys.zig");
 const palette = @import("palette.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
 const goal = @import("goal.zig");
 const composer = @import("composer.zig");
-const copy_helpers = @import("copy.zig");
 const session_switcher = @import("switcher.zig");
 const sidebar_row_helpers = @import("sidebar_rows.zig");
 const attach_helpers = @import("attach.zig");
@@ -75,6 +73,7 @@ const boot_mod = @import("boot.zig");
 const shell_mod = @import("shell.zig");
 const layout_mod = @import("layout.zig");
 const effect_keys = @import("effect_keys.zig");
+const sidecar_keys = @import("sidecar_keys.zig");
 const session_mod = @import("session.zig");
 const model_mod = @import("model.zig");
 const i18n = @import("i18n.zig");
@@ -93,17 +92,9 @@ const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
 const skills = @import("skills.zig");
 const util = @import("util.zig");
-const pick_folder = @import("pick_folder.zig");
-const reveal_folder = @import("reveal_folder.zig");
-const open_terminal = @import("open_terminal.zig");
-const pty_terminal = @import("pty_terminal.zig");
-const open_url = @import("open_url.zig");
 const browser_pane = @import("browser_pane.zig");
-const open_editor = @import("open_editor.zig");
-const file_preview_images = @import("file_preview_images.zig");
 const file_preview_details = @import("file_preview_details.zig");
 const file_preview_issue_link = @import("file_preview_issue_link.zig");
-const transcript_images = @import("transcript_images.zig");
 const transcript_details = @import("transcript_details.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
@@ -210,45 +201,14 @@ pub const daemon_line_bytes = effect_keys.daemon_line_bytes;
 pub const stream_interval_ms = effect_keys.stream_interval_ms;
 pub const stream_chunk_bytes = effect_keys.stream_chunk_bytes;
 pub const transcript_pin_offset = effect_keys.transcript_pin_offset;
-/// One-shot OS maximize sidecar (`osascript` / `wmctrl` / `xdotool`).
-/// Distinct from fx ask / daemon / picker / clipboard keys. Native
-/// still has no `fx.maximizeWindow`; this spawn is the workaround.
-pub const maximize_window_key = maximize_window.maximize_window_key;
-/// One-shot OS image-picker sidecar (`osascript` / `zenity` / `kdialog` /
-/// Windows `powershell.exe` OpenFileDialog). Distinct from fx ask / daemon /
-/// clipboard / preview keys. Native has no `fx.pickFile`; this spawn is the
-/// documented workaround.
-pub const pick_image_key = attach_helpers.pick_image_key;
-/// One-shot OS folder-picker sidecar (`osascript` / `zenity` / `kdialog` /
-/// Windows `powershell.exe` FolderBrowserDialog). Distinct from pick_image
-/// (31), maximize (30), copy_turn (32). Native has no `fx.pickFile`; this
-/// spawn is the documented workaround.
-pub const pick_folder_key = pick_folder.pick_folder_key;
-/// One-shot OS file-manager sidecar (`open` / `xdg-open` / Windows `explorer.exe`). Distinct from
-/// pick_folder (29), maximize (30), pick_image (31), copy_turn (32).
-/// Native has no typed `fx.revealPath` on this Effects revision.
-pub const reveal_folder_key = reveal_folder.reveal_folder_key;
-/// One-shot OS URL-open sidecar (`open` / `xdg-open` / Windows
-/// `cmd.exe /c start`). Distinct from open_editor (26), open_terminal
-/// (27), reveal_folder (28). OS-host fallback beside the embedded
-/// Browser `web_panes` webviews (up to four scene slots).
-pub const open_url_key = open_url.open_url_key;
-/// One-shot OS terminal sidecar (`open -a Terminal` / `x-terminal-emulator` /
-/// Windows `wt.exe -d` then `cmd.exe /c start "" /D`). Distinct from
-/// reveal_folder (28), pick_folder (29), maximize (30), pick_image (31),
-/// copy_turn (32). OS-host fallback beside the embedded `<terminal>`
-/// (`pty_shell_key`). Native has no typed open-terminal effect on this
-/// Effects revision.
-pub const open_terminal_key = open_terminal.open_terminal_key;
-/// Dedicated pty occupancy for the right-panel `<terminal>` binding.
-/// Distinct from Open in Terminal (27) and litellm (650). Fixed band
-/// 700..703 (first-cut multi-session, cap 4).
-pub const pty_shell_key = pty_terminal.pty_shell_key;
-/// One-shot OS editor sidecar (`cursor` / `code`, macOS `open -a`, Windows `cursor.cmd` / `code.cmd`).
-/// Distinct from open_terminal (27), reveal_folder (28), pick_folder (29),
-/// maximize (30), pick_image (31), copy_turn (32). Native has no typed
-/// open-editor effect on this Effects revision.
-pub const open_editor_key = open_editor.open_editor_key;
+pub const maximize_window_key = sidecar_keys.maximize_window_key;
+pub const pick_image_key = sidecar_keys.pick_image_key;
+pub const pick_folder_key = sidecar_keys.pick_folder_key;
+pub const reveal_folder_key = sidecar_keys.reveal_folder_key;
+pub const open_url_key = sidecar_keys.open_url_key;
+pub const open_terminal_key = sidecar_keys.open_terminal_key;
+pub const pty_shell_key = sidecar_keys.pty_shell_key;
+pub const open_editor_key = sidecar_keys.open_editor_key;
 /// One-shot `git branch --show-current` probe. Distinct from maximize /
 /// pick-image / fx-ask / daemon / clipboard / probe keys, from
 /// git_branch_list (250+), git_checkout (275+), and from
@@ -363,36 +323,19 @@ pub const cli_probe_key_first = cli_probe.cli_probe_key_first;
 /// One-shot LiteLLM rate-table curl (`-o` into the Faku data dir).
 /// Distinct from cli_probe (600+). Fixed key 650.
 pub const litellm_rates_key = litellm_rates.litellm_rates_key;
-pub const copy_turn_key = copy_helpers.copy_turn_key;
-/// Empty `fx_session_id` / ACP sessionId: do not writeClipboard.
-pub const no_provider_session_id_status = copy_helpers.no_provider_session_id_status;
-/// Caller-chosen ImageId for the composer attach preview. `fx.loadImage`
-/// uses this as the effect key (shared with spawn / clipboard / file).
-/// 0 is the no-image sentinel. Sits in the gap after `copy_turn_key`
-/// and before `fx_spawn_overlap`. Files markdown Preview images use
-/// 800–815; transcript markdown images use 816–831.
-/// Verified: Native 0.9.3 `LoadImageOptions` + markup
-/// `<image image="{binding}">`.
-pub const attach_preview_id_first = attach_helpers.attach_preview_id_first;
-pub const attach_preview_id_last = attach_helpers.attach_preview_id_last;
-/// Files Preview markdown image ids (`fx.loadImage` / `registerImageBytes`).
-/// Cap Native `max_markdown_images`. Distinct from attach preview 33–63
-/// and transcript markdown images 816–831.
-pub const file_preview_image_id_first = file_preview_images.id_first;
-pub const file_preview_image_id_last = file_preview_images.id_last;
-/// Transcript markdown image ids (`fx.loadImage` /
-/// `registerImageBytes`). Cap Native `max_markdown_images`. Distinct
-/// from Files Preview 800–815 and attach preview 33–63.
-pub const transcript_image_id_first = transcript_images.id_first;
-pub const transcript_image_id_last = transcript_images.id_last;
+pub const copy_turn_key = sidecar_keys.copy_turn_key;
+pub const no_provider_session_id_status = sidecar_keys.no_provider_session_id_status;
+pub const attach_preview_id_first = sidecar_keys.attach_preview_id_first;
+pub const attach_preview_id_last = sidecar_keys.attach_preview_id_last;
+pub const file_preview_image_id_first = sidecar_keys.file_preview_image_id_first;
+pub const file_preview_image_id_last = sidecar_keys.file_preview_image_id_last;
+pub const transcript_image_id_first = sidecar_keys.transcript_image_id_first;
+pub const transcript_image_id_last = sidecar_keys.transcript_image_id_last;
 pub const demo_ticks_complete: u32 = 12;
 pub const demo_reply = "fx here (demo). The fx CLI was not found, so this is a local timer stream. Install fx and Send runs `fx ask`.";
-/// Desktop notification title when the session has no stored title.
-pub const notify_fallback_title = copy_helpers.notify_fallback_title;
-/// Desktop notification body when the last assistant turn is empty.
-pub const notify_fallback_body = copy_helpers.notify_fallback_body;
-/// Short body cap. Native allows 1024; keep the toast readable.
-pub const notify_body_max = copy_helpers.notify_body_max;
+pub const notify_fallback_title = sidecar_keys.notify_fallback_title;
+pub const notify_fallback_body = sidecar_keys.notify_fallback_body;
+pub const notify_body_max = sidecar_keys.notify_body_max;
 
 pub const Mode = model_mod.Mode;
 pub const Role = model_mod.Role;
@@ -585,6 +528,7 @@ test {
     _ = @import("shell.zig");
     _ = @import("layout.zig");
     _ = @import("effect_keys.zig");
+    _ = @import("sidecar_keys.zig");
     _ = @import("session.zig");
     _ = @import("session_workspace.zig");
     _ = @import("model.zig");
