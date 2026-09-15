@@ -261,8 +261,9 @@
 //! five-tile metric-strip labels (same `UsageCostQualityChrome`
 //! strings; distinct from UsageViewChrome Cost|Tokens chips so
 //! quality / rates / tile labels stay independently evolvable;
-//! `token` stays Latin in zh-CN; daemon `errors[]` notice text
-//! stays English data this cut)
+//! `token` stays Latin in zh-CN; known daemon `errors[]`
+//! scan-unreadable notices live in `UsageDaemonErrorChrome`;
+//! unknown `errors[]` stay English data)
 //! plus Settings Usage Daily scan-footer unit labels (same
 //! `UsageScanFooterChrome` strings; ` · ` separators and Latin
 //! `{d:.1}s` stay; distinct from UsageCostQualityChrome so the
@@ -270,8 +271,13 @@
 //! plus Settings Usage sessions unit and connect-daemon hint (same
 //! `UsageSessionsChrome` strings; `{d} sessions` / ` · {d} sessions`
 //! keep numbers and ` · `; distinct from UsageScanFooterChrome so
-//! the sessions unit stays independently evolvable; daemon
-//! `errors[]` notice text stays English data this cut)
+//! the sessions unit stays independently evolvable)
+//! plus Settings Usage Daily known daemon `errors[]`
+//! scan-unreadable notices (same `UsageDaemonErrorChrome` strings;
+//! distinct from UsageScanFooterChrome / UsageCostQualityChrome so
+//! scan-unreadable notices stay independently evolvable; Faku-side
+//! display map only; cache/wire stay English; provider names stay
+//! Latin; paths stay as wire; unknown `errors[]` stay English data)
 //! plus composer Usage meter plan-usage chrome (same
 //! `UsageMeterChrome` strings; distinct from UsageSessionsChrome so
 //! the Settings Usage history connect hint stays independently
@@ -545,6 +551,11 @@
 //! UsageMeterChrome / UsageSessionsChrome / UsageViewChrome /
 //! FilterChrome no_project_usage; wire ids / numeric usage
 //! values stay English/data).
+//! Settings Usage Daily known daemon `errors[]` scan-unreadable
+//! notices follow the resolved locale this cut (same
+//! `UsageDaemonErrorChrome` strings; Faku-side display map only;
+//! cache/wire stay English; provider names stay Latin; paths stay
+//! as wire; unknown `errors[]` stay English data).
 //! Settings Usage Monthly empty-state No monthly usage follows
 //! the resolved locale this cut (same `UsageMonthlyEmptyChrome`
 //! strings; distinct from FilterChrome no_project_usage /
@@ -3466,8 +3477,9 @@ const goal_status_chrome_ja: GoalStatusChrome = .{
 /// chips stay independently evolvable from quality / rates /
 /// tile labels. One `cache_savings` field is shared by the quality
 /// row and the metric tile. `token` stays Latin in zh-CN (same
-/// rule as UsageViewChrome Tokens). Daemon `errors[]` notice text
-/// stays English data this cut. Wire / status enums stay
+/// rule as UsageViewChrome Tokens). Known daemon `errors[]`
+/// scan-unreadable notices live in `UsageDaemonErrorChrome`;
+/// unknown `errors[]` stay English data. Wire / status enums stay
 /// English (`fresh` / `cached` / `unavailable`).
 pub const UsageCostQualityChrome = struct {
     cost_quality: []const u8,
@@ -3566,8 +3578,9 @@ const usage_cost_quality_chrome_ja: UsageCostQualityChrome = .{
 /// matches the former hardcoded copy (`{d} files`, `{d} skipped`,
 /// `{d} records`). Distinct from UsageCostQualityChrome so the
 /// footer units stay independently evolvable. ` · ` separators and
-/// Latin `{d:.1}s` stay in every locale. Daemon `errors[]` notice
-/// text stays English data this cut.
+/// Latin `{d:.1}s` stay in every locale. Known daemon `errors[]`
+/// scan-unreadable notices live in `UsageDaemonErrorChrome`;
+/// unknown `errors[]` stay English data.
 pub const UsageScanFooterChrome = struct {
     files: []const u8,
     skipped: []const u8,
@@ -3598,8 +3611,9 @@ const usage_scan_footer_chrome_ja: UsageScanFooterChrome = .{
 /// (`{d} sessions`, ` · {d} sessions`, `Connect a daemon for usage
 /// history`). Distinct from UsageScanFooterChrome so the sessions
 /// unit stays independently evolvable. Numbers and middle-dot ` · `
-/// stay in every locale. Daemon `errors[]` notice text stays English
-/// data this cut.
+/// stay in every locale. Known daemon `errors[]` scan-unreadable
+/// notices live in `UsageDaemonErrorChrome`; unknown `errors[]`
+/// stay English data.
 pub const UsageSessionsChrome = struct {
     sessions: []const u8,
     connect_daemon: []const u8,
@@ -3717,6 +3731,79 @@ const plan_window_chrome_ja: PlanWindowChrome = .{
     .session = "セッション",
     .weekly = "週間",
     .five_h = "5h",
+};
+
+/// Settings Usage Daily known daemon `errors[]` scan-unreadable
+/// notices for the resolved locale. Same resolve path as
+/// PlanWindowChrome. English matches the Waku `scan()` template
+/// `{provider} transcripts at {path} could not be read.` Distinct
+/// from UsageScanFooterChrome / UsageCostQualityChrome so
+/// scan-unreadable notices stay independently evolvable. Display
+/// map only: `lineForWire` maps the known English wire; unknown
+/// strings pass through unchanged. Cache / wire stay English.
+/// Provider names stay Latin (`Claude Code` / `Codex`). Paths
+/// stay as wire.
+pub const UsageDaemonErrorChrome = struct {
+    /// Between provider and path (EN / zh-CN) or path and provider
+    /// (ja when `path_first`). English is ` transcripts at `.
+    scan_unreadable_mid: []const u8,
+    /// After the second insert. English is ` could not be read.`
+    scan_unreadable_suffix: []const u8,
+    /// When true, inserts are path then provider (ja). Else provider
+    /// then path (EN / zh-CN).
+    path_first: bool,
+
+    /// `wire` is a daemon `history.errors[]` string. Known Waku
+    /// `{provider} transcripts at {path} could not be read.` maps
+    /// to this pack; unknown strings return `wire` unchanged
+    /// (no alloc). Provider and path inserts use the arena.
+    pub fn lineForWire(self: UsageDaemonErrorChrome, arena: std.mem.Allocator, wire: []const u8) []const u8 {
+        const parsed = parseScanUnreadable(wire) orelse return wire;
+        const first = if (self.path_first) parsed.path else parsed.provider;
+        const second = if (self.path_first) parsed.provider else parsed.path;
+        return std.fmt.allocPrint(arena, "{s}{s}{s}{s}", .{
+            first,
+            self.scan_unreadable_mid,
+            second,
+            self.scan_unreadable_suffix,
+        }) catch wire;
+    }
+};
+
+const usage_daemon_error_scan_mid = " transcripts at ";
+const usage_daemon_error_scan_suffix = " could not be read.";
+
+const ScanUnreadable = struct {
+    provider: []const u8,
+    path: []const u8,
+};
+
+fn parseScanUnreadable(wire: []const u8) ?ScanUnreadable {
+    if (!std.mem.endsWith(u8, wire, usage_daemon_error_scan_suffix)) return null;
+    const without_suffix = wire[0 .. wire.len - usage_daemon_error_scan_suffix.len];
+    const mid_idx = std.mem.indexOf(u8, without_suffix, usage_daemon_error_scan_mid) orelse return null;
+    const provider = without_suffix[0..mid_idx];
+    const path = without_suffix[mid_idx + usage_daemon_error_scan_mid.len ..];
+    if (provider.len == 0 or path.len == 0) return null;
+    return .{ .provider = provider, .path = path };
+}
+
+const usage_daemon_error_chrome_en: UsageDaemonErrorChrome = .{
+    .scan_unreadable_mid = usage_daemon_error_scan_mid,
+    .scan_unreadable_suffix = usage_daemon_error_scan_suffix,
+    .path_first = false,
+};
+
+const usage_daemon_error_chrome_zh_cn: UsageDaemonErrorChrome = .{
+    .scan_unreadable_mid = " 位于 ",
+    .scan_unreadable_suffix = " 的转录无法读取。",
+    .path_first = false,
+};
+
+const usage_daemon_error_chrome_ja: UsageDaemonErrorChrome = .{
+    .scan_unreadable_mid = " にある ",
+    .scan_unreadable_suffix = " のトランスクリプトを読み取れませんでした。",
+    .path_first = true,
 };
 
 /// Settings Usage local session cards (Context window / empty
@@ -4965,8 +5052,9 @@ pub fn goalStatusChromeFor(preference: LanguagePreference, system_locale_id: []c
 /// metric-strip labels for the resolved locale. Callers pass Model
 /// `language_preference` + `system_locale_id`; this file does not
 /// read process env. Distinct from UsageViewChrome so Cost|Tokens
-/// chips stay independently evolvable. Daemon `errors[]` notice
-/// text stays English data this cut. Wire / status enums stay
+/// chips stay independently evolvable. Known daemon `errors[]`
+/// scan-unreadable notices live in `usageDaemonErrorChromeFor`;
+/// unknown `errors[]` stay English data. Wire / status enums stay
 /// English.
 pub fn usageCostQualityChromeFor(preference: LanguagePreference, system_locale_id: []const u8) UsageCostQualityChrome {
     return switch (resolve(preference, system_locale_id)) {
@@ -4980,8 +5068,10 @@ pub fn usageCostQualityChromeFor(preference: LanguagePreference, system_locale_i
 /// locale. Callers pass Model `language_preference` +
 /// `system_locale_id`; this file does not read process env. Distinct
 /// from UsageCostQualityChrome so the footer units stay independently
-/// evolvable. ` · ` separators and Latin `{d:.1}s` stay. Daemon
-/// `errors[]` notice text stays English data this cut.
+/// evolvable. ` · ` separators and Latin `{d:.1}s` stay. Known
+/// daemon `errors[]` scan-unreadable notices live in
+/// `usageDaemonErrorChromeFor`; unknown `errors[]` stay English
+/// data.
 pub fn usageScanFooterChromeFor(preference: LanguagePreference, system_locale_id: []const u8) UsageScanFooterChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => usage_scan_footer_chrome_zh_cn,
@@ -4994,8 +5084,9 @@ pub fn usageScanFooterChromeFor(preference: LanguagePreference, system_locale_id
 /// resolved locale. Callers pass Model `language_preference` +
 /// `system_locale_id`; this file does not read process env. Distinct
 /// from UsageScanFooterChrome so the sessions unit stays independently
-/// evolvable. Numbers and ` · ` stay. Daemon `errors[]` notice text
-/// stays English data this cut.
+/// evolvable. Numbers and ` · ` stay. Known daemon `errors[]`
+/// scan-unreadable notices live in `usageDaemonErrorChromeFor`;
+/// unknown `errors[]` stay English data.
 pub fn usageSessionsChromeFor(preference: LanguagePreference, system_locale_id: []const u8) UsageSessionsChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => usage_sessions_chrome_zh_cn,
@@ -5032,6 +5123,22 @@ pub fn planWindowChromeFor(preference: LanguagePreference, system_locale_id: []c
         .simplified_chinese => plan_window_chrome_zh_cn,
         .japanese => plan_window_chrome_ja,
         .system, .english => plan_window_chrome_en,
+    };
+}
+
+/// Settings Usage Daily known daemon `errors[]` scan-unreadable
+/// notices for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does not
+/// read process env. Distinct from UsageScanFooterChrome /
+/// UsageCostQualityChrome so scan-unreadable notices stay
+/// independently evolvable. Display map only; cache/wire stay
+/// English. Provider names stay Latin. Paths stay as wire.
+/// Unknown `errors[]` pass through unchanged.
+pub fn usageDaemonErrorChromeFor(preference: LanguagePreference, system_locale_id: []const u8) UsageDaemonErrorChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => usage_daemon_error_chrome_zh_cn,
+        .japanese => usage_daemon_error_chrome_ja,
+        .system, .english => usage_daemon_error_chrome_en,
     };
 }
 
@@ -8053,6 +8160,77 @@ test "planWindowChromeFor english default; zh and ja chrome; unknown wire passes
     try testing.expectEqualStrings("Weekly", planWindowChromeFor(.english, "zh_CN.UTF-8").weekly);
     try testing.expectEqualStrings("5h", planWindowChromeFor(.english, "ja_JP.UTF-8").five_h);
     try testing.expectEqualStrings("CustomWindow", planWindowChromeFor(.simplified_chinese, "ja_JP.UTF-8").labelForWire("CustomWindow"));
+}
+
+test "usageDaemonErrorChromeFor english default; zh and ja chrome; unknown wire passes through; english ignores ja LANG" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const en = usageDaemonErrorChromeFor(.english, "");
+    const zh = usageDaemonErrorChromeFor(.simplified_chinese, "");
+    const ja = usageDaemonErrorChromeFor(.japanese, "");
+    const claude = "Claude Code transcripts at /tmp/claude could not be read.";
+    const codex = "Codex transcripts at /home/me/.codex could not be read.";
+    const unknown = "scan failed";
+
+    try testing.expectEqualStrings(" transcripts at ", en.scan_unreadable_mid);
+    try testing.expectEqualStrings(" could not be read.", en.scan_unreadable_suffix);
+    try testing.expect(!en.path_first);
+    try testing.expectEqualStrings(claude, en.lineForWire(arena, claude));
+    try testing.expectEqualStrings(codex, en.lineForWire(arena, codex));
+    try testing.expectEqualStrings(unknown, en.lineForWire(arena, unknown));
+    try testing.expectEqual(unknown.ptr, en.lineForWire(arena, unknown).ptr);
+    try testing.expectEqualStrings(
+        " transcripts at ",
+        usageDaemonErrorChromeFor(.english, "ja").scan_unreadable_mid,
+    );
+    try testing.expectEqualStrings(
+        " transcripts at ",
+        usageDaemonErrorChromeFor(.system, "").scan_unreadable_mid,
+    );
+
+    try testing.expectEqualStrings(" 位于 ", zh.scan_unreadable_mid);
+    try testing.expectEqualStrings(" 的转录无法读取。", zh.scan_unreadable_suffix);
+    try testing.expect(!zh.path_first);
+    try testing.expectEqualStrings("Claude Code 位于 /tmp/claude 的转录无法读取。", zh.lineForWire(arena, claude));
+    try testing.expectEqualStrings("Codex 位于 /home/me/.codex 的转录无法读取。", zh.lineForWire(arena, codex));
+    try testing.expectEqualStrings(unknown, zh.lineForWire(arena, unknown));
+    try testing.expectEqual(unknown.ptr, zh.lineForWire(arena, unknown).ptr);
+
+    try testing.expectEqualStrings(" にある ", ja.scan_unreadable_mid);
+    try testing.expectEqualStrings(" のトランスクリプトを読み取れませんでした。", ja.scan_unreadable_suffix);
+    try testing.expect(ja.path_first);
+    try testing.expectEqualStrings(
+        "/tmp/claude にある Claude Code のトランスクリプトを読み取れませんでした。",
+        ja.lineForWire(arena, claude),
+    );
+    try testing.expectEqualStrings(
+        "/home/me/.codex にある Codex のトランスクリプトを読み取れませんでした。",
+        ja.lineForWire(arena, codex),
+    );
+    try testing.expectEqualStrings(unknown, ja.lineForWire(arena, unknown));
+
+    try testing.expectEqualStrings(
+        "Claude Code 位于 /tmp/claude 的转录无法读取。",
+        usageDaemonErrorChromeFor(.system, "zh_CN.UTF-8").lineForWire(arena, claude),
+    );
+    try testing.expectEqualStrings(
+        "/tmp/claude にある Claude Code のトランスクリプトを読み取れませんでした。",
+        usageDaemonErrorChromeFor(.system, "ja_JP.UTF-8").lineForWire(arena, claude),
+    );
+    try testing.expectEqualStrings(claude, usageDaemonErrorChromeFor(.english, "ja_JP.UTF-8").lineForWire(arena, claude));
+    try testing.expectEqualStrings(codex, usageDaemonErrorChromeFor(.english, "zh_CN.UTF-8").lineForWire(arena, codex));
+    try testing.expectEqualStrings(unknown, usageDaemonErrorChromeFor(.simplified_chinese, "ja_JP.UTF-8").lineForWire(arena, unknown));
+    try testing.expectEqualStrings(
+        " transcripts at /tmp could not be read.",
+        usageDaemonErrorChromeFor(.english, "").lineForWire(arena, " transcripts at /tmp could not be read."),
+    );
+    try testing.expectEqualStrings(
+        "Claude Code transcripts at  could not be read.",
+        usageDaemonErrorChromeFor(.english, "").lineForWire(arena, "Claude Code transcripts at  could not be read."),
+    );
 }
 
 test "usageLocalChromeFor english default; zh and ja chrome; english ignores ja LANG" {
