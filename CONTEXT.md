@@ -1391,6 +1391,7 @@ enable/disable. Not persisted, not a live watch.
 | Layout chrome widths | `src/layout.zig` |
 | Spawn / stream effect keys | `src/effect_keys.zig` |
 | OS sidecar / preview effect keys | `src/sidecar_keys.zig` |
+| Git / review / skills / probe effect keys | `src/git_keys.zig` |
 | Keyboard dispatch | `src/keys.zig` |
 | Msg update / initFx | `src/update.zig` |
 | Model / Msg / Turn / Folder | `src/model.zig` |
@@ -1763,7 +1764,8 @@ Honest gaps this cut does not implement:
   `boot.zig`; icons + shell scene live in `shell.zig`; layout chrome
   lives in `layout.zig`; spawn / stream effect keys live in
   `effect_keys.zig`; OS sidecar / media-preview effect keys live in
-  `sidecar_keys.zig`; remaining `main.zig` leftovers are
+  `sidecar_keys.zig`; git / review / skills / probe spawn effect keys
+  live in `git_keys.zig`; remaining `main.zig` leftovers are
   re-exports + `main()` + demo seed strings)
 - Embedded Browser first-cut (right-panel Browser is a Native canvas
   webview via `web_panes` / scene `.webview` `browser-web-0`..`3`;

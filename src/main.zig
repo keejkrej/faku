@@ -65,8 +65,6 @@ const attach_helpers = @import("attach.zig");
 const prompt_spawn = @import("spawn.zig");
 const sidecar_lines = @import("lines.zig");
 const fx_probe = @import("fx_probe.zig");
-const cli_probe = @import("cli_probe.zig");
-const litellm_rates = @import("litellm_rates.zig");
 const palette_run = @import("palette_run.zig");
 const update_mod = @import("update.zig");
 const boot_mod = @import("boot.zig");
@@ -74,27 +72,15 @@ const shell_mod = @import("shell.zig");
 const layout_mod = @import("layout.zig");
 const effect_keys = @import("effect_keys.zig");
 const sidecar_keys = @import("sidecar_keys.zig");
+const git_keys = @import("git_keys.zig");
 const session_mod = @import("session.zig");
 const model_mod = @import("model.zig");
 const i18n = @import("i18n.zig");
-const git_branch = @import("git_branch.zig");
-const git_checkout = @import("git_checkout.zig");
-const git_dirty = @import("git_dirty.zig");
-const git_numstat = @import("git_numstat.zig");
-const git_ahead_behind = @import("git_ahead_behind.zig");
-const git_remotes = @import("git_remotes.zig");
-const git_toplevel = @import("git_toplevel.zig");
-const git_common_dir = @import("git_common_dir.zig");
-const git_commit = @import("git_commit.zig");
 const environment_summary = @import("environment_summary.zig");
 const right_panel = @import("right_panel.zig");
-const review_diff = @import("review_diff.zig");
-const file_mention = @import("file_mention.zig");
-const skills = @import("skills.zig");
 const util = @import("util.zig");
 const browser_pane = @import("browser_pane.zig");
 const file_preview_details = @import("file_preview_details.zig");
-const file_preview_issue_link = @import("file_preview_issue_link.zig");
 const transcript_details = @import("transcript_details.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
@@ -209,120 +195,31 @@ pub const open_url_key = sidecar_keys.open_url_key;
 pub const open_terminal_key = sidecar_keys.open_terminal_key;
 pub const pty_shell_key = sidecar_keys.pty_shell_key;
 pub const open_editor_key = sidecar_keys.open_editor_key;
-/// One-shot `git branch --show-current` probe. Distinct from maximize /
-/// pick-image / fx-ask / daemon / clipboard / probe keys, from
-/// git_branch_list (250+), git_checkout (275+), and from
-/// git_dirty (300+). Incremented per refresh from
-/// `git_branch_key_first`.
-pub const git_branch_key_first = git_branch.git_branch_key_first;
-/// One-shot `refs/heads` + `refs/remotes` list. Distinct from
-/// git_branch (200+), git_checkout (275+; also `--track`), git_dirty
-/// (300+), git_numstat (350+), git_push (360+), git_ahead_behind
-/// (380+), and file_mention (400+).
-pub const git_branch_list_key_first = git_checkout.git_branch_list_key_first;
-/// One-shot `git checkout <name>`. Distinct from git_branch (200+),
-/// git_branch_list (250+), git_create (290+), git_dirty (300+),
-/// git_numstat (350+), git_push (360+), git_ahead_behind (380+),
-/// and file_mention (400+).
-pub const git_checkout_key_first = git_checkout.git_checkout_key_first;
-/// One-shot `git checkout -b <name>`. Distinct from list (250+),
-/// checkout (275+), git_dirty (300+). Band is 290+.
-pub const git_create_key_first = git_checkout.git_create_key_first;
-/// One-shot `git branch -d <name>`. Distinct from create (290+),
-/// git_dirty (300+), git_fetch (340+), git_numstat (350+), and
-/// git_push (360+). Band is 320+.
-pub const git_delete_key_first = git_checkout.git_delete_key_first;
-/// One-shot `git fetch --prune`. Distinct from delete (320+) and
-/// git_numstat (350+). Band is 340+.
-pub const git_fetch_key_first = git_checkout.git_fetch_key_first;
-/// One-shot `git push` (bare or `--set-upstream`) plus the probes
-/// that choose the path. Distinct from fetch (340+), git_numstat
-/// (350+), git_worktree_add (370+), git_ahead_behind (380+), and
-/// file_mention (400+). Band is 360+.
-pub const git_push_key_first = git_checkout.git_push_key_first;
-/// One-shot `git worktree add -b`. Distinct from push (360+),
-/// git_ahead_behind (380+), git_worktree_base (390+), and
-/// file_mention (400+). Band is 370+.
-pub const git_worktree_add_key_first = git_checkout.git_worktree_add_key_first;
-/// One-shot `git rev-list --left-right --count @{upstream}...HEAD`.
-/// Distinct from git_worktree_add (370+), git_worktree_base (390+),
-/// and file_mention (400+). Band is 380+. Incremented per refresh
-/// from `git_ahead_behind_key_first`.
-pub const git_ahead_behind_key_first = git_ahead_behind.git_ahead_behind_key_first;
-/// One-shot `git symbolic-ref --quiet --short refs/remotes/origin/HEAD`
-/// for New worktree… base. Distinct from git_ahead_behind (380+)
-/// and file_mention (400+). Band is 390+.
-pub const git_worktree_base_key_first = git_checkout.git_worktree_base_key_first;
-/// One-shot `git status --porcelain` dirty count. Distinct from
-/// git_branch (200+), git_branch_list (250+), git_checkout (275+),
-/// git_create (290+), git_delete (320+), git_fetch (340+),
-/// git_numstat (350+), git_push (360+), git_ahead_behind (380+),
-/// and file_mention (400+). Incremented per refresh from
-/// `git_dirty_key_first`.
-pub const git_dirty_key_first = git_dirty.git_dirty_key_first;
-/// One-shot `git diff --numstat HEAD --` +/- plus untracked text-line
-/// additions. Distinct from git_branch (200+), git_dirty (300+),
-/// git_push (360+), git_ahead_behind (380+), and file_mention (400+).
-/// Incremented per refresh from `git_numstat_key_first`.
-pub const git_numstat_key_first = git_numstat.git_numstat_key_first;
-/// One-shot file-mention probe (git ls-files, then a bounded walk
-/// when git cannot list) for composer `@` mentions. Distinct from
-/// git_branch (200+), git_dirty (300+), git_numstat (350+),
-/// git_push (360+), git_worktree_add (370+), git_ahead_behind
-/// (380+), and git_worktree_base (390+). Incremented per spawn
-/// from `file_mention_key_first` (400).
-pub const file_mention_key_first = file_mention.file_mention_key_first;
-/// One-shot `git add -A -- .` then `git commit -m`. Distinct from
-/// file_mention (400+); band is 450+ so it does not sit on 400–409.
-/// Incremented per spawn from `git_commit_key_first`.
-pub const git_commit_key_first = git_commit.git_commit_key_first;
-/// One-shot CommitSnapshot numstat on the Commit… card (include-
-/// unstaged reuses the project-row script; off is `--cached`).
-/// Distinct from add/commit (450+) and project-row keys (350+).
-/// Band is 460+. Incremented per probe from
-/// `git_commit_numstat_key_first`.
-pub const git_commit_numstat_key_first = git_commit.git_commit_numstat_key_first;
-/// One-shot empty-message `fx ask` generate on the Commit… card.
-/// Distinct from add/commit (450+) and CommitSnapshot numstat (460+).
-/// Band is 470+. Incremented per spawn from
-/// `git_commit_generate_key_first`.
-pub const git_commit_generate_key_first = git_commit.git_commit_generate_key_first;
-/// One-shot `git remote` for first-push remotes. Distinct from
-/// generate (470+) and git_push remotes (360+). Band is 480+.
-/// Incremented per refresh from `git_remotes_key_first`.
-pub const git_remotes_key_first = git_remotes.git_remotes_key_first;
-/// One-shot `git rev-parse --show-toplevel`. Distinct from remotes
-/// (480+). Band is 490+. Incremented per refresh from
-/// `git_toplevel_key_first`.
-pub const git_toplevel_key_first = git_toplevel.git_toplevel_key_first;
-/// One-shot `git rev-parse --git-common-dir`. Distinct from
-/// toplevel (490+). Band is 500+. Incremented per refresh from
-/// `git_common_dir_key_first`.
-pub const git_common_dir_key_first = git_common_dir.git_common_dir_key_first;
-/// One-shot Branch `git diff --numstat @{upstream}...HEAD` for
-/// the Environment Compare Review card. Distinct from common-dir
-/// (500+). Band is 510+. Incremented per open from
-/// `review_diff_key_first`.
-pub const review_diff_key_first = review_diff.review_diff_key_first;
-/// One-shot Review `git diff [operand] -- <path>` hunk probe.
-/// Distinct from file-list 510+. Band is 520+. Incremented
-/// per file click from `review_diff_hunk_key_first`.
-pub const review_diff_hunk_key_first = review_diff.review_diff_hunk_key_first;
-/// One-shot Settings Skills `find` for `SKILL.md`. Distinct from
-/// review hunk (520+). Band is 530+. Incremented per scan from
-/// `skills_key_first`.
-pub const skills_key_first = skills.skills_key_first;
-/// One-shot Files Preview + transcript `git remote` / `git remote get-url`
-/// for markdown `issue-link-base`. Distinct from skills (530+). Band is
-/// 540+. Incremented per spawn from `file_preview_issue_link_key_first`.
-pub const file_preview_issue_link_key_first = file_preview_issue_link.key_first;
-/// One-shot Settings Providers non-fx `{binary} --help` probes.
-/// Distinct from skills (530+). Band is 600+ `@intFromEnum(id)`
-/// so claude=601 … kimi=608. fx stays on `fx_probe_key` (3).
-pub const cli_probe_key_first = cli_probe.cli_probe_key_first;
-/// One-shot LiteLLM rate-table curl (`-o` into the Faku data dir).
-/// Distinct from cli_probe (600+). Fixed key 650.
-pub const litellm_rates_key = litellm_rates.litellm_rates_key;
+pub const git_branch_key_first = git_keys.git_branch_key_first;
+pub const git_branch_list_key_first = git_keys.git_branch_list_key_first;
+pub const git_checkout_key_first = git_keys.git_checkout_key_first;
+pub const git_create_key_first = git_keys.git_create_key_first;
+pub const git_delete_key_first = git_keys.git_delete_key_first;
+pub const git_fetch_key_first = git_keys.git_fetch_key_first;
+pub const git_push_key_first = git_keys.git_push_key_first;
+pub const git_worktree_add_key_first = git_keys.git_worktree_add_key_first;
+pub const git_ahead_behind_key_first = git_keys.git_ahead_behind_key_first;
+pub const git_worktree_base_key_first = git_keys.git_worktree_base_key_first;
+pub const git_dirty_key_first = git_keys.git_dirty_key_first;
+pub const git_numstat_key_first = git_keys.git_numstat_key_first;
+pub const file_mention_key_first = git_keys.file_mention_key_first;
+pub const git_commit_key_first = git_keys.git_commit_key_first;
+pub const git_commit_numstat_key_first = git_keys.git_commit_numstat_key_first;
+pub const git_commit_generate_key_first = git_keys.git_commit_generate_key_first;
+pub const git_remotes_key_first = git_keys.git_remotes_key_first;
+pub const git_toplevel_key_first = git_keys.git_toplevel_key_first;
+pub const git_common_dir_key_first = git_keys.git_common_dir_key_first;
+pub const review_diff_key_first = git_keys.review_diff_key_first;
+pub const review_diff_hunk_key_first = git_keys.review_diff_hunk_key_first;
+pub const skills_key_first = git_keys.skills_key_first;
+pub const file_preview_issue_link_key_first = git_keys.file_preview_issue_link_key_first;
+pub const cli_probe_key_first = git_keys.cli_probe_key_first;
+pub const litellm_rates_key = git_keys.litellm_rates_key;
 pub const copy_turn_key = sidecar_keys.copy_turn_key;
 pub const no_provider_session_id_status = sidecar_keys.no_provider_session_id_status;
 pub const attach_preview_id_first = sidecar_keys.attach_preview_id_first;
@@ -529,6 +426,7 @@ test {
     _ = @import("layout.zig");
     _ = @import("effect_keys.zig");
     _ = @import("sidecar_keys.zig");
+    _ = @import("git_keys.zig");
     _ = @import("session.zig");
     _ = @import("session_workspace.zig");
     _ = @import("model.zig");
