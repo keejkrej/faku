@@ -69,7 +69,6 @@ const palette_run = @import("palette_run.zig");
 const update_mod = @import("update.zig");
 const boot_mod = @import("boot.zig");
 const shell_mod = @import("shell.zig");
-const layout_mod = @import("layout.zig");
 const effect_keys = @import("effect_keys.zig");
 const sidecar_keys = @import("sidecar_keys.zig");
 const git_keys = @import("git_keys.zig");
@@ -88,30 +87,12 @@ const canvas = native_sdk.canvas;
 const geometry = native_sdk.geometry;
 
 const canvas_label = shell_mod.canvas_label;
-pub const main_window_label = shell_mod.main_window_label;
-pub const window_width = shell_mod.window_width;
-pub const window_height = shell_mod.window_height;
-pub const window_min_width = shell_mod.window_min_width;
-pub const window_min_height = shell_mod.window_min_height;
-pub const sidebar_default_width = layout_mod.sidebar_default_width;
-pub const sidebar_min_width = layout_mod.sidebar_min_width;
-pub const sidebar_max_width = layout_mod.sidebar_max_width;
-pub const sidebar_rail_width = layout_mod.sidebar_rail_width;
-pub const right_panel_default_width = layout_mod.right_panel_default_width;
-pub const right_panel_min_width = layout_mod.right_panel_min_width;
-pub const right_panel_max_width = layout_mod.right_panel_max_width;
-pub const right_panel_diff_default_width = layout_mod.right_panel_diff_default_width;
-pub const right_panel_diff_min_width = layout_mod.right_panel_diff_min_width;
-pub const right_panel_diff_max_width = layout_mod.right_panel_diff_max_width;
-pub const file_editor_initial_width = layout_mod.file_editor_initial_width;
-pub const file_editor_min_width = layout_mod.file_editor_min_width;
-pub const review_initial_width = layout_mod.review_initial_width;
-pub const widenedPanelWidthForFileEditor = layout_mod.widenedPanelWidthForFileEditor;
-pub const widenedPanelWidthForReview = layout_mod.widenedPanelWidthForReview;
-pub const fittedFileTreeWidth = layout_mod.fittedFileTreeWidth;
-pub const fileTreeSplitFraction = layout_mod.fileTreeSplitFraction;
-pub const fittedDiffFileListWidth = layout_mod.fittedDiffFileListWidth;
-pub const diffFileListSplitFraction = layout_mod.diffFileListSplitFraction;
+const window_width = shell_mod.window_width;
+const window_height = shell_mod.window_height;
+const shell_scene = shell_mod.shell_scene;
+const registerIcons = shell_mod.registerIcons;
+/// Native model contract looks for `pub const app_icons` on the app root.
+pub const app_icons = shell_mod.app_icons;
 pub const max_sessions = model_exports.max_sessions;
 /// Sidebar folder-header keys sit above session ids so `for` keys stay unique.
 pub const folder_row_id_base: u32 = 1_000_000;
@@ -161,9 +142,6 @@ pub const fx_env_bin = "/usr/bin/env";
 pub const max_line_keep = 4096;
 
 const app_permissions = [_][]const u8{ native_sdk.security.permission_command, native_sdk.security.permission_view };
-pub const shell_scene = shell_mod.shell_scene;
-pub const app_icons = shell_mod.app_icons;
-pub const registerIcons = shell_mod.registerIcons;
 
 pub const stream_timer_key = effect_keys.stream_timer_key;
 pub const fx_ask_key = effect_keys.fx_ask_key;

@@ -2,6 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const layout_mod = @import("layout.zig");
+const shell = @import("shell.zig");
 const protocol = @import("protocol.zig");
 const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
@@ -52,7 +54,7 @@ const Effects = main.Effects;
 const AppMarkup = canvas.MarkupView(Model, Msg);
 
 fn buildTree(arena: std.mem.Allocator, model: *const Model) !AppUi.Tree {
-    main.registerIcons();
+    shell.registerIcons();
     var view = try AppMarkup.init(arena, main.app_markup);
     var ui = AppUi.init(arena);
     const node = view.build(&ui, model) catch |err| {
@@ -9019,7 +9021,7 @@ test "the view lays out through the canvas engine" {
     var nodes: [256]canvas.WidgetLayoutNode = undefined;
     const layout = try canvas.layoutWidgetTree(
         tree.root,
-        native_sdk.geometry.RectF.init(0, 0, main.window_width, main.window_height),
+        native_sdk.geometry.RectF.init(0, 0, shell.window_width, shell.window_height),
         &nodes,
     );
     try testing.expect(layout.nodes.len > 0);
@@ -9562,8 +9564,8 @@ test "cmd-b and ctrl-b toggle sidebar collapse via onKey" {
     main.update(&model, keys.onKey(cmd_b).?, &fx);
     try testing.expect(model.sidebar_collapsed);
     try testing.expect(!model.sidebar_expanded());
-    try testing.expectEqual(main.sidebar_rail_width / main.window_width, model.sidebar_split);
-    try testing.expectEqual(main.sidebar_rail_width, model.sidebar_pane_min());
+    try testing.expectEqual(layout_mod.sidebar_rail_width / shell.window_width, model.sidebar_split);
+    try testing.expectEqual(layout_mod.sidebar_rail_width, model.sidebar_pane_min());
 
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "Today") == null);
@@ -9573,7 +9575,7 @@ test "cmd-b and ctrl-b toggle sidebar collapse via onKey" {
 
     main.update(&model, keys.onKey(cmd_b).?, &fx);
     try testing.expect(!model.sidebar_collapsed);
-    try testing.expectEqual(main.sidebar_default_width / main.window_width, model.sidebar_split);
+    try testing.expectEqual(layout_mod.sidebar_default_width / shell.window_width, model.sidebar_split);
 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Today");
@@ -9637,7 +9639,7 @@ test "cmd-b persist extras stay merge-only" {
     try store.saveSession(&source, source.session_store[0].id, testing.allocator, testing.io);
     try store.saveSession(&source, source.session_store[1].id, testing.allocator, testing.io);
     source.sidebar_last_width = 320;
-    source.sidebar_split = 320 / main.window_width;
+    source.sidebar_split = 320 / shell.window_width;
     main.update(&source, keys.onKey(cmd_b).?, &fx);
     try testing.expect(source.sidebar_collapsed);
 
@@ -9650,7 +9652,7 @@ test "cmd-b persist extras stay merge-only" {
     try testing.expectEqual(source.session_store[0].id, loaded.session_store[0].id);
     try testing.expectEqual(source.session_store[1].id, loaded.session_store[1].id);
     try testing.expectEqual(@as(u32, 320), loaded.sidebarWidthPixels());
-    try testing.expectEqual(main.sidebar_rail_width / main.window_width, loaded.sidebar_split);
+    try testing.expectEqual(layout_mod.sidebar_rail_width / shell.window_width, loaded.sidebar_split);
 
     main.update(&loaded, keys.onKey(cmd_b).?, &fx);
     try testing.expect(!loaded.sidebar_collapsed);
@@ -11383,7 +11385,7 @@ fn expectLaidOutHeight(root: canvas.Widget, id: canvas.ObjectId, height: f32) !v
     var nodes: [256]canvas.WidgetLayoutNode = undefined;
     const layout = try canvas.layoutWidgetTree(
         root,
-        native_sdk.geometry.RectF.init(0, 0, main.window_width, main.window_height),
+        native_sdk.geometry.RectF.init(0, 0, shell.window_width, shell.window_height),
         &nodes,
     );
     for (layout.nodes) |node| {
@@ -11590,8 +11592,8 @@ test "sidebar collapse hides the session list and expand restores it" {
 
     try testing.expect(model.sidebar_collapsed);
     try testing.expect(!model.sidebar_expanded());
-    try testing.expectEqual(main.sidebar_rail_width / main.window_width, model.sidebar_split);
-    try testing.expectEqual(main.sidebar_rail_width, model.sidebar_pane_min());
+    try testing.expectEqual(layout_mod.sidebar_rail_width / shell.window_width, model.sidebar_split);
+    try testing.expectEqual(layout_mod.sidebar_rail_width, model.sidebar_pane_min());
 
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "Today") == null);
@@ -11604,7 +11606,7 @@ test "sidebar collapse hides the session list and expand restores it" {
     main.update(&model, tree.msgForPointer(expand.id, .up).?, &fx);
 
     try testing.expect(!model.sidebar_collapsed);
-    try testing.expectEqual(main.sidebar_default_width / main.window_width, model.sidebar_split);
+    try testing.expectEqual(layout_mod.sidebar_default_width / shell.window_width, model.sidebar_split);
 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Today");
@@ -11635,7 +11637,7 @@ test "sidebar collapsed flag reloads and hides the session list" {
     source.store_io = testing.io;
     try store.saveSession(&source, source.selected, testing.allocator, testing.io);
     source.sidebar_last_width = 320;
-    source.sidebar_split = 320 / main.window_width;
+    source.sidebar_split = 320 / shell.window_width;
     main.update(&source, .toggle_sidebar, &fx);
     try testing.expect(source.sidebar_collapsed);
 
@@ -11645,7 +11647,7 @@ test "sidebar collapsed flag reloads and hides the session list" {
     try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
     try testing.expect(loaded.sidebar_collapsed);
     try testing.expectEqual(@as(u32, 320), loaded.sidebarWidthPixels());
-    try testing.expectEqual(main.sidebar_rail_width / main.window_width, loaded.sidebar_split);
+    try testing.expectEqual(layout_mod.sidebar_rail_width / shell.window_width, loaded.sidebar_split);
 
     const tree = try buildTree(arena, &loaded);
     try testing.expect(findByText(tree.root, .text, "Today") == null);
@@ -18189,8 +18191,8 @@ test "OS titlebar is hidden_inset_tall; canvas does not draw window buttons" {
     fx.executor = .fake;
 
     var model = main.initialModel();
-    try testing.expect(main.shell_scene.windows[0].titlebar == .hidden_inset_tall);
-    try testing.expectEqualStrings(main.main_window_label, main.shell_scene.windows[0].label);
+    try testing.expect(shell.shell_scene.windows[0].titlebar == .hidden_inset_tall);
+    try testing.expectEqualStrings(shell.main_window_label, shell.shell_scene.windows[0].label);
 
     var tree = try buildTree(arena, &model);
     const toolbar = try expectByText(tree.root, .row, "Toolbar");
@@ -18203,7 +18205,7 @@ test "OS titlebar is hidden_inset_tall; canvas does not draw window buttons" {
     main.update(&model, .minimize_window, &fx);
     actions = fx.windowActionState();
     try testing.expectEqual(@as(u32, 1), actions.minimize_count);
-    try testing.expectEqualStrings(main.main_window_label, actions.lastLabel());
+    try testing.expectEqualStrings(shell.main_window_label, actions.lastLabel());
 
     const gear = try expectButton(tree.root, "Settings");
     main.update(&model, tree.msgForPointer(gear.id, .up).?, &fx);
@@ -18242,7 +18244,7 @@ test "cmd-m and ctrl-m minimize the window via onKey" {
     actions = fx.windowActionState();
     try testing.expectEqual(@as(u32, 1), actions.minimize_count);
     try testing.expectEqual(@as(u32, 0), actions.close_count);
-    try testing.expectEqualStrings(main.main_window_label, actions.lastLabel());
+    try testing.expectEqualStrings(shell.main_window_label, actions.lastLabel());
     try testing.expectEqualStrings("m", model.draft());
 
     const ctrl_m = canvas.WidgetKeyboardEvent{
@@ -18254,7 +18256,7 @@ test "cmd-m and ctrl-m minimize the window via onKey" {
     main.update(&model, keys.onKey(ctrl_m).?, &fx);
     actions = fx.windowActionState();
     try testing.expectEqual(@as(u32, 2), actions.minimize_count);
-    try testing.expectEqualStrings(main.main_window_label, actions.lastLabel());
+    try testing.expectEqualStrings(shell.main_window_label, actions.lastLabel());
 
     const cmd_n = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
@@ -18460,7 +18462,7 @@ test "cmd-w and ctrl-w close the window via onKey" {
     actions = fx.windowActionState();
     try testing.expectEqual(@as(u32, 1), actions.close_count);
     try testing.expectEqual(@as(u32, 0), actions.quit_count);
-    try testing.expectEqualStrings(main.main_window_label, actions.lastLabel());
+    try testing.expectEqualStrings(shell.main_window_label, actions.lastLabel());
     try testing.expectEqualStrings("w", model.draft());
 
     const ctrl_w = canvas.WidgetKeyboardEvent{
@@ -18473,7 +18475,7 @@ test "cmd-w and ctrl-w close the window via onKey" {
     actions = fx.windowActionState();
     try testing.expectEqual(@as(u32, 2), actions.close_count);
     try testing.expectEqual(@as(u32, 0), actions.quit_count);
-    try testing.expectEqualStrings(main.main_window_label, actions.lastLabel());
+    try testing.expectEqualStrings(shell.main_window_label, actions.lastLabel());
     try testing.expectEqualStrings("w", model.draft());
 }
 
@@ -18530,8 +18532,8 @@ test "header Close requests the real window close; Esc stays with settings" {
     fx.executor = .fake;
 
     var model = main.initialModel();
-    try testing.expect(main.shell_scene.windows[0].titlebar == .hidden_inset_tall);
-    try testing.expectEqualStrings(main.main_window_label, main.shell_scene.windows[0].label);
+    try testing.expect(shell.shell_scene.windows[0].titlebar == .hidden_inset_tall);
+    try testing.expectEqualStrings(shell.main_window_label, shell.shell_scene.windows[0].label);
 
     var tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "New folder");
@@ -18546,8 +18548,8 @@ test "header Close requests the real window close; Esc stays with settings" {
     actions = fx.windowActionState();
     try testing.expectEqual(@as(u32, 1), actions.close_count);
     try testing.expectEqual(@as(u32, 0), actions.quit_count);
-    try testing.expectEqualStrings(main.main_window_label, actions.lastLabel());
-    try testing.expect(main.shell_scene.windows[0].titlebar == .hidden_inset_tall);
+    try testing.expectEqualStrings(shell.main_window_label, actions.lastLabel());
+    try testing.expect(shell.shell_scene.windows[0].titlebar == .hidden_inset_tall);
 
     tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "New folder");

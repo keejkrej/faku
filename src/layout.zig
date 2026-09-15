@@ -1,8 +1,8 @@
 //! Sidebar and right-panel layout chrome widths.
 //!
 //! Waku-measured pane clamps for the sidebar rail and the Files / Diff /
-//! Browser / Terminal / Background right panel. Re-exported from `main.zig` so
-//! `main.sidebar_*` / `main.right_panel_*` call sites keep working.
+//! Browser / Terminal / Background right panel. Callers import this
+//! module directly (`layout.sidebar_*` / `layout.right_panel_*`).
 //! First-cut Files preview widen lives here as `file_editor_initial_width`
 //! and `widenedPanelWidthForFileEditor` (Waku `FILE_EDITOR_INITIAL_WIDTH`
 //! 500). Nested Files tree + preview uses `file_editor_min_width` 140

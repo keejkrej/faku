@@ -2571,6 +2571,8 @@ test "session model and access_mode persist; new sessions inherit last-used (acc
 
 test "sidebar collapsed flag and last width reload from document extras" {
     const testing = std.testing;
+    const layout = @import("layout.zig");
+    const shell = @import("shell.zig");
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
     var dir_buf: [256]u8 = undefined;
@@ -2585,7 +2587,7 @@ test "sidebar collapsed flag and last width reload from document extras" {
     const id = source.addSession("layout later", .fx);
     _ = source.appendTurn(id, .user, "remember the rail");
     source.sidebar_last_width = 300;
-    source.sidebar_split = 300 / main.window_width;
+    source.sidebar_split = 300 / shell.window_width;
     try saveSession(&source, id, allocator, io);
 
     source.toggleSidebar();
@@ -2599,7 +2601,7 @@ test "sidebar collapsed flag and last width reload from document extras" {
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
     try testing.expect(loaded.sidebar_collapsed);
     try testing.expectEqual(@as(u32, 300), loaded.sidebarWidthPixels());
-    try testing.expectEqual(main.sidebar_rail_width / main.window_width, loaded.sidebar_split);
+    try testing.expectEqual(layout.sidebar_rail_width / shell.window_width, loaded.sidebar_split);
 
     loaded.toggleSidebar();
     persistLayoutIfPossible(&loaded);

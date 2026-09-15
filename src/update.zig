@@ -51,6 +51,7 @@ const browser_pane = @import("browser_pane.zig");
 const open_editor = @import("open_editor.zig");
 const copy_helpers = @import("copy.zig");
 const right_panel = @import("right_panel.zig");
+const shell = @import("shell.zig");
 const file_preview_images = @import("file_preview_images.zig");
 const file_preview_details = @import("file_preview_details.zig");
 const file_preview_issue_link = @import("file_preview_issue_link.zig");
@@ -60,7 +61,7 @@ const transcript_details = @import("transcript_details.zig");
 const Model = main.Model;
 const Msg = main.Msg;
 const Effects = main.Effects;
-const main_window_label = main.main_window_label;
+const main_window_label = shell.main_window_label;
 
 pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
     // Finish a previous Hard Reload blank hop after Native has had a
