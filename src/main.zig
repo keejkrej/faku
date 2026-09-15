@@ -73,8 +73,7 @@ const layout_mod = @import("layout.zig");
 const effect_keys = @import("effect_keys.zig");
 const sidecar_keys = @import("sidecar_keys.zig");
 const git_keys = @import("git_keys.zig");
-const session_mod = @import("session.zig");
-const model_mod = @import("model.zig");
+const model_exports = @import("model_exports.zig");
 const i18n = @import("i18n.zig");
 const environment_summary = @import("environment_summary.zig");
 const right_panel = @import("right_panel.zig");
@@ -113,13 +112,12 @@ pub const fittedFileTreeWidth = layout_mod.fittedFileTreeWidth;
 pub const fileTreeSplitFraction = layout_mod.fileTreeSplitFraction;
 pub const fittedDiffFileListWidth = layout_mod.fittedDiffFileListWidth;
 pub const diffFileListSplitFraction = layout_mod.diffFileListSplitFraction;
-pub const max_sessions = model_mod.max_sessions;
+pub const max_sessions = model_exports.max_sessions;
 /// Sidebar folder-header keys sit above session ids so `for` keys stay unique.
 pub const folder_row_id_base: u32 = 1_000_000;
 /// Date-bucket header keys sit above folder headers.
 pub const date_row_id_base = sidebar_row_helpers.date_row_id_base;
-/// In-memory session selection history for sidebar Back / Forward.
-pub const selection_history_cap = model_mod.selection_history_cap;
+pub const selection_history_cap = model_exports.selection_history_cap;
 /// Runtime-only Ctrl-Tab switcher snapshot. Same cap as Waku's overlay.
 pub const switcher_cap = session_switcher.switcher_cap;
 pub const palette_action_id_base = palette.palette_action_id_base;
@@ -130,42 +128,35 @@ pub const palette_search_row_height = palette.palette_search_row_height;
 pub const palette_section_header_height = palette.palette_section_header_height;
 pub const palette_card_width = palette.palette_card_width;
 pub const palette_card_height = palette.palette_card_height;
-pub const max_turns = model_mod.max_turns;
-pub const max_title = session_mod.max_title;
-pub const max_body = model_mod.max_body;
-pub const max_draft = model_mod.max_draft;
-pub const max_queued = model_mod.max_queued;
-pub const max_queued_text = model_mod.max_queued_text;
-pub const max_fx_path = model_mod.max_fx_path;
-pub const max_store_dir = model_mod.max_store_dir;
-pub const max_project_path = session_mod.max_project_path;
-pub const max_attach_status = model_mod.max_attach_status;
-pub const max_fx_session_id = session_mod.max_fx_session_id;
-pub const max_tool_call_id = model_mod.max_tool_call_id;
-pub const max_tool_kind = model_mod.max_tool_kind;
-pub const max_tool_status = model_mod.max_tool_status;
-pub const max_runtime_id = session_mod.max_runtime_id;
-pub const max_fx_model = session_mod.max_fx_model;
-pub const max_access_mode = session_mod.max_access_mode;
-pub const max_interaction_mode = session_mod.max_interaction_mode;
-pub const max_reasoning_effort = session_mod.max_reasoning_effort;
-/// Codex `ThreadGoal.objective`. Same cap as the composer draft.
-pub const max_thread_goal_objective = session_mod.max_thread_goal_objective;
-/// Codex `ThreadGoalStatus` wire name (`budgetLimited` is 13).
-pub const max_thread_goal_status = session_mod.max_thread_goal_status;
-/// Compact `12k/100k · 3m` meter on the composer goal row.
-pub const max_thread_goal_usage_label = session_mod.max_thread_goal_usage_label;
-pub const max_available_commands = session_mod.max_available_commands;
-pub const max_model_options = session_mod.max_model_options;
-pub const max_command_name = session_mod.max_command_name;
-pub const max_command_description = session_mod.max_command_description;
-/// Waku `runtime_mode` default. Maps to fx `FX_PERMISSION_MODE=yolo`.
-pub const default_access_mode = "fullAccess";
-/// Waku `StartOptions.interaction_mode` default (`build` | `plan`).
-pub const default_interaction_mode = "build";
-/// fx documented `effort` default (`auto` | `none` | `minimal` | `low` |
-/// `medium` | `high` | `xhigh` | `max`).
-pub const default_reasoning_effort = "auto";
+pub const max_turns = model_exports.max_turns;
+pub const max_title = model_exports.max_title;
+pub const max_body = model_exports.max_body;
+pub const max_draft = model_exports.max_draft;
+pub const max_queued = model_exports.max_queued;
+pub const max_queued_text = model_exports.max_queued_text;
+pub const max_fx_path = model_exports.max_fx_path;
+pub const max_store_dir = model_exports.max_store_dir;
+pub const max_project_path = model_exports.max_project_path;
+pub const max_attach_status = model_exports.max_attach_status;
+pub const max_fx_session_id = model_exports.max_fx_session_id;
+pub const max_tool_call_id = model_exports.max_tool_call_id;
+pub const max_tool_kind = model_exports.max_tool_kind;
+pub const max_tool_status = model_exports.max_tool_status;
+pub const max_runtime_id = model_exports.max_runtime_id;
+pub const max_fx_model = model_exports.max_fx_model;
+pub const max_access_mode = model_exports.max_access_mode;
+pub const max_interaction_mode = model_exports.max_interaction_mode;
+pub const max_reasoning_effort = model_exports.max_reasoning_effort;
+pub const max_thread_goal_objective = model_exports.max_thread_goal_objective;
+pub const max_thread_goal_status = model_exports.max_thread_goal_status;
+pub const max_thread_goal_usage_label = model_exports.max_thread_goal_usage_label;
+pub const max_available_commands = model_exports.max_available_commands;
+pub const max_model_options = model_exports.max_model_options;
+pub const max_command_name = model_exports.max_command_name;
+pub const max_command_description = model_exports.max_command_description;
+pub const default_access_mode = model_exports.default_access_mode;
+pub const default_interaction_mode = model_exports.default_interaction_mode;
+pub const default_reasoning_effort = model_exports.default_reasoning_effort;
 pub const fx_env_bin = "/usr/bin/env";
 pub const max_line_keep = 4096;
 
@@ -180,9 +171,9 @@ pub const fx_probe_key = fx_probe.fx_probe_key;
 pub const daemon_proxy_key_first = effect_keys.daemon_proxy_key_first;
 pub const fx_spawn_overlap_key_first = effect_keys.fx_spawn_overlap_key_first;
 pub const acp_cwd_fallback = effect_keys.acp_cwd_fallback;
-pub const max_daemon_address = model_mod.max_daemon_address;
-pub const max_daemon_token = model_mod.max_daemon_token;
-pub const max_sidecar_path = model_mod.max_sidecar_path;
+pub const max_daemon_address = model_exports.max_daemon_address;
+pub const max_daemon_token = model_exports.max_daemon_token;
+pub const max_sidecar_path = model_exports.max_sidecar_path;
 pub const daemon_line_bytes = effect_keys.daemon_line_bytes;
 pub const stream_interval_ms = effect_keys.stream_interval_ms;
 pub const stream_chunk_bytes = effect_keys.stream_chunk_bytes;
@@ -234,32 +225,32 @@ pub const notify_fallback_title = sidecar_keys.notify_fallback_title;
 pub const notify_fallback_body = sidecar_keys.notify_fallback_body;
 pub const notify_body_max = sidecar_keys.notify_body_max;
 
-pub const Mode = model_mod.Mode;
-pub const Role = model_mod.Role;
-pub const Phase = model_mod.Phase;
-pub const ReplyPath = model_mod.ReplyPath;
+pub const Mode = model_exports.Mode;
+pub const Role = model_exports.Role;
+pub const Phase = model_exports.Phase;
+pub const ReplyPath = model_exports.ReplyPath;
 
-pub const Provider = session_mod.Provider;
-pub const AvailableCommand = session_mod.AvailableCommand;
-pub const ModelOption = session_mod.ModelOption;
-pub const Session = session_mod.Session;
+pub const Provider = model_exports.Provider;
+pub const AvailableCommand = model_exports.AvailableCommand;
+pub const ModelOption = model_exports.ModelOption;
+pub const Session = model_exports.Session;
 
-pub const Turn = model_mod.Turn;
-pub const Folder = model_mod.Folder;
-pub const SessionRow = model_mod.SessionRow;
-pub const SidebarRow = model_mod.SidebarRow;
+pub const Turn = model_exports.Turn;
+pub const Folder = model_exports.Folder;
+pub const SessionRow = model_exports.SessionRow;
+pub const SidebarRow = model_exports.SidebarRow;
 
 pub const DateBucket = sidebar_dates.DateBucket;
 pub const sessionDateBucket = sidebar_dates.sessionDateBucket;
 pub const sessionRelativeTime = sidebar_dates.sessionRelativeTime;
 pub const formatThreadGoalUsage = goal.formatThreadGoalUsage;
 
-pub const AssignFolder = model_mod.AssignFolder;
-pub const TurnRow = model_mod.TurnRow;
-pub const CommandRow = model_mod.CommandRow;
-pub const ModelPickerRow = model_mod.ModelPickerRow;
-pub const ChipPickerRow = model_mod.ChipPickerRow;
-pub const DaemonDirBrowserRow = model_mod.DaemonDirBrowserRow;
+pub const AssignFolder = model_exports.AssignFolder;
+pub const TurnRow = model_exports.TurnRow;
+pub const CommandRow = model_exports.CommandRow;
+pub const ModelPickerRow = model_exports.ModelPickerRow;
+pub const ChipPickerRow = model_exports.ChipPickerRow;
+pub const DaemonDirBrowserRow = model_exports.DaemonDirBrowserRow;
 
 pub const fxPermissionMode = composer.fxPermissionMode;
 pub const startOptionsFromSession = prompt_spawn.startOptionsFromSession;
@@ -276,20 +267,20 @@ pub const PaletteAction = palette.PaletteAction;
 pub const PaletteActionSpec = palette.PaletteActionSpec;
 pub const paletteActionId = palette.paletteActionId;
 
-pub const QueuedMessage = model_mod.QueuedMessage;
-pub const QueuedRow = model_mod.QueuedRow;
+pub const QueuedMessage = model_exports.QueuedMessage;
+pub const QueuedRow = model_exports.QueuedRow;
 pub const BackgroundRow = environment_summary.BackgroundRow;
-pub const RightPanelFileRow = model_mod.RightPanelFileRow;
+pub const RightPanelFileRow = model_exports.RightPanelFileRow;
 pub const FilePreviewLineRow = right_panel.FilePreviewLineRow;
-pub const SkillRow = model_mod.SkillRow;
-pub const UsageHistoryRow = model_mod.UsageHistoryRow;
-pub const ProviderRow = model_mod.ProviderRow;
-pub const Msg = model_mod.Msg;
-pub const Model = model_mod.Model;
-pub const ThemePreference = model_mod.ThemePreference;
-pub const LanguagePreference = i18n.LanguagePreference;
+pub const SkillRow = model_exports.SkillRow;
+pub const UsageHistoryRow = model_exports.UsageHistoryRow;
+pub const ProviderRow = model_exports.ProviderRow;
+pub const Msg = model_exports.Msg;
+pub const Model = model_exports.Model;
+pub const ThemePreference = model_exports.ThemePreference;
+pub const LanguagePreference = model_exports.LanguagePreference;
 
-pub const writeFixed = session_mod.writeFixed;
+pub const writeFixed = model_exports.writeFixed;
 
 pub const sessionDisplayTitle = util.sessionDisplayTitle;
 pub const stampSessionActivity = util.stampSessionActivity;
@@ -427,6 +418,7 @@ test {
     _ = @import("effect_keys.zig");
     _ = @import("sidecar_keys.zig");
     _ = @import("git_keys.zig");
+    _ = @import("model_exports.zig");
     _ = @import("session.zig");
     _ = @import("session_workspace.zig");
     _ = @import("model.zig");
