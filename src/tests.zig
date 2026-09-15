@@ -25319,7 +25319,7 @@ test "right panel Browser start page and Open in browser/Terminal follow Appeara
 
     main.update(&model, .set_right_panel_tab_terminal, &fx);
     tree = try buildTree(arena, &model);
-    const zh_term = try expectByText(tree.root, .column, "Terminal");
+    const zh_term = try expectByText(tree.root, .column, "终端");
     _ = try expectButtonMsg(tree, "在终端中打开", .open_terminal);
     try testing.expect(findByText(zh_term, .button, "在终端中打开") != null);
     try testing.expect(findByText(zh_term, .button, "Open in Terminal") == null);
@@ -25343,7 +25343,7 @@ test "right panel Browser start page and Open in browser/Terminal follow Appeara
 
     main.update(&model, .set_right_panel_tab_terminal, &fx);
     tree = try buildTree(arena, &model);
-    const ja_term = try expectByText(tree.root, .column, "Terminal");
+    const ja_term = try expectByText(tree.root, .column, "ターミナル");
     _ = try expectButtonMsg(tree, "ターミナルで開く", .open_terminal);
     try testing.expect(findByText(ja_term, .button, "ターミナルで開く") != null);
     try testing.expect(findByText(ja_term, .button, "在终端中打开") == null);
@@ -26646,7 +26646,7 @@ test "Environment menu chrome follows Appearance language" {
     try testing.expectEqualStrings("关闭全部已结束项", model.environment_dismiss_all_settled_label());
     try testing.expectEqualStrings("后台工作", model.environment_background_section_label());
     tree = try buildTree(arena, &model);
-    const zh_trigger = try expectByText(try expectByText(tree.root, .row, "Toolbar"), .button, "环境");
+    const zh_trigger = try expectByText(try expectByText(tree.root, .row, "工具栏"), .button, "环境");
     try testing.expectEqual(Msg.toggle_environment_summary, tree.msgForPointer(zh_trigger.id, .up).?);
     _ = try expectByText(tree.root, .text, "环境");
     const zh_commit = try expectByText(tree.root, .menu_item, "提交或推送");
@@ -26677,7 +26677,7 @@ test "Environment menu chrome follows Appearance language" {
     try testing.expectEqualStrings("終了した項目をすべて閉じる", model.environment_dismiss_all_settled_label());
     try testing.expectEqualStrings("バックグラウンド", model.environment_background_section_label());
     tree = try buildTree(arena, &model);
-    const ja_trigger = try expectByText(try expectByText(tree.root, .row, "Toolbar"), .button, "環境");
+    const ja_trigger = try expectByText(try expectByText(tree.root, .row, "ツールバー"), .button, "環境");
     try testing.expectEqual(Msg.toggle_environment_summary, tree.msgForPointer(ja_trigger.id, .up).?);
     _ = try expectByText(tree.root, .text, "環境");
     const ja_commit = try expectByText(tree.root, .menu_item, "コミットまたはプッシュ");
@@ -29243,7 +29243,7 @@ test "header Copy session / Fork / Rewind chrome follows Appearance language" {
     try testing.expectEqualStrings(i18n.headerSessionChromeFor(.simplified_chinese, "").rewind, model.rewind_label());
     try testing.expect(!std.mem.eql(u8, model.copy_session_label(), model.palette_action_label(.copy_session_id)));
     tree = try buildTree(arena, &model);
-    const zh_toolbar = try expectByText(tree.root, .row, "Toolbar");
+    const zh_toolbar = try expectByText(tree.root, .row, "工具栏");
     _ = try expectButtonMsg(tree, "复制会话", .copy_session);
     _ = try expectButtonMsg(tree, "分叉", .fork);
     _ = try expectButtonMsg(tree, "回退", .rewind);
@@ -29262,7 +29262,7 @@ test "header Copy session / Fork / Rewind chrome follows Appearance language" {
     try testing.expectEqualStrings(i18n.headerSessionChromeFor(.japanese, "").rewind, model.rewind_label());
     try testing.expect(!std.mem.eql(u8, model.copy_session_label(), model.palette_action_label(.copy_session_id)));
     tree = try buildTree(arena, &model);
-    const ja_toolbar = try expectByText(tree.root, .row, "Toolbar");
+    const ja_toolbar = try expectByText(tree.root, .row, "ツールバー");
     _ = try expectButtonMsg(tree, "セッションをコピー", .copy_session);
     _ = try expectButtonMsg(tree, "フォーク", .fork);
     _ = try expectButtonMsg(tree, "巻き戻し", .rewind);
@@ -29292,7 +29292,7 @@ test "header Copy session / Fork / Rewind chrome follows Appearance language" {
     try testing.expectEqualStrings("分叉", model.fork_label());
     try testing.expectEqualStrings("回退", model.rewind_label());
     tree = try buildTree(arena, &model);
-    const sys_zh_toolbar = try expectByText(tree.root, .row, "Toolbar");
+    const sys_zh_toolbar = try expectByText(tree.root, .row, "工具栏");
     _ = try expectButtonMsg(tree, "复制会话", .copy_session);
     _ = try expectButtonMsg(tree, "分叉", .fork);
     _ = try expectButtonMsg(tree, "回退", .rewind);
@@ -29304,7 +29304,7 @@ test "header Copy session / Fork / Rewind chrome follows Appearance language" {
     try testing.expectEqualStrings("フォーク", model.fork_label());
     try testing.expectEqualStrings("巻き戻し", model.rewind_label());
     tree = try buildTree(arena, &model);
-    const sys_ja_toolbar = try expectByText(tree.root, .row, "Toolbar");
+    const sys_ja_toolbar = try expectByText(tree.root, .row, "ツールバー");
     _ = try expectButtonMsg(tree, "セッションをコピー", .copy_session);
     _ = try expectButtonMsg(tree, "フォーク", .fork);
     _ = try expectButtonMsg(tree, "巻き戻し", .rewind);
@@ -29873,7 +29873,7 @@ test "header untitled New task chrome follows Appearance language" {
     try testing.expectEqualStrings("新建任务", model.new_task_label());
     try testing.expectEqualStrings("untitled", untitled.title());
     tree = try buildTree(arena, &model);
-    const zh_toolbar = try expectByText(tree.root, .row, "Toolbar");
+    const zh_toolbar = try expectByText(tree.root, .row, "工具栏");
     _ = try expectByText(zh_toolbar, .text, "新建任务");
     try testing.expect(findByText(zh_toolbar, .text, "New task") == null);
     try testing.expect(findByText(tree.root, .button, "New Task") == null);
@@ -29883,7 +29883,7 @@ test "header untitled New task chrome follows Appearance language" {
     try testing.expectEqualStrings("新しいタスク", model.session_display_title(untitled));
     try testing.expectEqualStrings("新しいタスク", model.new_task_label());
     tree = try buildTree(arena, &model);
-    const ja_toolbar = try expectByText(tree.root, .row, "Toolbar");
+    const ja_toolbar = try expectByText(tree.root, .row, "ツールバー");
     _ = try expectByText(ja_toolbar, .text, "新しいタスク");
     try testing.expect(findByText(ja_toolbar, .text, "新建任务") == null);
     try testing.expect(findByText(ja_toolbar, .text, "New task") == null);
@@ -30791,6 +30791,196 @@ test "composer Message composer a11y follows Appearance language" {
     try testing.expectEqualStrings("Message composer", model.message_composer_label());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .input_group, "Message composer");
+}
+
+test "structural region a11y follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try absCopyProjectDir(tmp, "structural-region-a11y", &project_buf);
+    var src_dir_buf: [320]u8 = undefined;
+    const src_dir = try std.fmt.bufPrint(&src_dir_buf, "{s}/src", .{project});
+    try std.Io.Dir.cwd().createDirPath(testing.io, src_dir);
+    var main_path_buf: [320]u8 = undefined;
+    const main_path = try std.fmt.bufPrint(&main_path_buf, "{s}/src/main.zig", .{project});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = main_path,
+        .data = "pub fn main() void {}\n",
+    });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "label=\"{toolbar_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{sidebar_titlebar_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{terminal_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{embedded_terminal_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_editor_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_body_label}\""));
+    try testing.expectEqual(@as(usize, 17), countNeedle(main.app_markup, "label=\"{file_preview_source_region_label}\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Toolbar\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Sidebar titlebar\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Embedded terminal\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"File preview\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"File preview editor\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"File preview body\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"File preview source\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Terminal\"") == null);
+
+    var model = main.initialModel();
+    model.store_io = testing.io;
+    model.setSelectedProjectPath(project);
+    defer right_panel.clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
+
+    try testing.expectEqualStrings("Toolbar", model.toolbar_label());
+    try testing.expectEqualStrings("Sidebar titlebar", model.sidebar_titlebar_label());
+    try testing.expectEqualStrings("Terminal", model.terminal_label());
+    try testing.expectEqualStrings("Embedded terminal", model.embedded_terminal_label());
+    try testing.expectEqualStrings("File preview", model.file_preview_label());
+    try testing.expectEqualStrings("File preview editor", model.file_preview_editor_label());
+    try testing.expectEqualStrings("File preview body", model.file_preview_body_label());
+    try testing.expectEqualStrings("File preview source", model.file_preview_source_region_label());
+    try testing.expectEqualStrings(i18n.structuralRegionChromeFor(.english, "").toolbar, model.toolbar_label());
+    try testing.expectEqualStrings(i18n.structuralRegionChromeFor(.english, "").file_preview_source, model.file_preview_source_region_label());
+    try testing.expect(!std.mem.eql(u8, model.file_preview_source_region_label(), model.file_preview_source_label()));
+    try testing.expect(!std.mem.eql(u8, model.file_preview_label(), model.file_preview_preview_label()));
+    try testing.expect(!std.mem.eql(u8, model.file_preview_editor_label(), model.file_preview_edit_label()));
+    try testing.expect(!std.mem.eql(u8, model.embedded_terminal_label(), model.terminal_restart_label()));
+    try testing.expect(!std.mem.eql(u8, model.sidebar_titlebar_label(), model.sidebar_history_back_label()));
+    try testing.expect(!std.mem.eql(u8, model.toolbar_label(), model.browser_reload_label()));
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .row, "Toolbar");
+    _ = try expectByText(tree.root, .row, "Sidebar titlebar");
+    try testing.expect(findByText(tree.root, .row, "工具栏") == null);
+    try testing.expect(findByText(tree.root, .row, "ツールバー") == null);
+    try testing.expect(findByText(tree.root, .row, "侧边栏标题栏") == null);
+
+    main.update(&model, .show_right_panel, &fx);
+    main.update(&model, .set_right_panel_tab_terminal, &fx);
+    try testing.expect(model.right_panel_showing_terminal());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .column, "Terminal");
+    _ = try expectByText(tree.root, .terminal, "Embedded terminal");
+    try testing.expect(findByText(tree.root, .column, "终端") == null);
+    try testing.expect(findByText(tree.root, .terminal, "嵌入式终端") == null);
+
+    main.update(&model, .set_right_panel_tab_files, &fx);
+    file_mention.applyStdoutPaths(&model, "src/main.zig\n");
+    main.update(&model, .{ .open_right_panel_file = 1 }, &fx);
+    try testing.expect(model.right_panel_file_preview_open());
+    try testing.expectEqualStrings("zig", model.file_preview_language());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .column, "File preview");
+    _ = try expectByText(tree.root, .scroll_view, "File preview body");
+    try testing.expect(findByText(tree.root, .column, "File preview source") != null);
+    try testing.expect(findByText(tree.root, .column, "文件预览") == null);
+    try testing.expect(findByText(tree.root, .scroll_view, "文件预览正文") == null);
+
+    main.update(&model, .open_right_panel_file_edit, &fx);
+    try testing.expect(model.file_preview_editing());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .textarea, "File preview editor");
+    try testing.expect(findByText(tree.root, .textarea, "文件预览编辑器") == null);
+
+    model.right_panel_file_preview_editing = false;
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("工具栏", model.toolbar_label());
+    try testing.expectEqualStrings("侧边栏标题栏", model.sidebar_titlebar_label());
+    try testing.expectEqualStrings("终端", model.terminal_label());
+    try testing.expectEqualStrings("嵌入式终端", model.embedded_terminal_label());
+    try testing.expectEqualStrings("文件预览", model.file_preview_label());
+    try testing.expectEqualStrings("文件预览编辑器", model.file_preview_editor_label());
+    try testing.expectEqualStrings("文件预览正文", model.file_preview_body_label());
+    try testing.expectEqualStrings("文件预览源码", model.file_preview_source_region_label());
+    try testing.expectEqualStrings(i18n.structuralRegionChromeFor(.simplified_chinese, "").toolbar, model.toolbar_label());
+    try testing.expect(!std.mem.eql(u8, model.file_preview_source_region_label(), model.file_preview_source_label()));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .row, "工具栏");
+    _ = try expectByText(tree.root, .row, "侧边栏标题栏");
+    _ = try expectByText(tree.root, .column, "文件预览");
+    _ = try expectByText(tree.root, .scroll_view, "文件预览正文");
+    try testing.expect(findByText(tree.root, .column, "文件预览源码") != null);
+    try testing.expect(findByText(tree.root, .row, "Toolbar") == null);
+    try testing.expect(findByText(tree.root, .row, "Sidebar titlebar") == null);
+    try testing.expect(findByText(tree.root, .column, "File preview") == null);
+    try testing.expect(findByText(tree.root, .scroll_view, "File preview body") == null);
+    try testing.expect(findByText(tree.root, .textarea, "File preview editor") == null);
+
+    main.update(&model, .set_right_panel_tab_terminal, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .column, "终端");
+    _ = try expectByText(tree.root, .terminal, "嵌入式终端");
+    try testing.expect(findByText(tree.root, .column, "Terminal") == null);
+    try testing.expect(findByText(tree.root, .terminal, "Embedded terminal") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("ツールバー", model.toolbar_label());
+    try testing.expectEqualStrings("サイドバータイトルバー", model.sidebar_titlebar_label());
+    try testing.expectEqualStrings("ターミナル", model.terminal_label());
+    try testing.expectEqualStrings("埋め込みターミナル", model.embedded_terminal_label());
+    try testing.expectEqualStrings("ファイルプレビュー", model.file_preview_label());
+    try testing.expectEqualStrings("ファイルプレビューエディター", model.file_preview_editor_label());
+    try testing.expectEqualStrings("ファイルプレビュー本文", model.file_preview_body_label());
+    try testing.expectEqualStrings("ファイルプレビューソース", model.file_preview_source_region_label());
+    try testing.expectEqualStrings(i18n.structuralRegionChromeFor(.japanese, "").embedded_terminal, model.embedded_terminal_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .row, "ツールバー");
+    _ = try expectByText(tree.root, .row, "サイドバータイトルバー");
+    _ = try expectByText(tree.root, .column, "ターミナル");
+    _ = try expectByText(tree.root, .terminal, "埋め込みターミナル");
+    try testing.expect(findByText(tree.root, .row, "工具栏") == null);
+    try testing.expect(findByText(tree.root, .column, "终端") == null);
+    try testing.expect(findByText(tree.root, .terminal, "埋め込みターミナル") != null);
+
+    main.update(&model, .set_right_panel_tab_files, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .column, "ファイルプレビュー");
+    _ = try expectByText(tree.root, .scroll_view, "ファイルプレビュー本文");
+    try testing.expect(findByText(tree.root, .column, "ファイルプレビューソース") != null);
+    try testing.expect(findByText(tree.root, .column, "文件预览") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Toolbar", model.toolbar_label());
+    try testing.expectEqualStrings("File preview source", model.file_preview_source_region_label());
+    try testing.expectEqualStrings(i18n.structuralRegionChromeFor(.english, "ja_JP.UTF-8").toolbar, model.toolbar_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .row, "Toolbar");
+    _ = try expectByText(tree.root, .column, "File preview");
+    try testing.expect(findByText(tree.root, .row, "ツールバー") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("工具栏", model.toolbar_label());
+    try testing.expectEqualStrings("文件预览源码", model.file_preview_source_region_label());
+    try testing.expectEqualStrings(i18n.structuralRegionChromeFor(.system, "zh_CN.UTF-8").sidebar_titlebar, model.sidebar_titlebar_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .row, "工具栏");
+    _ = try expectByText(tree.root, .row, "侧边栏标题栏");
+    try testing.expect(findByText(tree.root, .row, "Toolbar") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("ツールバー", model.toolbar_label());
+    try testing.expectEqualStrings("埋め込みターミナル", model.embedded_terminal_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .row, "ツールバー");
+    try testing.expect(findByText(tree.root, .row, "工具栏") == null);
+
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Toolbar", model.toolbar_label());
+    try testing.expectEqualStrings("Sidebar titlebar", model.sidebar_titlebar_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .row, "Toolbar");
+    _ = try expectByText(tree.root, .row, "Sidebar titlebar");
 }
 
 test "empty transcript welcome chrome follows Appearance language" {
