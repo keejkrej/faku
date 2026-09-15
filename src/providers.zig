@@ -72,6 +72,7 @@
 
 const std = @import("std");
 const main = @import("main.zig");
+const sidecar_keys = @import("sidecar_keys.zig");
 const protocol = @import("protocol.zig");
 const fx_probe = @import("fx_probe.zig");
 const cli_probe = @import("cli_probe.zig");
@@ -849,7 +850,7 @@ test "copyFxInstall / copyFxLogin write verified commands; wrong state is a no-o
     try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
     const install = fx.pendingClipboardAt(0).?;
-    try testing.expectEqual(main.copy_turn_key, install.key);
+    try testing.expectEqual(sidecar_keys.copy_turn_key, install.key);
     try testing.expectEqual(@import("native_sdk").EffectClipboardOp.write, install.op);
     try testing.expectEqualStrings(fx_install_command, install.text);
     try testing.expectEqualStrings("curl -fsSL https://github.com/keejkrej/fx/releases/latest/download/install | bash", install.text);
@@ -865,7 +866,7 @@ test "copyFxInstall / copyFxLogin write verified commands; wrong state is a no-o
     copyFxLogin(&model, &login_fx);
     try testing.expectEqual(@as(usize, 1), login_fx.pendingClipboardCount());
     const login = login_fx.pendingClipboardAt(0).?;
-    try testing.expectEqual(main.copy_turn_key, login.key);
+    try testing.expectEqual(sidecar_keys.copy_turn_key, login.key);
     try testing.expectEqual(@import("native_sdk").EffectClipboardOp.write, login.op);
     try testing.expectEqualStrings(fx_login_command, login.text);
     try testing.expectEqualStrings("fx login", login.text);

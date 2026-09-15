@@ -1766,11 +1766,11 @@ Honest gaps this cut does not implement:
   `main` re-exports except `app_icons` for Native `native check`;
   layout chrome lives in `layout.zig` with no thin `main` re-exports;
   spawn / stream effect keys live in `effect_keys.zig`; OS sidecar /
-  media-preview effect keys live in `sidecar_keys.zig`; git / review /
-  skills / probe spawn effect keys live in `git_keys.zig` with no thin
-  `main` re-exports; Model / Msg barrel re-exports live in
-  `model_exports.zig`; remaining `main.zig` leftovers are
-  `main()` + demo seed strings)
+  media-preview effect keys live in `sidecar_keys.zig` with no thin
+  `main` re-exports; git / review / skills / probe spawn effect keys
+  live in `git_keys.zig` with no thin `main` re-exports; Model / Msg
+  barrel re-exports live in `model_exports.zig`; remaining `main.zig`
+  leftovers are `main()` + demo seed strings)
 - Embedded Browser first-cut (right-panel Browser is a Native canvas
   webview via `web_panes` / scene `.webview` `browser-web-0`..`3`;
   **Open in browser** stays OS-open via `open` / `xdg-open` / Windows

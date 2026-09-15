@@ -29,6 +29,7 @@ const git_toplevel = @import("git_toplevel.zig");
 const git_common_dir = @import("git_common_dir.zig");
 const git_commit = @import("git_commit.zig");
 const git_keys = @import("git_keys.zig");
+const sidecar_keys = @import("sidecar_keys.zig");
 const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
 const skills = @import("skills.zig");
@@ -657,7 +658,7 @@ test "copy of a fixture turn writes fx.writeClipboard; empty is a no-op" {
     main.update(&model, tree.msgForPointer(copy.id, .up).?, &fx);
     try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
     const first = fx.pendingClipboardAt(0).?;
-    try testing.expectEqual(main.copy_turn_key, first.key);
+    try testing.expectEqual(sidecar_keys.copy_turn_key, first.key);
     try testing.expectEqual(native_sdk.EffectClipboardOp.write, first.op);
     try testing.expectEqualStrings("fixture user markdown source", first.text);
 }
@@ -720,7 +721,7 @@ test "copy session of a fixture multi-turn writes joined text once; empty is a n
     main.update(&model, tree.msgForPointer(header_copy.id, .up).?, &fx);
     try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
     const first = fx.pendingClipboardAt(0).?;
-    try testing.expectEqual(main.copy_turn_key, first.key);
+    try testing.expectEqual(sidecar_keys.copy_turn_key, first.key);
     try testing.expectEqual(native_sdk.EffectClipboardOp.write, first.op);
     try testing.expectEqualStrings(
         "fixture user markdown source\n\nfixture assistant reply\n\nread src/copy.ts\n\nfixture thought",
@@ -1208,7 +1209,7 @@ test "assistant markdown #N uses issue-link-base; clicks reuse transcript_open_u
     }
     if (open_url.hostBin() != null) {
         const spawn = findOpenUrlSpawn(&fx) orelse return error.MissingOpenUrlSpawn;
-        try testing.expectEqual(main.open_url_key, spawn.key);
+        try testing.expectEqual(sidecar_keys.open_url_key, spawn.key);
         try testing.expect(open_url.isUrlArgv(spawn.argv));
         const opened = spawn.argv[spawn.argv.len - 1];
         try testing.expect(std.mem.eql(u8, opened, issue_url) or std.mem.eql(u8, opened, "https://example.com"));
@@ -1387,7 +1388,7 @@ test "empty successful turn notifies Reply ready" {
     try testing.expect(!model.is_streaming());
     try testing.expectEqual(@as(usize, 1), sink.platform.notificationCount());
     try testing.expectEqualStrings("quiet", sink.platform.lastNotificationTitle());
-    try testing.expectEqualStrings(main.notify_fallback_body, sink.platform.lastNotificationBody());
+    try testing.expectEqualStrings(sidecar_keys.notify_fallback_body, sink.platform.lastNotificationBody());
 }
 
 test "long assistant body is truncated on the notification" {
@@ -1399,7 +1400,7 @@ test "long assistant body is truncated on the notification" {
     const long = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" ++
         "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" ++
         "more";
-    try testing.expect(long.len > main.notify_body_max);
+    try testing.expect(long.len > sidecar_keys.notify_body_max);
 
     var model = Model{};
     _ = beginLiveTurn(&model, "long reply", long);
@@ -1412,8 +1413,8 @@ test "long assistant body is truncated on the notification" {
     try testing.expect(!model.is_streaming());
     try testing.expectEqual(@as(usize, 1), sink.platform.notificationCount());
     try testing.expectEqualStrings("long reply", sink.platform.lastNotificationTitle());
-    try testing.expectEqual(@as(usize, main.notify_body_max), sink.platform.lastNotificationBody().len);
-    try testing.expectEqualStrings(long[0..main.notify_body_max], sink.platform.lastNotificationBody());
+    try testing.expectEqual(@as(usize, sidecar_keys.notify_body_max), sink.platform.lastNotificationBody().len);
+    try testing.expectEqualStrings(long[0..sidecar_keys.notify_body_max], sink.platform.lastNotificationBody());
 }
 
 test "escape stops a live demo stream" {
@@ -4167,8 +4168,8 @@ test "composer attach preview binds when the file exists; missing and clear do n
     try testing.expectEqual(@as(usize, 1), fx.pendingImageLoadCount());
     const load = fx.pendingImageLoadAt(0) orelse return error.MissingImageLoad;
     try testing.expectEqualStrings(image, load.path);
-    try testing.expect(load.id >= main.attach_preview_id_first);
-    try testing.expect(load.id <= main.attach_preview_id_last);
+    try testing.expect(load.id >= sidecar_keys.attach_preview_id_first);
+    try testing.expect(load.id <= sidecar_keys.attach_preview_id_last);
 
     tree = try buildTree(arena, &model);
     const preview = try expectByText(tree.root, .image, "Attached image");
@@ -4319,7 +4320,7 @@ test "pick_image button dispatches and fake executor captures OS dialog argv" {
     try testing.expect(model.pick_image_live);
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
     const spawn = findPickerSpawn(&fx) orelse return error.MissingPickerSpawn;
-    try testing.expectEqual(main.pick_image_key, spawn.key);
+    try testing.expectEqual(sidecar_keys.pick_image_key, spawn.key);
     try testing.expect(pick_image.isPickerArgv(spawn.argv));
     const expected = pick_image.hostArgv(.first).?;
     try testing.expectEqualStrings(expected[0], spawn.argv[0]);
@@ -4514,8 +4515,8 @@ test "pick_folder button sits on the project-edit row and captures OS dialog arg
     try testing.expect(model.pick_folder_live);
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
     const spawn = findFolderPickerSpawn(&fx) orelse return error.MissingFolderPickerSpawn;
-    try testing.expectEqual(main.pick_folder_key, spawn.key);
-    try testing.expect(spawn.key != main.pick_image_key);
+    try testing.expectEqual(sidecar_keys.pick_folder_key, spawn.key);
+    try testing.expect(spawn.key != sidecar_keys.pick_image_key);
     try testing.expect(pick_folder.isPickerArgv(spawn.argv));
     try testing.expect(!pick_image.isPickerArgv(spawn.argv));
     const expected = pick_folder.hostArgv(.first).?;
@@ -4557,8 +4558,8 @@ test "pick_folder stdout directory sets project_path the same way typing does" {
 
     main.update(&model, .pick_folder, &fx);
     const spawn = findFolderPickerSpawn(&fx) orelse return error.MissingFolderPickerSpawn;
-    try testing.expectEqual(main.pick_folder_key, spawn.key);
-    try testing.expect(spawn.key != main.pick_image_key);
+    try testing.expectEqual(sidecar_keys.pick_folder_key, spawn.key);
+    try testing.expect(spawn.key != sidecar_keys.pick_image_key);
     try fx.feedLine(spawn.key, project);
     drainEffects(&model, &fx);
     try testing.expectEqualStrings(project, model.sessionById(id).?.projectPath());
@@ -4854,7 +4855,7 @@ test "Pick folder with a daemon address opens the in-app BrowseDirectory browser
     try testing.expect(findFolderPickerSpawn(&fx) == null);
     const key = model.daemon_dir_browser_key;
     try testing.expect(key != 0);
-    try testing.expect(key != main.pick_folder_key);
+    try testing.expect(key != sidecar_keys.pick_folder_key);
     const sidecar = findPendingSpawnKey(&fx, key) orelse return error.MissingDaemonBrowseDirectory;
     try testing.expect(daemon_proxy.isSidecarArgv(sidecar.argv));
     try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"browseDirectory\"") != null);
@@ -4915,8 +4916,8 @@ test "pick_folder stdout line does not set image_path" {
 
     main.update(&model, .pick_folder, &fx);
     const spawn = findFolderPickerSpawn(&fx) orelse return error.MissingFolderPickerSpawn;
-    try testing.expectEqual(main.pick_folder_key, spawn.key);
-    try testing.expect(spawn.key != main.pick_image_key);
+    try testing.expectEqual(sidecar_keys.pick_folder_key, spawn.key);
+    try testing.expect(spawn.key != sidecar_keys.pick_image_key);
     try fx.feedLine(spawn.key, project);
     drainEffects(&model, &fx);
     try testing.expectEqualStrings(project, model.selectedProjectPath());
@@ -4980,9 +4981,9 @@ test "reveal_folder existing directory captures open/xdg-open argv and leaves pr
     try testing.expect(model.reveal_folder_live);
     try testing.expect(!model.has_window_status());
     const spawn = findRevealFolderSpawn(&fx) orelse return error.MissingRevealFolderSpawn;
-    try testing.expectEqual(main.reveal_folder_key, spawn.key);
-    try testing.expect(spawn.key != main.pick_folder_key);
-    try testing.expect(spawn.key != main.pick_image_key);
+    try testing.expectEqual(sidecar_keys.reveal_folder_key, spawn.key);
+    try testing.expect(spawn.key != sidecar_keys.pick_folder_key);
+    try testing.expect(spawn.key != sidecar_keys.pick_image_key);
     try testing.expect(reveal_folder.isRevealArgv(spawn.argv));
     try testing.expect(!pick_folder.isPickerArgv(spawn.argv));
     try testing.expectEqualStrings(reveal_folder.hostBin().?, spawn.argv[0]);
@@ -5140,7 +5141,7 @@ test "palette Reveal project folder runs the same handler" {
         return;
     }
     const spawn = findRevealFolderSpawn(&fx) orelse return error.MissingRevealFolderSpawn;
-    try testing.expectEqual(main.reveal_folder_key, spawn.key);
+    try testing.expectEqual(sidecar_keys.reveal_folder_key, spawn.key);
     try testing.expectEqualStrings(project, spawn.argv[1]);
     try testing.expect(!pick_folder.isPickerArgv(spawn.argv));
 }
@@ -5246,10 +5247,10 @@ test "open_terminal existing directory captures host terminal argv and leaves pr
     try testing.expect(model.open_terminal_live);
     try testing.expect(!model.has_window_status());
     const spawn = findOpenTerminalSpawn(&fx) orelse return error.MissingOpenTerminalSpawn;
-    try testing.expectEqual(main.open_terminal_key, spawn.key);
-    try testing.expect(spawn.key != main.reveal_folder_key);
-    try testing.expect(spawn.key != main.pick_folder_key);
-    try testing.expect(spawn.key != main.pick_image_key);
+    try testing.expectEqual(sidecar_keys.open_terminal_key, spawn.key);
+    try testing.expect(spawn.key != sidecar_keys.reveal_folder_key);
+    try testing.expect(spawn.key != sidecar_keys.pick_folder_key);
+    try testing.expect(spawn.key != sidecar_keys.pick_image_key);
     try testing.expect(open_terminal.isTerminalArgv(spawn.argv));
     try testing.expect(!reveal_folder.isRevealArgv(spawn.argv));
     try testing.expect(!pick_folder.isPickerArgv(spawn.argv));
@@ -5424,7 +5425,7 @@ test "palette Open project in Terminal runs the same handler" {
         return;
     }
     const spawn = findOpenTerminalSpawn(&fx) orelse return error.MissingOpenTerminalSpawn;
-    try testing.expectEqual(main.open_terminal_key, spawn.key);
+    try testing.expectEqual(sidecar_keys.open_terminal_key, spawn.key);
     try testing.expect(open_terminal.isTerminalArgv(spawn.argv));
     try testing.expect(!reveal_folder.isRevealArgv(spawn.argv));
     try testing.expect(!pick_folder.isPickerArgv(spawn.argv));
@@ -5543,11 +5544,11 @@ test "open_editor existing directory captures host editor argv and leaves projec
     try testing.expect(model.open_editor_live);
     try testing.expect(!model.has_window_status());
     const spawn = findOpenEditorSpawn(&fx) orelse return error.MissingOpenEditorSpawn;
-    try testing.expectEqual(main.open_editor_key, spawn.key);
-    try testing.expect(spawn.key != main.open_terminal_key);
-    try testing.expect(spawn.key != main.reveal_folder_key);
-    try testing.expect(spawn.key != main.pick_folder_key);
-    try testing.expect(spawn.key != main.pick_image_key);
+    try testing.expectEqual(sidecar_keys.open_editor_key, spawn.key);
+    try testing.expect(spawn.key != sidecar_keys.open_terminal_key);
+    try testing.expect(spawn.key != sidecar_keys.reveal_folder_key);
+    try testing.expect(spawn.key != sidecar_keys.pick_folder_key);
+    try testing.expect(spawn.key != sidecar_keys.pick_image_key);
     try testing.expect(open_editor.isEditorArgv(spawn.argv));
     try testing.expect(!open_terminal.isTerminalArgv(spawn.argv));
     try testing.expect(!reveal_folder.isRevealArgv(spawn.argv));
@@ -5715,7 +5716,7 @@ test "palette Open project in Editor runs the same handler" {
         return;
     }
     const spawn = findOpenEditorSpawn(&fx) orelse return error.MissingOpenEditorSpawn;
-    try testing.expectEqual(main.open_editor_key, spawn.key);
+    try testing.expectEqual(sidecar_keys.open_editor_key, spawn.key);
     try testing.expect(open_editor.isEditorArgv(spawn.argv));
     try testing.expect(!open_terminal.isTerminalArgv(spawn.argv));
     try testing.expect(!reveal_folder.isRevealArgv(spawn.argv));
@@ -5833,7 +5834,7 @@ test "copy_project_path existing directory writes fx.writeClipboard and leaves p
     try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
     const first = fx.pendingClipboardAt(0).?;
-    try testing.expectEqual(main.copy_turn_key, first.key);
+    try testing.expectEqual(sidecar_keys.copy_turn_key, first.key);
     try testing.expectEqual(native_sdk.EffectClipboardOp.write, first.op);
     try testing.expectEqualStrings(project, first.text);
     try testing.expectEqualStrings(before, model.selectedProjectPath());
@@ -5995,7 +5996,7 @@ test "palette Copy project path runs the same handler" {
     try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
     const written = fx.pendingClipboardAt(0).?;
-    try testing.expectEqual(main.copy_turn_key, written.key);
+    try testing.expectEqual(sidecar_keys.copy_turn_key, written.key);
     try testing.expectEqual(native_sdk.EffectClipboardOp.write, written.op);
     try testing.expectEqualStrings(project, written.text);
 }
@@ -10012,7 +10013,7 @@ test "Files markdown preview defaults to rendered Preview; Source chip flips; ht
         try testing.expectEqualStrings(open_url.hostMissingStatus(), model.file_preview_status());
     } else {
         const spawn = findOpenUrlSpawn(&fx) orelse return error.MissingOpenUrlSpawn;
-        try testing.expectEqual(main.open_url_key, spawn.key);
+        try testing.expectEqual(sidecar_keys.open_url_key, spawn.key);
         try testing.expect(open_url.isUrlArgv(spawn.argv));
         try testing.expectEqualStrings("https://example.com", spawn.argv[spawn.argv.len - 1]);
     }
@@ -10530,7 +10531,7 @@ test "Terminal tab binds <terminal> to pty 700; exit shows Restart and re-spawns
     main.update(&model, .set_right_panel_tab_terminal, &fx);
     try testing.expect(model.right_panel_showing_terminal());
     try testing.expect(model.term_session_live());
-    try testing.expectEqual(main.pty_shell_key, model.shell_key());
+    try testing.expectEqual(sidecar_keys.pty_shell_key, model.shell_key());
     try testing.expectEqual(@as(usize, 1), fx.pendingPtyCount());
     const request = fx.pendingPtyAt(0) orelse return error.MissingPtySpawn;
     try testing.expectEqual(pty_terminal.pty_shell_key, request.key);
@@ -10674,9 +10675,9 @@ test "right panel Browser Open in browser spawns key-25 URL sidecar; empty URL i
     try testing.expect(model.open_url_live);
     try testing.expect(!model.has_window_status());
     const spawn = findOpenUrlSpawn(&fx) orelse return error.MissingOpenUrlSpawn;
-    try testing.expectEqual(main.open_url_key, spawn.key);
-    try testing.expect(spawn.key != main.open_terminal_key);
-    try testing.expect(spawn.key != main.reveal_folder_key);
+    try testing.expectEqual(sidecar_keys.open_url_key, spawn.key);
+    try testing.expect(spawn.key != sidecar_keys.open_terminal_key);
+    try testing.expect(spawn.key != sidecar_keys.reveal_folder_key);
     try testing.expect(open_url.isUrlArgv(spawn.argv));
     try testing.expect(!reveal_folder.isRevealArgv(spawn.argv));
     try testing.expectEqualStrings(open_url.hostBin().?, spawn.argv[0]);
@@ -11353,13 +11354,13 @@ test "cmd-c and ctrl-c copy the last non-empty turn via writeClipboard" {
     main.update(&model, keys.onKey(cmd_c).?, &fx);
     try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
     const first = fx.pendingClipboardAt(0).?;
-    try testing.expectEqual(main.copy_turn_key, first.key);
+    try testing.expectEqual(sidecar_keys.copy_turn_key, first.key);
     try testing.expectEqual(native_sdk.EffectClipboardOp.write, first.op);
     try testing.expectEqualStrings("last non-empty body", first.text);
 
     main.update(&model, keys.onKey(ctrl_c).?, &fx);
     try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
-    try testing.expectEqual(main.copy_turn_key, fx.pendingClipboardAt(0).?.key);
+    try testing.expectEqual(sidecar_keys.copy_turn_key, fx.pendingClipboardAt(0).?.key);
     try testing.expectEqualStrings("last non-empty body", fx.pendingClipboardAt(0).?.text);
 
     const cmd_b = canvas.WidgetKeyboardEvent{
@@ -11935,7 +11936,7 @@ test "palette copies local session id and fx session id; empty fx id skips clipb
     try testing.expect(!model.palette_open);
     try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
-    try testing.expectEqualStrings(main.no_provider_session_id_status, model.window_status());
+    try testing.expectEqualStrings(sidecar_keys.no_provider_session_id_status, model.window_status());
 
     if (model.sessionById(selected)) |session| {
         session.setFxSessionId("fx-sess-palette");
@@ -11952,7 +11953,7 @@ test "palette copies local session id and fx session id; empty fx id skips clipb
     try testing.expect(!model.palette_open);
     try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
     const provider = fx.pendingClipboardAt(0).?;
-    try testing.expectEqual(main.copy_turn_key, provider.key);
+    try testing.expectEqual(sidecar_keys.copy_turn_key, provider.key);
     try testing.expectEqual(native_sdk.EffectClipboardOp.write, provider.op);
     try testing.expectEqualStrings("fx-sess-palette", provider.text);
 
@@ -11969,7 +11970,7 @@ test "palette copies local session id and fx session id; empty fx id skips clipb
     try testing.expect(!model.palette_open);
     try testing.expectEqual(@as(usize, 1), local_fx.pendingClipboardCount());
     const local = local_fx.pendingClipboardAt(0).?;
-    try testing.expectEqual(main.copy_turn_key, local.key);
+    try testing.expectEqual(sidecar_keys.copy_turn_key, local.key);
     try testing.expectEqual(native_sdk.EffectClipboardOp.write, local.op);
     var id_buf: [16]u8 = undefined;
     const expected_id = try std.fmt.bufPrint(&id_buf, "{d}", .{selected});
@@ -13790,7 +13791,7 @@ test "cmd-o and ctrl-o pick a folder via onKey" {
         try testing.expect(model.pick_folder_live);
         try testing.expect(fx.pendingSpawnCount() > spawn_before);
         const spawn = findFolderPickerSpawn(&fx) orelse return error.MissingFolderPickerSpawn;
-        try testing.expectEqual(main.pick_folder_key, spawn.key);
+        try testing.expectEqual(sidecar_keys.pick_folder_key, spawn.key);
         try testing.expect(pick_folder.isPickerArgv(spawn.argv));
     }
 
@@ -15850,7 +15851,7 @@ test "settings Providers fx copy install when missing, copy login when available
     try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
     try testing.expectEqual(probes_after_open, fx.pendingSpawnCount());
     const written_install = fx.pendingClipboardAt(0).?;
-    try testing.expectEqual(main.copy_turn_key, written_install.key);
+    try testing.expectEqual(sidecar_keys.copy_turn_key, written_install.key);
     try testing.expectEqual(native_sdk.EffectClipboardOp.write, written_install.op);
     try testing.expectEqualStrings("curl -fsSL https://github.com/keejkrej/fx/releases/latest/download/install | bash", written_install.text);
     try testing.expectEqualStrings(providers.fx_install_command, written_install.text);
@@ -15876,7 +15877,7 @@ test "settings Providers fx copy install when missing, copy login when available
     try testing.expectEqual(@as(usize, 1), login_fx.pendingClipboardCount());
     try testing.expectEqual(@as(usize, 0), login_fx.pendingSpawnCount());
     const written_login = login_fx.pendingClipboardAt(0).?;
-    try testing.expectEqual(main.copy_turn_key, written_login.key);
+    try testing.expectEqual(sidecar_keys.copy_turn_key, written_login.key);
     try testing.expectEqual(native_sdk.EffectClipboardOp.write, written_login.op);
     try testing.expectEqualStrings("fx login", written_login.text);
     try testing.expectEqualStrings(providers.fx_login_command, written_login.text);
@@ -18323,7 +18324,7 @@ test "maximize_window sidecar still runs without in-canvas window buttons" {
     try testing.expect(model.maximize_window_live);
     try testing.expectEqual(before + 1, fx.pendingSpawnCount());
     const spawn = findMaximizeSpawn(&fx) orelse return error.MissingMaximizeSpawn;
-    try testing.expectEqual(main.maximize_window_key, spawn.key);
+    try testing.expectEqual(sidecar_keys.maximize_window_key, spawn.key);
     try testing.expect(maximize_window.isMaximizeArgv(spawn.argv));
     const expected = maximize_window.hostArgv(.first).?;
     try testing.expectEqualStrings(expected[0], spawn.argv[0]);
@@ -18361,7 +18362,7 @@ test "cmd-shift-m and ctrl-shift-m maximize via onKey without stealing cmd-m" {
         return;
     }
     const first = findMaximizeSpawn(&fx) orelse return error.MissingMaximizeSpawn;
-    try testing.expectEqual(main.maximize_window_key, first.key);
+    try testing.expectEqual(sidecar_keys.maximize_window_key, first.key);
     try testing.expect(maximize_window.isMaximizeArgv(first.argv));
 
     const ctrl_shift_m = canvas.WidgetKeyboardEvent{
@@ -18385,7 +18386,7 @@ test "maximize_window fake executor records OS sidecar argv" {
         return;
     }
     const spawn = findMaximizeSpawn(&fx) orelse return error.MissingMaximizeSpawn;
-    try testing.expectEqual(main.maximize_window_key, spawn.key);
+    try testing.expectEqual(sidecar_keys.maximize_window_key, spawn.key);
     try testing.expect(maximize_window.isMaximizeArgv(spawn.argv));
     const expected = maximize_window.hostArgv(.first).?;
     try testing.expectEqual(expected.len, spawn.argv.len);
@@ -18687,10 +18688,10 @@ fn expectGitBranchArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqualStrings(git_branch.git_show_current, spawn.argv[7]);
     try testing.expect(spawn.key != main.fx_ask_key);
     try testing.expect(spawn.key != main.fx_probe_key);
-    try testing.expect(spawn.key != main.maximize_window_key);
-    try testing.expect(spawn.key != main.pick_image_key);
-    try testing.expect(spawn.key != main.pick_folder_key);
-    try testing.expect(spawn.key != main.copy_turn_key);
+    try testing.expect(spawn.key != sidecar_keys.maximize_window_key);
+    try testing.expect(spawn.key != sidecar_keys.pick_image_key);
+    try testing.expect(spawn.key != sidecar_keys.pick_folder_key);
+    try testing.expect(spawn.key != sidecar_keys.copy_turn_key);
     try testing.expect(spawn.key != git_keys.file_mention_key_first);
     try testing.expect(spawn.key != git_keys.git_dirty_key_first);
     try testing.expect(spawn.key != git_keys.git_numstat_key_first);
@@ -21485,10 +21486,10 @@ fn expectGitDirtyArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqualStrings(git_dirty.git_porcelain, spawn.argv[7]);
     try testing.expect(spawn.key != main.fx_ask_key);
     try testing.expect(spawn.key != main.fx_probe_key);
-    try testing.expect(spawn.key != main.maximize_window_key);
-    try testing.expect(spawn.key != main.pick_image_key);
-    try testing.expect(spawn.key != main.pick_folder_key);
-    try testing.expect(spawn.key != main.copy_turn_key);
+    try testing.expect(spawn.key != sidecar_keys.maximize_window_key);
+    try testing.expect(spawn.key != sidecar_keys.pick_image_key);
+    try testing.expect(spawn.key != sidecar_keys.pick_folder_key);
+    try testing.expect(spawn.key != sidecar_keys.copy_turn_key);
     try testing.expect(spawn.key != git_keys.git_branch_key_first);
     try testing.expect(spawn.key != git_keys.git_numstat_key_first);
     try testing.expect(spawn.key != git_keys.git_delete_key_first);
@@ -21798,10 +21799,10 @@ fn expectGitNumstatArgv(spawn: anytype, cwd: []const u8) !void {
     }
     try testing.expect(spawn.key != main.fx_ask_key);
     try testing.expect(spawn.key != main.fx_probe_key);
-    try testing.expect(spawn.key != main.maximize_window_key);
-    try testing.expect(spawn.key != main.pick_image_key);
-    try testing.expect(spawn.key != main.pick_folder_key);
-    try testing.expect(spawn.key != main.copy_turn_key);
+    try testing.expect(spawn.key != sidecar_keys.maximize_window_key);
+    try testing.expect(spawn.key != sidecar_keys.pick_image_key);
+    try testing.expect(spawn.key != sidecar_keys.pick_folder_key);
+    try testing.expect(spawn.key != sidecar_keys.copy_turn_key);
     try testing.expect(spawn.key != git_keys.git_branch_key_first);
     try testing.expect(spawn.key != git_keys.git_dirty_key_first);
     try testing.expect(spawn.key != git_keys.git_ahead_behind_key_first);
@@ -22257,10 +22258,10 @@ fn expectGitAheadBehindArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_ahead_behind.git_upstream_range) == null);
     try testing.expect(spawn.key != main.fx_ask_key);
     try testing.expect(spawn.key != main.fx_probe_key);
-    try testing.expect(spawn.key != main.maximize_window_key);
-    try testing.expect(spawn.key != main.pick_image_key);
-    try testing.expect(spawn.key != main.pick_folder_key);
-    try testing.expect(spawn.key != main.copy_turn_key);
+    try testing.expect(spawn.key != sidecar_keys.maximize_window_key);
+    try testing.expect(spawn.key != sidecar_keys.pick_image_key);
+    try testing.expect(spawn.key != sidecar_keys.pick_folder_key);
+    try testing.expect(spawn.key != sidecar_keys.copy_turn_key);
     try testing.expect(spawn.key != git_keys.git_branch_key_first);
     try testing.expect(spawn.key != git_keys.git_dirty_key_first);
     try testing.expect(spawn.key != git_keys.git_numstat_key_first);
@@ -22660,13 +22661,13 @@ fn expectFileMentionArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqualStrings(file_mention.git_ls_files_exclude_standard, spawn.argv[9]);
     try testing.expect(spawn.key != main.fx_ask_key);
     try testing.expect(spawn.key != main.fx_probe_key);
-    try testing.expect(spawn.key != main.maximize_window_key);
-    try testing.expect(spawn.key != main.pick_image_key);
-    try testing.expect(spawn.key != main.pick_folder_key);
-    try testing.expect(spawn.key != main.reveal_folder_key);
-    try testing.expect(spawn.key != main.open_terminal_key);
-    try testing.expect(spawn.key != main.open_editor_key);
-    try testing.expect(spawn.key != main.copy_turn_key);
+    try testing.expect(spawn.key != sidecar_keys.maximize_window_key);
+    try testing.expect(spawn.key != sidecar_keys.pick_image_key);
+    try testing.expect(spawn.key != sidecar_keys.pick_folder_key);
+    try testing.expect(spawn.key != sidecar_keys.reveal_folder_key);
+    try testing.expect(spawn.key != sidecar_keys.open_terminal_key);
+    try testing.expect(spawn.key != sidecar_keys.open_editor_key);
+    try testing.expect(spawn.key != sidecar_keys.copy_turn_key);
     try testing.expect(spawn.key >= git_keys.file_mention_key_first);
     try testing.expect(spawn.key != git_keys.git_dirty_key_first);
     try testing.expect(spawn.key != git_keys.git_numstat_key_first);
@@ -35880,7 +35881,7 @@ test "Environment Copy task ID writes the local session id" {
     try testing.expect(!model.environment_summary_open);
     try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
     const written = fx.pendingClipboardAt(0).?;
-    try testing.expectEqual(main.copy_turn_key, written.key);
+    try testing.expectEqual(sidecar_keys.copy_turn_key, written.key);
     try testing.expectEqual(native_sdk.EffectClipboardOp.write, written.op);
     var id_buf: [16]u8 = undefined;
     const expected_id = try std.fmt.bufPrint(&id_buf, "{d}", .{selected});
@@ -35923,7 +35924,7 @@ test "Environment Copy agent CLI thread ID is gated and writes fx_session_id" {
     try testing.expect(!model.environment_summary_open);
     try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
     const written = fx.pendingClipboardAt(0).?;
-    try testing.expectEqual(main.copy_turn_key, written.key);
+    try testing.expectEqual(sidecar_keys.copy_turn_key, written.key);
     try testing.expectEqual(native_sdk.EffectClipboardOp.write, written.op);
     try testing.expectEqualStrings("fx-sess-env-summary", written.text);
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
