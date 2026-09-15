@@ -5359,6 +5359,13 @@ pub const Model = struct {
         return model.settingsChrome().settings;
     }
 
+    /// Sidebar Settings gear a11y. Same `i18n.Chrome.settings` as
+    /// Settings page title. Distinct getter from `settings_title`.
+    /// `on-press` stays `toggle_settings`.
+    pub fn settings_gear_label(model: *const Model) []const u8 {
+        return model.settingsChrome().settings;
+    }
+
     pub fn settings_nav_general(model: *const Model) []const u8 {
         return model.settingsChrome().general;
     }

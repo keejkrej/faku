@@ -33736,6 +33736,91 @@ test "composer Usage meter toggle follows Appearance language" {
     try testing.expect(findByText(tree.root, .button, "Usage") == null);
 }
 
+test "sidebar Settings gear a11y follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{settings_gear_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "icon=\"settings\" label=\"{settings_gear_label}\" on-press=\"toggle_settings\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Settings\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "icon=\"settings\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Settings\" on-press=\"toggle_settings\"") == null);
+
+    var model = main.initialModel();
+    try testing.expect(model.sidebar_expanded());
+    try testing.expectEqualStrings("Settings", model.settings_gear_label());
+    try testing.expectEqualStrings("Settings", model.settings_title());
+    try testing.expectEqualStrings(i18n.chromeFor(.english, "").settings, model.settings_gear_label());
+    try testing.expectEqualStrings(model.settings_title(), model.settings_gear_label());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Settings", .toggle_settings);
+    try testing.expect(findByText(tree.root, .button, "设置") == null);
+    try testing.expect(findByText(tree.root, .button, "設定") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("设置", model.settings_gear_label());
+    try testing.expectEqualStrings("设置", model.settings_title());
+    try testing.expectEqualStrings(i18n.chromeFor(.simplified_chinese, "").settings, model.settings_gear_label());
+    try testing.expectEqualStrings(model.settings_title(), model.settings_gear_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "设置", .toggle_settings);
+    try testing.expect(findByText(tree.root, .button, "Settings") == null);
+    try testing.expect(findByText(tree.root, .button, "設定") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("設定", model.settings_gear_label());
+    try testing.expectEqualStrings("設定", model.settings_title());
+    try testing.expectEqualStrings(i18n.chromeFor(.japanese, "").settings, model.settings_gear_label());
+    try testing.expectEqualStrings(model.settings_title(), model.settings_gear_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "設定", .toggle_settings);
+    try testing.expect(findByText(tree.root, .button, "Settings") == null);
+    try testing.expect(findByText(tree.root, .button, "设置") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("Settings", model.settings_gear_label());
+    try testing.expectEqualStrings(i18n.chromeFor(.english, "zh_CN.UTF-8").settings, model.settings_gear_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Settings", .toggle_settings);
+    try testing.expect(findByText(tree.root, .button, "设置") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("设置", model.settings_gear_label());
+    try testing.expectEqualStrings(i18n.chromeFor(.system, "zh_CN.UTF-8").settings, model.settings_gear_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "设置", .toggle_settings);
+    try testing.expect(findByText(tree.root, .button, "Settings") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("設定", model.settings_gear_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "設定", .toggle_settings);
+    try testing.expect(findByText(tree.root, .button, "设置") == null);
+
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Settings", model.settings_gear_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Settings", .toggle_settings);
+
+    model.language_preference = .simplified_chinese;
+    tree = try buildTree(arena, &model);
+    const gear = try expectButtonMsg(tree, "设置", .toggle_settings);
+    main.update(&model, tree.msgForPointer(gear.id, .up).?, &fx);
+    try testing.expect(model.settings_open);
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "设置", .toggle_settings);
+    _ = try expectByText(tree.root, .text, "设置");
+    try testing.expect(findByText(tree.root, .button, "Settings") == null);
+}
+
 test "Settings Providers Available Not found Enable Disable Copy First-party follow Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
