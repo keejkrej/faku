@@ -102,7 +102,8 @@ Build from source: clone https://github.com/keejkrej/fx, Zig 0.16.0,
   empty-history Native start page; Browser-tab-gated Cmd/Ctrl-R/L/[/] when that tab is showing;
   first-cut Escape restores the address draft when that field is active;
   Cmd/Ctrl-Shift-R Hard Reload is a Faku-side `about:blank` hop + `reload_token`;
-  DevTools / loading Stop stay out;
+  first-cut Stop loading is a Faku-side loading-guess + previous URL / `about:blank`;
+  DevTools / `page_title` stay out;
   **Open in browser** stays the OS fallback)
 
 Protocol dump: [CONTEXT.md](CONTEXT.md).

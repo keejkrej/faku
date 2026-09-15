@@ -68,6 +68,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
     // collapse to one final URL.
     browser_pane.maybeFinishHardReload(model);
     model.now_ms = fx.wallMs();
+    browser_pane.maybeClearLoadingGuess(model);
+    if (browser_pane.maybeFinishStopBlank(model)) {
+        store.persistLayoutIfPossible(model);
+    }
     switch (msg) {
         .new_session => session_actions.handleNewSession(model, fx),
         .select => |id| session_actions.handleSelect(model, fx, id),
@@ -381,6 +385,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .browser_hard_reload => {
             if (!model.browser_keyboard_active()) return;
             browser_pane.hardReload(model);
+        },
+        .browser_stop_loading => {
+            if (!model.browser_keyboard_active()) return;
+            browser_pane.stopLoading(model);
+            store.persistLayoutIfPossible(model);
         },
         .browser_back => {
             browser_pane.goBack(model);

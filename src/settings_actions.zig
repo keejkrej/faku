@@ -137,10 +137,17 @@ pub fn handleStop(model: *Model, fx: *Effects) void {
     }
     // Waku BrowserAddressCancel: Escape restores the address draft
     // when that field is active. Stay on `.stop` in keys.zig; gate
-    // here like other Browser-tab chords. Loading Stop stays out.
+    // here like other Browser-tab chords. First-cut Stop loading
+    // (address not focused) is next: loading-guess + previous URL /
+    // blank, not a Native stop callback.
     if (model.browser_address_active and model.browser_keyboard_active()) {
         browser_pane.restoreAddressFromCommitted(model);
         model.browser_address_active = false;
+        store.persistLayoutIfPossible(model);
+        return;
+    }
+    if (model.browser_keyboard_active() and browser_pane.loadingGuessActive(model)) {
+        browser_pane.stopLoading(model);
         store.persistLayoutIfPossible(model);
         return;
     }

@@ -18,7 +18,11 @@
 //! `reload_token`. Cmd/Ctrl-Shift-R Hard Reload (chord and toolbar) is
 //! a Faku-side `about:blank` hop plus `reload_token` on the next update
 //! tick (Native `WebViewPane` documents only `url` + `reload_token`;
-//! not Waku cache-clear; no hard-reload flag). Inactive occupied slots
+//! not Waku cache-clear; no hard-reload flag). First-cut Stop loading
+//! (toolbar + Esc when the address field is not active) is a Faku-side
+//! loading-guess after navigate / reload / Hard Reload start, then
+//! restore the previous committed history URL or `about:blank` (Native
+//! has no loading/stop callback; guess clears on Stop or ~12s). Inactive occupied slots
 //! park at 1×1 with
 //! `anchor = null` so they do not overlay Files/Diff/Terminal but keep
 //! the webview process/state. Unopened slots stay parked at the home
@@ -37,8 +41,8 @@
 //! cold-start fallback. Session switch / New Task / remove restore
 //! occupancy + histories + active from the in-memory
 //! `right_panel_session` stash (`capturePersisted` / `restoreFromPersist`;
-//! missing → `default_slots`). `reload_token` and Hard Reload's
-//! pending blank hop stay runtime-only. Empty
+//! missing → `default_slots`). `reload_token`, Hard Reload's
+//! pending blank hop, and Stop loading's loading-guess / blank hop stay runtime-only. Empty
 //! history still parks on the
 //! scene placeholder `https://example.com` and does not show it.
 //! Enter/Navigate uses Safari/Waku omnibox resolve (explicit schemes,
@@ -94,12 +98,18 @@ pub const web_pane_anchor = "browser-pane";
 /// Scene placeholder and parked empty-history pane URL. Empty history
 /// does not treat this as a committed page (no snap, globe not lock).
 pub const home_url = "https://example.com";
-/// Documented Native pane URL for the Hard Reload blank hop. Not
-/// pushed onto the user history ring.
+/// Documented Native pane URL for the Hard Reload blank hop and for
+/// Stop loading when no previous committed URL exists. Not pushed
+/// onto the user history ring.
 pub const blank_url = "about:blank";
-/// Workbench `max_history` ring. Occupied rings persist; `reload_token`
-/// and Hard Reload's pending blank hop stay runtime-only.
+/// Workbench `max_history` ring. Occupied rings persist; `reload_token`,
+/// Hard Reload's pending blank hop, and Stop loading's loading-guess /
+/// blank hop stay runtime-only.
 pub const max_history = 32;
+/// First-cut Stop loading window. Native never reports load start/end,
+/// so navigate / reload / Hard Reload start a Faku-side guess. Cleared
+/// on Stop or `maybeClearLoadingGuess` after this many ms of `now_ms`.
+pub const loading_guess_ms: i64 = 12_000;
 /// Parking frame: positive size so `applyWebPane` does not keep the last
 /// content-sized snapshot when the Browser tab is hidden or the slot is
 /// inactive.
@@ -110,8 +120,9 @@ pub const parked_frame = geometry.RectF.init(0, 0, 1, 1);
 /// index persist on `sessions.json` extras (`browser_slots` /
 /// `browser_histories` / `browser_active`) as last-live cold-start;
 /// session switch restores them from `right_panel_session`. The active
-/// address draft still persists as `browser_url`. `reload_token` and
-/// Hard Reload's pending blank hop stay runtime-only.
+/// address draft still persists as `browser_url`. `reload_token`,
+/// Hard Reload's pending blank hop, and Stop loading's loading-guess /
+/// blank hop stay runtime-only.
 pub const Slot = struct {
     occupied: bool = false,
     url_buffer: canvas.TextBuffer(open_url.max_url) = .{},
@@ -123,6 +134,13 @@ pub const Slot = struct {
     /// navigates away; `maybeFinishHardReload` on the following update
     /// tick restores the committed URL and bumps `reload_token`.
     hard_reload_pending: bool = false,
+    /// Runtime-only: `now_ms` deadline for the post-navigate loading
+    /// guess. 0 is inactive. Not persisted.
+    loading_guess_until_ms: i64 = 0,
+    /// Runtime-only: Stop with no previous history URL emits `blank_url`
+    /// this tick; `maybeFinishStopBlank` on the next update tick clears
+    /// the page (empty history, occupancy kept).
+    stop_blank_pending: bool = false,
 };
 
 pub const BrowserSessionRow = struct {
@@ -374,7 +392,8 @@ pub fn capturePersisted(model: *const Model, out: *[max_sessions]PersistedSlot) 
 
 /// Rebuild occupancy, history rings + index when present, otherwise a
 /// single-entry history from each committed tip. Does not restore
-/// `reload_token` or a pending Hard Reload hop. Zero occupied slots keep
+/// `reload_token`, a pending Hard Reload hop, or Stop loading's
+/// loading-guess / blank hop. Zero occupied slots keep
 /// today's slot-0 session.
 pub fn restoreFromPersist(model: *Model, slots: []const PersistedSlot, active: u8) void {
     model.browser_slots = [_]Slot{.{}} ** max_sessions;
@@ -469,6 +488,44 @@ pub fn forwardDisabled(model: *const Model) bool {
 
 pub fn reloadDisabled(model: *const Model) bool {
     return !hasPage(model);
+}
+
+/// Stop loading toolbar: same has-page gate as Reload, plus the
+/// loading-guess must still be live (so Esc cannot blank a settled
+/// page after the guess window).
+pub fn stopLoadingDisabled(model: *const Model) bool {
+    return reloadDisabled(model) or !loadingGuessActive(model);
+}
+
+/// Active slot is inside the post-navigate / reload / Hard Reload
+/// loading-guess window. `now_ms == 0` (unit tests that never stamp
+/// the clock) treats a non-zero deadline as still live.
+pub fn loadingGuessActive(model: *const Model) bool {
+    const until = activeSlotConst(model).loading_guess_until_ms;
+    if (until == 0) return false;
+    if (model.now_ms <= 0) return true;
+    return model.now_ms < until;
+}
+
+fn markLoadingGuess(model: *Model) void {
+    const start: i64 = if (model.now_ms <= 0) 1 else model.now_ms;
+    activeSlot(model).loading_guess_until_ms = start + loading_guess_ms;
+}
+
+fn clearLoadingGuess(slot: *Slot) void {
+    slot.loading_guess_until_ms = 0;
+}
+
+/// Drop expired loading-guess deadlines. Piggybacks `now_ms` / the
+/// update tick (Native has no load callback or dedicated timer).
+pub fn maybeClearLoadingGuess(model: *Model) void {
+    if (model.now_ms <= 0) return;
+    for (&model.browser_slots) |*slot| {
+        if (slot.loading_guess_until_ms == 0) continue;
+        if (model.now_ms >= slot.loading_guess_until_ms) {
+            slot.loading_guess_until_ms = 0;
+        }
+    }
 }
 
 pub fn openDisabled(model: *const Model) bool {
@@ -683,6 +740,7 @@ pub fn commitNavigation(model: *Model) void {
     live.history[live.history_index].set(url);
     live.history_count = live.history_index + 1;
     syncDraftFromCommitted(live);
+    markLoadingGuess(model);
 }
 
 pub fn goBack(model: *Model) void {
@@ -702,6 +760,7 @@ pub fn goForward(model: *Model) void {
 pub fn reload(model: *Model) void {
     if (!hasPage(model)) return;
     activeSlot(model).reload_token +%= 1;
+    markLoadingGuess(model);
 }
 
 /// Hard Reload first-cut: documented Native `url` + `reload_token`
@@ -711,7 +770,44 @@ pub fn reload(model: *Model) void {
 /// `reload_token`. No-op without a committed page (same as `reload`).
 pub fn hardReload(model: *Model) void {
     if (!hasPage(model)) return;
-    activeSlot(model).hard_reload_pending = true;
+    const slot = activeSlot(model);
+    slot.hard_reload_pending = true;
+    markLoadingGuess(model);
+}
+
+/// First-cut Stop loading: Native has no stop callback, so abandon
+/// the in-flight navigation with a URL change. Previous committed
+/// history URL when `history_index > 0` (ring kept); else `about:blank`
+/// this tick and empty history on the next (`maybeFinishStopBlank`).
+/// Clears the loading-guess. No-op when the guess is already idle.
+pub fn stopLoading(model: *Model) void {
+    if (!loadingGuessActive(model)) return;
+    const slot = activeSlot(model);
+    slot.hard_reload_pending = false;
+    clearLoadingGuess(slot);
+    if (!hasPage(model)) return;
+    if (slot.history_index > 0) {
+        goBack(model);
+        return;
+    }
+    slot.stop_blank_pending = true;
+}
+
+/// Second tick of first-page Stop: after Native has applied
+/// `about:blank`, drop the abandoned history entry. Occupancy stays
+/// so the slot returns to the empty-history start page. Called at
+/// the start of `update` so a same-tick blank→clear cannot collapse.
+pub fn maybeFinishStopBlank(model: *Model) bool {
+    var cleared = false;
+    for (&model.browser_slots) |*slot| {
+        if (!slot.stop_blank_pending) continue;
+        slot.stop_blank_pending = false;
+        slot.history_count = 0;
+        slot.history_index = 0;
+        slot.url_buffer.clear();
+        cleared = true;
+    }
+    return cleared;
 }
 
 /// Second tick of Hard Reload: after Native has applied `about:blank`,
@@ -727,7 +823,7 @@ pub fn maybeFinishHardReload(model: *Model) void {
 }
 
 fn paneUrl(slot: *const Slot, committed: []const u8) []const u8 {
-    if (slot.hard_reload_pending) return blank_url;
+    if (slot.hard_reload_pending or slot.stop_blank_pending) return blank_url;
     return committed;
 }
 
@@ -1019,6 +1115,106 @@ test "hardReload blanks the pane URL then restore bumps reload_token without his
     try std.testing.expectEqual(@as(usize, 1), activeSlotConst(&model).history_index);
     goBack(&model);
     try std.testing.expectEqualStrings("https://a.example", currentUrl(&model));
+}
+
+test "loading guess starts on navigate reload and hardReload and clears on timeout" {
+    var model: Model = .{};
+    model.now_ms = 10_000;
+    try std.testing.expect(!loadingGuessActive(&model));
+    try std.testing.expect(stopLoadingDisabled(&model));
+
+    stopLoading(&model);
+    try std.testing.expect(!model.browser_slots[0].stop_blank_pending);
+
+    setDraft(&model, "https://a.example");
+    commitNavigation(&model);
+    try std.testing.expect(loadingGuessActive(&model));
+    try std.testing.expectEqual(@as(i64, 10_000 + loading_guess_ms), model.browser_slots[0].loading_guess_until_ms);
+    try std.testing.expect(!stopLoadingDisabled(&model));
+
+    model.now_ms = 10_000 + loading_guess_ms - 1;
+    maybeClearLoadingGuess(&model);
+    try std.testing.expect(loadingGuessActive(&model));
+
+    model.now_ms = 10_000 + loading_guess_ms;
+    maybeClearLoadingGuess(&model);
+    try std.testing.expect(!loadingGuessActive(&model));
+    try std.testing.expectEqual(@as(i64, 0), model.browser_slots[0].loading_guess_until_ms);
+    try std.testing.expect(stopLoadingDisabled(&model));
+
+    reload(&model);
+    try std.testing.expect(loadingGuessActive(&model));
+    model.browser_slots[0].loading_guess_until_ms = 0;
+    try std.testing.expect(!loadingGuessActive(&model));
+
+    hardReload(&model);
+    try std.testing.expect(loadingGuessActive(&model));
+    try std.testing.expect(model.browser_slots[0].hard_reload_pending);
+}
+
+test "stopLoading restores the previous committed URL without wiping the ring" {
+    var model: Model = .{};
+    var panes: [max_sessions]WebViewPane = undefined;
+    model.right_panel_open = true;
+    model.right_panel_tab = .browser;
+    model.now_ms = 10_000;
+
+    setDraft(&model, "https://a.example");
+    commitNavigation(&model);
+    setDraft(&model, "https://b.example");
+    commitNavigation(&model);
+    try std.testing.expectEqualStrings("https://b.example", currentUrl(&model));
+    try std.testing.expect(loadingGuessActive(&model));
+    try std.testing.expectEqual(@as(usize, 2), activeSlotConst(&model).history_count);
+    try std.testing.expectEqual(@as(usize, 1), activeSlotConst(&model).history_index);
+
+    stopLoading(&model);
+    _ = webPanes(&model, &panes);
+    try std.testing.expect(!loadingGuessActive(&model));
+    try std.testing.expect(!model.browser_slots[0].stop_blank_pending);
+    try std.testing.expectEqualStrings("https://a.example", currentUrl(&model));
+    try std.testing.expectEqualStrings("https://a.example", panes[0].url);
+    try std.testing.expectEqual(@as(usize, 2), activeSlotConst(&model).history_count);
+    try std.testing.expectEqual(@as(usize, 0), activeSlotConst(&model).history_index);
+    try std.testing.expect(!forwardDisabled(&model));
+    try std.testing.expect(stopLoadingDisabled(&model));
+
+    stopLoading(&model);
+    try std.testing.expectEqualStrings("https://a.example", currentUrl(&model));
+    try std.testing.expectEqual(@as(usize, 2), activeSlotConst(&model).history_count);
+}
+
+test "stopLoading blanks then clears occupancy on a first-page load" {
+    var model: Model = .{};
+    var panes: [max_sessions]WebViewPane = undefined;
+    model.right_panel_open = true;
+    model.right_panel_tab = .browser;
+    model.now_ms = 10_000;
+
+    setDraft(&model, "https://a.example");
+    commitNavigation(&model);
+    try std.testing.expect(hasPage(&model));
+    try std.testing.expect(loadingGuessActive(&model));
+
+    stopLoading(&model);
+    _ = webPanes(&model, &panes);
+    try std.testing.expect(!loadingGuessActive(&model));
+    try std.testing.expect(model.browser_slots[0].stop_blank_pending);
+    try std.testing.expectEqualStrings(blank_url, panes[0].url);
+    try std.testing.expectEqualStrings("https://a.example", currentUrl(&model));
+    try std.testing.expectEqual(@as(usize, 1), activeSlotConst(&model).history_count);
+    try std.testing.expectEqualStrings(web_pane_anchor, panes[0].anchor orelse "");
+
+    try std.testing.expect(maybeFinishStopBlank(&model));
+    _ = webPanes(&model, &panes);
+    try std.testing.expect(!model.browser_slots[0].stop_blank_pending);
+    try std.testing.expect(!hasPage(&model));
+    try std.testing.expect(showingStartPage(&model));
+    try std.testing.expect(model.browser_slots[0].occupied);
+    try std.testing.expectEqualStrings("", committedUrlAt(&model, 0));
+    try std.testing.expectEqualStrings(home_url, panes[0].url);
+    try expectParked(panes[0]);
+    try std.testing.expect(!maybeFinishStopBlank(&model));
 }
 
 test "history ring shifts the oldest entry once full" {
@@ -1435,12 +1631,17 @@ test "restoreFromPersist rebuilds history rings so back and forward work" {
     var restored: Model = .{};
     restored.browser_slots[0].reload_token = 99;
     restored.browser_slots[0].hard_reload_pending = true;
+    restored.browser_slots[0].loading_guess_until_ms = 99;
+    restored.browser_slots[0].stop_blank_pending = true;
     restoreFromPersist(&restored, &persisted, 1);
     try std.testing.expectEqual(@as(u8, 1), restored.browser_active);
     try std.testing.expectEqual(@as(u64, 0), restored.browser_slots[0].reload_token);
     try std.testing.expectEqual(@as(u64, 0), restored.browser_slots[1].reload_token);
     try std.testing.expect(!restored.browser_slots[0].hard_reload_pending);
     try std.testing.expect(!restored.browser_slots[1].hard_reload_pending);
+    try std.testing.expectEqual(@as(i64, 0), restored.browser_slots[0].loading_guess_until_ms);
+    try std.testing.expect(!restored.browser_slots[0].stop_blank_pending);
+    try std.testing.expect(!restored.browser_slots[1].stop_blank_pending);
     try std.testing.expectEqual(@as(usize, 3), restored.browser_slots[0].history_count);
     try std.testing.expectEqual(@as(usize, 1), restored.browser_slots[0].history_index);
     try std.testing.expectEqualStrings("https://a2.example", committedUrlAt(&restored, 0));
@@ -1514,6 +1715,8 @@ test "CONTEXT and README describe first-cut Browser multi-session inside the tab
     try std.testing.expect(std.mem.indexOf(u8, context, "browser_histories") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "`reload_token` stays runtime-only") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "Faku-side blank-hop") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "loading-guess") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "Stop loading") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "is_secure_url") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "lock/globe") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "display_url/host first-cut") != null);
