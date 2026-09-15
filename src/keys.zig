@@ -12,8 +12,9 @@
 //! has no focus). Cmd/Ctrl-Shift-R is Hard Reload (Faku-side
 //! `about:blank` hop + `reload_token`; Native `web_panes` has no
 //! hard-reload flag). Escape stays `.stop`; handleStop restores the
-//! address draft when that field is active (Waku BrowserAddressCancel).
-//! DevTools / loading Stop stay unbound.
+//! address draft when that field is active (Waku BrowserAddressCancel)
+//! and first-cut Stop loading when it is not, during the Faku-side
+//! loading-guess window. DevTools stays unbound.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");

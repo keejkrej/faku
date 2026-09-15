@@ -34,7 +34,8 @@
 //! via `browser_pane.capturePersisted` / `restoreFromPersist` (same
 //! `PersistedSlot` shape as the global extras); missing / cleared is
 //! today's `default_slots` (slot 0 occupied, empty history).
-//! `reload_token` stays runtime-only. Occupied Terminal slots and the
+//! `reload_token` stays runtime-only (Hard Reload pending hop and Stop
+//! loading guess / blank hop too). Occupied Terminal slots and the
 //! active index restore from this stash via `pty_terminal.capturePersisted`
 //! / `restoreFromPersist` (bool occupancy + active, same shape as the
 //! global extras); missing / cleared is today's empty persist (no
@@ -164,8 +165,8 @@ pub const State = struct {
 /// full of other session ids. The editor table is the whole bounded
 /// map (not a single `files_editor`); take upserts the live preview
 /// without dropping other parked paths. Browser uses
-/// `browser_pane.capturePersisted` (+ active); `reload_token` and a
-/// pending Hard Reload hop are not stashed. Terminal uses `pty_terminal.capturePersisted` (+ active);
+/// `browser_pane.capturePersisted` (+ active); `reload_token`, a
+/// pending Hard Reload hop, and Stop loading's loading-guess / blank hop are not stashed. Terminal uses `pty_terminal.capturePersisted` (+ active);
 /// scrollback / status / live PTY are not stashed.
 pub fn take(model: *Model) void {
     const session_id = model.selected;

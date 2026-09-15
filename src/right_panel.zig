@@ -27,7 +27,9 @@
 //! slot URLs and history rings persist; `reload_token` stays runtime-only;
 //! Cmd/Ctrl-Shift-R Hard Reload (chord and toolbar) is a Faku-side
 //! `about:blank` hop plus `reload_token` (Native `web_panes` has no
-//! hard-reload flag);
+//! hard-reload flag); first-cut Stop loading is a Faku-side loading-guess
+//! plus restore previous URL / `about:blank` (Native has no loading/stop
+//! callback);
 //! not Waku `page_title` / surface UUID tabs / DevTools). When the Browser
 //! tab is hidden every pane parks at 1×1 with no anchor so Native does
 //! not keep the last webview frame over Files/Diff/Terminal. Inactive
@@ -255,7 +257,7 @@
 //! keeps today's one occupied slot 0; missing / empty `terminal_slots`
 //! keeps today's lazy single spawn). Occupied Browser history rings
 //! persist; `reload_token` stays runtime-only (Hard Reload's pending
-//! blank hop too). Terminal scrollback /
+//! blank hop and Stop loading's loading-guess / blank hop too). Terminal scrollback /
 //! status / live PTY process state stay runtime-only.
 //! Nested Files-tree width (`right_panel_file_tree_width`, default 184)
 //! and nested Diff file-list width (`right_panel_diff_file_list_width`,
@@ -855,6 +857,7 @@ pub fn selectBackground(model: *Model, fx: *Effects, row_id: u32) void {
 /// **active** slot's draft URL persist via layout extras. First-cut
 /// multi-session (cap 4, chips + New + Close); `reload_token` does not
 /// persist. Hard Reload is a runtime-only blank-hop + token bump.
+/// Stop loading is a runtime-only loading-guess + previous URL / blank.
 /// Not Waku surface UUID tabs.
 pub fn selectBrowser(model: *Model, fx: *Effects) void {
     leaveDiffSurfaceIfNeeded(model);

@@ -35,7 +35,7 @@
 //! as `browser_histories` (parallel 4-slot array: null when unoccupied;
 //! occupied `{ "urls": [...], "index": n }`, urls cap 32, index clamped;
 //! missing / legacy tip-only `browser_slots` keeps today's single-entry
-//! restore); `reload_token` and Hard Reload's pending blank hop stay runtime-only; occupied Terminal slots persist as
+//! restore); `reload_token`, Hard Reload's pending blank hop, and Stop loading's loading-guess / blank hop stay runtime-only; occupied Terminal slots persist as
 //! `terminal_slots` (index-aligned boolean array, cap 4) plus
 //! `terminal_active` (missing / empty `terminal_slots` keeps today's
 //! lazy single spawn on Terminal tab open); scrollback / status / live
@@ -3170,6 +3170,8 @@ test "browser_histories round-trips rings and index; legacy tip-only stays singl
     try testing.expect(std.mem.indexOf(u8, bytes, "\"browser_histories\":[{\"urls\":[\"https://a1.example\",\"https://a2.example\",\"https://a3.example\"],\"index\":1},{\"urls\":[\"https://b1.example\",\"https://b2.example\"],\"index\":1},null,null]") != null);
     try testing.expect(std.mem.indexOf(u8, bytes, "\"reload_token\"") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "\"hard_reload_pending\"") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"loading_guess_until_ms\"") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"stop_blank_pending\"") == null);
 
     var loaded = Model{};
     loaded.setStoreDir(dir);

@@ -10464,6 +10464,8 @@ test "right panel Files, Diff, Browser, Terminal, and Background tabs switch sur
     const hard_reload = findByText(tree.root, .button, "Hard Reload") orelse return error.WidgetNotFound;
     try testing.expect(hard_reload.state.disabled);
     try testing.expectEqual(reload.state.disabled, hard_reload.state.disabled);
+    const stop_loading = findByText(tree.root, .button, "Stop loading") orelse return error.WidgetNotFound;
+    try testing.expect(stop_loading.state.disabled);
     const open_browser = findByText(tree.root, .button, "Open in browser") orelse return error.WidgetNotFound;
     try testing.expect(open_browser.state.disabled);
     _ = try expectButtonMsg(tree, "New", .new_browser);
@@ -10704,6 +10706,7 @@ test "Browser Navigate commits a normalized URL; hidden tab parks the web pane" 
     try testing.expect(model.browser_showing_start_page());
     try testing.expect(!model.browser_url_secure());
     try testing.expect(model.browser_reload_disabled());
+    try testing.expect(model.browser_stop_loading_disabled());
     try testing.expect(model.browser_open_disabled());
     _ = browser_pane.webPanes(&model, &panes);
     try testing.expect(panes[0].anchor == null);
@@ -10731,6 +10734,7 @@ test "Browser Navigate commits a normalized URL; hidden tab parks the web pane" 
     try testing.expectEqualStrings("example.com/ok", model.browser_url());
     try testing.expect(model.browser_url_secure());
     try testing.expect(!model.browser_reload_disabled());
+    try testing.expect(!model.browser_stop_loading_disabled());
     try testing.expect(!model.browser_open_disabled());
 
     tree = try buildTree(arena, &model);
@@ -12994,6 +12998,101 @@ test "Browser Hard Reload toolbar shares Reload disable gate and drives blank ho
     try testing.expectEqualStrings("https://a.example", panes[0].url);
 }
 
+test "Browser Stop loading toolbar and Esc restore previous URL or blank during loading guess" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+
+    var model = main.initialModel();
+    var panes: [browser_pane.max_sessions]browser_pane.WebViewPane = undefined;
+
+    main.update(&model, .show_right_panel, &fx);
+    main.update(&model, .set_right_panel_tab_browser, &fx);
+    try testing.expect(model.browser_stop_loading_disabled());
+    var tree = try buildTree(arena, &model);
+    const stop_empty = findByText(tree.root, .button, "Stop loading") orelse return error.WidgetNotFound;
+    try testing.expect(stop_empty.state.disabled);
+
+    main.update(&model, .browser_stop_loading, &fx);
+    try testing.expect(!model.browser_slots[0].stop_blank_pending);
+
+    main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://a.example" } }, &fx);
+    main.update(&model, .browser_navigate, &fx);
+    try testing.expect(browser_pane.loadingGuessActive(&model));
+    try testing.expect(!model.browser_stop_loading_disabled());
+    try testing.expectEqualStrings("https://a.example", browser_pane.currentUrl(&model));
+
+    tree = try buildTree(arena, &model);
+    const stop = try expectButtonMsg(tree, "Stop loading", .browser_stop_loading);
+    try testing.expect(!stop.state.disabled);
+    _ = try expectButtonMsg(tree, "Hard Reload", .browser_hard_reload);
+
+    main.update(&model, tree.msgForPointer(stop.id, .up).?, &fx);
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expect(!browser_pane.loadingGuessActive(&model));
+    try testing.expect(model.browser_slots[0].stop_blank_pending);
+    try testing.expectEqualStrings(browser_pane.blank_url, panes[0].url);
+    try testing.expectEqualStrings("https://a.example", browser_pane.currentUrl(&model));
+    try testing.expectEqual(@as(usize, 1), model.browser_slots[0].history_count);
+
+    main.update(&model, .close_find, &fx);
+    try testing.expect(!model.browser_slots[0].stop_blank_pending);
+    try testing.expect(!browser_pane.hasPage(&model));
+    try testing.expect(model.browser_showing_start_page());
+    try testing.expect(model.browser_stop_loading_disabled());
+
+    main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://a.example" } }, &fx);
+    main.update(&model, .browser_navigate, &fx);
+    model.setBrowserUrlDraft("https://b.example");
+    main.update(&model, .browser_navigate, &fx);
+    try testing.expect(browser_pane.loadingGuessActive(&model));
+    try testing.expectEqualStrings("https://b.example", browser_pane.currentUrl(&model));
+    try testing.expectEqual(@as(usize, 2), model.browser_slots[0].history_count);
+
+    main.update(&model, .focus_composer, &fx);
+    try testing.expect(!model.browser_address_active);
+    main.update(&model, keys.onKey(escape).?, &fx);
+    try testing.expect(!browser_pane.loadingGuessActive(&model));
+    try testing.expectEqualStrings("https://a.example", browser_pane.currentUrl(&model));
+    try testing.expectEqual(@as(usize, 2), model.browser_slots[0].history_count);
+    try testing.expectEqual(@as(usize, 0), model.browser_slots[0].history_index);
+
+    main.update(&model, keys.onKey(escape).?, &fx);
+    try testing.expectEqualStrings("https://a.example", browser_pane.currentUrl(&model));
+
+    main.update(&model, .browser_forward, &fx);
+    _ = browser_pane.webPanes(&model, &panes);
+    const before_reload = panes[0].reload_token;
+    main.update(&model, .browser_reload, &fx);
+    try testing.expect(browser_pane.loadingGuessActive(&model));
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expect(panes[0].reload_token != before_reload);
+
+    main.update(&model, .browser_hard_reload, &fx);
+    try testing.expect(browser_pane.loadingGuessActive(&model));
+    try testing.expect(model.browser_slots[0].hard_reload_pending);
+
+    model.browser_slots[0].loading_guess_until_ms = 1;
+    main.update(&model, .close_find, &fx);
+    try testing.expect(!browser_pane.loadingGuessActive(&model));
+    try testing.expect(model.browser_stop_loading_disabled());
+    try testing.expectEqualStrings("https://b.example", browser_pane.currentUrl(&model));
+
+    main.update(&model, .set_right_panel_tab_files, &fx);
+    try testing.expect(!model.browser_keyboard_active());
+    model.browser_slots[0].loading_guess_until_ms = model.now_ms + browser_pane.loading_guess_ms;
+    main.update(&model, .browser_stop_loading, &fx);
+    try testing.expect(browser_pane.loadingGuessActive(&model));
+    try testing.expectEqualStrings("https://b.example", browser_pane.currentUrl(&model));
+}
+
 test "escape restores Browser address draft without stopping a live turn" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
@@ -13036,9 +13135,18 @@ test "escape restores Browser address draft without stopping a live turn" {
     try testing.expectEqualStrings("https://a.example", browser_pane.currentUrl(&model));
     try testing.expect(!model.browser_address_active);
     try testing.expect(!model.browser_address_autofocus());
+    try testing.expect(browser_pane.loadingGuessActive(&model));
+    try testing.expectEqual(@as(usize, 1), model.browser_slots[0].history_count);
+
+    main.update(&model, keys.onKey(escape).?, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expect(model.browser_slots[0].stop_blank_pending);
+    try testing.expect(!browser_pane.loadingGuessActive(&model));
+    try testing.expectEqualStrings("https://a.example", browser_pane.currentUrl(&model));
 
     main.update(&model, keys.onKey(escape).?, &fx);
     try testing.expect(!model.is_streaming());
+    try testing.expect(!browser_pane.hasPage(&model));
 }
 
 test "escape still stops a live turn when Browser address is not active" {
@@ -13054,6 +13162,7 @@ test "escape still stops a live turn when Browser address is not active" {
     try testing.expect(model.browser_keyboard_active());
     main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://a.example" } }, &fx);
     main.update(&model, .browser_navigate, &fx);
+    model.browser_slots[0].loading_guess_until_ms = 0;
     model.setBrowserUrlDraft("dirty-draft");
     main.update(&model, .focus_composer, &fx);
     try testing.expect(!model.browser_address_active);
@@ -31091,6 +31200,7 @@ test "Browser toolbar chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{browser_forward_label}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{browser_reload_label}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{browser_hard_reload_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{browser_stop_loading_label}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, ">{browser_navigate_label}</button>"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{browser_secure_label}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{browser_not_secure_label}\""));
@@ -31098,15 +31208,19 @@ test "Browser toolbar chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"browser_forward\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"browser_reload\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"browser_hard_reload\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"browser_stop_loading\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"browser_navigate\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Back\" on-press=\"browser_back\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Forward\" on-press=\"browser_forward\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Reload\" on-press=\"browser_reload\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Hard Reload\" on-press=\"browser_hard_reload\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Stop loading\" on-press=\"browser_stop_loading\""));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "disabled=\"{browser_reload_disabled}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "disabled=\"{browser_stop_loading_disabled}\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"browser_navigate\">Navigate</button>"));
     inline for (Msg.view_unbound) |name| {
         try testing.expect(!std.mem.eql(u8, name, "browser_hard_reload"));
+        try testing.expect(!std.mem.eql(u8, name, "browser_stop_loading"));
     }
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Secure\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Not secure\""));
@@ -31118,6 +31232,7 @@ test "Browser toolbar chrome follows Appearance language" {
     try testing.expectEqualStrings("Forward", model.browser_forward_label());
     try testing.expectEqualStrings("Reload", model.browser_reload_label());
     try testing.expectEqualStrings("Hard Reload", model.browser_hard_reload_label());
+    try testing.expectEqualStrings("Stop loading", model.browser_stop_loading_label());
     try testing.expectEqualStrings("Navigate", model.browser_navigate_label());
     try testing.expectEqualStrings("Secure", model.browser_secure_label());
     try testing.expectEqualStrings("Not secure", model.browser_not_secure_label());
@@ -31125,6 +31240,7 @@ test "Browser toolbar chrome follows Appearance language" {
     try testing.expectEqualStrings(i18n.browserToolbarChromeFor(.english, "").forward, model.browser_forward_label());
     try testing.expectEqualStrings(i18n.browserToolbarChromeFor(.english, "").reload, model.browser_reload_label());
     try testing.expectEqualStrings(i18n.browserToolbarChromeFor(.english, "").hard_reload, model.browser_hard_reload_label());
+    try testing.expectEqualStrings(i18n.browserToolbarChromeFor(.english, "").stop_loading, model.browser_stop_loading_label());
     try testing.expectEqualStrings(i18n.browserToolbarChromeFor(.english, "").navigate, model.browser_navigate_label());
     try testing.expectEqualStrings(i18n.browserToolbarChromeFor(.english, "").secure, model.browser_secure_label());
     try testing.expectEqualStrings(i18n.browserToolbarChromeFor(.english, "").not_secure, model.browser_not_secure_label());
@@ -31139,6 +31255,7 @@ test "Browser toolbar chrome follows Appearance language" {
     try testing.expect(findNthByText(tree.root, .button, "Forward", 1) != null);
     _ = try expectByText(tree.root, .button, "Reload");
     _ = try expectByText(tree.root, .button, "Hard Reload");
+    _ = try expectByText(tree.root, .button, "Stop loading");
     _ = try expectButtonMsg(tree, "Navigate", .browser_navigate);
     _ = try expectByText(tree.root, .button, "Back");
     _ = try expectByText(tree.root, .button, "Forward");
@@ -31153,12 +31270,14 @@ test "Browser toolbar chrome follows Appearance language" {
     _ = try expectByText(tree.root, .icon, "Secure");
     try testing.expect(findByText(tree.root, .icon, "Not secure") == null);
     _ = try expectButtonMsg(tree, "Hard Reload", .browser_hard_reload);
+    try testing.expect(findByText(tree.root, .button, "Stop loading") != null);
 
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("返回", model.browser_back_label());
     try testing.expectEqualStrings("前进", model.browser_forward_label());
     try testing.expectEqualStrings("重新加载", model.browser_reload_label());
     try testing.expectEqualStrings("强制重新加载", model.browser_hard_reload_label());
+    try testing.expectEqualStrings("停止加载", model.browser_stop_loading_label());
     try testing.expectEqualStrings("转到", model.browser_navigate_label());
     try testing.expectEqualStrings("安全", model.browser_secure_label());
     try testing.expectEqualStrings("不安全", model.browser_not_secure_label());
@@ -31167,12 +31286,14 @@ test "Browser toolbar chrome follows Appearance language" {
     _ = try expectByText(tree.root, .button, "前进");
     _ = try expectByText(tree.root, .button, "重新加载");
     _ = try expectButtonMsg(tree, "强制重新加载", .browser_hard_reload);
+    _ = try expectButtonMsg(tree, "停止加载", .browser_stop_loading);
     _ = try expectButtonMsg(tree, "转到", .browser_navigate);
     try testing.expect(findNthByText(tree.root, .button, "返回", 1) != null);
     try testing.expect(findNthByText(tree.root, .button, "前进", 1) != null);
     try testing.expect(findByText(tree.root, .button, "Back") == null);
     try testing.expect(findByText(tree.root, .button, "Forward") == null);
     try testing.expect(findByText(tree.root, .button, "Hard Reload") == null);
+    try testing.expect(findByText(tree.root, .button, "Stop loading") == null);
     _ = try expectByText(tree.root, .icon, "安全");
     try testing.expect(findByText(tree.root, .button, "Navigate") == null);
     try testing.expect(findByText(tree.root, .icon, "Secure") == null);
@@ -31183,6 +31304,7 @@ test "Browser toolbar chrome follows Appearance language" {
     try testing.expectEqualStrings("進む", model.browser_forward_label());
     try testing.expectEqualStrings("再読み込み", model.browser_reload_label());
     try testing.expectEqualStrings("強制再読み込み", model.browser_hard_reload_label());
+    try testing.expectEqualStrings("読み込みを停止", model.browser_stop_loading_label());
     try testing.expectEqualStrings("移動", model.browser_navigate_label());
     try testing.expectEqualStrings("安全", model.browser_secure_label());
     try testing.expectEqualStrings("保護されていません", model.browser_not_secure_label());
@@ -31191,6 +31313,7 @@ test "Browser toolbar chrome follows Appearance language" {
     _ = try expectByText(tree.root, .button, "進む");
     _ = try expectByText(tree.root, .button, "再読み込み");
     _ = try expectButtonMsg(tree, "強制再読み込み", .browser_hard_reload);
+    _ = try expectButtonMsg(tree, "読み込みを停止", .browser_stop_loading);
     _ = try expectButtonMsg(tree, "移動", .browser_navigate);
     try testing.expect(findNthByText(tree.root, .button, "戻る", 1) != null);
     try testing.expect(findNthByText(tree.root, .button, "進む", 1) != null);
@@ -31206,6 +31329,7 @@ test "Browser toolbar chrome follows Appearance language" {
     model.setSystemLocaleId("ja_JP.UTF-8");
     try testing.expectEqualStrings("Back", model.browser_back_label());
     try testing.expectEqualStrings("Hard Reload", model.browser_hard_reload_label());
+    try testing.expectEqualStrings("Stop loading", model.browser_stop_loading_label());
     try testing.expectEqualStrings("Navigate", model.browser_navigate_label());
     try testing.expectEqualStrings("Not secure", model.browser_not_secure_label());
     tree = try buildTree(arena, &model);
@@ -31219,6 +31343,7 @@ test "Browser toolbar chrome follows Appearance language" {
     model.setSystemLocaleId("zh_CN.UTF-8");
     try testing.expectEqualStrings("返回", model.browser_back_label());
     try testing.expectEqualStrings("强制重新加载", model.browser_hard_reload_label());
+    try testing.expectEqualStrings("停止加载", model.browser_stop_loading_label());
     try testing.expectEqualStrings("转到", model.browser_navigate_label());
     try testing.expectEqualStrings("安全", model.browser_secure_label());
     tree = try buildTree(arena, &model);
@@ -31231,6 +31356,7 @@ test "Browser toolbar chrome follows Appearance language" {
     model.setSystemLocaleId("ja_JP.UTF-8");
     try testing.expectEqualStrings("戻る", model.browser_back_label());
     try testing.expectEqualStrings("強制再読み込み", model.browser_hard_reload_label());
+    try testing.expectEqualStrings("読み込みを停止", model.browser_stop_loading_label());
     try testing.expectEqualStrings("移動", model.browser_navigate_label());
     try testing.expectEqualStrings("保護されていません", model.browser_not_secure_label());
     tree = try buildTree(arena, &model);

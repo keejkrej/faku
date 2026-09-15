@@ -752,6 +752,12 @@ pub const Msg = union(enum) {
     /// has-page gate as `browser_reload`. Not Waku cache-clear; Native
     /// has no hard-reload flag. `on-press` stays `browser_hard_reload`.
     browser_hard_reload,
+    /// First-cut Stop loading via documented Native `url` + `reload_token`
+    /// only (restore previous committed history URL, or `about:blank` +
+    /// clear the first-page load). Toolbar + Esc when the address field
+    /// is not active, during the Faku-side loading-guess window. Native
+    /// has no loading/stop callback. `on-press` stays `browser_stop_loading`.
+    browser_stop_loading,
     /// Walk the app-owned Browser history backward.
     browser_back,
     /// Walk the app-owned Browser history forward.
@@ -1385,8 +1391,8 @@ pub const Model = struct {
     /// persist globally as last-live `sessions.json` extras; the **active**
     /// slot's address draft still persists as `browser_url`. Session
     /// switch restores occupancy from `right_panel_session` (missing →
-    /// `default_slots`). `reload_token` and Hard Reload's pending blank
-    /// hop stay runtime-only. Slot 0 starts occupied. `browser_active`
+    /// `default_slots`). `reload_token`, Hard Reload's pending blank
+    /// hop, and Stop loading's loading-guess / blank hop stay runtime-only. Slot 0 starts occupied. `browser_active`
     /// is the active `web_panes` slot (snapped only when that slot has a
     /// committed page).
     browser_slots: [browser_pane.max_sessions]browser_pane.Slot = browser_pane.default_slots,
@@ -3090,6 +3096,14 @@ pub const Model = struct {
         return model.browserToolbarChrome().hard_reload;
     }
 
+    /// Browser toolbar Stop loading a11y. Distinct from composer
+    /// Send/Stop and Background daemon Stop. `on-press` stays
+    /// `browser_stop_loading`. Disabled without a committed page or
+    /// outside the loading-guess window (`browser_stop_loading_disabled`).
+    pub fn browser_stop_loading_label(model: *const Model) []const u8 {
+        return model.browserToolbarChrome().stop_loading;
+    }
+
     /// Browser toolbar Navigate button. `on-press` stays
     /// `browser_navigate`. Distinct from the address-field on-submit
     /// wire id (same English name).
@@ -3142,6 +3156,10 @@ pub const Model = struct {
 
     pub fn browser_reload_disabled(model: *const Model) bool {
         return browser_pane.reloadDisabled(model);
+    }
+
+    pub fn browser_stop_loading_disabled(model: *const Model) bool {
+        return browser_pane.stopLoadingDisabled(model);
     }
 
     pub fn browser_open_disabled(model: *const Model) bool {
