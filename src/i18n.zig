@@ -3789,8 +3789,8 @@ fn parseScanUnreadable(wire: []const u8) ?ScanUnreadable {
 }
 
 const usage_daemon_error_chrome_en: UsageDaemonErrorChrome = .{
-    .scan_unreadable_mid = " transcripts at ",
-    .scan_unreadable_suffix = " could not be read.",
+    .scan_unreadable_mid = usage_daemon_error_scan_mid,
+    .scan_unreadable_suffix = usage_daemon_error_scan_suffix,
     .path_first = false,
 };
 
