@@ -223,6 +223,10 @@
 //! plus Browser / Terminal multi-session New / Close chips
 //! (same `SessionChipsChrome` strings)
 //! plus Terminal Restart (same `TerminalRestartChrome` strings)
+//! plus Terminal tab Shell ended / Shell failed status (same
+//! `ShellStatusChrome` strings; slot storage stays English
+//! `Shell ended.` / `Shell failed.`; unknown status text stays
+//! data)
 //! plus Settings Computer Use page body chrome (same
 //! `ComputerUseChrome` strings; title wording matches `Chrome.computer_use`
 //! but stays a dedicated field so the page title does not couple to
@@ -365,7 +369,9 @@
 //! session id empty-status No provider session id (same
 //! `NotifyCopyChrome` strings; product/notify title `Faku`
 //! stays Latin; session titles, assistant turn body text, and
-//! clipboard contents stay data) live here so
+//! clipboard contents stay data) plus Terminal tab Shell ended /
+//! Shell failed status (same `ShellStatusChrome` strings; slot
+//! storage stays English; unknown status text stays data) live here so
 //! `main.zig` does not grow. Palette ids / `PaletteAction` /
 //! keywords stay English.
 //! Wire `access_mode` ids stay `ask` / `auto` / `fullAccess`. Wire
@@ -624,7 +630,10 @@
 //! session id (same `NotifyCopyChrome` strings; product/notify
 //! title `Faku` stays Latin; session titles, assistant turn body
 //! text, and clipboard contents stay data) follow the resolved
-//! locale this cut. Aa / Ab / .* glyphs stay; find-option
+//! locale this cut. Terminal tab Shell ended / Shell failed
+//! status follow the resolved locale this cut (same
+//! `ShellStatusChrome` strings; slot storage stays English;
+//! unknown status text stays data). Aa / Ab / .* glyphs stay; find-option
 //! toggle a11y (Match case / Match whole word / Use regular
 //! expression) follows the resolved locale this cut (same
 //! `FilePreviewFindToggleChrome` strings). Path text and
@@ -3218,6 +3227,43 @@ const terminal_restart_chrome_ja: TerminalRestartChrome = .{
     .restart = "再起動",
 };
 
+/// Terminal tab Shell ended / Shell failed status for the resolved
+/// locale. Same resolve path as TerminalRestartChrome. English matches
+/// the former hardcoded `pty_terminal` copy (keep the trailing
+/// periods). Distinct from Terminal Restart so exit-status chrome
+/// stays independently evolvable. Slot storage stays the English
+/// wires; paint maps known wires. Unknown status text stays data.
+/// Latin `Shell` stays in zh-CN / ja (same loanword rule as
+/// worktree).
+pub const ShellStatusChrome = struct {
+    ended: []const u8,
+    failed: []const u8,
+
+    /// `stored` is the English slot wire (`Shell ended.` /
+    /// `Shell failed.`). Known wires map to this pack; unknown
+    /// strings pass through unchanged.
+    pub fn labelForStored(self: ShellStatusChrome, stored: []const u8) []const u8 {
+        if (std.mem.eql(u8, stored, shell_status_chrome_en.ended)) return self.ended;
+        if (std.mem.eql(u8, stored, shell_status_chrome_en.failed)) return self.failed;
+        return stored;
+    }
+};
+
+const shell_status_chrome_en: ShellStatusChrome = .{
+    .ended = "Shell ended.",
+    .failed = "Shell failed.",
+};
+
+const shell_status_chrome_zh_cn: ShellStatusChrome = .{
+    .ended = "Shell 已结束。",
+    .failed = "Shell 失败。",
+};
+
+const shell_status_chrome_ja: ShellStatusChrome = .{
+    .ended = "Shell が終了しました。",
+    .failed = "Shell が失敗しました。",
+};
+
 /// Settings Computer Use page body chrome for the resolved locale.
 /// Same resolve path as TerminalRestartChrome. English matches the
 /// former hardcoded copy. Title wording matches `Chrome.computer_use`
@@ -4999,6 +5045,21 @@ pub fn terminalRestartChromeFor(preference: LanguagePreference, system_locale_id
         .simplified_chinese => terminal_restart_chrome_zh_cn,
         .japanese => terminal_restart_chrome_ja,
         .system, .english => terminal_restart_chrome_en,
+    };
+}
+
+/// Terminal tab Shell ended / Shell failed status for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from TerminalRestartChrome so exit-status chrome stays
+/// independently evolvable. Slot storage stays English; paint maps
+/// known wires via `labelForStored`. Unknown status text stays data.
+/// Latin `Shell` stays in zh-CN / ja.
+pub fn shellStatusChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ShellStatusChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => shell_status_chrome_zh_cn,
+        .japanese => shell_status_chrome_ja,
+        .system, .english => shell_status_chrome_en,
     };
 }
 
@@ -7773,6 +7834,45 @@ test "terminalRestartChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("再起動", terminalRestartChromeFor(.system, "ja_JP.UTF-8").restart);
     try testing.expectEqualStrings("Restart", terminalRestartChromeFor(.english, "ja_JP.UTF-8").restart);
     try testing.expectEqualStrings("Restart", terminalRestartChromeFor(.english, "zh_CN.UTF-8").restart);
+}
+
+test "shellStatusChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    const en = shellStatusChromeFor(.english, "");
+    const zh = shellStatusChromeFor(.simplified_chinese, "");
+    const ja = shellStatusChromeFor(.japanese, "");
+
+    try testing.expectEqualStrings("Shell ended.", en.ended);
+    try testing.expectEqualStrings("Shell failed.", en.failed);
+    try testing.expectEqualStrings("Shell ended.", en.labelForStored("Shell ended."));
+    try testing.expectEqualStrings("Shell failed.", en.labelForStored("Shell failed."));
+    try testing.expectEqualStrings("custom status", en.labelForStored("custom status"));
+    try testing.expectEqualStrings("Shell ended.", shellStatusChromeFor(.english, "ja").ended);
+    try testing.expectEqualStrings("Shell ended.", shellStatusChromeFor(.system, "").ended);
+    try testing.expectEqualStrings("Shell failed.", shellStatusChromeFor(.system, "").failed);
+
+    try testing.expectEqualStrings("Shell 已结束。", zh.ended);
+    try testing.expectEqualStrings("Shell 失败。", zh.failed);
+    try testing.expectEqualStrings("Shell 已结束。", zh.labelForStored("Shell ended."));
+    try testing.expectEqualStrings("Shell 失败。", zh.labelForStored("Shell failed."));
+    try testing.expectEqualStrings("custom status", zh.labelForStored("custom status"));
+    try testing.expectEqualStrings("Shell が終了しました。", ja.ended);
+    try testing.expectEqualStrings("Shell が失敗しました。", ja.failed);
+    try testing.expectEqualStrings("Shell が終了しました。", ja.labelForStored("Shell ended."));
+    try testing.expectEqualStrings("Shell が失敗しました。", ja.labelForStored("Shell failed."));
+    try testing.expectEqualStrings("custom status", ja.labelForStored("custom status"));
+
+    try testing.expectEqualStrings("Shell 已结束。", shellStatusChromeFor(.system, "zh_CN.UTF-8").ended);
+    try testing.expectEqualStrings("Shell 失败。", shellStatusChromeFor(.system, "zh_CN.UTF-8").failed);
+    try testing.expectEqualStrings("Shell が終了しました。", shellStatusChromeFor(.system, "ja_JP.UTF-8").ended);
+    try testing.expectEqualStrings("Shell が失敗しました。", shellStatusChromeFor(.system, "ja_JP.UTF-8").failed);
+    try testing.expectEqualStrings("Shell ended.", shellStatusChromeFor(.english, "ja_JP.UTF-8").ended);
+    try testing.expectEqualStrings("Shell failed.", shellStatusChromeFor(.english, "zh_CN.UTF-8").failed);
+    try testing.expect(!std.mem.eql(u8, en.ended, zh.ended));
+    try testing.expect(!std.mem.eql(u8, en.ended, ja.ended));
+    try testing.expect(!std.mem.eql(u8, en.failed, zh.failed));
+    try testing.expect(!std.mem.eql(u8, en.failed, ja.failed));
+    try testing.expect(!std.mem.eql(u8, en.ended, terminalRestartChromeFor(.english, "").restart));
 }
 
 test "computerUseChromeFor english default; zh and ja chrome; english ignores ja LANG" {

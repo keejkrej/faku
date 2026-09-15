@@ -3230,6 +3230,9 @@ pub const Model = struct {
         return pty_terminal.has_term_status(model);
     }
 
+    /// Terminal tab Shell ended / Shell failed (and any other slot
+    /// status). Known English wires follow `i18n.ShellStatusChrome`
+    /// at paint; slot storage stays English; unknown text stays data.
     pub fn term_status(model: *const Model) []const u8 {
         return pty_terminal.term_status(model);
     }
