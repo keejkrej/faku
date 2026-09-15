@@ -4511,6 +4511,14 @@ pub const Model = struct {
         return if (model.is_streaming()) chrome.streaming else chrome.idle;
     }
 
+    /// Composer Message composer Native `<input-group>` a11y. Distinct
+    /// from `i18n.ComposerChrome` / `ComposerSendStopChrome` /
+    /// `ComposerPlaceholderChrome`. Native surfaces `label=` as the
+    /// accessible name.
+    pub fn message_composer_label(model: *const Model) []const u8 {
+        return model.composerRegionChrome().message_composer;
+    }
+
     /// Empty-transcript welcome display title. Distinct from
     /// `HeaderUntitledChrome` / `ComposerPlaceholderChrome` /
     /// `QueueChrome`. Real session titles stay data.
@@ -5157,6 +5165,10 @@ pub const Model = struct {
 
     fn composerPlaceholderChrome(model: *const Model) i18n.ComposerPlaceholderChrome {
         return i18n.composerPlaceholderChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn composerRegionChrome(model: *const Model) i18n.ComposerRegionChrome {
+        return i18n.composerRegionChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     fn welcomeChrome(model: *const Model) i18n.WelcomeChrome {

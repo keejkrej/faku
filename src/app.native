@@ -1006,7 +1006,7 @@
                 </column>
               </card>
             </if>
-            <input-group grow="1" label="Message composer" height="88">
+            <input-group grow="1" label="{message_composer_label}" height="88">
               <textarea placeholder="{composer_placeholder}" text="{draft}" submit-on-enter="true" on-input="draft_edit" on-submit="composer_enter" autofocus="{composer_active}" />
               <input-group-actions>
                 <button variant="ghost" size="icon" icon="file-text" label="{attach_image_label}" on-press="pick_image"></button>
