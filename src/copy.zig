@@ -12,10 +12,11 @@
 
 const std = @import("std");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const i18n = @import("i18n.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
 
 /// Caller-chosen identity for `fx.writeClipboard` on a transcript
@@ -26,7 +27,7 @@ const Effects = main.Effects;
 /// `WriteClipboardOptions` + notes example.
 pub const copy_turn_key: u64 = 32;
 /// Worst-case join of every in-memory turn with a blank line between.
-const max_copy_session = main.max_turns * main.max_body + (main.max_turns - 1) * 2;
+const max_copy_session = model_exports.max_turns * model_exports.max_body + (model_exports.max_turns - 1) * 2;
 /// Scratch for `copySession`. `writeClipboard` copies `.text` during
 /// the call; this outlives the join so the slice stays valid.
 var copy_session_buf: [max_copy_session]u8 = undefined;

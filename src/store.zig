@@ -92,6 +92,7 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const protocol = @import("protocol.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
@@ -101,9 +102,9 @@ const open_url = @import("open_url.zig");
 const browser_pane = @import("browser_pane.zig");
 const pty_terminal = @import("pty_terminal.zig");
 
-const Model = main.Model;
-const Role = main.Role;
-const Provider = main.Provider;
+const Model = model_exports.Model;
+const Role = model_exports.Role;
+const Provider = model_exports.Provider;
 
 pub const catalog_name = "sessions.json";
 pub const drafts_name = "drafts.json";
@@ -111,7 +112,7 @@ pub const app_store_name = "faku";
 pub const format_version: u32 = 1;
 pub const max_document_bytes: usize = 16 * 1024 * 1024;
 pub const max_drafts_bytes: usize = 64 * 1024;
-pub const max_draft_key = main.max_project_path + 16;
+pub const max_draft_key = model_exports.max_project_path + 16;
 pub const max_draft_entries: usize = 32;
 
 pub const LoadKind = enum { loaded, missing, failed };
@@ -139,7 +140,7 @@ pub fn draftsPath(dir: []const u8, buf: []u8) ?[]const u8 {
 /// Waku composer keys: `newSession` / `newSession{project_path}` until the
 /// session has started, then `session{id}` so the first prompt cannot
 /// resurrect on New Task.
-pub fn draftKey(session: *const main.Session, buf: []u8) ?[]const u8 {
+pub fn draftKey(session: *const model_exports.Session, buf: []u8) ?[]const u8 {
     if (session.untitled or !session.hasStarted()) {
         const project = session.projectPath();
         if (project.len == 0) return std.fmt.bufPrint(buf, "newSession", .{}) catch null;
@@ -178,8 +179,8 @@ fn loadDraft(model: *Model, allocator: std.mem.Allocator, io: std.Io) void {
         model.setDraftImagePath("");
         return;
     };
-    var text_buf: [main.max_draft]u8 = undefined;
-    var image_buf: [main.max_project_path]u8 = undefined;
+    var text_buf: [model_exports.max_draft]u8 = undefined;
+    var image_buf: [model_exports.max_project_path]u8 = undefined;
     if (readDraftRecord(allocator, io, model.storeDir(), key, &text_buf, &image_buf)) |record| {
         model.draft_buffer.set(record.text);
         model.setDraftImagePath(record.image_path);
@@ -218,7 +219,7 @@ pub fn boot(model: *Model, allocator: std.mem.Allocator, io: std.Io) LoadKind {
 }
 
 pub fn bindDefaultDir(model: *Model, home: []const u8, xdg_data_home: ?[]const u8) void {
-    var buf: [main.max_store_dir]u8 = undefined;
+    var buf: [model_exports.max_store_dir]u8 = undefined;
     if (resolveDefaultDir(home, xdg_data_home, &buf)) |dir| {
         model.setStoreDir(dir);
     }
@@ -346,7 +347,7 @@ pub fn removeIfPossible(model: *Model, session_id: u32, fx: *main.Effects) void 
     const address = resolveDaemonMirrorAddress(model);
     var id_buf: [36]u8 = undefined;
     const wire_id = daemon_proxy.wireUuid(session_id, &id_buf);
-    var cwd_buf: [main.max_project_path]u8 = undefined;
+    var cwd_buf: [model_exports.max_project_path]u8 = undefined;
     var cwd_len: usize = 0;
     if (model.sessionById(session_id)) |session| {
         const path = session.projectPath();
@@ -618,7 +619,7 @@ fn mirrorSaveTaskStateIfPossible(model: *Model, session_id: u32, fx: *main.Effec
 
     var id_buf: [36]u8 = undefined;
     const wire_id = daemon_proxy.wireUuid(session.id, &id_buf);
-    const runtime_mode = if (session.accessMode().len > 0) session.accessMode() else main.default_access_mode;
+    const runtime_mode = if (session.accessMode().len > 0) session.accessMode() else model_exports.default_access_mode;
     var stdin_buf: [4096]u8 = undefined;
     const stdin = daemon_proxy.writeSaveStdin(&stdin_buf, .{
         .token = model.daemonToken(),
@@ -964,7 +965,7 @@ const StoredSession = struct {
     untitled: bool,
     has_started: bool,
     project_path: []const u8 = "",
-    workspace_kind: main.Session.WorkspaceKind = .local,
+    workspace_kind: model_exports.Session.WorkspaceKind = .local,
     workspace_path: []const u8 = "",
     workspace_branch: []const u8 = "",
     workspace_base_branch: []const u8 = "",
@@ -1015,8 +1016,8 @@ const Document = struct {
     last_interaction_mode: []const u8 = "",
     last_reasoning_effort: []const u8 = "",
     last_daemon_address: []const u8 = "",
-    theme_preference: main.ThemePreference = .system,
-    language_preference: main.LanguagePreference = .system,
+    theme_preference: model_exports.ThemePreference = .system,
+    language_preference: model_exports.LanguagePreference = .system,
     disabled_providers: [protocol.provider_id_count]bool = [_]bool{false} ** protocol.provider_id_count,
     sidebar_collapsed: bool = false,
     sidebar_width: u32 = 0,
@@ -1071,27 +1072,27 @@ const Document = struct {
     }
 };
 
-fn lastProjectPathForSave(model: *const Model, session: *const main.Session) []const u8 {
+fn lastProjectPathForSave(model: *const Model, session: *const model_exports.Session) []const u8 {
     if (model.lastProjectPath().len > 0) return model.lastProjectPath();
     return session.projectPath();
 }
 
-fn lastModelForSave(model: *const Model, session: *const main.Session) []const u8 {
+fn lastModelForSave(model: *const Model, session: *const model_exports.Session) []const u8 {
     if (model.lastModel().len > 0) return model.lastModel();
     return session.model();
 }
 
-fn lastAccessModeForSave(model: *const Model, session: *const main.Session) []const u8 {
+fn lastAccessModeForSave(model: *const Model, session: *const model_exports.Session) []const u8 {
     if (model.lastAccessMode().len > 0) return model.lastAccessMode();
     return session.accessMode();
 }
 
-fn lastInteractionModeForSave(model: *const Model, session: *const main.Session) []const u8 {
+fn lastInteractionModeForSave(model: *const Model, session: *const model_exports.Session) []const u8 {
     if (model.lastInteractionMode().len > 0) return model.lastInteractionMode();
     return session.interactionMode();
 }
 
-fn lastReasoningEffortForSave(model: *const Model, session: *const main.Session) []const u8 {
+fn lastReasoningEffortForSave(model: *const Model, session: *const model_exports.Session) []const u8 {
     if (model.lastReasoningEffort().len > 0) return model.lastReasoningEffort();
     return session.reasoningEffort();
 }
@@ -1238,7 +1239,7 @@ fn dropStoredSession(document: *Document, session_id: u32) void {
     document.sessions = document.sessions[0..kept];
 }
 
-fn snapshotSession(arena: std.mem.Allocator, model: *const Model, session: *const main.Session) !StoredSession {
+fn snapshotSession(arena: std.mem.Allocator, model: *const Model, session: *const model_exports.Session) !StoredSession {
     var turns: std.ArrayList(StoredTurn) = .empty;
     var queued: std.ArrayList(StoredQueued) = .empty;
     if (session.detail_loaded) {
@@ -1294,7 +1295,7 @@ fn snapshotSession(arena: std.mem.Allocator, model: *const Model, session: *cons
     };
 }
 
-fn snapshotRewindRefs(arena: std.mem.Allocator, session: *const main.Session) ![]StoredRewind {
+fn snapshotRewindRefs(arena: std.mem.Allocator, session: *const model_exports.Session) ![]StoredRewind {
     const live = session.rewindRefs();
     const out = try arena.alloc(StoredRewind, live.len);
     for (live, 0..) |item, i| {
@@ -1321,7 +1322,7 @@ fn applyWorktreeSnapshotSha(model: *Model, session_id: u32, sha: []const u8) voi
     session.setWorktreeSnapshotSha(sha);
 }
 
-fn applyWorkspace(model: *Model, session_id: u32, kind: main.Session.WorkspaceKind, path: []const u8, branch: []const u8, base_branch: []const u8) void {
+fn applyWorkspace(model: *Model, session_id: u32, kind: model_exports.Session.WorkspaceKind, path: []const u8, branch: []const u8, base_branch: []const u8) void {
     const session = model.sessionById(session_id) orelse return;
     switch (kind) {
         .local => session.setWorkspaceLocal(),
@@ -1350,7 +1351,7 @@ fn applyContextUsage(model: *Model, session_id: u32, used: u64, size: u64) void 
     session.setContextUsage(used, size);
 }
 
-fn snapshotAvailableCommands(arena: std.mem.Allocator, session: *const main.Session) ![]StoredCommand {
+fn snapshotAvailableCommands(arena: std.mem.Allocator, session: *const model_exports.Session) ![]StoredCommand {
     const live = session.availableCommands();
     const out = try arena.alloc(StoredCommand, live.len);
     for (live, 0..) |item, i| {
@@ -1429,8 +1430,8 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .last_interaction_mode = jsonString(obj.get("last_interaction_mode")) orelse "",
         .last_reasoning_effort = jsonString(obj.get("last_reasoning_effort")) orelse "",
         .last_daemon_address = jsonString(obj.get("last_daemon_address")) orelse "",
-        .theme_preference = main.ThemePreference.fromPersist(jsonString(obj.get("theme_preference")) orelse ""),
-        .language_preference = main.LanguagePreference.fromPersist(jsonString(obj.get("language_preference")) orelse ""),
+        .theme_preference = model_exports.ThemePreference.fromPersist(jsonString(obj.get("theme_preference")) orelse ""),
+        .language_preference = model_exports.LanguagePreference.fromPersist(jsonString(obj.get("language_preference")) orelse ""),
         .disabled_providers = parseDisabledProviders(obj.get("disabled_providers")),
         .sidebar_collapsed = jsonBool(obj.get("sidebar_collapsed")) orelse false,
         .sidebar_width = jsonUint(obj.get("sidebar_width")) orelse 0,
@@ -1596,7 +1597,7 @@ fn parseAvailableCommands(arena: std.mem.Allocator, value: ?std.json.Value) ![]S
         const parsed = parseAvailableCommand(item) catch continue;
         if (parsed.name.len == 0) continue;
         try commands.append(arena, parsed);
-        if (commands.items.len >= main.max_available_commands) break;
+        if (commands.items.len >= model_exports.max_available_commands) break;
     }
     return commands.toOwnedSlice(arena);
 }
@@ -1696,7 +1697,7 @@ fn jsonString(value: ?std.json.Value) ?[]const u8 {
 }
 
 const ParsedWorkspace = struct {
-    kind: main.Session.WorkspaceKind,
+    kind: model_exports.Session.WorkspaceKind,
     path: []const u8,
     branch: []const u8,
     base_branch: []const u8,
@@ -3388,8 +3389,8 @@ test "settings extras persist last_model access path and daemon; missing catalog
     try testing.expectEqualStrings("high", loaded.lastReasoningEffort());
     try testing.expectEqualStrings("/tmp/faku-settings", loaded.lastProjectPath());
     try testing.expectEqualStrings("127.0.0.1:8787", loaded.lastDaemonAddress());
-    try testing.expectEqual(main.ThemePreference.light, loaded.theme_preference);
-    try testing.expectEqual(main.LanguagePreference.japanese, loaded.language_preference);
+    try testing.expectEqual(model_exports.ThemePreference.light, loaded.theme_preference);
+    try testing.expectEqual(model_exports.LanguagePreference.japanese, loaded.language_preference);
     try testing.expectEqual(@as(usize, 0), loaded.daemonAddress().len);
 
     const inherited = loaded.addSession("next", .fx);
@@ -3411,8 +3412,8 @@ test "settings extras persist last_model access path and daemon; missing catalog
     try testing.expectEqualStrings("openai/gpt-5.4", cleared.lastModel());
     try testing.expectEqualStrings("plan", cleared.lastInteractionMode());
     try testing.expectEqualStrings("high", cleared.lastReasoningEffort());
-    try testing.expectEqual(main.ThemePreference.light, cleared.theme_preference);
-    try testing.expectEqual(main.LanguagePreference.japanese, cleared.language_preference);
+    try testing.expectEqual(model_exports.ThemePreference.light, cleared.theme_preference);
+    try testing.expectEqual(model_exports.LanguagePreference.japanese, cleared.language_preference);
 }
 
 test "theme_preference missing or unknown loads as System" {
@@ -3430,7 +3431,7 @@ test "theme_preference missing or unknown loads as System" {
     var missing = Model{};
     missing.setStoreDir(dir);
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&missing, allocator, io));
-    try testing.expectEqual(main.ThemePreference.system, missing.theme_preference);
+    try testing.expectEqual(model_exports.ThemePreference.system, missing.theme_preference);
 
     try writeRaw(io, dir,
         \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"theme_preference":"nope","sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
@@ -3438,7 +3439,7 @@ test "theme_preference missing or unknown loads as System" {
     var unknown = Model{};
     unknown.setStoreDir(dir);
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&unknown, allocator, io));
-    try testing.expectEqual(main.ThemePreference.system, unknown.theme_preference);
+    try testing.expectEqual(model_exports.ThemePreference.system, unknown.theme_preference);
 
     try writeRaw(io, dir,
         \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"theme_preference":"dark","sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
@@ -3446,7 +3447,7 @@ test "theme_preference missing or unknown loads as System" {
     var dark = Model{};
     dark.setStoreDir(dir);
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&dark, allocator, io));
-    try testing.expectEqual(main.ThemePreference.dark, dark.theme_preference);
+    try testing.expectEqual(model_exports.ThemePreference.dark, dark.theme_preference);
 }
 
 test "language_preference missing or unknown loads as System; extras roundtrip" {
@@ -3464,7 +3465,7 @@ test "language_preference missing or unknown loads as System; extras roundtrip" 
     var missing = Model{};
     missing.setStoreDir(dir);
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&missing, allocator, io));
-    try testing.expectEqual(main.LanguagePreference.system, missing.language_preference);
+    try testing.expectEqual(model_exports.LanguagePreference.system, missing.language_preference);
 
     try writeRaw(io, dir,
         \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"language_preference":"nope","sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
@@ -3472,7 +3473,7 @@ test "language_preference missing or unknown loads as System; extras roundtrip" 
     var unknown = Model{};
     unknown.setStoreDir(dir);
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&unknown, allocator, io));
-    try testing.expectEqual(main.LanguagePreference.system, unknown.language_preference);
+    try testing.expectEqual(model_exports.LanguagePreference.system, unknown.language_preference);
 
     var source = Model{};
     source.task_state_loaded = true;
@@ -3487,21 +3488,21 @@ test "language_preference missing or unknown loads as System; extras roundtrip" 
     var english = Model{};
     english.setStoreDir(dir);
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&english, allocator, io));
-    try testing.expectEqual(main.LanguagePreference.english, english.language_preference);
+    try testing.expectEqual(model_exports.LanguagePreference.english, english.language_preference);
 
     source.language_preference = .simplified_chinese;
     persistSettingsIfPossible(&source);
     var zh = Model{};
     zh.setStoreDir(dir);
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&zh, allocator, io));
-    try testing.expectEqual(main.LanguagePreference.simplified_chinese, zh.language_preference);
+    try testing.expectEqual(model_exports.LanguagePreference.simplified_chinese, zh.language_preference);
 
     source.language_preference = .japanese;
     persistSettingsIfPossible(&source);
     var ja = Model{};
     ja.setStoreDir(dir);
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&ja, allocator, io));
-    try testing.expectEqual(main.LanguagePreference.japanese, ja.language_preference);
+    try testing.expectEqual(model_exports.LanguagePreference.japanese, ja.language_preference);
 }
 
 test "disabled_providers persist round-trip; enabling clears; missing/unknown stay enabled" {
@@ -3845,7 +3846,7 @@ test "session worktree_turn_diff_sha persists on the row and hydrates with the s
 }
 
 test "draft keys are newSession until started, then session id" {
-    var session = main.Session{ .id = 7, .untitled = true };
+    var session = model_exports.Session{ .id = 7, .untitled = true };
     var key_buf: [max_draft_key]u8 = undefined;
     try std.testing.expectEqualStrings("newSession", draftKey(&session, &key_buf).?);
     session.setProjectPath("/tmp/proj");
@@ -4028,7 +4029,7 @@ test "new session is skipped until first content; save is merge-only" {
     try testing.expectEqual(untitled, merged.session_store[1].id);
 }
 
-fn writeTitle(session: *main.Session, title: []const u8) void {
+fn writeTitle(session: *model_exports.Session, title: []const u8) void {
     const take = @min(session.title_storage.len, title.len);
     @memcpy(session.title_storage[0..take], title[0..take]);
     session.title_len = take;

@@ -33,11 +33,12 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const git_checkout = @import("git_checkout.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
-const writeFixed = main.writeFixed;
+const writeFixed = model_exports.writeFixed;
 
 /// One-shot `git rev-parse --show-toplevel`. Distinct from
 /// git_remotes (480+), git_commit_generate (470+), and the rest of
@@ -133,7 +134,7 @@ pub fn firstStdoutLine(raw: []const u8) []const u8 {
 /// of `session.max_project_path` so a truncated root is never stored.
 pub fn parseToplevelLine(raw: []const u8) []const u8 {
     const line = firstStdoutLine(raw);
-    if (line.len == 0 or line.len > main.max_project_path) return "";
+    if (line.len == 0 or line.len > model_exports.max_project_path) return "";
     if (std.mem.indexOf(u8, line, "..") != null) return "";
     if (std.mem.indexOfScalar(u8, line, 0) != null) return "";
     return line;

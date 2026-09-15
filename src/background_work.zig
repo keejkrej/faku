@@ -56,13 +56,14 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const protocol = @import("protocol.zig");
 const store = @import("store.zig");
 const environment_summary = @import("environment_summary.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
 
 /// Waku `BACKGROUND_WORK_REFRESH_INTERVAL`. First-cut 5s daemon
@@ -245,7 +246,7 @@ pub fn tryStop(model: *Model, fx: *Effects, index: u32) bool {
     model.daemon_stop_background_work_key = key;
     model.daemon_stop_background_work_session = session.id;
     model.daemon_stop_background_kind = kind;
-    main.writeFixed(&model.daemon_stop_background_id_storage, &model.daemon_stop_background_id_len, provider_id);
+    model_exports.writeFixed(&model.daemon_stop_background_id_storage, &model.daemon_stop_background_id_len, provider_id);
     fx.spawn(.{
         .key = key,
         .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },

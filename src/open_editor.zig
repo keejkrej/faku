@@ -26,11 +26,12 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
 const i18n = @import("i18n.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
 
 /// Distinct from open_terminal (27), reveal_folder (28), pick_folder (29),
@@ -40,7 +41,7 @@ const Effects = main.Effects;
 pub const open_editor_key: u64 = 26;
 /// Absolute editor target: session `project_path`, or that directory
 /// plus a Files-pane relpath. Fits `max_project_path` + 255 + `/`.
-pub const max_open_path = main.max_project_path + 256;
+pub const max_open_path = model_exports.max_project_path + 256;
 
 pub const missing_exit: u8 = 2;
 
@@ -206,7 +207,7 @@ pub fn startOpenEditorAt(model: *Model, fx: *Effects, path: []const u8) void {
         model.setWindowStatus(hostMissingStatusFor(model.language_preference, model.systemLocaleId()));
         return;
     };
-    main.writeFixed(&model.open_editor_path_storage, &model.open_editor_path_len, path);
+    model_exports.writeFixed(&model.open_editor_path_storage, &model.open_editor_path_len, path);
     model.open_editor_live = true;
     model.open_editor_stage = .first;
     model.clearWindowStatus();

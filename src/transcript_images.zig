@@ -25,12 +25,13 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const open_url = @import("open_url.zig");
 const file_preview_images = @import("file_preview_images.zig");
 
 const canvas = native_sdk.canvas;
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
 
 /// Recycled ImageId / effect-key band. Distinct from attach preview
@@ -158,7 +159,7 @@ pub fn refresh(model: *Model, fx: ?*Effects) void {
         return;
     };
 
-    var cwd_buf: [main.max_project_path]u8 = undefined;
+    var cwd_buf: [model_exports.max_project_path]u8 = undefined;
     const project = projectOrCwd(model, &cwd_buf);
     var preview_buf: [open_url.max_file_link_path]u8 = undefined;
     const preview_abs = previewAbsForProject(project, &preview_buf);

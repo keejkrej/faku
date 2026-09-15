@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const layout_mod = @import("layout.zig");
 const shell = @import("shell.zig");
@@ -50,8 +51,8 @@ const canvas = native_sdk.canvas;
 const testing = std.testing;
 
 const AppUi = main.AppUi;
-const Model = main.Model;
-const Msg = main.Msg;
+const Model = model_exports.Model;
+const Msg = model_exports.Msg;
 const Effects = main.Effects;
 
 const AppMarkup = canvas.MarkupView(Model, Msg);
@@ -339,7 +340,7 @@ fn findBoldSpanText(widget: canvas.Widget, text: []const u8) ?canvas.Widget {
     return null;
 }
 
-fn countRole(model: *const Model, role: main.Role) usize {
+fn countRole(model: *const Model, role: model_exports.Role) usize {
     var n: usize = 0;
     for (model.turn_store[0..model.turn_count]) |turn| {
         if (turn.session_id == model.selected and turn.role == role) n += 1;
@@ -446,7 +447,7 @@ test "boot is fx-first and New / send / ticks / stop drive the demo" {
     try testing.expectEqualStrings("port waku to zig", model.selected_title());
     try testing.expectEqualStrings("fx", model.selected_provider());
     try testing.expect(!model.is_streaming());
-    try testing.expectEqual(main.Provider.fx, model.session_store[0].provider);
+    try testing.expectEqual(model_exports.Provider.fx, model.session_store[0].provider);
 
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Today");
@@ -471,7 +472,7 @@ test "boot is fx-first and New / send / ticks / stop drive the demo" {
     try testing.expectEqualStrings("untitled", model.selected_title());
     try testing.expectEqualStrings("New task", model.header_title());
     try testing.expectEqualStrings("fx", model.selected_provider());
-    try testing.expectEqual(main.Provider.fx, model.session_store[2].provider);
+    try testing.expectEqual(model_exports.Provider.fx, model.session_store[2].provider);
 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "New task");
@@ -1486,9 +1487,9 @@ test "idle send is muted and usage chrome stays hidden until ACP reports a windo
     try testing.expect(!model.has_context_usage());
     const tokens = main.designTokens(&model);
     try testing.expect(!tokens.pixel_snap.geometry);
-    try testing.expectEqual(main.ThemePreference.system, model.theme_preference);
+    try testing.expectEqual(model_exports.ThemePreference.system, model.theme_preference);
     try testing.expect(model.theme_system());
-    try testing.expectEqual(main.LanguagePreference.system, model.language_preference);
+    try testing.expectEqual(model_exports.LanguagePreference.system, model.language_preference);
     try testing.expect(model.language_system());
     try testing.expectEqual(canvas.ColorScheme.dark, main.resolvedColorScheme(&model));
 
@@ -1553,7 +1554,7 @@ test "send without fx still starts the demo timer" {
     main.update(&model, .{ .draft_edit = .{ .insert_text = "hello without fx" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(effect_keys.stream_timer_key, fx.pendingTimerAt(0).?.key);
     try testing.expectEqual(@as(u64, 90), fx.pendingTimerAt(0).?.interval_ms);
@@ -1572,7 +1573,7 @@ test "send with fx_available spawns one-shot fx acp and streams session/update t
     main.update(&model, .{ .draft_edit = .{ .insert_text = "what does this repo do" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
@@ -1629,7 +1630,7 @@ test "send with cursor cli_available spawns acp-proxy cursor-agent acp and strea
     main.update(&model, .{ .draft_edit = .{ .insert_text = "what does this repo do" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
@@ -1678,7 +1679,7 @@ test "send with opencode cli_available spawns acp-proxy opencode acp and streams
     main.update(&model, .{ .draft_edit = .{ .insert_text = "what does this repo do" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
@@ -1725,7 +1726,7 @@ test "send with opencode unavailable still starts the demo timer" {
     main.update(&model, .{ .draft_edit = .{ .insert_text = "no opencode" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
@@ -1746,7 +1747,7 @@ test "send with kimi cli_available spawns acp-proxy kimi acp and streams session
     main.update(&model, .{ .draft_edit = .{ .insert_text = "what does this repo do" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
@@ -1793,7 +1794,7 @@ test "send with kimi unavailable still starts the demo timer" {
     main.update(&model, .{ .draft_edit = .{ .insert_text = "no kimi" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
@@ -1814,7 +1815,7 @@ test "send with grok cli_available spawns acp-proxy grok agent stdio and streams
     main.update(&model, .{ .draft_edit = .{ .insert_text = "what does this repo do" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
@@ -1866,7 +1867,7 @@ test "send with grok unavailable still starts the demo timer" {
     main.update(&model, .{ .draft_edit = .{ .insert_text = "no grok" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
@@ -1884,7 +1885,7 @@ test "send with cursor unavailable still starts the demo timer" {
     main.update(&model, .{ .draft_edit = .{ .insert_text = "no cursor-agent" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
@@ -1905,7 +1906,7 @@ test "send with claude cli_available spawns stream-json print-mode and streams t
     main.update(&model, .{ .draft_edit = .{ .insert_text = "what does this repo do" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(model.fx_spawn_claude_json);
     try testing.expect(!model.fx_spawn_pi_json);
@@ -1991,7 +1992,7 @@ test "send with claude stored fx_session_id later send uses --resume {id}" {
     main.update(&model, .{ .draft_edit = .{ .insert_text = "continue that review" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(model.fx_spawn_claude_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
@@ -2038,7 +2039,7 @@ test "send with codex cli_available spawns exec and streams stdout as assistant 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "what does this repo do" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
@@ -2089,7 +2090,7 @@ test "send with codex unavailable still starts the demo timer" {
     main.update(&model, .{ .draft_edit = .{ .insert_text = "no codex" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
@@ -2110,7 +2111,7 @@ test "send with amp cli_available spawns execute-mode and streams stdout as assi
     main.update(&model, .{ .draft_edit = .{ .insert_text = "what files are markdown" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
@@ -2162,7 +2163,7 @@ test "send with amp unavailable still starts the demo timer" {
     main.update(&model, .{ .draft_edit = .{ .insert_text = "no amp" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
@@ -2183,7 +2184,7 @@ test "send with pi cli_available spawns json-mode and streams text_delta as assi
     main.update(&model, .{ .draft_edit = .{ .insert_text = "what files are here" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(model.fx_spawn_pi_json);
     try testing.expect(!model.fx_spawn_claude_json);
@@ -2249,7 +2250,7 @@ test "send with pi unavailable still starts the demo timer" {
     main.update(&model, .{ .draft_edit = .{ .insert_text = "no pi" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(!model.fx_spawn_pi_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
@@ -2279,7 +2280,7 @@ test "fx acp session/new cwd is session project_path when it exists" {
     main.update(&model, .{ .draft_edit = .{ .insert_text = "what is the cwd" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.fx_spawn_acp);
     try testing.expectEqualStrings(project, model.lastSpawnCwd());
     try testing.expectEqualStrings(project, model.resolveAcpCwd(model.sessionByIdConst(id).?));
@@ -3577,7 +3578,7 @@ test "composer Enter confirms first $ skill row and does not send; Esc dismisses
         session.appendAvailableCommand("commit", "Create a commit");
         session.appendAvailableCommand("compact", "Compact the conversation");
     }
-    main.writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, project);
+    model_exports.writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, project);
     skills.applyStdoutPaths(&model, ".cursor/skills/to-spec/SKILL.md\n");
     try testing.expectEqualStrings("to-spec", skills.cachedName(&model, 0));
 
@@ -6235,7 +6236,7 @@ test "daemon address send puts hello attachSession start and prompt on spawn std
     main.update(&model, .{ .draft_edit = .{ .insert_text = "trace the listener" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.daemon, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.daemon, model.reply_path);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     const request = findPendingSpawnKey(&fx, model.daemon_spawn_key) orelse return error.MissingDaemonSendSpawn;
     try testing.expectEqual(model.daemon_spawn_key, request.key);
@@ -6286,7 +6287,7 @@ test "first daemon send maps stored start options when runtime id is empty" {
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "boot the provider" } }, &fx);
     main.update(&model, .send, &fx);
-    try testing.expectEqual(main.ReplyPath.daemon, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.daemon, model.reply_path);
     try testing.expect(model.daemon_spawn_key != 0);
     try testing.expect(model.daemon_capture_turn_start_key != 0);
     const capture = findPendingSpawnKey(&fx, model.daemon_capture_turn_start_key) orelse return error.CaptureTurnStartSpawnMissing;
@@ -6569,7 +6570,7 @@ test "daemon textDelta hydrates the turn and turnFinished settles plus drains" {
     model.selected = id;
     main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt" } }, &fx);
     main.update(&model, .send, &fx);
-    try testing.expectEqual(main.ReplyPath.daemon, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.daemon, model.reply_path);
     const key = model.daemon_spawn_key;
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "queued follow-up" } }, &fx);
@@ -6585,7 +6586,7 @@ test "daemon textDelta hydrates the turn and turnFinished settles plus drains" {
     drainEffects(&model, &fx);
     try testing.expectEqual(@as(u32, 0), model.queuedCount(id));
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.daemon, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.daemon, model.reply_path);
     try testing.expectEqual(@as(usize, 2), countRole(&model, .user));
     var found_follow_up = false;
     var i: usize = 0;
@@ -6616,7 +6617,7 @@ test "daemon Stop records hello and cancel on a distinct sidecar" {
     model.selected = id;
     main.update(&model, .{ .draft_edit = .{ .insert_text = "trace the listener" } }, &fx);
     main.update(&model, .send, &fx);
-    try testing.expectEqual(main.ReplyPath.daemon, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.daemon, model.reply_path);
     const prompt_key = model.daemon_spawn_key;
     try testing.expect(prompt_key != 0);
 
@@ -6665,7 +6666,7 @@ test "fx ask Stop does not spawn a cancel sidecar" {
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "keep fx ask" } }, &fx);
     main.update(&model, .send, &fx);
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.is_streaming());
     main.update(&model, .stop, &fx);
     try testing.expect(!model.is_streaming());
@@ -6692,7 +6693,7 @@ test "missing daemon address does not spawn cancel even with last_daemon_address
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "no cancel" } }, &fx);
     main.update(&model, .send, &fx);
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     main.update(&model, .stop, &fx);
     try testing.expect(!model.is_streaming());
     try testing.expect(findCancelOnlySpawn(&fx) == null);
@@ -6734,7 +6735,7 @@ test "cancel sidecar failure leaves the turn settled and the transcript intact" 
     drainEffects(&model, &fx);
 
     try testing.expect(!model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.daemon, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.daemon, model.reply_path);
     try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
     try testing.expectEqualStrings("stay queued", model.firstQueuedText(id));
     try testing.expectEqual(@as(usize, 1), countRole(&model, .user));
@@ -6765,7 +6766,7 @@ test "daemon live turn plus steer records hello and steer on a distinct sidecar"
     model.selected = id;
     main.update(&model, .{ .draft_edit = .{ .insert_text = "trace the listener" } }, &fx);
     main.update(&model, .send, &fx);
-    try testing.expectEqual(main.ReplyPath.daemon, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.daemon, model.reply_path);
     const prompt_key = model.daemon_spawn_key;
     try testing.expect(prompt_key != 0);
 
@@ -6839,7 +6840,7 @@ test "fx ask busy send still queues and does not steer" {
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "keep fx ask" } }, &fx);
     main.update(&model, .send, &fx);
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.is_streaming());
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "queued follow-up" } }, &fx);
@@ -6872,7 +6873,7 @@ test "missing daemon address does not steer even with last_daemon_address" {
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "no steer" } }, &fx);
     main.update(&model, .send, &fx);
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     main.update(&model, .{ .draft_edit = .{ .insert_text = "would be a steer" } }, &fx);
     main.update(&model, .steer, &fx);
     try testing.expectEqual(@as(u32, 1), model.queuedCount(model.selected));
@@ -7052,7 +7053,7 @@ test "no daemon address leaves the fx path alone and does not fake Goal" {
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "keep fx ask" } }, &fx);
     main.update(&model, .send, &fx);
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.is_streaming());
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "would be a goal" } }, &fx);
@@ -7062,7 +7063,7 @@ test "no daemon address leaves the fx path alone and does not fake Goal" {
     main.update(&model, .{ .pick_goal_status = "paused" }, &fx);
     try testing.expectEqual(@as(usize, 0), model.sessionById(model.selected).?.threadGoalStatus().len);
     try testing.expect(findGoalOnlySpawn(&fx) == null);
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     var i: usize = 0;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"goal\"") == null);
@@ -7284,7 +7285,7 @@ test "steer sidecar failure leaves the draft queued path untouched and the turn 
     drainEffects(&model, &fx);
 
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.ReplyPath.daemon, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.daemon, model.reply_path);
     try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
     try testing.expectEqualStrings("stay queued", model.firstQueuedText(id));
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "keep this partial") != null);
@@ -7303,7 +7304,7 @@ test "missing daemon address still uses fx ask when the CLI is present" {
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "keep fx ask" } }, &fx);
     main.update(&model, .send, &fx);
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     const request = fx.pendingSpawnAt(0).?;
     try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(argvHas(request.argv, "acp"));
@@ -7328,7 +7329,7 @@ test "missing daemon address does not attach even when last_daemon_address is se
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "do not attach" } }, &fx);
     main.update(&model, .send, &fx);
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     const request = findPendingSpawnKey(&fx, effect_keys.fx_ask_key) orelse return error.MissingFxAskSpawn;
     try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"attachSession\"") == null);
@@ -8290,7 +8291,7 @@ test "fake loadTaskState response installs daemon skeletons and not demos" {
     try testing.expectEqual(@as(u32, 1), model.session_count);
     try testing.expectEqual(@as(u32, 7), model.session_store[0].id);
     try testing.expectEqualStrings("from daemon", model.session_store[0].title());
-    try testing.expectEqual(main.Provider.fx, model.session_store[0].provider);
+    try testing.expectEqual(model_exports.Provider.fx, model.session_store[0].provider);
     try testing.expectEqualStrings("/tmp/from-daemon", model.session_store[0].projectPath());
     try testing.expect(model.session_store[0].hasStarted());
     try testing.expect(!model.session_store[0].detail_loaded);
@@ -8508,9 +8509,9 @@ test "fake hydrateSession response installs turns into an empty session" {
     try fx.feedLine(spawn.key, fake_hydrate_line);
     drainEffects(&model, &fx);
     try testing.expectEqual(@as(u32, 2), model.turnCount(empty));
-    try testing.expectEqual(main.Role.user, model.turn_store[0].role);
+    try testing.expectEqual(model_exports.Role.user, model.turn_store[0].role);
     try testing.expectEqualStrings("trace the listener", model.turn_store[0].text());
-    try testing.expectEqual(main.Role.assistant, model.turn_store[1].role);
+    try testing.expectEqual(model_exports.Role.assistant, model.turn_store[1].role);
     try testing.expectEqualStrings("looking at reconnect", model.turn_store[1].text());
     try testing.expectEqual(@as(u32, 1), model.queuedCount(empty));
     try testing.expectEqualStrings("then the composer", model.firstQueuedText(empty));
@@ -9073,7 +9074,7 @@ test "cmd-n and ctrl-n create a session via onKey" {
     try testing.expectEqual(@as(u32, 3), model.session_count);
     try testing.expectEqualStrings("untitled", model.selected_title());
     try testing.expectEqualStrings("New task", model.header_title());
-    try testing.expectEqual(main.Provider.fx, model.session_store[2].provider);
+    try testing.expectEqual(model_exports.Provider.fx, model.session_store[2].provider);
 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "New task");
@@ -11400,14 +11401,14 @@ fn expectLaidOutHeight(root: canvas.Widget, id: canvas.ObjectId, height: f32) !v
     return error.WidgetNotFound;
 }
 
-fn expectRowTitles(rows: []const main.SessionRow, expected: []const []const u8) !void {
+fn expectRowTitles(rows: []const model_exports.SessionRow, expected: []const []const u8) !void {
     try testing.expectEqual(expected.len, rows.len);
     for (rows, expected) |row, title| {
         try testing.expectEqualStrings(title, row.title);
     }
 }
 
-fn expectSidebarTitles(rows: []const main.SidebarRow, expected: []const []const u8) !void {
+fn expectSidebarTitles(rows: []const model_exports.SidebarRow, expected: []const []const u8) !void {
     try testing.expectEqual(expected.len, rows.len);
     for (rows, expected) |row, title| {
         try testing.expectEqualStrings(title, row.title);
@@ -12105,7 +12106,7 @@ test "Esc with palette_open does not cancel a busy demo stream" {
     main.update(&model, .{ .draft_edit = .{ .insert_text = "keep streaming" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.Phase.streaming, model.phase);
+    try testing.expectEqual(model_exports.Phase.streaming, model.phase);
 
     main.update(&model, .start_search, &fx);
     try testing.expect(model.palette_open);
@@ -12116,7 +12117,7 @@ test "Esc with palette_open does not cancel a busy demo stream" {
     main.update(&model, keys.onKey(escape).?, &fx);
     try testing.expect(!model.palette_open);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.Phase.streaming, model.phase);
+    try testing.expectEqual(model_exports.Phase.streaming, model.phase);
 }
 
 test "opening the Ctrl-Tab switcher closes the command palette first" {
@@ -12136,7 +12137,7 @@ test "opening the Ctrl-Tab switcher closes the command palette first" {
     try testing.expectEqualStrings("", model.search_query());
 }
 
-fn expectTurnTexts(rows: []const main.TurnRow, expected: []const []const u8) !void {
+fn expectTurnTexts(rows: []const model_exports.TurnRow, expected: []const []const u8) !void {
     try testing.expectEqual(expected.len, rows.len);
     for (rows, expected) |row, text| {
         try testing.expectEqualStrings(text, row.text);
@@ -14207,9 +14208,9 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     model.setStoreDir(dir);
     model.store_io = testing.io;
     try store.saveSession(&model, model.selected, testing.allocator, testing.io);
-    try testing.expectEqual(main.ThemePreference.system, model.theme_preference);
+    try testing.expectEqual(model_exports.ThemePreference.system, model.theme_preference);
     try testing.expect(model.theme_system());
-    try testing.expectEqual(main.LanguagePreference.system, model.language_preference);
+    try testing.expectEqual(model_exports.LanguagePreference.system, model.language_preference);
     try testing.expect(model.language_system());
 
     main.update(&model, .toggle_settings, &fx);
@@ -14261,7 +14262,7 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     try testing.expect(findTextContaining(tree.root, "LC_ALL") != null);
 
     main.update(&model, tree.msgForPointer(light_chip.id, .up).?, &fx);
-    try testing.expectEqual(main.ThemePreference.light, model.theme_preference);
+    try testing.expectEqual(model_exports.ThemePreference.light, model.theme_preference);
     try testing.expect(model.theme_light());
     try testing.expect(!model.theme_system());
     try testing.expectEqual(canvas.ColorScheme.light, main.resolvedColorScheme(&model));
@@ -14271,7 +14272,7 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     try testing.expect(!(try expectButtonMsg(tree, "System", .settings_theme_system)).state.selected);
 
     main.update(&model, .settings_theme_dark, &fx);
-    try testing.expectEqual(main.ThemePreference.dark, model.theme_preference);
+    try testing.expectEqual(model_exports.ThemePreference.dark, model.theme_preference);
     try testing.expect(model.theme_dark());
     try testing.expectEqual(canvas.ColorScheme.dark, main.resolvedColorScheme(&model));
 
@@ -14279,7 +14280,7 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     loaded.setStoreDir(dir);
     loaded.store_io = testing.io;
     try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
-    try testing.expectEqual(main.ThemePreference.dark, loaded.theme_preference);
+    try testing.expectEqual(model_exports.ThemePreference.dark, loaded.theme_preference);
     try testing.expect(loaded.theme_dark());
 }
 
@@ -14297,24 +14298,24 @@ test "settings Appearance language chips persist and re-label Settings chrome" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    try testing.expectEqual(main.LanguagePreference.japanese, i18n.fromLocaleId("ja"));
-    try testing.expectEqual(main.LanguagePreference.japanese, i18n.fromLocaleId("ja_JP"));
-    try testing.expectEqual(main.LanguagePreference.japanese, i18n.fromLocaleId("ja-JP"));
-    try testing.expectEqual(main.LanguagePreference.simplified_chinese, i18n.fromLocaleId("zh-CN"));
-    try testing.expectEqual(main.LanguagePreference.simplified_chinese, i18n.fromLocaleId("zh_SG"));
-    try testing.expectEqual(main.LanguagePreference.simplified_chinese, i18n.fromLocaleId("zh-Hans-CN"));
-    try testing.expectEqual(main.LanguagePreference.english, i18n.fromLocaleId("zh-Hant-TW"));
-    try testing.expectEqual(main.LanguagePreference.english, i18n.fromLocaleId("en"));
-    try testing.expectEqual(main.LanguagePreference.english, i18n.fromLocaleId("C"));
-    try testing.expectEqual(main.LanguagePreference.english, i18n.fromLocaleId(""));
-    try testing.expectEqual(main.LanguagePreference.english, i18n.resolve(.english, "ja_JP.UTF-8"));
+    try testing.expectEqual(model_exports.LanguagePreference.japanese, i18n.fromLocaleId("ja"));
+    try testing.expectEqual(model_exports.LanguagePreference.japanese, i18n.fromLocaleId("ja_JP"));
+    try testing.expectEqual(model_exports.LanguagePreference.japanese, i18n.fromLocaleId("ja-JP"));
+    try testing.expectEqual(model_exports.LanguagePreference.simplified_chinese, i18n.fromLocaleId("zh-CN"));
+    try testing.expectEqual(model_exports.LanguagePreference.simplified_chinese, i18n.fromLocaleId("zh_SG"));
+    try testing.expectEqual(model_exports.LanguagePreference.simplified_chinese, i18n.fromLocaleId("zh-Hans-CN"));
+    try testing.expectEqual(model_exports.LanguagePreference.english, i18n.fromLocaleId("zh-Hant-TW"));
+    try testing.expectEqual(model_exports.LanguagePreference.english, i18n.fromLocaleId("en"));
+    try testing.expectEqual(model_exports.LanguagePreference.english, i18n.fromLocaleId("C"));
+    try testing.expectEqual(model_exports.LanguagePreference.english, i18n.fromLocaleId(""));
+    try testing.expectEqual(model_exports.LanguagePreference.english, i18n.resolve(.english, "ja_JP.UTF-8"));
 
     var model = main.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
     try store.saveSession(&model, model.selected, testing.allocator, testing.io);
-    try testing.expectEqual(main.LanguagePreference.system, model.language_preference);
+    try testing.expectEqual(model_exports.LanguagePreference.system, model.language_preference);
     try testing.expect(model.language_system());
 
     main.update(&model, .toggle_settings, &fx);
@@ -14330,7 +14331,7 @@ test "settings Appearance language chips persist and re-label Settings chrome" {
     _ = try expectButtonMsg(tree, "日本語", .settings_language_japanese);
 
     main.update(&model, tree.msgForPointer(zh_chip.id, .up).?, &fx);
-    try testing.expectEqual(main.LanguagePreference.simplified_chinese, model.language_preference);
+    try testing.expectEqual(model_exports.LanguagePreference.simplified_chinese, model.language_preference);
     try testing.expect(model.language_simplified_chinese());
     try testing.expectEqualStrings("外观", model.settings_nav_appearance());
     try testing.expectEqualStrings("语言", model.appearance_language_title());
@@ -14353,11 +14354,11 @@ test "settings Appearance language chips persist and re-label Settings chrome" {
     loaded_zh.setStoreDir(dir);
     loaded_zh.store_io = testing.io;
     try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded_zh, testing.allocator, testing.io));
-    try testing.expectEqual(main.LanguagePreference.simplified_chinese, loaded_zh.language_preference);
+    try testing.expectEqual(model_exports.LanguagePreference.simplified_chinese, loaded_zh.language_preference);
 
     const ja_chip_zh = try expectButtonMsg(tree, "日本語", .settings_language_japanese);
     main.update(&model, tree.msgForPointer(ja_chip_zh.id, .up).?, &fx);
-    try testing.expectEqual(main.LanguagePreference.japanese, model.language_preference);
+    try testing.expectEqual(model_exports.LanguagePreference.japanese, model.language_preference);
     try testing.expectEqualStrings("外観", model.settings_nav_appearance());
     try testing.expectEqualStrings("言語", model.appearance_language_title());
     try testing.expectEqualStrings("テーマ", model.appearance_theme_title());
@@ -14374,7 +14375,7 @@ test "settings Appearance language chips persist and re-label Settings chrome" {
     const english_chip_ja = try expectButtonMsg(tree, "English", .settings_language_english);
     model.setSystemLocaleId("ja_JP.UTF-8");
     main.update(&model, tree.msgForPointer(english_chip_ja.id, .up).?, &fx);
-    try testing.expectEqual(main.LanguagePreference.english, model.language_preference);
+    try testing.expectEqual(model_exports.LanguagePreference.english, model.language_preference);
     try testing.expectEqualStrings("Appearance", model.settings_nav_appearance());
     try testing.expectEqualStrings("Language", model.appearance_language_title());
     try testing.expectEqualStrings("Theme", model.appearance_theme_title());
@@ -14393,7 +14394,7 @@ test "settings Appearance language chips persist and re-label Settings chrome" {
     loaded_en.setStoreDir(dir);
     loaded_en.store_io = testing.io;
     try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded_en, testing.allocator, testing.io));
-    try testing.expectEqual(main.LanguagePreference.english, loaded_en.language_preference);
+    try testing.expectEqual(model_exports.LanguagePreference.english, loaded_en.language_preference);
 }
 
 test "settings Usage tab sits after Skills; local context and thread-goal labels" {
@@ -15420,18 +15421,18 @@ test "settings Computer Use tab sits after Usage; Unavailable, Off, empty apps" 
 
 test "theme preference defaults to System; Light/Dark force scheme regardless of OS" {
     var model = Model{};
-    try testing.expectEqual(main.ThemePreference.system, model.theme_preference);
+    try testing.expectEqual(model_exports.ThemePreference.system, model.theme_preference);
     try testing.expect(model.theme_system());
-    try testing.expectEqual(main.LanguagePreference.system, model.language_preference);
+    try testing.expectEqual(model_exports.LanguagePreference.system, model.language_preference);
     try testing.expect(model.language_system());
-    try testing.expectEqual(main.LanguagePreference.system, main.LanguagePreference.fromPersist(""));
-    try testing.expectEqual(main.LanguagePreference.system, main.LanguagePreference.fromPersist("nope"));
-    try testing.expectEqual(main.LanguagePreference.english, main.LanguagePreference.fromPersist("english"));
-    try testing.expectEqual(main.ThemePreference.system, main.ThemePreference.fromPersist(""));
-    try testing.expectEqual(main.ThemePreference.system, main.ThemePreference.fromPersist("nope"));
-    try testing.expectEqual(main.ThemePreference.system, main.ThemePreference.fromPersist("system"));
-    try testing.expectEqual(main.ThemePreference.light, main.ThemePreference.fromPersist("light"));
-    try testing.expectEqual(main.ThemePreference.dark, main.ThemePreference.fromPersist("dark"));
+    try testing.expectEqual(model_exports.LanguagePreference.system, model_exports.LanguagePreference.fromPersist(""));
+    try testing.expectEqual(model_exports.LanguagePreference.system, model_exports.LanguagePreference.fromPersist("nope"));
+    try testing.expectEqual(model_exports.LanguagePreference.english, model_exports.LanguagePreference.fromPersist("english"));
+    try testing.expectEqual(model_exports.ThemePreference.system, model_exports.ThemePreference.fromPersist(""));
+    try testing.expectEqual(model_exports.ThemePreference.system, model_exports.ThemePreference.fromPersist("nope"));
+    try testing.expectEqual(model_exports.ThemePreference.system, model_exports.ThemePreference.fromPersist("system"));
+    try testing.expectEqual(model_exports.ThemePreference.light, model_exports.ThemePreference.fromPersist("light"));
+    try testing.expectEqual(model_exports.ThemePreference.dark, model_exports.ThemePreference.fromPersist("dark"));
 
     model.appearance = .{ .color_scheme = .dark };
     try testing.expectEqual(canvas.ColorScheme.dark, main.resolvedColorScheme(&model));
@@ -15659,7 +15660,7 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
     try testing.expectEqual(@as(u32, 1), model.provider_selected_id);
     try testing.expect(model.has_provider_detail());
     try testing.expect(model.can_apply_session_provider());
-    try testing.expectEqual(main.Provider.fx, model.session_store[0].provider);
+    try testing.expectEqual(model_exports.Provider.fx, model.session_store[0].provider);
     tree = try buildTree(arena, &model);
     try testing.expect(findTextContaining(tree.root, providers.fx_transport_note) != null);
     try testing.expect(findTextContaining(tree.root, "/home/probe/.local/bin/fx") != null);
@@ -15675,7 +15676,7 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
 
     main.update(&model, .{ .select_provider = 2 }, &fx);
     try testing.expectEqual(@as(u32, 2), model.provider_selected_id);
-    try testing.expectEqual(main.Provider.fx, model.session_store[0].provider);
+    try testing.expectEqual(model_exports.Provider.fx, model.session_store[0].provider);
     try testing.expectEqualStrings("fx", model.selected_provider());
     tree = try buildTree(arena, &model);
     try testing.expect(findTextContaining(tree.root, providers.available_status) != null);
@@ -15769,38 +15770,38 @@ test "settings Providers Use for this session applies to selected session and pe
     model.setStoreDir(dir);
     model.store_io = testing.io;
     try store.saveSession(&model, model.selected, testing.allocator, testing.io);
-    try testing.expectEqual(main.Provider.fx, model.session_store[0].provider);
-    try testing.expectEqual(main.Provider.claude, model.session_store[1].provider);
+    try testing.expectEqual(model_exports.Provider.fx, model.session_store[0].provider);
+    try testing.expectEqual(model_exports.Provider.claude, model.session_store[1].provider);
 
     main.update(&model, .toggle_settings, &fx);
     main.update(&model, .set_settings_page_providers, &fx);
     main.update(&model, .{ .select_provider = 2 }, &fx);
-    try testing.expectEqual(main.Provider.fx, model.session_store[0].provider);
+    try testing.expectEqual(model_exports.Provider.fx, model.session_store[0].provider);
 
     var tree = try buildTree(arena, &model);
     const apply = try expectButtonMsg(tree, providers.apply_session_label, .apply_session_provider);
     main.update(&model, tree.msgForPointer(apply.id, .up).?, &fx);
-    try testing.expectEqual(main.Provider.claude, model.session_store[0].provider);
+    try testing.expectEqual(model_exports.Provider.claude, model.session_store[0].provider);
     try testing.expectEqualStrings("claude", model.selected_provider());
-    try testing.expectEqual(main.Provider.claude, model.session_store[1].provider);
+    try testing.expectEqual(model_exports.Provider.claude, model.session_store[1].provider);
 
     var loaded = Model{};
     loaded.setStoreDir(dir);
     loaded.store_io = testing.io;
     try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
-    try testing.expectEqual(main.Provider.claude, loaded.session_store[0].provider);
+    try testing.expectEqual(model_exports.Provider.claude, loaded.session_store[0].provider);
     try testing.expectEqualStrings("claude", loaded.selected_provider());
 
     main.update(&model, .{ .select_provider = 1 }, &fx);
     main.update(&model, .apply_session_provider, &fx);
-    try testing.expectEqual(main.Provider.fx, model.session_store[0].provider);
+    try testing.expectEqual(model_exports.Provider.fx, model.session_store[0].provider);
     try testing.expectEqualStrings("fx", model.selected_provider());
 
     loaded = Model{};
     loaded.setStoreDir(dir);
     loaded.store_io = testing.io;
     try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
-    try testing.expectEqual(main.Provider.fx, loaded.session_store[0].provider);
+    try testing.expectEqual(model_exports.Provider.fx, loaded.session_store[0].provider);
 
     const previous = model.session_store[0].provider;
     model.provider_selected_id = 99;
@@ -15814,8 +15815,8 @@ test "settings Providers Use for this session applies to selected session and pe
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .button, providers.apply_session_label) == null);
     main.update(&model, .apply_session_provider, &fx);
-    try testing.expectEqual(main.Provider.fx, model.session_store[0].provider);
-    try testing.expectEqual(main.Provider.claude, model.session_store[1].provider);
+    try testing.expectEqual(model_exports.Provider.fx, model.session_store[0].provider);
+    try testing.expectEqual(model_exports.Provider.claude, model.session_store[1].provider);
 }
 
 test "settings Providers fx copy install when missing, copy login when available; other missing is PATH hint" {
@@ -16320,7 +16321,7 @@ test "Esc with model_picker_open does not cancel a busy demo stream" {
     main.update(&model, .{ .draft_edit = .{ .insert_text = "keep streaming" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.Phase.streaming, model.phase);
+    try testing.expectEqual(model_exports.Phase.streaming, model.phase);
 
     main.update(&model, .toggle_model_picker, &fx);
     try testing.expect(model.model_picker_open);
@@ -16331,7 +16332,7 @@ test "Esc with model_picker_open does not cancel a busy demo stream" {
     main.update(&model, keys.onKey(escape).?, &fx);
     try testing.expect(!model.model_picker_open);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.Phase.streaming, model.phase);
+    try testing.expectEqual(model_exports.Phase.streaming, model.phase);
 }
 
 test "Esc and on-dismiss close access or effort picker without canceling a busy demo stream" {
@@ -16347,7 +16348,7 @@ test "Esc and on-dismiss close access or effort picker without canceling a busy 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "keep streaming" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.Phase.streaming, model.phase);
+    try testing.expectEqual(model_exports.Phase.streaming, model.phase);
 
     var tree = try buildTree(arena, &model);
     const access = try expectSelectMsg(tree, "Full access", .toggle_access_picker);
@@ -16360,7 +16361,7 @@ test "Esc and on-dismiss close access or effort picker without canceling a busy 
     main.update(&model, .close_access_picker, &fx);
     try testing.expect(!model.access_picker_open);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.Phase.streaming, model.phase);
+    try testing.expectEqual(model_exports.Phase.streaming, model.phase);
 
     main.update(&model, .toggle_effort_picker, &fx);
     try testing.expect(model.effort_picker_open);
@@ -16370,7 +16371,7 @@ test "Esc and on-dismiss close access or effort picker without canceling a busy 
     try testing.expect(!model.effort_picker_open);
     try testing.expect(!model.access_picker_open);
     try testing.expect(model.is_streaming());
-    try testing.expectEqual(main.Phase.streaming, model.phase);
+    try testing.expectEqual(model_exports.Phase.streaming, model.phase);
 }
 
 test "opening access picker closes model and effort pickers" {
@@ -16859,14 +16860,14 @@ test "selection history cap drops the oldest entry" {
     model.pushSelectionHistory(first);
 
     var id: u32 = 2;
-    while (id <= main.selection_history_cap + 1) : (id += 1) {
+    while (id <= model_exports.selection_history_cap + 1) : (id += 1) {
         model.pushSelectionHistory(id);
         model.selected = id;
     }
 
-    try testing.expectEqual(main.selection_history_cap, model.history_count);
+    try testing.expectEqual(model_exports.selection_history_cap, model.history_count);
     try testing.expect(model.history_store[0] != first);
-    try testing.expectEqual(main.selection_history_cap + 1, model.history_store[model.history_count - 1]);
+    try testing.expectEqual(model_exports.selection_history_cap + 1, model.history_store[model.history_count - 1]);
     try testing.expect(model.can_go_back());
     try testing.expect(!model.can_go_forward());
 }
@@ -19226,7 +19227,7 @@ test "composer picker marks occupied locals and refuses checkout and delete" {
     const id = model.addSession("occupied worktree", .fx);
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath("/tmp/proj");
-    main.writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+    model_exports.writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
     git_checkout.applyStdoutBranches(&model,
         "refs/heads/main\x00/tmp/proj\n" ++
             "refs/heads/feat\x00\n" ++
@@ -19286,7 +19287,7 @@ test "composer branch picker search filters listed names; menu actions stay" {
     const id = model.addSession("branch search", .fx);
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath("/tmp/proj");
-    main.writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+    model_exports.writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
     model.git_branch_list_store[0].set("feat/a", false, false);
     model.git_branch_list_store[1].set("main", false, false);
     model.git_branch_list_store[2].set("occupied", false, true);
@@ -20510,9 +20511,9 @@ fn failWorktreeAddFirstThenExhaust(fx: *Effects, model: *Model, cwd: []const u8,
 }
 
 fn expectGitWorktreeAddArgv(spawn: anytype, cwd: []const u8, home: []const u8, name: []const u8, base: []const u8) !void {
-    var parent_buf: [main.max_project_path]u8 = undefined;
+    var parent_buf: [model_exports.max_project_path]u8 = undefined;
     const parent = git_checkout.worktreeParentPath(home, cwd, parent_buf[0..]) orelse return error.MissingWorktreeParent;
-    var dest_buf: [main.max_project_path]u8 = undefined;
+    var dest_buf: [model_exports.max_project_path]u8 = undefined;
     const dest = git_checkout.worktreeDestPath(home, cwd, name, dest_buf[0..]) orelse return error.MissingWorktreeDest;
     var branch_buf: [git_branch.max_git_branch]u8 = undefined;
     const branch = git_checkout.worktreeBranchName(name, branch_buf[0..]) orelse return error.MissingWorktreeBranch;
@@ -21218,7 +21219,7 @@ test "confirm New worktree one-shots git worktree add -b; success retargets proj
     try testing.expectEqual(add_key, model.git_worktree_add_key);
     try testing.expectEqual(@as(u64, 0), model.git_push_key);
 
-    var dest_buf: [main.max_project_path]u8 = undefined;
+    var dest_buf: [model_exports.max_project_path]u8 = undefined;
     const dest = git_checkout.worktreeDestPath(home, project, "feat-new", dest_buf[0..]) orelse return error.MissingDest;
     try std.Io.Dir.cwd().createDirPath(testing.io, dest);
     try fx.feedExit(created.key, 0);
@@ -21247,7 +21248,7 @@ test "confirm New worktree one-shots git worktree add -b; success retargets proj
     try failWorktreeAddFirstThenExhaust(&fx, &model, project, home, "feat-blocked", "main");
 
     model.clearAttachStatus();
-    main.writeFixed(&model.git_branch_storage, &model.git_branch_len, "a1b2c3d");
+    model_exports.writeFixed(&model.git_branch_storage, &model.git_branch_len, "a1b2c3d");
     main.update(&model, .{ .git_worktree_create_edit = .clear }, &fx);
     main.update(&model, .{ .git_worktree_create_edit = .{ .insert_text = "feat-head" } }, &fx);
     main.update(&model, .confirm_git_worktree_create, &fx);
@@ -21361,7 +21362,7 @@ test "New worktree dest collision uses slug-2 and retargets that path" {
     drainEffects(&model, &fx);
     try testing.expectEqualStrings(project, model.selectedProjectPath());
 
-    var taken_buf: [main.max_project_path]u8 = undefined;
+    var taken_buf: [model_exports.max_project_path]u8 = undefined;
     const taken = git_checkout.worktreeDestPath(home, project, "feat-dup", taken_buf[0..]) orelse return error.MissingTakenDest;
     try std.Io.Dir.cwd().createDirPath(testing.io, taken);
 
@@ -21374,7 +21375,7 @@ test "New worktree dest collision uses slug-2 and retargets that path" {
     try expectGitWorktreeAddArgv(created, project, home, "feat-dup-2", "main");
     try testing.expectEqualStrings(project, model.selectedProjectPath());
 
-    var dest_buf: [main.max_project_path]u8 = undefined;
+    var dest_buf: [model_exports.max_project_path]u8 = undefined;
     const dest = git_checkout.worktreeDestPath(home, project, "feat-dup-2", dest_buf[0..]) orelse return error.MissingDupDest;
     try std.Io.Dir.cwd().createDirPath(testing.io, dest);
     try fx.feedExit(created.key, 0);
@@ -21398,9 +21399,9 @@ test "same New worktree slug under two project_paths uses different dests" {
     const home = try std.fmt.bufPrint(&home_buf, "/tmp/faku-wt-nest-{s}", .{tmp.sub_path[0..]});
     try std.Io.Dir.cwd().createDirPath(testing.io, home);
 
-    var dest_a_buf: [main.max_project_path]u8 = undefined;
+    var dest_a_buf: [model_exports.max_project_path]u8 = undefined;
     const dest_a = git_checkout.worktreeDestPath(home, project_a, "shared", dest_a_buf[0..]) orelse return error.MissingDestA;
-    var dest_b_buf: [main.max_project_path]u8 = undefined;
+    var dest_b_buf: [model_exports.max_project_path]u8 = undefined;
     const dest_b = git_checkout.worktreeDestPath(home, project_b, "shared", dest_b_buf[0..]) orelse return error.MissingDestB;
     try testing.expect(!std.mem.eql(u8, dest_a, dest_b));
     var nest_a_buf: [git_checkout.worktree_nest_key_len]u8 = undefined;
@@ -26166,8 +26167,8 @@ test "Review Diff status chrome follows Appearance language" {
     model.review_diff_active = true;
     try testing.expect(model.right_panel_showing_diff());
 
-    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_comparing_status());
-    main.writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, model.review_diff_hunk_empty_status());
+    model_exports.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_comparing_status());
+    model_exports.writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, model.review_diff_hunk_empty_status());
     var tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "Comparing…") != null);
     try testing.expect(findByText(tree.root, .text, "No hunks") != null);
@@ -26176,20 +26177,20 @@ test "Review Diff status chrome follows Appearance language" {
     try testing.expect(findByText(tree.root, .text, "没有片段") == null);
     try testing.expect(findByText(tree.root, .text, "ハンクがありません") == null);
 
-    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_empty_status());
-    main.writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, model.review_diff_hunk_failed_status());
+    model_exports.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_empty_status());
+    model_exports.writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, model.review_diff_hunk_failed_status());
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "No changes to compare") != null);
     try testing.expect(findByText(tree.root, .text, "Could not show diff.") != null);
     try testing.expect(findByText(tree.root, .text, "没有可比较的更改") == null);
     try testing.expect(findByText(tree.root, .text, "无法显示 diff。") == null);
 
-    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_failed_status());
+    model_exports.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_failed_status());
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "Could not compare.") != null);
     try testing.expect(findByText(tree.root, .text, "无法比较。") == null);
 
-    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_no_workspace_status());
+    model_exports.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_no_workspace_status());
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "No workspace.") != null);
     try testing.expect(findByText(tree.root, .text, "没有工作区。") == null);
@@ -26209,8 +26210,8 @@ test "Review Diff status chrome follows Appearance language" {
     try testing.expect(!std.mem.eql(u8, review_diff.hunk_empty_status, model.review_diff_hunk_empty_status()));
     try testing.expect(!std.mem.eql(u8, review_diff.hunk_failed_status, model.review_diff_hunk_failed_status()));
 
-    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_comparing_status());
-    main.writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, model.review_diff_hunk_empty_status());
+    model_exports.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_comparing_status());
+    model_exports.writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, model.review_diff_hunk_empty_status());
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "正在比较…") != null);
     try testing.expect(findByText(tree.root, .text, "没有片段") != null);
@@ -26218,20 +26219,20 @@ test "Review Diff status chrome follows Appearance language" {
     try testing.expect(findByText(tree.root, .text, "No hunks") == null);
     try testing.expect(findByText(tree.root, .text, "比較中…") == null);
 
-    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_empty_status());
-    main.writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, model.review_diff_hunk_failed_status());
+    model_exports.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_empty_status());
+    model_exports.writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, model.review_diff_hunk_failed_status());
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "没有可比较的更改") != null);
     try testing.expect(findByText(tree.root, .text, "无法显示 diff。") != null);
     try testing.expect(findByText(tree.root, .text, "No changes to compare") == null);
     try testing.expect(findByText(tree.root, .text, "Could not show diff.") == null);
 
-    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_failed_status());
+    model_exports.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_failed_status());
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "无法比较。") != null);
     try testing.expect(findByText(tree.root, .text, "Could not compare.") == null);
 
-    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_no_workspace_status());
+    model_exports.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_no_workspace_status());
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "没有工作区。") != null);
     try testing.expect(findByText(tree.root, .text, "No workspace.") == null);
@@ -26248,8 +26249,8 @@ test "Review Diff status chrome follows Appearance language" {
     try testing.expect(!std.mem.eql(u8, review_diff.no_workspace_status, model.review_diff_no_workspace_status()));
     try testing.expect(!std.mem.eql(u8, review_diff.hunk_failed_status, model.review_diff_hunk_failed_status()));
 
-    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_comparing_status());
-    main.writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, model.review_diff_hunk_empty_status());
+    model_exports.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_comparing_status());
+    model_exports.writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, model.review_diff_hunk_empty_status());
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "比較中…") != null);
     try testing.expect(findByText(tree.root, .text, "ハンクがありません") != null);
@@ -26257,15 +26258,15 @@ test "Review Diff status chrome follows Appearance language" {
     try testing.expect(findByText(tree.root, .text, "正在比较…") == null);
     try testing.expect(findByText(tree.root, .text, "No hunks") == null);
 
-    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_empty_status());
-    main.writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, model.review_diff_hunk_failed_status());
+    model_exports.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_empty_status());
+    model_exports.writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, model.review_diff_hunk_failed_status());
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "比較する変更はありません") != null);
     try testing.expect(findByText(tree.root, .text, "diff を表示できませんでした。") != null);
     try testing.expect(findByText(tree.root, .text, "No changes to compare") == null);
     try testing.expect(findByText(tree.root, .text, "Could not show diff.") == null);
 
-    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_failed_status());
+    model_exports.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_failed_status());
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "比較できませんでした。") != null);
     try testing.expect(findByText(tree.root, .text, "Could not compare.") == null);
@@ -26286,8 +26287,8 @@ test "Review Diff status chrome follows Appearance language" {
     try testing.expectEqualStrings("No hunks", model.review_diff_hunk_empty_status());
     try testing.expectEqualStrings(i18n.reviewDiffStatusChromeFor(.english, "ja_JP.UTF-8").comparing, model.review_diff_comparing_status());
     try testing.expectEqualStrings(i18n.reviewDiffStatusChromeFor(.english, "zh_CN.UTF-8").hunk_failed, model.review_diff_hunk_failed_status());
-    main.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_comparing_status());
-    main.writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, model.review_diff_hunk_failed_status());
+    model_exports.writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, model.review_diff_comparing_status());
+    model_exports.writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, model.review_diff_hunk_failed_status());
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "Comparing…") != null);
     try testing.expect(findByText(tree.root, .text, "Could not show diff.") != null);
@@ -26905,7 +26906,7 @@ test "Settings Skills filter and Usage Projects filter chrome follow Appearance 
     try testing.expect(findByText(tree.root, .text, "プロジェクトの使用量はありません") == null);
 
     model.usage_history.project_count = 1;
-    main.writeFixed(&model.usage_history.projects[0].path_storage, &model.usage_history.projects[0].path_len, "/tmp/faku");
+    model_exports.writeFixed(&model.usage_history.projects[0].path_storage, &model.usage_history.projects[0].path_len, "/tmp/faku");
     model.usage_history.projects[0].total_tokens = 100;
     model.usage_history.projects[0].cost_usd = 1.0;
     model.usage_history.projects[0].sessions = 2;
@@ -27787,7 +27788,7 @@ test "Branch picker chrome follows Appearance language" {
     const id = model.addSession("branch chrome", .fx);
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath("/tmp/proj");
-    main.writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+    model_exports.writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
     model.git_branch_list_store[0].set("feat/a", false, false);
     model.git_branch_list_store[1].set("main", false, false);
     model.git_branch_list_count = 2;
@@ -28222,8 +28223,8 @@ test "Daemon-dir browser chrome follows Appearance language" {
     var model = Model{};
     model.daemon_dir_browser_open = true;
     model.daemon_dir_browser_ok = true;
-    main.writeFixed(&model.daemon_dir_browser_path_storage, &model.daemon_dir_browser_path_len, "/home/me/src");
-    main.writeFixed(&model.daemon_dir_browser_parent_storage, &model.daemon_dir_browser_parent_len, "/home/me");
+    model_exports.writeFixed(&model.daemon_dir_browser_path_storage, &model.daemon_dir_browser_path_len, "/home/me/src");
+    model_exports.writeFixed(&model.daemon_dir_browser_parent_storage, &model.daemon_dir_browser_parent_len, "/home/me");
     try testing.expect(model.daemon_dir_browser_can_up());
     try testing.expect(model.daemon_dir_browser_ready());
 

@@ -113,6 +113,7 @@
 
 const std = @import("std");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const git_checkout = @import("git_checkout.zig");
 const persist = @import("persist.zig");
 const prompt_spawn = @import("spawn.zig");
@@ -127,9 +128,9 @@ const daemon_proxy = @import("daemon_proxy.zig");
 const protocol = @import("protocol.zig");
 const i18n = @import("i18n.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
-const Session = main.Session;
+const Session = model_exports.Session;
 
 /// English chrome fallback / test anchor. Localized Creating
 /// worktree… uses `i18n.worktreeStatusChromeFor` via
@@ -255,10 +256,10 @@ pub fn completePrepIfNeeded(model: *Model, fx: *Effects) void {
         return;
     }
 
-    var text_buf: [main.max_draft]u8 = undefined;
+    var text_buf: [model_exports.max_draft]u8 = undefined;
     const text_n = @min(text_buf.len, model.workspace_prep_text_len);
     @memcpy(text_buf[0..text_n], model.workspace_prep_text_storage[0..text_n]);
-    var image_buf: [main.max_project_path]u8 = undefined;
+    var image_buf: [model_exports.max_project_path]u8 = undefined;
     const image_n = @min(image_buf.len, model.workspace_prep_image_len);
     @memcpy(image_buf[0..image_n], model.workspace_prep_image_storage[0..image_n]);
     const session_id = session.id;
@@ -406,7 +407,7 @@ test "Send while newWorktree enters prep and does not start the provider until s
     const created = findWorktreeAddSpawn(&fx, model.git_worktree_add_key) orelse return error.MissingWorktreeAdd;
     try std.testing.expect(git_checkout.isGitWorktreeAddArgv(created.argv));
 
-    var dest_buf: [main.max_project_path]u8 = undefined;
+    var dest_buf: [model_exports.max_project_path]u8 = undefined;
     const dest = git_checkout.worktreeDestPath(home, project, "feat-send", dest_buf[0..]) orelse return error.MissingDest;
     try fx.feedExit(created.key, 0);
     drainEffects(&model, &fx);
@@ -418,7 +419,7 @@ test "Send while newWorktree enters prep and does not start the provider until s
     try std.testing.expectEqualStrings(dest, session.workspacePath());
     try std.testing.expectEqualStrings("faku/feat-send", session.workspaceBranch());
     try std.testing.expect(model.is_streaming());
-    try std.testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try std.testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try std.testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
 }
 
@@ -665,7 +666,7 @@ test "Local and Fork-to-local clear stored baseBranch" {
     model.sessionById(id).?.setProjectPath(project);
     pickNewWorktree(&model, &fx);
     model.sessionById(id).?.setWorkspaceBaseBranch("feat");
-    main.writeFixed(&model.git_worktree_base_override_storage, &model.git_worktree_base_override_len, "feat");
+    model_exports.writeFixed(&model.git_worktree_base_override_storage, &model.git_worktree_base_override_len, "feat");
     persist.persistComposerChips(&model, &fx);
 
     pickLocal(&model, &fx);
@@ -728,7 +729,7 @@ test "Send with stored baseBranch skips origin/HEAD and uses that argv slot; mat
         try std.testing.expect(std.mem.indexOf(u8, created.argv[2], "feat") == null);
     }
 
-    var dest_buf: [main.max_project_path]u8 = undefined;
+    var dest_buf: [model_exports.max_project_path]u8 = undefined;
     const dest = git_checkout.worktreeDestPath(home, project, "feat-stored-base", dest_buf[0..]) orelse return error.MissingDest;
     try fx.feedExit(created.key, 0);
     drainEffects(&model, &fx);
@@ -811,7 +812,7 @@ test "Send while newWorktree with a daemon address spawns CreateWorktree sidecar
     try std.testing.expectEqualStrings("/tmp/daemon-wt", session.workspacePath());
     try std.testing.expectEqualStrings("waku/feat-send", session.workspaceBranch());
     try std.testing.expect(model.is_streaming());
-    try std.testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try std.testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try std.testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
 }
 

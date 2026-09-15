@@ -205,6 +205,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const git_branch = @import("git_branch.zig");
 const git_checkout = @import("git_checkout.zig");
@@ -219,9 +220,9 @@ const store = @import("store.zig");
 const protocol = @import("protocol.zig");
 const i18n = @import("i18n.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
-const writeFixed = main.writeFixed;
+const writeFixed = model_exports.writeFixed;
 
 /// One-shot `git add -A -- .` then `git commit -m` on one spawn-key
 /// band. Distinct from file_mention (400+); sits after that band with

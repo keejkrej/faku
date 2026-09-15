@@ -30,13 +30,14 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const git_checkout = @import("git_checkout.zig");
 const git_remotes = @import("git_remotes.zig");
 const git_branch = @import("git_branch.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
-const writeFixed = main.writeFixed;
+const writeFixed = model_exports.writeFixed;
 
 /// Files Preview + transcript `git remote` / `git remote get-url`.
 /// Distinct from skills (530+) and git_common_dir (500+). Band is 540+.

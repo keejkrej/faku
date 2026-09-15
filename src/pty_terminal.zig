@@ -35,12 +35,13 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const util = @import("util.zig");
 const open_terminal = @import("open_terminal.zig");
 const i18n = @import("i18n.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
 
 /// Dedicated pty occupancy band. Outside stream (1), fx_ask (2), probe (3),
@@ -78,7 +79,7 @@ else
     &.{ unix_shell, interactive_flag, login_flag };
 
 const argv_cap: usize = 8;
-pub const windows_cd_arg_len: usize = windows_cd_prefix.len + main.max_project_path;
+pub const windows_cd_arg_len: usize = windows_cd_prefix.len + model_exports.max_project_path;
 
 pub const ArgvScratch = struct {
     slots: [argv_cap][]const u8 = [_][]const u8{""} ** argv_cap,
@@ -95,7 +96,7 @@ pub const Slot = struct {
     ended: bool = false,
     closing: bool = false,
     scrollback: u32 = 0,
-    status_storage: [main.max_attach_status]u8 = [_]u8{0} ** main.max_attach_status,
+    status_storage: [model_exports.max_attach_status]u8 = [_]u8{0} ** model_exports.max_attach_status,
     status_len: usize = 0,
     windows_cd_storage: [windows_cd_arg_len]u8 = [_]u8{0} ** windows_cd_arg_len,
     windows_cd_len: usize = 0,
@@ -225,7 +226,7 @@ pub fn term_scrollback(model: *const Model) u32 {
 }
 
 fn setSlotStatus(slot: *Slot, text: []const u8) void {
-    main.writeFixed(&slot.status_storage, &slot.status_len, std.mem.trim(u8, text, " \t\r\n"));
+    model_exports.writeFixed(&slot.status_storage, &slot.status_len, std.mem.trim(u8, text, " \t\r\n"));
 }
 
 fn clearSlotStatus(slot: *Slot) void {

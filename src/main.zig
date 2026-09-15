@@ -90,12 +90,10 @@ const shell_scene = shell_mod.shell_scene;
 const registerIcons = shell_mod.registerIcons;
 /// Native model contract looks for `pub const app_icons` on the app root.
 pub const app_icons = shell_mod.app_icons;
-pub const max_sessions = model_exports.max_sessions;
 /// Sidebar folder-header keys sit above session ids so `for` keys stay unique.
 pub const folder_row_id_base: u32 = 1_000_000;
 /// Date-bucket header keys sit above folder headers.
 pub const date_row_id_base = sidebar_row_helpers.date_row_id_base;
-pub const selection_history_cap = model_exports.selection_history_cap;
 /// Runtime-only Ctrl-Tab switcher snapshot. Same cap as Waku's overlay.
 pub const switcher_cap = session_switcher.switcher_cap;
 pub const palette_action_id_base = palette.palette_action_id_base;
@@ -106,73 +104,19 @@ pub const palette_search_row_height = palette.palette_search_row_height;
 pub const palette_section_header_height = palette.palette_section_header_height;
 pub const palette_card_width = palette.palette_card_width;
 pub const palette_card_height = palette.palette_card_height;
-pub const max_turns = model_exports.max_turns;
-pub const max_title = model_exports.max_title;
-pub const max_body = model_exports.max_body;
-pub const max_draft = model_exports.max_draft;
-pub const max_queued = model_exports.max_queued;
-pub const max_queued_text = model_exports.max_queued_text;
-pub const max_fx_path = model_exports.max_fx_path;
-pub const max_store_dir = model_exports.max_store_dir;
-pub const max_project_path = model_exports.max_project_path;
-pub const max_attach_status = model_exports.max_attach_status;
-pub const max_fx_session_id = model_exports.max_fx_session_id;
-pub const max_tool_call_id = model_exports.max_tool_call_id;
-pub const max_tool_kind = model_exports.max_tool_kind;
-pub const max_tool_status = model_exports.max_tool_status;
-pub const max_runtime_id = model_exports.max_runtime_id;
-pub const max_fx_model = model_exports.max_fx_model;
-pub const max_access_mode = model_exports.max_access_mode;
-pub const max_interaction_mode = model_exports.max_interaction_mode;
-pub const max_reasoning_effort = model_exports.max_reasoning_effort;
-pub const max_thread_goal_objective = model_exports.max_thread_goal_objective;
-pub const max_thread_goal_status = model_exports.max_thread_goal_status;
-pub const max_thread_goal_usage_label = model_exports.max_thread_goal_usage_label;
-pub const max_available_commands = model_exports.max_available_commands;
-pub const max_model_options = model_exports.max_model_options;
-pub const max_command_name = model_exports.max_command_name;
-pub const max_command_description = model_exports.max_command_description;
-pub const default_access_mode = model_exports.default_access_mode;
-pub const default_interaction_mode = model_exports.default_interaction_mode;
-pub const default_reasoning_effort = model_exports.default_reasoning_effort;
 pub const fx_env_bin = "/usr/bin/env";
 pub const max_line_keep = 4096;
 
 const app_permissions = [_][]const u8{ native_sdk.security.permission_command, native_sdk.security.permission_view };
 
 pub const fx_probe_key = fx_probe.fx_probe_key;
-pub const max_daemon_address = model_exports.max_daemon_address;
-pub const max_daemon_token = model_exports.max_daemon_token;
-pub const max_sidecar_path = model_exports.max_sidecar_path;
 pub const demo_ticks_complete: u32 = 12;
 pub const demo_reply = "fx here (demo). The fx CLI was not found, so this is a local timer stream. Install fx and Send runs `fx ask`.";
-
-pub const Mode = model_exports.Mode;
-pub const Role = model_exports.Role;
-pub const Phase = model_exports.Phase;
-pub const ReplyPath = model_exports.ReplyPath;
-
-pub const Provider = model_exports.Provider;
-pub const AvailableCommand = model_exports.AvailableCommand;
-pub const ModelOption = model_exports.ModelOption;
-pub const Session = model_exports.Session;
-
-pub const Turn = model_exports.Turn;
-pub const Folder = model_exports.Folder;
-pub const SessionRow = model_exports.SessionRow;
-pub const SidebarRow = model_exports.SidebarRow;
 
 pub const DateBucket = sidebar_dates.DateBucket;
 pub const sessionDateBucket = sidebar_dates.sessionDateBucket;
 pub const sessionRelativeTime = sidebar_dates.sessionRelativeTime;
 pub const formatThreadGoalUsage = goal.formatThreadGoalUsage;
-
-pub const AssignFolder = model_exports.AssignFolder;
-pub const TurnRow = model_exports.TurnRow;
-pub const CommandRow = model_exports.CommandRow;
-pub const ModelPickerRow = model_exports.ModelPickerRow;
-pub const ChipPickerRow = model_exports.ChipPickerRow;
-pub const DaemonDirBrowserRow = model_exports.DaemonDirBrowserRow;
 
 pub const fxPermissionMode = composer.fxPermissionMode;
 pub const startOptionsFromSession = prompt_spawn.startOptionsFromSession;
@@ -189,20 +133,8 @@ pub const PaletteAction = palette.PaletteAction;
 pub const PaletteActionSpec = palette.PaletteActionSpec;
 pub const paletteActionId = palette.paletteActionId;
 
-pub const QueuedMessage = model_exports.QueuedMessage;
-pub const QueuedRow = model_exports.QueuedRow;
 pub const BackgroundRow = environment_summary.BackgroundRow;
-pub const RightPanelFileRow = model_exports.RightPanelFileRow;
 pub const FilePreviewLineRow = right_panel.FilePreviewLineRow;
-pub const SkillRow = model_exports.SkillRow;
-pub const UsageHistoryRow = model_exports.UsageHistoryRow;
-pub const ProviderRow = model_exports.ProviderRow;
-pub const Msg = model_exports.Msg;
-pub const Model = model_exports.Model;
-pub const ThemePreference = model_exports.ThemePreference;
-pub const LanguagePreference = model_exports.LanguagePreference;
-
-pub const writeFixed = model_exports.writeFixed;
 
 pub const sessionDisplayTitle = util.sessionDisplayTitle;
 pub const stampSessionActivity = util.stampSessionActivity;
@@ -212,6 +144,9 @@ pub const fileExists = util.fileExists;
 /// Native `SpawnOptions` (0.9.3) has no `cwd`. `std.process.spawn` does, but
 /// Effects does not expose it. `cd` + `exec` is a real child cwd, not `PWD`.
 pub const fx_ask_chdir_script = util.fx_ask_chdir_script;
+
+const Msg = model_exports.Msg;
+const Model = model_exports.Model;
 
 pub const Effects = native_sdk.Effects(Msg);
 

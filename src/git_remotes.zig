@@ -28,11 +28,12 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const git_checkout = @import("git_checkout.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
-const writeFixed = main.writeFixed;
+const writeFixed = model_exports.writeFixed;
 
 /// One-shot `git remote` probe for first-push remotes. Distinct from
 /// git_commit_generate (470+), git_commit_numstat (460+), add/commit

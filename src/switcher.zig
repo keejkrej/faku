@@ -9,8 +9,9 @@
 //! helpers.
 
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
 
 /// Runtime-only Ctrl-Tab switcher snapshot. Same cap as Waku's overlay.

@@ -48,15 +48,16 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const protocol = @import("protocol.zig");
 const store = @import("store.zig");
 const persist = @import("persist.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
-const writeFixed = main.writeFixed;
+const writeFixed = model_exports.writeFixed;
 
 const default_slug = "new-chat";
 const max_numbered_candidates: u32 = 100;
@@ -105,10 +106,10 @@ pub fn isProjectlessPath(home: []const u8, path: []const u8) bool {
     if (home.len == 0 or path.len == 0) return false;
     const trimmed = trimTrailingSlash(path);
     if (trimmed.len == 0) return false;
-    var root_buf: [main.max_project_path]u8 = undefined;
+    var root_buf: [model_exports.max_project_path]u8 = undefined;
     const projects = joinHomeSuffix(home, "/.waku/projects", &root_buf) orelse return false;
     if (pathEqualsOrUnder(trimmed, projects)) return true;
-    var legacy_buf: [main.max_project_path]u8 = undefined;
+    var legacy_buf: [model_exports.max_project_path]u8 = undefined;
     const legacy = joinHomeSuffix(home, "/.waku", &legacy_buf) orelse return false;
     if (std.mem.eql(u8, trimmed, legacy)) return true;
     if (!pathEqualsOrUnder(trimmed, legacy)) return false;
@@ -121,7 +122,7 @@ pub fn isProjectlessPath(home: []const u8, path: []const u8) bool {
 /// (dated legacy `{home}/.waku/<date>/<slug>` or bare `{home}/.waku`).
 pub fn needsMigration(home: []const u8, path: []const u8) bool {
     if (!isProjectlessPath(home, path)) return false;
-    var root_buf: [main.max_project_path]u8 = undefined;
+    var root_buf: [model_exports.max_project_path]u8 = undefined;
     const projects = joinHomeSuffix(home, "/.waku/projects", &root_buf) orelse return false;
     return !pathEqualsOrUnder(trimTrailingSlash(path), projects);
 }
@@ -276,13 +277,13 @@ pub fn handleMigrateExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExi
 }
 
 fn applyMigrateLocalFallback(model: *Model, fx: *Effects, session_id: u32, path: []const u8) void {
-    var cwd_buf: [main.max_project_path]u8 = undefined;
+    var cwd_buf: [model_exports.max_project_path]u8 = undefined;
     const cwd = migrateLocalWorkspace(model, path, &cwd_buf) orelse return;
     adoptCwd(model, fx, session_id, cwd, true);
 }
 
 fn applyLocalFallback(model: *Model, fx: *Effects, session_id: u32, refresh: bool) void {
-    var cwd_buf: [main.max_project_path]u8 = undefined;
+    var cwd_buf: [model_exports.max_project_path]u8 = undefined;
     const cwd = createLocalWorkspace(model, &cwd_buf) orelse return;
     adoptCwd(model, fx, session_id, cwd, refresh);
 }
@@ -303,7 +304,7 @@ fn createLocalWorkspace(model: *const Model, dest: []u8) ?[]const u8 {
     const io = model.store_io orelse return null;
     const home = model.homeDir();
     if (home.len == 0) return null;
-    var root_buf: [main.max_project_path]u8 = undefined;
+    var root_buf: [model_exports.max_project_path]u8 = undefined;
     const root = joinHomeSuffix(home, "/.waku/projects", &root_buf) orelse return null;
     std.Io.Dir.cwd().createDirPath(io, root) catch return null;
     if (!main.directoryExists(io, root)) return null;
@@ -311,7 +312,7 @@ fn createLocalWorkspace(model: *const Model, dest: []u8) ?[]const u8 {
     if (model.now_ms <= 0) return null;
     var date_buf: [10]u8 = undefined;
     const date = formatUtcDate(model.now_ms, &date_buf) orelse return null;
-    var date_dir_buf: [main.max_project_path]u8 = undefined;
+    var date_dir_buf: [model_exports.max_project_path]u8 = undefined;
     const date_dir = joinPath(root, date, &date_dir_buf) orelse return null;
     std.Io.Dir.cwd().createDirPath(io, date_dir) catch return null;
     if (!main.directoryExists(io, date_dir)) return null;
@@ -320,7 +321,7 @@ fn createLocalWorkspace(model: *const Model, dest: []u8) ?[]const u8 {
     while (index < max_numbered_candidates) : (index += 1) {
         var name_buf: [32]u8 = undefined;
         const name = candidateName(index, &name_buf) orelse continue;
-        var dest_buf: [main.max_project_path]u8 = undefined;
+        var dest_buf: [model_exports.max_project_path]u8 = undefined;
         const cwd = joinPath(date_dir, name, &dest_buf) orelse continue;
         if (main.directoryExists(io, cwd)) continue;
         std.Io.Dir.cwd().createDirPath(io, cwd) catch continue;
@@ -342,7 +343,7 @@ fn migrateLocalWorkspace(model: *const Model, path: []const u8, dest: []u8) ?[]c
     const home = model.homeDir();
     if (home.len == 0 or path.len == 0) return null;
     const trimmed = trimTrailingSlash(path);
-    var root_buf: [main.max_project_path]u8 = undefined;
+    var root_buf: [model_exports.max_project_path]u8 = undefined;
     const root = joinHomeSuffix(home, "/.waku/projects", &root_buf) orelse return null;
     if (pathEqualsOrUnder(trimmed, root)) {
         if (trimmed.len > dest.len) return null;
@@ -357,16 +358,16 @@ fn migrateLocalWorkspace(model: *const Model, path: []const u8, dest: []u8) ?[]c
 
     std.Io.Dir.cwd().createDirPath(io, root) catch return null;
     if (!main.directoryExists(io, root)) return null;
-    var date_dir_buf: [main.max_project_path]u8 = undefined;
+    var date_dir_buf: [model_exports.max_project_path]u8 = undefined;
     const date_dir = joinPath(root, parts.date, &date_dir_buf) orelse return null;
     std.Io.Dir.cwd().createDirPath(io, date_dir) catch return null;
     if (!main.directoryExists(io, date_dir)) return null;
 
     var index: u32 = 0;
     while (index < max_numbered_candidates) : (index += 1) {
-        var name_buf: [main.max_project_path]u8 = undefined;
+        var name_buf: [model_exports.max_project_path]u8 = undefined;
         const name = numberedName(parts.slug, index, &name_buf) orelse continue;
-        var dest_buf: [main.max_project_path]u8 = undefined;
+        var dest_buf: [model_exports.max_project_path]u8 = undefined;
         const cwd = joinPath(date_dir, name, &dest_buf) orelse continue;
         if (main.directoryExists(io, cwd)) continue;
         if (!renamePath(io, trimmed, cwd)) continue;
@@ -385,7 +386,7 @@ fn numberedName(slug: []const u8, index: u32, buf: []u8) ?[]const u8 {
 }
 
 fn isBareLegacyRoot(home: []const u8, path: []const u8) bool {
-    var legacy_buf: [main.max_project_path]u8 = undefined;
+    var legacy_buf: [model_exports.max_project_path]u8 = undefined;
     const legacy = joinHomeSuffix(home, "/.waku", &legacy_buf) orelse return false;
     return std.mem.eql(u8, trimTrailingSlash(path), legacy);
 }
@@ -393,7 +394,7 @@ fn isBareLegacyRoot(home: []const u8, path: []const u8) bool {
 const LegacyDatedParts = struct { date: []const u8, slug: []const u8 };
 
 fn legacyDatedParts(home: []const u8, path: []const u8) ?LegacyDatedParts {
-    var legacy_buf: [main.max_project_path]u8 = undefined;
+    var legacy_buf: [model_exports.max_project_path]u8 = undefined;
     const legacy = joinHomeSuffix(home, "/.waku", &legacy_buf) orelse return null;
     const trimmed = trimTrailingSlash(path);
     if (!pathEqualsOrUnder(trimmed, legacy) or std.mem.eql(u8, trimmed, legacy)) return null;
@@ -622,7 +623,7 @@ test "CreateProjectlessWorkspace sidecar miss falls back locally without clearin
 
     var date_buf: [10]u8 = undefined;
     const date = formatUtcDate(model.now_ms, &date_buf).?;
-    var expected_buf: [main.max_project_path]u8 = undefined;
+    var expected_buf: [model_exports.max_project_path]u8 = undefined;
     const expected = try std.fmt.bufPrint(&expected_buf, "{s}/.waku/projects/{s}/new-chat", .{ home, date });
     try std.testing.expectEqualStrings(expected, model.sessionById(id).?.projectPath());
     try std.testing.expectEqualStrings(expected, model.lastProjectPath());
@@ -654,7 +655,7 @@ test "New Task without a daemon address mkdirs ~/.waku/projects/<date>/new-chat"
 
     var date_buf: [10]u8 = undefined;
     const date = formatUtcDate(model.now_ms, &date_buf).?;
-    var expected_buf: [main.max_project_path]u8 = undefined;
+    var expected_buf: [model_exports.max_project_path]u8 = undefined;
     const expected = try std.fmt.bufPrint(&expected_buf, "{s}/.waku/projects/{s}/new-chat", .{ home, date });
     try std.testing.expectEqualStrings(expected, model.sessionById(id).?.projectPath());
     try std.testing.expect(main.directoryExists(std.testing.io, expected));
@@ -662,7 +663,7 @@ test "New Task without a daemon address mkdirs ~/.waku/projects/<date>/new-chat"
     const second = model.addSession("untitled 2", .fx);
     model.selected = second;
     beginForNewSession(&model, &fx, expected);
-    var expected2_buf: [main.max_project_path]u8 = undefined;
+    var expected2_buf: [model_exports.max_project_path]u8 = undefined;
     const expected2 = try std.fmt.bufPrint(&expected2_buf, "{s}/.waku/projects/{s}/new-chat-2", .{ home, date });
     try std.testing.expectEqualStrings(expected2, model.sessionById(second).?.projectPath());
     try std.testing.expect(main.directoryExists(std.testing.io, expected2));
@@ -809,10 +810,10 @@ test "MigrateProjectlessWorkspace sidecar miss falls back to local rename" {
     defer tmp.cleanup();
     var home_buf: [256]u8 = undefined;
     const home = try std.fmt.bufPrint(&home_buf, ".zig-cache/tmp/{s}/migrate-miss-home", .{tmp.sub_path[0..]});
-    var legacy_buf: [main.max_project_path]u8 = undefined;
+    var legacy_buf: [model_exports.max_project_path]u8 = undefined;
     const legacy = try std.fmt.bufPrint(&legacy_buf, "{s}/.waku/2026-09-06/legacy-chat", .{home});
     try std.Io.Dir.cwd().createDirPath(std.testing.io, legacy);
-    var notes_buf: [main.max_project_path]u8 = undefined;
+    var notes_buf: [model_exports.max_project_path]u8 = undefined;
     const notes = try std.fmt.bufPrint(&notes_buf, "{s}/notes.txt", .{legacy});
     try std.Io.Dir.cwd().writeFile(std.testing.io, .{ .sub_path = notes, .data = "kept\n" });
 
@@ -834,13 +835,13 @@ test "MigrateProjectlessWorkspace sidecar miss falls back to local rename" {
     handleMigrateExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 1 });
     try std.testing.expectEqual(@as(u64, 0), model.daemon_migrate_projectless_key);
 
-    var expected_buf: [main.max_project_path]u8 = undefined;
+    var expected_buf: [model_exports.max_project_path]u8 = undefined;
     const expected = try std.fmt.bufPrint(&expected_buf, "{s}/.waku/projects/2026-09-06/legacy-chat", .{home});
     try std.testing.expectEqualStrings(expected, model.sessionById(id).?.projectPath());
     try std.testing.expectEqualStrings(expected, model.lastProjectPath());
     try std.testing.expect(main.directoryExists(std.testing.io, expected));
     try std.testing.expect(!main.directoryExists(std.testing.io, legacy));
-    var moved_notes_buf: [main.max_project_path]u8 = undefined;
+    var moved_notes_buf: [model_exports.max_project_path]u8 = undefined;
     const moved_notes = try std.fmt.bufPrint(&moved_notes_buf, "{s}/notes.txt", .{expected});
     const moved = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, moved_notes, std.testing.allocator, .limited(64));
     defer std.testing.allocator.free(moved);
@@ -856,7 +857,7 @@ test "MigrateProjectlessWorkspace without a daemon address renames dated legacy 
     defer tmp.cleanup();
     var home_buf: [256]u8 = undefined;
     const home = try std.fmt.bufPrint(&home_buf, ".zig-cache/tmp/{s}/migrate-local-home", .{tmp.sub_path[0..]});
-    var legacy_buf: [main.max_project_path]u8 = undefined;
+    var legacy_buf: [model_exports.max_project_path]u8 = undefined;
     const legacy = try std.fmt.bufPrint(&legacy_buf, "{s}/.waku/2026-09-06/legacy-chat", .{home});
     try std.Io.Dir.cwd().createDirPath(std.testing.io, legacy);
 
@@ -875,7 +876,7 @@ test "MigrateProjectlessWorkspace without a daemon address renames dated legacy 
         try std.testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"migrateProjectlessWorkspace\"") == null);
     }
 
-    var expected_buf: [main.max_project_path]u8 = undefined;
+    var expected_buf: [model_exports.max_project_path]u8 = undefined;
     const expected = try std.fmt.bufPrint(&expected_buf, "{s}/.waku/projects/2026-09-06/legacy-chat", .{home});
     try std.testing.expectEqualStrings(expected, model.sessionById(id).?.projectPath());
     try std.testing.expect(main.directoryExists(std.testing.io, expected));
@@ -891,10 +892,10 @@ test "local migrate uses numbered -2 when the destination is taken" {
     defer tmp.cleanup();
     var home_buf: [256]u8 = undefined;
     const home = try std.fmt.bufPrint(&home_buf, ".zig-cache/tmp/{s}/migrate-numbered-home", .{tmp.sub_path[0..]});
-    var legacy_buf: [main.max_project_path]u8 = undefined;
+    var legacy_buf: [model_exports.max_project_path]u8 = undefined;
     const legacy = try std.fmt.bufPrint(&legacy_buf, "{s}/.waku/2026-09-06/legacy-chat", .{home});
     try std.Io.Dir.cwd().createDirPath(std.testing.io, legacy);
-    var taken_buf: [main.max_project_path]u8 = undefined;
+    var taken_buf: [model_exports.max_project_path]u8 = undefined;
     const taken = try std.fmt.bufPrint(&taken_buf, "{s}/.waku/projects/2026-09-06/legacy-chat", .{home});
     try std.Io.Dir.cwd().createDirPath(std.testing.io, taken);
 
@@ -907,7 +908,7 @@ test "local migrate uses numbered -2 when the destination is taken" {
     model.selected = id;
 
     beginMigrateForSelected(&model, &fx);
-    var expected_buf: [main.max_project_path]u8 = undefined;
+    var expected_buf: [model_exports.max_project_path]u8 = undefined;
     const expected = try std.fmt.bufPrint(&expected_buf, "{s}/.waku/projects/2026-09-06/legacy-chat-2", .{home});
     try std.testing.expectEqualStrings(expected, model.sessionById(id).?.projectPath());
     try std.testing.expect(main.directoryExists(std.testing.io, expected));
@@ -923,7 +924,7 @@ test "bare ~/.waku migrate fallback mkdirs a fresh projects workspace" {
     defer tmp.cleanup();
     var home_buf: [256]u8 = undefined;
     const home = try std.fmt.bufPrint(&home_buf, ".zig-cache/tmp/{s}/migrate-bare-home", .{tmp.sub_path[0..]});
-    var legacy_buf: [main.max_project_path]u8 = undefined;
+    var legacy_buf: [model_exports.max_project_path]u8 = undefined;
     const legacy = try std.fmt.bufPrint(&legacy_buf, "{s}/.waku", .{home});
     try std.Io.Dir.cwd().createDirPath(std.testing.io, legacy);
 
@@ -940,7 +941,7 @@ test "bare ~/.waku migrate fallback mkdirs a fresh projects workspace" {
     try std.testing.expectEqual(@as(u64, 0), model.daemon_migrate_projectless_key);
     var date_buf: [10]u8 = undefined;
     const date = formatUtcDate(model.now_ms, &date_buf).?;
-    var expected_buf: [main.max_project_path]u8 = undefined;
+    var expected_buf: [model_exports.max_project_path]u8 = undefined;
     const expected = try std.fmt.bufPrint(&expected_buf, "{s}/.waku/projects/{s}/new-chat", .{ home, date });
     try std.testing.expectEqualStrings(expected, model.sessionById(id).?.projectPath());
     try std.testing.expect(main.directoryExists(std.testing.io, expected));

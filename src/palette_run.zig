@@ -12,6 +12,7 @@
 //! otherwise unchanged from the former `main` palette runners.
 
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const palette = @import("palette.zig");
 const store = @import("store.zig");
 const attach_helpers = @import("attach.zig");
@@ -40,7 +41,7 @@ const transcript_details = @import("transcript_details.zig");
 const session_fork = @import("fork.zig");
 const pick_folder = @import("pick_folder.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
 const PaletteAction = main.PaletteAction;
 const palette_action_id_base = main.palette_action_id_base;

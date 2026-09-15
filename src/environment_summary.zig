@@ -245,6 +245,7 @@
 
 const std = @import("std");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const sidecar_keys = @import("sidecar_keys.zig");
 const i18n = @import("i18n.zig");
@@ -258,7 +259,7 @@ const session_switcher = @import("switcher.zig");
 const turn_stream = @import("stream.zig");
 const background_work = @import("background_work.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
 
 /// Scratch for `headerGitNumstatLabel`. Native copies the slice
@@ -928,7 +929,7 @@ fn findDaemonSlot(model: *const Model, session_id: u32, kind: BackgroundKind, pr
 }
 
 fn paintDaemonSlot(model: *Model, slot: *DaemonBackground, session_id: u32, item: protocol.ParsedBackgroundWorkItem) void {
-    const writeFixed = main.writeFixed;
+    const writeFixed = model_exports.writeFixed;
     const was_stopping = slot.stop_requested;
     const was_settled = slot.settled != .none;
     slot.kind = kindFromDaemon(item.key.kind);
@@ -1048,7 +1049,7 @@ pub fn noteLiveSubagent(model: *Model, parent_id: []const u8) void {
     const slot = &model.background_subagents[model.background_subagent_count];
     releaseLog(&slot.log);
     slot.* = .{};
-    const writeFixed = main.writeFixed;
+    const writeFixed = model_exports.writeFixed;
     writeFixed(&slot.id_storage, &slot.id_len, parent_id);
     writeFixed(&slot.title_storage, &slot.title_len, kind_subagent_label);
     slot.session_id = model.streaming_session;
@@ -1080,7 +1081,7 @@ pub fn noteLiveMonitor(model: *Model, tool_use_id: []const u8) void {
     const slot = &model.background_monitors[model.background_monitor_count];
     releaseLog(&slot.log);
     slot.* = .{};
-    const writeFixed = main.writeFixed;
+    const writeFixed = model_exports.writeFixed;
     writeFixed(&slot.id_storage, &slot.id_len, tool_use_id);
     writeFixed(&slot.title_storage, &slot.title_len, kind_monitor_label);
     slot.session_id = model.streaming_session;
@@ -2114,7 +2115,7 @@ fn rememberDismissedSubagent(model: *Model, parent_id: []const u8) void {
         model.background_dismissed_subagents[model.background_dismissed_subagent_count] = .{};
     }
     const slot = &model.background_dismissed_subagents[model.background_dismissed_subagent_count];
-    main.writeFixed(&slot.storage, &slot.len, parent_id);
+    model_exports.writeFixed(&slot.storage, &slot.len, parent_id);
     model.background_dismissed_subagent_count += 1;
 }
 
@@ -2652,7 +2653,7 @@ test "stopBackground no-ops when not streaming" {
     try std.testing.expect(model.environment_summary_open);
     try std.testing.expect(!model.is_streaming());
     try std.testing.expectEqual(@as(u32, 0), model.streaming_session);
-    try std.testing.expectEqual(main.Phase.idle, model.phase);
+    try std.testing.expectEqual(model_exports.Phase.idle, model.phase);
     try std.testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try std.testing.expect(!hasSettledBackground(&model));
     try std.testing.expect(!hasBackgroundSection(&model));
@@ -2687,7 +2688,7 @@ test "stopBackground closes summary and stops via stopStream" {
     stopBackground(&model, &fx, process_row_id);
     try std.testing.expect(!model.environment_summary_open);
     try std.testing.expect(!model.is_streaming());
-    try std.testing.expectEqual(main.Phase.idle, model.phase);
+    try std.testing.expectEqual(model_exports.Phase.idle, model.phase);
     try std.testing.expectEqual(@as(u32, 0), model.streaming_session);
     try std.testing.expect(!model.sessionById(id).?.busy);
     try std.testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
@@ -3842,7 +3843,7 @@ test "stopBackground Process still stopStream while a Monitor is live" {
     stopBackground(&model, &fx, process_row_id);
     try std.testing.expect(!model.environment_summary_open);
     try std.testing.expect(!model.is_streaming());
-    try std.testing.expectEqual(main.Phase.idle, model.phase);
+    try std.testing.expectEqual(model_exports.Phase.idle, model.phase);
     try std.testing.expectEqual(@as(u32, 0), model.streaming_session);
     try std.testing.expect(!model.sessionById(id).?.busy);
     try std.testing.expectEqual(@as(u32, 1), model.background_monitor_count);
@@ -4012,7 +4013,7 @@ test "stopBackground Process still stopStream while a Subagent is live" {
     stopBackground(&model, &fx, process_row_id);
     try std.testing.expect(!model.environment_summary_open);
     try std.testing.expect(!model.is_streaming());
-    try std.testing.expectEqual(main.Phase.idle, model.phase);
+    try std.testing.expectEqual(model_exports.Phase.idle, model.phase);
     try std.testing.expectEqual(@as(u32, 0), model.streaming_session);
     try std.testing.expect(!model.sessionById(id).?.busy);
     try std.testing.expectEqual(@as(u32, 1), model.background_subagent_count);

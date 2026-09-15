@@ -4,10 +4,10 @@
 //! `ReplyPath`, Turn / Folder / row types, `Msg`, `Model`), and
 //! `writeFixed` live in `model.zig` / `session.zig` / `i18n.zig`.
 //! This file only re-exports them (plus the three session-default
-//! strings that used to be defined on `main`). Re-exported from
-//! `main.zig` so `main.Msg` / `main.Model` / `main.max_turns` call
-//! sites keep working. Behavior is unchanged from the former `main`
-//! Model / Msg cluster.
+//! strings that used to be defined on `main`). Callers import this
+//! module directly (`model_exports.Msg` / `model_exports.Model` /
+//! `model_exports.max_turns`). Not re-exported from `main`. Behavior
+//! is unchanged from the former `main` Model / Msg cluster.
 
 const std = @import("std");
 const model = @import("model.zig");

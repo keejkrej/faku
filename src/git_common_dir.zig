@@ -38,12 +38,13 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const git_checkout = @import("git_checkout.zig");
 const git_toplevel = @import("git_toplevel.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
-const writeFixed = main.writeFixed;
+const writeFixed = model_exports.writeFixed;
 
 /// One-shot `git rev-parse --git-common-dir`. Distinct from
 /// git_toplevel (490+), git_remotes (480+), and the rest of the
@@ -141,7 +142,7 @@ pub fn firstStdoutLine(raw: []const u8) []const u8 {
 /// `resolveCommonDir` makes them absolute before storage.
 pub fn parseCommonDirLine(raw: []const u8) []const u8 {
     const line = firstStdoutLine(raw);
-    if (line.len == 0 or line.len > main.max_project_path) return "";
+    if (line.len == 0 or line.len > model_exports.max_project_path) return "";
     if (std.mem.indexOf(u8, line, "..") != null) return "";
     if (std.mem.indexOfScalar(u8, line, 0) != null) return "";
     return line;
@@ -187,7 +188,7 @@ pub fn resolveCommonDir(raw: []const u8, base: []const u8, buf: []u8) []const u8
     const need_sep = last != '/' and last != '\\';
     const sep_len: usize = if (need_sep) 1 else 0;
     const needed = root.len + sep_len + line.len;
-    if (needed > buf.len or needed > main.max_project_path) return "";
+    if (needed > buf.len or needed > model_exports.max_project_path) return "";
     @memcpy(buf[0..root.len], root);
     if (need_sep) buf[root.len] = '/';
     @memcpy(buf[root.len + sep_len ..][0..line.len], line);
@@ -233,7 +234,7 @@ fn resolveBase(model: *const Model) []const u8 {
 }
 
 fn storeResolved(model: *Model, raw: []const u8) void {
-    var resolved_buf: [main.max_project_path]u8 = undefined;
+    var resolved_buf: [model_exports.max_project_path]u8 = undefined;
     const resolved = resolveCommonDir(raw, resolveBase(model), resolved_buf[0..]);
     if (resolved.len == 0) return;
     writeFixed(&model.git_common_dir_path_storage, &model.git_common_dir_path_len, resolved);
@@ -403,7 +404,7 @@ test "probeSupported is true on macOS, Linux, and Windows" {
 }
 
 test "resolveCommonDir keeps absolute and joins relative against base" {
-    var buf: [main.max_project_path]u8 = undefined;
+    var buf: [model_exports.max_project_path]u8 = undefined;
     try std.testing.expectEqualStrings(
         "/tmp/repo/.git",
         resolveCommonDir("  /tmp/repo/.git  \n", "/tmp/other", buf[0..]),
@@ -430,7 +431,7 @@ test "resolveCommonDir keeps absolute and joins relative against base" {
 }
 
 test "resolveCommonDir keeps Windows drive-letter absolute and joins .git" {
-    var buf: [main.max_project_path]u8 = undefined;
+    var buf: [model_exports.max_project_path]u8 = undefined;
     try std.testing.expectEqualStrings(
         "C:/Users/me/proj/.git",
         resolveCommonDir("  C:\\Users\\me\\proj\\.git  \n", "/tmp/other", buf[0..]),
@@ -605,7 +606,7 @@ test "relative git-common-dir resolves against probe cwd or ready toplevel" {
     const key = model.git_common_dir_key;
     applyLine(&model, .{ .key = key, .line = ".git\n" });
     handleExit(&model, .{ .key = key, .reason = .exited, .code = 0 });
-    var expect_cwd: [main.max_project_path]u8 = undefined;
+    var expect_cwd: [model_exports.max_project_path]u8 = undefined;
     const from_cwd = resolveCommonDir(".git", project, expect_cwd[0..]);
     try std.testing.expect(from_cwd.len > 0);
     try std.testing.expectEqualStrings(from_cwd, readyPath(&model));

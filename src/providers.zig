@@ -72,6 +72,7 @@
 
 const std = @import("std");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const sidecar_keys = @import("sidecar_keys.zig");
 const protocol = @import("protocol.zig");
 const fx_probe = @import("fx_probe.zig");
@@ -79,7 +80,7 @@ const cli_probe = @import("cli_probe.zig");
 const copy_helpers = @import("copy.zig");
 const i18n = @import("i18n.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
 
 fn chrome(model: *const Model) i18n.ProvidersChrome {

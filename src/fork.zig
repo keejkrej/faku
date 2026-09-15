@@ -117,6 +117,7 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const store = @import("store.zig");
 const rewind = @import("rewind.zig");
@@ -124,11 +125,11 @@ const checkpoint = @import("checkpoint.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const protocol = @import("protocol.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
-const max_sessions = main.max_sessions;
-const max_turns = main.max_turns;
-const writeFixed = main.writeFixed;
+const max_sessions = model_exports.max_sessions;
+const max_turns = model_exports.max_turns;
+const writeFixed = model_exports.writeFixed;
 
 pub fn recordRewindRefIfPossible(model: *Model, fx: *Effects, session_id: u32) void {
     const session = model.sessionById(session_id) orelse return;
@@ -195,7 +196,7 @@ pub fn recordRewindRefIfPossible(model: *Model, fx: *Effects, session_id: u32) v
 /// `daemon_capture_turn_start_key`. Missing address, empty cwd, or
 /// Native 4 KiB stdin overflow returns false and leaves local
 /// capture alone. Does not replace local sync capture.
-fn trySpawnDaemonCaptureTurnStart(model: *Model, fx: *Effects, session: *main.Session) bool {
+fn trySpawnDaemonCaptureTurnStart(model: *Model, fx: *Effects, session: *model_exports.Session) bool {
     const address = store.resolveDaemonMirrorAddress(model);
     if (address.len == 0) return false;
     const cwd = session.projectPath();
@@ -385,7 +386,7 @@ fn clearDaemonHasRef(model: *Model) void {
 fn trySpawnDaemonHasRef(
     model: *Model,
     fx: *Effects,
-    session: *main.Session,
+    session: *model_exports.Session,
     seed_sha: []const u8,
 ) bool {
     const address = store.resolveDaemonMirrorAddress(model);
@@ -615,7 +616,7 @@ pub fn recordTurnEndIfPossible(model: *Model, fx: *Effects, session_id: u32) voi
 /// Native 4 KiB stdin overflow returns false and leaves local
 /// capture alone. Does not replace local sync capture. `turn_count`
 /// is the same `fakuFinishTurn` ordinal local end already used.
-fn trySpawnDaemonCaptureTurn(model: *Model, fx: *Effects, session: *main.Session, turn_count: u32) bool {
+fn trySpawnDaemonCaptureTurn(model: *Model, fx: *Effects, session: *model_exports.Session, turn_count: u32) bool {
     const address = store.resolveDaemonMirrorAddress(model);
     if (address.len == 0) return false;
     const cwd = session.projectPath();
@@ -835,7 +836,7 @@ pub fn applyRewindIfPossible(model: *Model, fx: *Effects) void {
 /// `daemon_restore_ref_key`. Missing address, empty cwd, non-git
 /// cwd, missing snapshot, unformattable ref, or Native 4 KiB stdin
 /// overflow returns false and leaves today's local restore/reset.
-fn trySpawnDaemonRestoreRef(model: *Model, fx: *Effects, session: *main.Session) bool {
+fn trySpawnDaemonRestoreRef(model: *Model, fx: *Effects, session: *model_exports.Session) bool {
     const address = store.resolveDaemonMirrorAddress(model);
     if (address.len == 0) return false;
     const cwd = session.projectPath();
@@ -914,7 +915,7 @@ fn completeStoredRewindTranscript(model: *Model, fx: *Effects) void {
     completeRewindTranscript(model, fx, session);
 }
 
-fn applyLocalRewindNow(model: *Model, fx: *Effects, session: *main.Session) void {
+fn applyLocalRewindNow(model: *Model, fx: *Effects, session: *model_exports.Session) void {
     const io = model.store_io orelse return;
     const sha = session.latestRewindSha() orelse return;
     const snapshot = session.worktreeSnapshotSha();
@@ -926,7 +927,7 @@ fn applyLocalRewindNow(model: *Model, fx: *Effects, session: *main.Session) void
     completeRewindTranscript(model, fx, session);
 }
 
-fn completeRewindTranscript(model: *Model, fx: *Effects, session: *main.Session) void {
+fn completeRewindTranscript(model: *Model, fx: *Effects, session: *model_exports.Session) void {
     const turn_n = checkpoint.fakuFinishTurn(model.turnCount(session.id));
     const cwd = session.projectPath();
     var ref_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
@@ -1063,7 +1064,7 @@ fn trySpawnDaemonDeleteTurnRefsAfter(
 /// `daemon_session_turn_refs_key`. Missing address, empty cwd,
 /// non-git cwd, or Native 4 KiB stdin overflow returns false and
 /// leaves local listing.
-fn trySpawnDaemonSessionTurnRefs(model: *Model, fx: *Effects, session: *main.Session) bool {
+fn trySpawnDaemonSessionTurnRefs(model: *Model, fx: *Effects, session: *model_exports.Session) bool {
     const address = store.resolveDaemonMirrorAddress(model);
     if (address.len == 0) return false;
     const cwd = session.projectPath();
@@ -1130,7 +1131,7 @@ pub fn handleDaemonSessionTurnRefsExit(model: *Model, fx: *Effects, exit: native
     _ = fx;
 }
 
-fn fillLocalSessionTurnRefs(model: *Model, session: *main.Session) void {
+fn fillLocalSessionTurnRefs(model: *Model, session: *model_exports.Session) void {
     const io = model.store_io orelse {
         clearSessionTurnRefCache(model);
         return;

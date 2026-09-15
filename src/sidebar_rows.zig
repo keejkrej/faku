@@ -7,14 +7,15 @@
 
 const std = @import("std");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const layout = @import("layout.zig");
 const shell = @import("shell.zig");
 const i18n = @import("i18n.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
 
-const Model = main.Model;
-const Session = main.Session;
-const SidebarRow = main.SidebarRow;
+const Model = model_exports.Model;
+const Session = model_exports.Session;
+const SidebarRow = model_exports.SidebarRow;
 const DateBucket = sidebar_dates.DateBucket;
 const sessionDateBucket = sidebar_dates.sessionDateBucket;
 const sessionRelativeTimeFor = sidebar_dates.sessionRelativeTimeFor;

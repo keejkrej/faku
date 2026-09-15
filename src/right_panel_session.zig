@@ -68,6 +68,7 @@
 
 const std = @import("std");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const layout = @import("layout.zig");
 const file_mention = @import("file_mention.zig");
 const review_diff = @import("review_diff.zig");
@@ -79,7 +80,7 @@ const browser_pane = @import("browser_pane.zig");
 const pty_terminal = @import("pty_terminal.zig");
 const open_url = @import("open_url.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
 const CachedPath = file_mention.CachedPath;
 

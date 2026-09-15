@@ -2,7 +2,7 @@
 //!
 //! `AvailableCommand` / `ModelOption` / `Session` live here.
 //! `writeFixed` is the shared fixed-buffer helper Session methods
-//! use (re-exported from `main`). Update arms stay in
+//! use (barrel: `model_exports`). Update arms stay in
 //! `session_actions.zig`. Model / Msg live in `model.zig`. `update`
 //! stays in `main.zig`. Behavior is unchanged from the former `main`
 //! Session cluster.

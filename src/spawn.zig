@@ -46,6 +46,7 @@
 
 const std = @import("std");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const protocol = @import("protocol.zig");
 const acp = @import("acp.zig");
@@ -57,19 +58,19 @@ const session_fork = @import("fork.zig");
 const providers = @import("providers.zig");
 const environment_summary = @import("environment_summary.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
-const Session = main.Session;
-const writeFixed = main.writeFixed;
+const Session = model_exports.Session;
+const writeFixed = model_exports.writeFixed;
 const fxPermissionMode = composer.fxPermissionMode;
 const stream_timer_key = effect_keys.stream_timer_key;
 const stream_interval_ms = effect_keys.stream_interval_ms;
 const fx_ask_key = effect_keys.fx_ask_key;
 const daemon_line_bytes = effect_keys.daemon_line_bytes;
-const max_fx_model = main.max_fx_model;
-const max_access_mode = main.max_access_mode;
-const default_access_mode = main.default_access_mode;
-const default_interaction_mode = main.default_interaction_mode;
+const max_fx_model = model_exports.max_fx_model;
+const max_access_mode = model_exports.max_access_mode;
+const default_access_mode = model_exports.default_access_mode;
+const default_interaction_mode = model_exports.default_interaction_mode;
 const fx_env_bin = main.fx_env_bin;
 const fx_ask_chdir_script = main.fx_ask_chdir_script;
 
@@ -493,7 +494,7 @@ pub fn startClaudePrint(model: *Model, fx: *Effects, session: *const Session, pr
     const resume_id = session.fxSessionId();
     const image_path = model.resolveSpawnImage();
 
-    var print_prompt_buf: [claude_image_prompt_prefix.len + main.max_project_path + 1 + main.max_draft]u8 = undefined;
+    var print_prompt_buf: [claude_image_prompt_prefix.len + model_exports.max_project_path + 1 + model_exports.max_draft]u8 = undefined;
     const print_prompt = if (image_path.len > 0)
         std.fmt.bufPrint(
             &print_prompt_buf,
@@ -647,13 +648,13 @@ pub fn startAmpExecute(model: *Model, fx: *Effects, session: *const Session, pro
     model.setLastSpawnCwd(cwd);
     model.setLastSpawnImagePath(image_path);
 
-    var at_path_buf: [1 + main.max_project_path]u8 = undefined;
+    var at_path_buf: [1 + model_exports.max_project_path]u8 = undefined;
     const at_path = if (image_path.len > 0)
         std.fmt.bufPrint(&at_path_buf, "@{s}", .{image_path}) catch ""
     else
         "";
 
-    var execute_prompt_buf: [1 + main.max_project_path + 1 + main.max_draft]u8 = undefined;
+    var execute_prompt_buf: [1 + model_exports.max_project_path + 1 + model_exports.max_draft]u8 = undefined;
     const execute_prompt = if (at_path.len > 0)
         std.fmt.bufPrint(&execute_prompt_buf, "{s}\n{s}", .{ at_path, prompt }) catch prompt
     else
@@ -724,7 +725,7 @@ pub fn startPiJson(model: *Model, fx: *Effects, session: *const Session, prompt:
     const cwd = model.resolveSpawnCwd(session);
     const image_path = model.resolveSpawnImage();
 
-    var at_path_buf: [1 + main.max_project_path]u8 = undefined;
+    var at_path_buf: [1 + model_exports.max_project_path]u8 = undefined;
     const at_path = if (image_path.len > 0)
         formatPiAtPath(&at_path_buf, image_path) orelse return false
     else
@@ -821,7 +822,7 @@ test "cursor + cli_available selects acp-proxy cursor-agent acp" {
     model.cli_available[@intFromEnum(protocol.ProviderId.cursor)] = true;
 
     startPrompt(&model, &fx, id, "hello cursor");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
@@ -859,7 +860,7 @@ test "opencode + cli_available selects acp-proxy opencode acp" {
     model.cli_available[@intFromEnum(protocol.ProviderId.opencode)] = true;
 
     startPrompt(&model, &fx, id, "hello opencode");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
@@ -894,7 +895,7 @@ test "opencode unavailable stays demo" {
     var model = Model{};
     const id = model.addSession("opencode missing", .opencode);
     startPrompt(&model, &fx, id, "no opencode");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
@@ -912,7 +913,7 @@ test "kimi + cli_available selects acp-proxy kimi acp" {
     model.cli_available[@intFromEnum(protocol.ProviderId.kimi)] = true;
 
     startPrompt(&model, &fx, id, "hello kimi");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
@@ -947,7 +948,7 @@ test "kimi unavailable stays demo" {
     var model = Model{};
     const id = model.addSession("kimi missing", .kimi);
     startPrompt(&model, &fx, id, "no kimi");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
@@ -987,7 +988,7 @@ test "cursor unavailable stays demo" {
     var model = Model{};
     const cursor_id = model.addSession("cursor missing", .cursor);
     startPrompt(&model, &fx, cursor_id, "no cursor-agent");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
@@ -1005,7 +1006,7 @@ test "grok + cli_available selects acp-proxy grok agent stdio" {
     model.cli_available[@intFromEnum(protocol.ProviderId.grok)] = true;
 
     startPrompt(&model, &fx, id, "hello grok");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
@@ -1045,7 +1046,7 @@ test "grok unavailable stays demo" {
     var model = Model{};
     const id = model.addSession("grok missing", .grok);
     startPrompt(&model, &fx, id, "no grok");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
@@ -1066,7 +1067,7 @@ test "fx path stays preferred when provider is fx even if cursor is available" {
     const id = model.addSession("fx first", .fx);
 
     startPrompt(&model, &fx, id, "keep fx");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
     const request = fx.pendingSpawnAt(0).?;
@@ -1098,7 +1099,7 @@ test "cursor image attach uses ACP image content block" {
     model.setDraftImagePath(image);
 
     startPrompt(&model, &fx, id, "describe this");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
@@ -1140,7 +1141,7 @@ test "kimi image attach uses ACP image content block" {
     model.setDraftImagePath(image);
 
     startPrompt(&model, &fx, id, "describe this");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
@@ -1182,7 +1183,7 @@ test "cursor image attach unknown type stays demo" {
     model.setDraftImagePath(image);
 
     startPrompt(&model, &fx, id, "describe this");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
@@ -1211,7 +1212,7 @@ test "cursor image attach overflow stays demo" {
     model.setDraftImagePath(image);
 
     startPrompt(&model, &fx, id, "describe this");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
@@ -1232,7 +1233,7 @@ test "cursor image attach missing file stays demo" {
     model.setDraftImagePath(".zig-cache/tmp/faku-acp-image-missing.png");
 
     startPrompt(&model, &fx, id, "describe this");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
@@ -1250,7 +1251,7 @@ test "claude + cli_available selects print-mode claude -p --output-format stream
     model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
 
     startPrompt(&model, &fx, id, "hello claude");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(model.fx_spawn_claude_json);
     try testing.expect(!model.fx_spawn_pi_json);
@@ -1316,7 +1317,7 @@ test "claude + stored fx_session_id resumes with --resume {id}" {
     if (model.sessionById(id)) |session| session.setFxSessionId("claude-sess-resume-1");
 
     startPrompt(&model, &fx, id, "continue that review");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(model.fx_spawn_claude_json);
     try testing.expect(!model.fx_spawn_pi_json);
@@ -1389,7 +1390,7 @@ test "claude empty fx_session_id omits --resume" {
     if (model.sessionById(id)) |session| session.setFxSessionId("");
 
     startPrompt(&model, &fx, id, "first send");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.fx_spawn_claude_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
     const request = fx.pendingSpawnAt(0).?;
@@ -1412,7 +1413,7 @@ test "claude unavailable stays demo" {
     var model = Model{};
     const id = model.addSession("claude missing", .claude);
     startPrompt(&model, &fx, id, "no claude");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(!model.fx_spawn_claude_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
@@ -1431,7 +1432,7 @@ test "codex + cli_available selects exec-mode codex exec {prompt}" {
     model.cli_available[@intFromEnum(protocol.ProviderId.codex)] = true;
 
     startPrompt(&model, &fx, id, "hello codex");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
@@ -1473,7 +1474,7 @@ test "codex unavailable stays demo" {
     var model = Model{};
     const id = model.addSession("codex missing", .codex);
     startPrompt(&model, &fx, id, "no codex");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
@@ -1491,7 +1492,7 @@ test "amp + cli_available selects execute-mode amp -x {prompt}" {
     model.cli_available[@intFromEnum(protocol.ProviderId.amp)] = true;
 
     startPrompt(&model, &fx, id, "hello amp");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
@@ -1533,7 +1534,7 @@ test "amp unavailable stays demo" {
     var model = Model{};
     const id = model.addSession("amp missing", .amp);
     startPrompt(&model, &fx, id, "no amp");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
@@ -1554,7 +1555,7 @@ test "fx path stays preferred when provider is fx even if amp is available" {
     const id = model.addSession("fx first", .fx);
 
     startPrompt(&model, &fx, id, "keep fx");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
     const request = fx.pendingSpawnAt(0).?;
@@ -1576,7 +1577,7 @@ test "fx session stays demo when fx is missing even if amp is available" {
     model.cli_available[@intFromEnum(protocol.ProviderId.amp)] = true;
     const id = model.addSession("fx missing", .fx);
     startPrompt(&model, &fx, id, "not amp");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
@@ -1605,7 +1606,7 @@ test "amp image attach uses execute @path in the -x prompt" {
     model.setDraftImagePath(image);
 
     startPrompt(&model, &fx, id, "describe this");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
@@ -1654,7 +1655,7 @@ test "amp unavailable image attach stays demo" {
     model.setDraftImagePath(image);
 
     startPrompt(&model, &fx, id, "describe this");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
@@ -1679,7 +1680,7 @@ test "amp execute-mode reuses fx_ask_chdir_script when project cwd exists" {
     if (model.sessionById(id)) |session| session.setProjectPath(project);
 
     startPrompt(&model, &fx, id, "in project");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
     const request = fx.pendingSpawnAt(0).?;
@@ -1708,7 +1709,7 @@ test "pi + cli_available selects json-mode pi --mode json {prompt}" {
     model.cli_available[@intFromEnum(protocol.ProviderId.pi)] = true;
 
     startPrompt(&model, &fx, id, "hello pi");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(model.fx_spawn_pi_json);
     try testing.expect(!model.fx_spawn_claude_json);
@@ -1759,7 +1760,7 @@ test "pi unavailable stays demo" {
     var model = Model{};
     const id = model.addSession("pi missing", .pi);
     startPrompt(&model, &fx, id, "no pi");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(!model.fx_spawn_pi_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
@@ -1781,7 +1782,7 @@ test "fx path stays preferred when provider is fx even if pi is available" {
     const id = model.addSession("fx first", .fx);
 
     startPrompt(&model, &fx, id, "keep fx");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
     const request = fx.pendingSpawnAt(0).?;
@@ -1803,7 +1804,7 @@ test "fx session stays demo when fx is missing even if pi is available" {
     model.cli_available[@intFromEnum(protocol.ProviderId.pi)] = true;
     const id = model.addSession("fx missing", .fx);
     startPrompt(&model, &fx, id, "not pi");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
@@ -1832,7 +1833,7 @@ test "pi image attach uses json-mode @path" {
     model.setDraftImagePath(image);
 
     startPrompt(&model, &fx, id, "describe this");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(model.fx_spawn_pi_json);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
@@ -1887,7 +1888,7 @@ test "pi unavailable image attach stays demo" {
     model.setDraftImagePath(image);
 
     startPrompt(&model, &fx, id, "describe this");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(!model.fx_spawn_pi_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
@@ -1913,7 +1914,7 @@ test "pi json-mode reuses fx_ask_chdir_script when project cwd exists" {
     if (model.sessionById(id)) |session| session.setProjectPath(project);
 
     startPrompt(&model, &fx, id, "in project");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(model.fx_spawn_pi_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
@@ -1958,7 +1959,7 @@ test "fx path stays preferred when provider is fx even if claude is available" {
     const id = model.addSession("fx first", .fx);
 
     startPrompt(&model, &fx, id, "keep fx");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.fx_spawn_acp);
     try testing.expect(!model.fx_spawn_claude_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
@@ -1981,7 +1982,7 @@ test "fx session stays demo when fx is missing even if claude is available" {
     model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
     const id = model.addSession("fx missing", .fx);
     startPrompt(&model, &fx, id, "not claude");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(!model.fx_spawn_claude_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
@@ -2009,7 +2010,7 @@ test "claude image attach uses print-mode path in the -p prompt" {
     model.setDraftImagePath(image);
 
     startPrompt(&model, &fx, id, "describe this");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(model.fx_spawn_claude_json);
     try testing.expect(!model.fx_spawn_pi_json);
@@ -2083,7 +2084,7 @@ test "claude image attach + stored fx_session_id uses path-in-prompt and --resum
     if (model.sessionById(id)) |session| session.setFxSessionId("claude-sess-image-1");
 
     startPrompt(&model, &fx, id, "describe this");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(model.fx_spawn_claude_json);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
@@ -2148,7 +2149,7 @@ test "claude unavailable image attach stays demo" {
     model.setDraftImagePath(image);
 
     startPrompt(&model, &fx, id, "describe this");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(!model.fx_spawn_claude_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
@@ -2175,10 +2176,10 @@ test "claude image attach overflow stays demo" {
     model.selected = id;
     model.setDraftImagePath(image);
 
-    var long_prompt: [main.max_draft + main.max_project_path]u8 = undefined;
+    var long_prompt: [model_exports.max_draft + model_exports.max_project_path]u8 = undefined;
     @memset(&long_prompt, 'x');
     startPrompt(&model, &fx, id, &long_prompt);
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(!model.fx_spawn_claude_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
@@ -2205,7 +2206,7 @@ test "claude print-mode reuses fx_ask_chdir_script when project cwd exists" {
     if (model.sessionById(id)) |session| session.setProjectPath(project);
 
     startPrompt(&model, &fx, id, "in project");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(model.fx_spawn_claude_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
@@ -2248,7 +2249,7 @@ test "claude print-mode chdir + stored fx_session_id keeps resume as argv slots"
     }
 
     startPrompt(&model, &fx, id, "in project");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.fx_spawn_claude_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
     const request = fx.pendingSpawnAt(0).?;
@@ -2283,7 +2284,7 @@ test "fx path stays preferred when provider is fx even if codex is available" {
     const id = model.addSession("fx first", .fx);
 
     startPrompt(&model, &fx, id, "keep fx");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
     const request = fx.pendingSpawnAt(0).?;
@@ -2305,7 +2306,7 @@ test "fx session stays demo when fx is missing even if codex is available" {
     model.cli_available[@intFromEnum(protocol.ProviderId.codex)] = true;
     const id = model.addSession("fx missing", .fx);
     startPrompt(&model, &fx, id, "not codex");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
@@ -2332,7 +2333,7 @@ test "codex image attach uses exec --image" {
     model.setDraftImagePath(image);
 
     startPrompt(&model, &fx, id, "describe this");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
@@ -2383,7 +2384,7 @@ test "codex unavailable image attach stays demo" {
     model.setDraftImagePath(image);
 
     startPrompt(&model, &fx, id, "describe this");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
@@ -2408,7 +2409,7 @@ test "codex exec reuses fx_ask_chdir_script when project cwd exists" {
     if (model.sessionById(id)) |session| session.setProjectPath(project);
 
     startPrompt(&model, &fx, id, "in project");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
     const request = fx.pendingSpawnAt(0).?;
@@ -2446,7 +2447,7 @@ test "grok image attach uses ACP image content block" {
     model.setDraftImagePath(image);
 
     startPrompt(&model, &fx, id, "describe this");
-    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
@@ -2488,7 +2489,7 @@ test "startPrompt with last_daemon_address spawns CaptureTurnStart sidecar and s
     if (model.sessionById(id)) |session| session.setProjectPath(project);
 
     startPrompt(&model, &fx, id, "ship the capture cut");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(model.is_streaming());
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expect(model.daemon_capture_turn_start_key != 0);
@@ -2530,7 +2531,7 @@ test "startPrompt without a daemon address does not spawn CaptureTurnStart" {
     try testing.expectEqual(@as(usize, 0), store.resolveDaemonMirrorAddress(&model).len);
 
     startPrompt(&model, &fx, id, "no daemon capture");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expectEqual(@as(u64, 0), model.daemon_capture_turn_start_key);
     var i: usize = 0;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {

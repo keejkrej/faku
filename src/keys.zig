@@ -1,7 +1,8 @@
 //! Keyboard dispatch: `WidgetKeyboardEvent` → `Msg`.
 //!
-//! Chord matching and Cmd/Ctrl mappings live here. `Msg` stays in
-//! `main.zig`. Behavior is unchanged from the former `main.onKey`.
+//! Chord matching and Cmd/Ctrl mappings live here. `Msg` lives in
+//! `model.zig` (imported via `model_exports`). Behavior is unchanged
+//! from the former `main.onKey`.
 //! Files preview find: Waku `secondary-alt-c` / `w` / `r` toggles and
 //! `secondary-alt-enter` ReplaceAllMatches when Native exposes alt/option.
 //! Enter in a find `search-field` is FindNext via Native `on-submit`
@@ -18,10 +19,10 @@
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
-const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 
 const canvas = native_sdk.canvas;
-const Msg = main.Msg;
+const Msg = model_exports.Msg;
 
 pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
     if (std.ascii.eqlIgnoreCase(keyboard.key, "escape")) return .stop;

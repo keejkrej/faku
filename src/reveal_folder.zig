@@ -22,9 +22,10 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const i18n = @import("i18n.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
 
 /// Distinct from pick_folder (29), maximize (30), pick_image (31),
@@ -45,7 +46,7 @@ pub const windows_bin = "explorer.exe";
 
 /// Absolute reveal target: session `project_path` or an outside-project
 /// markdown-link path / its parent directory. Matches `open_editor.max_open_path`.
-pub const max_reveal_path = main.max_project_path + 256;
+pub const max_reveal_path = model_exports.max_project_path + 256;
 
 pub const Tool = enum { open, xdg_open, explorer };
 
@@ -189,7 +190,7 @@ pub fn startRevealPath(model: *Model, fx: *Effects, path: []const u8) RevealPath
     const io = model.store_io orelse return .no_path;
     const target = revealTargetDir(io, trimmed) orelse return .no_path;
     if (hostBin() == null) return .missing_bin;
-    main.writeFixed(&model.reveal_folder_path_storage, &model.reveal_folder_path_len, target);
+    model_exports.writeFixed(&model.reveal_folder_path_storage, &model.reveal_folder_path_len, target);
     model.reveal_folder_live = true;
     var argv_buf: [argv_len][]const u8 = undefined;
     fx.spawn(.{
