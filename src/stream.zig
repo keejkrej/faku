@@ -29,6 +29,7 @@
 
 const std = @import("std");
 const main = @import("main.zig");
+const effect_keys = @import("effect_keys.zig");
 const protocol = @import("protocol.zig");
 const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
@@ -44,10 +45,10 @@ const usage_meter = @import("usage_meter.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
-const stream_timer_key = main.stream_timer_key;
-const fx_ask_key = main.fx_ask_key;
-const daemon_line_bytes = main.daemon_line_bytes;
-const stream_chunk_bytes = main.stream_chunk_bytes;
+const stream_timer_key = effect_keys.stream_timer_key;
+const fx_ask_key = effect_keys.fx_ask_key;
+const daemon_line_bytes = effect_keys.daemon_line_bytes;
+const stream_chunk_bytes = effect_keys.stream_chunk_bytes;
 const demo_ticks_complete = main.demo_ticks_complete;
 const demo_reply = main.demo_reply;
 const max_queued_text = main.max_queued_text;

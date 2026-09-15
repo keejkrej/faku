@@ -46,6 +46,7 @@
 
 const std = @import("std");
 const main = @import("main.zig");
+const effect_keys = @import("effect_keys.zig");
 const protocol = @import("protocol.zig");
 const acp = @import("acp.zig");
 const store = @import("store.zig");
@@ -61,10 +62,10 @@ const Effects = main.Effects;
 const Session = main.Session;
 const writeFixed = main.writeFixed;
 const fxPermissionMode = composer.fxPermissionMode;
-const stream_timer_key = main.stream_timer_key;
-const stream_interval_ms = main.stream_interval_ms;
-const fx_ask_key = main.fx_ask_key;
-const daemon_line_bytes = main.daemon_line_bytes;
+const stream_timer_key = effect_keys.stream_timer_key;
+const stream_interval_ms = effect_keys.stream_interval_ms;
+const fx_ask_key = effect_keys.fx_ask_key;
+const daemon_line_bytes = effect_keys.daemon_line_bytes;
 const max_fx_model = main.max_fx_model;
 const max_access_mode = main.max_access_mode;
 const default_access_mode = main.default_access_mode;
@@ -826,7 +827,7 @@ test "cursor + cli_available selects acp-proxy cursor-agent acp" {
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
-    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
     try testing.expect(testArgvHas(request.argv, "--"));
     try testing.expect(testArgvHas(request.argv, "cursor-agent"));
@@ -864,7 +865,7 @@ test "opencode + cli_available selects acp-proxy opencode acp" {
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
-    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
     try testing.expect(testArgvHas(request.argv, "--"));
     try testing.expect(testArgvHas(request.argv, "opencode"));
@@ -917,7 +918,7 @@ test "kimi + cli_available selects acp-proxy kimi acp" {
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
-    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
     try testing.expect(testArgvHas(request.argv, "--"));
     try testing.expect(testArgvHas(request.argv, "kimi"));
@@ -1010,7 +1011,7 @@ test "grok + cli_available selects acp-proxy grok agent stdio" {
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
-    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
     try testing.expect(testArgvHas(request.argv, "--"));
     try testing.expect(testArgvHas(request.argv, "grok"));
@@ -1257,7 +1258,7 @@ test "claude + cli_available selects print-mode claude -p --output-format stream
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
-    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(testArgvHas(request.argv, "claude"));
     try testing.expect(testArgvHas(request.argv, "-p"));
     try testing.expect(testArgvHas(request.argv, "--output-format"));
@@ -1323,7 +1324,7 @@ test "claude + stored fx_session_id resumes with --resume {id}" {
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
-    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(testArgvHas(request.argv, "claude"));
     try testing.expect(testArgvHas(request.argv, "-p"));
     try testing.expect(testArgvHas(request.argv, "--output-format"));
@@ -1436,7 +1437,7 @@ test "codex + cli_available selects exec-mode codex exec {prompt}" {
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
-    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(testArgvHas(request.argv, "codex"));
     try testing.expect(testArgvHas(request.argv, "exec"));
     try testing.expect(testArgvHas(request.argv, "hello codex"));
@@ -1496,7 +1497,7 @@ test "amp + cli_available selects execute-mode amp -x {prompt}" {
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
-    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(testArgvHas(request.argv, "amp"));
     try testing.expect(testArgvHas(request.argv, "-x"));
     try testing.expect(testArgvHas(request.argv, "hello amp"));
@@ -1715,7 +1716,7 @@ test "pi + cli_available selects json-mode pi --mode json {prompt}" {
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
-    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(testArgvHas(request.argv, "pi"));
     try testing.expect(testArgvHas(request.argv, "--mode"));
     try testing.expect(testArgvHas(request.argv, "json"));

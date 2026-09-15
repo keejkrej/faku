@@ -18,6 +18,7 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const effect_keys = @import("effect_keys.zig");
 const protocol = @import("protocol.zig");
 
 const Model = main.Model;
@@ -110,8 +111,8 @@ test "probeKey is per-id and skips fx_probe_key / ask / daemon" {
     try std.testing.expectEqual(@as(u64, 607), probeKey(.pi));
     try std.testing.expectEqual(@as(u64, 608), probeKey(.kimi));
     try std.testing.expect(probeKey(.claude) != main.fx_probe_key);
-    try std.testing.expect(probeKey(.claude) != main.fx_ask_key);
-    try std.testing.expect(probeKey(.claude) != main.daemon_proxy_key_first);
+    try std.testing.expect(probeKey(.claude) != effect_keys.fx_ask_key);
+    try std.testing.expect(probeKey(.claude) != effect_keys.daemon_proxy_key_first);
     try std.testing.expect(probeKey(.pi) != main.fx_probe_key);
     try std.testing.expect(probeKey(.kimi) != main.fx_probe_key);
     try std.testing.expectEqual(protocol.ProviderId.claude, fromProbeKey(601).?);

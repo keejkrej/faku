@@ -4,9 +4,10 @@
 //! `fx ask` / ACP child (2), daemon-proxy band start (4), and overlapping
 //! fx spawn band start (64). Probe stays on `fx_probe_key` (3) in
 //! `fx_probe.zig`. Sidecar line cap, demo stream tick, and transcript
-//! pin overshoot live here too. Re-exported from `main.zig` so
-//! `main.stream_timer_key` / `main.fx_ask_key` call sites keep working.
-//! Behavior is unchanged from the former `main` constants.
+//! pin overshoot live here too. Callers import this module directly
+//! (`effect_keys.stream_timer_key` / `effect_keys.fx_ask_key`).
+//! Not re-exported from `main`. Behavior is unchanged from the former
+//! `main` constants.
 
 const std = @import("std");
 

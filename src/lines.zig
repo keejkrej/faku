@@ -21,6 +21,7 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const effect_keys = @import("effect_keys.zig");
 const sidecar_keys = @import("sidecar_keys.zig");
 const protocol = @import("protocol.zig");
 const acp = @import("acp.zig");
@@ -67,7 +68,7 @@ const Session = main.Session;
 const max_line_keep = main.max_line_keep;
 const max_fx_session_id = main.max_fx_session_id;
 const max_body = main.max_body;
-const fx_ask_key = main.fx_ask_key;
+const fx_ask_key = effect_keys.fx_ask_key;
 const maximize_window_key = maximize_window.maximize_window_key;
 const pick_image_key = sidecar_keys.pick_image_key;
 const pick_folder_key = sidecar_keys.pick_folder_key;

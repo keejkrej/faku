@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const effect_keys = @import("effect_keys.zig");
 const layout_mod = @import("layout.zig");
 const shell = @import("shell.zig");
 const protocol = @import("protocol.zig");
@@ -489,12 +490,12 @@ test "boot is fx-first and New / send / ticks / stop drive the demo" {
     try testing.expectEqual(@as(usize, 1), countRole(&model, .user));
     try testing.expectEqual(@as(usize, 1), countRole(&model, .assistant));
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
-    try testing.expectEqual(main.stream_timer_key, fx.pendingTimerAt(0).?.key);
+    try testing.expectEqual(effect_keys.stream_timer_key, fx.pendingTimerAt(0).?.key);
     try testing.expectEqual(@as(u64, 90), fx.pendingTimerAt(0).?.interval_ms);
 
     var n: u32 = 0;
     while (n < 4) : (n += 1) {
-        main.update(&model, .{ .tick = .{ .key = main.stream_timer_key } }, &fx);
+        main.update(&model, .{ .tick = .{ .key = effect_keys.stream_timer_key } }, &fx);
     }
     try testing.expect(model.is_streaming());
     try testing.expect(lastAssistant(&model).len > 0);
@@ -553,7 +554,7 @@ test "appending a turn renders last and pins the transcript value" {
 
     try testing.expectEqual(@as(u32, 4), model.turnCount(id));
     try testing.expectEqualStrings("newest thought stays last", model.turn_store[model.turn_count - 1].text());
-    try testing.expectEqual(main.transcript_pin_offset, model.transcript_scroll);
+    try testing.expectEqual(effect_keys.transcript_pin_offset, model.transcript_scroll);
     try testing.expect(model.transcript_pinned);
     try testing.expect(!model.show_jump_latest());
 
@@ -589,7 +590,7 @@ test "appending a turn renders last and pins the transcript value" {
     try testing.expectEqual(Msg.jump_latest, tree.msgForPointer(jump.id, .up).?);
 
     main.update(&model, tree.msgForPointer(jump.id, .up).?, &fx);
-    try testing.expectEqual(main.transcript_pin_offset, model.transcript_scroll);
+    try testing.expectEqual(effect_keys.transcript_pin_offset, model.transcript_scroll);
     try testing.expect(model.transcript_pinned);
     try testing.expect(!model.show_jump_latest());
 
@@ -608,7 +609,7 @@ test "appending a turn renders last and pins the transcript value" {
     main.update(&model, .{ .transcript_scrolled = at_end }, &fx);
     try testing.expect(model.transcript_pinned);
     _ = model.appendTurn(id, .user, "follow-up at the bottom");
-    try testing.expectEqual(main.transcript_pin_offset, model.transcript_scroll);
+    try testing.expectEqual(effect_keys.transcript_pin_offset, model.transcript_scroll);
     try testing.expect(model.transcript_pinned);
 
     tree = try buildTree(arena, &model);
@@ -1276,7 +1277,7 @@ fn beginLiveTurn(model: *Model, title: []const u8, assistant: []const u8) u32 {
 fn tickDemoUntilIdle(model: *Model, fx: *Effects) void {
     var n: u32 = 0;
     while (n < 16 and model.is_streaming()) : (n += 1) {
-        main.update(model, .{ .tick = .{ .key = main.stream_timer_key } }, fx);
+        main.update(model, .{ .tick = .{ .key = effect_keys.stream_timer_key } }, fx);
     }
 }
 
@@ -1331,7 +1332,7 @@ test "no notify while a turn is still streaming" {
 
     var model = Model{};
     _ = beginLiveTurn(&model, "still going", "");
-    main.update(&model, .{ .tick = .{ .key = main.stream_timer_key } }, &fx);
+    main.update(&model, .{ .tick = .{ .key = effect_keys.stream_timer_key } }, &fx);
     try testing.expect(model.is_streaming());
     try testing.expectEqual(@as(usize, 0), sink.platform.notificationCount());
 }
@@ -1361,9 +1362,9 @@ test "stop cancel and error do not notify" {
 
     var failed = Model{};
     _ = beginLiveTurn(&failed, "failed ask", "partial");
-    failed.fx_spawn_key = main.fx_ask_key;
+    failed.fx_spawn_key = effect_keys.fx_ask_key;
     main.update(&failed, .{ .fx_exit = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .code = 1,
         .reason = .exited,
     } }, &fx);
@@ -1379,9 +1380,9 @@ test "empty successful turn notifies Reply ready" {
 
     var model = Model{};
     _ = beginLiveTurn(&model, "quiet", "");
-    model.fx_spawn_key = main.fx_ask_key;
+    model.fx_spawn_key = effect_keys.fx_ask_key;
     main.update(&model, .{ .fx_exit = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .code = 0,
         .reason = .exited,
     } }, &fx);
@@ -1404,9 +1405,9 @@ test "long assistant body is truncated on the notification" {
 
     var model = Model{};
     _ = beginLiveTurn(&model, "long reply", long);
-    model.fx_spawn_key = main.fx_ask_key;
+    model.fx_spawn_key = effect_keys.fx_ask_key;
     main.update(&model, .{ .fx_exit = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .code = 0,
         .reason = .exited,
     } }, &fx);
@@ -1554,7 +1555,7 @@ test "send without fx still starts the demo timer" {
     try testing.expect(model.is_streaming());
     try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
-    try testing.expectEqual(main.stream_timer_key, fx.pendingTimerAt(0).?.key);
+    try testing.expectEqual(effect_keys.stream_timer_key, fx.pendingTimerAt(0).?.key);
     try testing.expectEqual(@as(u64, 90), fx.pendingTimerAt(0).?.interval_ms);
 }
 
@@ -1577,7 +1578,7 @@ test "send with fx_available spawns one-shot fx acp and streams session/update t
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
-    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(argvHas(request.argv, acp_proxy.SUBCOMMAND));
     try testing.expect(argvHas(request.argv, "--"));
     try testing.expect(argvHas(request.argv, "acp"));
@@ -1598,17 +1599,17 @@ test "send with fx_available spawns one-shot fx acp and streams session/update t
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"cwd\":\".\"") != null);
 
     const before_len = lastAssistant(&model).len;
-    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"hello from fx acp\"}}}}");
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"hello from fx acp\"}}}}");
     drainEffects(&model, &fx);
     try testing.expect(lastAssistant(&model).len > before_len);
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from fx acp") != null);
 
-    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/request_permission\",\"id\":5,\"params\":{\"sessionId\":\"s1\",\"toolCall\":{\"toolCallId\":\"call_001\"},\"options\":[{\"optionId\":\"allow_once\",\"name\":\"Allow once\",\"kind\":\"allow_once\"},{\"optionId\":\"reject_once\",\"name\":\"Reject\",\"kind\":\"reject_once\"}]}}");
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/request_permission\",\"id\":5,\"params\":{\"sessionId\":\"s1\",\"toolCall\":{\"toolCallId\":\"call_001\"},\"options\":[{\"optionId\":\"allow_once\",\"name\":\"Allow once\",\"kind\":\"allow_once\"},{\"optionId\":\"reject_once\",\"name\":\"Reject\",\"kind\":\"reject_once\"}]}}");
     drainEffects(&model, &fx);
     try testing.expect(model.is_streaming());
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "allow_once") == null);
 
-    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
 }
@@ -1634,7 +1635,7 @@ test "send with cursor cli_available spawns acp-proxy cursor-agent acp and strea
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
-    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(argvHas(request.argv, acp_proxy.SUBCOMMAND));
     try testing.expect(argvHas(request.argv, "--"));
     try testing.expect(argvHas(request.argv, "cursor-agent"));
@@ -1652,12 +1653,12 @@ test "send with cursor cli_available spawns acp-proxy cursor-agent acp and strea
     try testing.expect(std.mem.indexOf(u8, request.stdin, "what does this repo do") != null);
 
     const before_len = lastAssistant(&model).len;
-    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"hello from cursor acp\"}}}}");
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"hello from cursor acp\"}}}}");
     drainEffects(&model, &fx);
     try testing.expect(lastAssistant(&model).len > before_len);
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from cursor acp") != null);
 
-    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
 }
@@ -1683,7 +1684,7 @@ test "send with opencode cli_available spawns acp-proxy opencode acp and streams
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
-    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(argvHas(request.argv, acp_proxy.SUBCOMMAND));
     try testing.expect(argvHas(request.argv, "--"));
     try testing.expect(argvHas(request.argv, "opencode"));
@@ -1702,12 +1703,12 @@ test "send with opencode cli_available spawns acp-proxy opencode acp and streams
     try testing.expect(std.mem.indexOf(u8, request.stdin, "what does this repo do") != null);
 
     const before_len = lastAssistant(&model).len;
-    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"hello from opencode acp\"}}}}");
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"hello from opencode acp\"}}}}");
     drainEffects(&model, &fx);
     try testing.expect(lastAssistant(&model).len > before_len);
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from opencode acp") != null);
 
-    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
 }
@@ -1751,7 +1752,7 @@ test "send with kimi cli_available spawns acp-proxy kimi acp and streams session
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
-    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(argvHas(request.argv, acp_proxy.SUBCOMMAND));
     try testing.expect(argvHas(request.argv, "--"));
     try testing.expect(argvHas(request.argv, "kimi"));
@@ -1770,12 +1771,12 @@ test "send with kimi cli_available spawns acp-proxy kimi acp and streams session
     try testing.expect(std.mem.indexOf(u8, request.stdin, "what does this repo do") != null);
 
     const before_len = lastAssistant(&model).len;
-    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"hello from kimi acp\"}}}}");
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"hello from kimi acp\"}}}}");
     drainEffects(&model, &fx);
     try testing.expect(lastAssistant(&model).len > before_len);
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from kimi acp") != null);
 
-    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
 }
@@ -1819,7 +1820,7 @@ test "send with grok cli_available spawns acp-proxy grok agent stdio and streams
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
-    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(argvHas(request.argv, acp_proxy.SUBCOMMAND));
     try testing.expect(argvHas(request.argv, "--"));
     try testing.expect(argvHas(request.argv, "grok"));
@@ -1843,12 +1844,12 @@ test "send with grok cli_available spawns acp-proxy grok agent stdio and streams
     try testing.expect(std.mem.indexOf(u8, request.stdin, "what does this repo do") != null);
 
     const before_len = lastAssistant(&model).len;
-    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"hello from grok agent stdio\"}}}}");
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"hello from grok agent stdio\"}}}}");
     drainEffects(&model, &fx);
     try testing.expect(lastAssistant(&model).len > before_len);
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from grok agent stdio") != null);
 
-    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
 }
@@ -1912,7 +1913,7 @@ test "send with claude cli_available spawns stream-json print-mode and streams t
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
-    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(argvHas(request.argv, "claude"));
     try testing.expect(argvHas(request.argv, "-p"));
     try testing.expect(argvHas(request.argv, "--output-format"));
@@ -1952,24 +1953,24 @@ test "send with claude cli_available spawns stream-json print-mode and streams t
     try testing.expectEqual(partial_at + 1, forward_at);
     try testing.expectEqual(forward_at + 1, prompt_at);
 
-    try fx.feedLine(main.fx_ask_key, "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"claude-sess-send\"}");
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"claude-sess-send\"}");
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("claude-sess-send", model.sessionById(id).?.fxSessionId());
     try testing.expectEqualStrings("", lastAssistant(&model));
 
-    try fx.feedLine(main.fx_ask_key, "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\"}}");
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\"}}");
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("", lastAssistant(&model));
 
     const before_len = lastAssistant(&model).len;
-    try fx.feedLine(main.fx_ask_key, "{\"type\":\"stream_event\",\"event\":{\"delta\":{\"type\":\"text_delta\",\"text\":\"hello from claude stream-json\"}}}");
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"type\":\"stream_event\",\"event\":{\"delta\":{\"type\":\"text_delta\",\"text\":\"hello from claude stream-json\"}}}");
     drainEffects(&model, &fx);
     try testing.expect(lastAssistant(&model).len > before_len);
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from claude stream-json") != null);
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "assistant") == null);
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "stream_event") == null);
 
-    try fx.feedExit(main.fx_ask_key, 0);
+    try fx.feedExit(effect_keys.fx_ask_key, 0);
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
 }
@@ -2043,7 +2044,7 @@ test "send with codex cli_available spawns exec and streams stdout as assistant 
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
-    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(argvHas(request.argv, "codex"));
     try testing.expect(argvHas(request.argv, "exec"));
     try testing.expect(argvHas(request.argv, "what does this repo do"));
@@ -2066,12 +2067,12 @@ test "send with codex cli_available spawns exec and streams stdout as assistant 
     try testing.expectEqual(exec_at + 1, prompt_at);
 
     const before_len = lastAssistant(&model).len;
-    try fx.feedLine(main.fx_ask_key, "hello from codex exec");
+    try fx.feedLine(effect_keys.fx_ask_key, "hello from codex exec");
     drainEffects(&model, &fx);
     try testing.expect(lastAssistant(&model).len > before_len);
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from codex exec") != null);
 
-    try fx.feedExit(main.fx_ask_key, 0);
+    try fx.feedExit(effect_keys.fx_ask_key, 0);
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
 }
@@ -2115,7 +2116,7 @@ test "send with amp cli_available spawns execute-mode and streams stdout as assi
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
-    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(argvHas(request.argv, "amp"));
     try testing.expect(argvHas(request.argv, "-x"));
     try testing.expect(argvHas(request.argv, "what files are markdown"));
@@ -2139,12 +2140,12 @@ test "send with amp cli_available spawns execute-mode and streams stdout as assi
     try testing.expectEqual(x_at + 1, prompt_at);
 
     const before_len = lastAssistant(&model).len;
-    try fx.feedLine(main.fx_ask_key, "hello from amp execute-mode");
+    try fx.feedLine(effect_keys.fx_ask_key, "hello from amp execute-mode");
     drainEffects(&model, &fx);
     try testing.expect(lastAssistant(&model).len > before_len);
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from amp execute-mode") != null);
 
-    try fx.feedExit(main.fx_ask_key, 0);
+    try fx.feedExit(effect_keys.fx_ask_key, 0);
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
 }
@@ -2190,7 +2191,7 @@ test "send with pi cli_available spawns json-mode and streams text_delta as assi
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
-    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(argvHas(request.argv, "pi"));
     try testing.expect(argvHas(request.argv, "--mode"));
     try testing.expect(argvHas(request.argv, "json"));
@@ -2215,23 +2216,23 @@ test "send with pi cli_available spawns json-mode and streams text_delta as assi
     try testing.expectEqual(mode_at + 1, json_at);
     try testing.expectEqual(json_at + 1, prompt_at);
 
-    try fx.feedLine(main.fx_ask_key, "{\"type\":\"session\",\"id\":\"pi-sess-send\",\"version\":3}");
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"type\":\"session\",\"id\":\"pi-sess-send\",\"version\":3}");
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("pi-sess-send", model.sessionById(id).?.fxSessionId());
     try testing.expectEqualStrings("", lastAssistant(&model));
 
-    try fx.feedLine(main.fx_ask_key, "{\"type\":\"agent_start\"}");
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"type\":\"agent_start\"}");
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("", lastAssistant(&model));
 
     const before_len = lastAssistant(&model).len;
-    try fx.feedLine(main.fx_ask_key, "{\"type\":\"message_update\",\"assistantMessageEvent\":{\"type\":\"text_delta\",\"delta\":\"hello from pi json\"}}");
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"type\":\"message_update\",\"assistantMessageEvent\":{\"type\":\"text_delta\",\"delta\":\"hello from pi json\"}}");
     drainEffects(&model, &fx);
     try testing.expect(lastAssistant(&model).len > before_len);
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from pi json") != null);
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "agent_start") == null);
 
-    try fx.feedExit(main.fx_ask_key, 0);
+    try fx.feedExit(effect_keys.fx_ask_key, 0);
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
 }
@@ -2285,7 +2286,7 @@ test "fx acp session/new cwd is session project_path when it exists" {
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
-    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(argvHas(request.argv, "acp"));
     try testing.expect(!argvHas(request.argv, "ask"));
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/new\"") != null);
@@ -2325,18 +2326,18 @@ test "fx acp session/new persists fx_session_id and later send uses session/resu
     try testing.expect(std.mem.indexOf(u8, first.stdin, "\"method\":\"session/prompt\"") != null);
     try testing.expect(std.mem.indexOf(u8, first.stdin, "session/resume") == null);
 
-    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"sessionId\":\"fx-test-1\"}}");
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"sessionId\":\"fx-test-1\"}}");
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("fx-test-1", model.sessionById(id).?.fxSessionId());
     try testing.expectEqual(@as(usize, 0), lastAssistant(&model).len);
 
-    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"fx-test-1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"plain reply\"}}}}");
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"fx-test-1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"plain reply\"}}}}");
     drainEffects(&model, &fx);
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "plain reply") != null);
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "session_id") == null);
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "sessionId") == null);
 
-    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
 
@@ -3860,7 +3861,7 @@ test "newSession draft loads on New Task and is discarded after first send" {
     try testing.expectEqual(@as(usize, 0), model.draft().len);
     var n: u32 = 0;
     while (n < 16 and model.is_streaming()) : (n += 1) {
-        main.update(&model, .{ .tick = .{ .key = main.stream_timer_key } }, &fx);
+        main.update(&model, .{ .tick = .{ .key = effect_keys.stream_timer_key } }, &fx);
     }
 
     var after = Model{};
@@ -3944,13 +3945,13 @@ test "fx ask stdout skill warning is not turn text" {
     model.phase = .streaming;
     model.reply_path = .fx;
     model.fx_spawn_acp = false;
-    model.fx_spawn_key = main.fx_ask_key;
+    model.fx_spawn_key = effect_keys.fx_ask_key;
     model.streaming_session = id;
     const assistant = model.appendTurn(id, .assistant, "");
     model.stream_turn_id = assistant;
 
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "skill discovery warning: candidate \"/home/jack/.claude/skills/omarchy\" was skipped because its linked skill directory could not be resolved to an authorized readable directory; relaunch with FX_TRACE=1 to write a trace logHi! How can I help?",
     } }, &fx);
     try testing.expectEqualStrings("Hi! How can I help?", lastAssistant(&model));
@@ -3971,7 +3972,7 @@ test "fx acp agent chunk strips skill discovery warnings" {
     main.update(&model, .send, &fx);
     try testing.expect(model.fx_spawn_acp);
 
-    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"fx-test-1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"skill discovery warning: candidate \\\"/home/jack/.codex/skills/omarchy\\\" was skipped because its linked skill directory could not be resolved to an authorized readable directory; relaunch with FX_TRACE=1 to write a trace logHi! How can I help?\"}}}}");
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"fx-test-1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"skill discovery warning: candidate \\\"/home/jack/.codex/skills/omarchy\\\" was skipped because its linked skill directory could not be resolved to an authorized readable directory; relaunch with FX_TRACE=1 to write a trace logHi! How can I help?\"}}}}");
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("Hi! How can I help?", lastAssistant(&model));
 }
@@ -6080,7 +6081,7 @@ test "send + stream finish persists the selected session for a later load" {
     try testing.expect(model.is_streaming());
     var n: u32 = 0;
     while (n < 16 and model.is_streaming()) : (n += 1) {
-        main.update(&model, .{ .tick = .{ .key = main.stream_timer_key } }, &fx);
+        main.update(&model, .{ .tick = .{ .key = effect_keys.stream_timer_key } }, &fx);
     }
     try testing.expect(!model.is_streaming());
 
@@ -6116,7 +6117,7 @@ test "successful finish drains the next queued follow-up" {
 
     var n: u32 = 0;
     while (n < 16 and model.queuedCount(id) > 0) : (n += 1) {
-        main.update(&model, .{ .tick = .{ .key = main.stream_timer_key } }, &fx);
+        main.update(&model, .{ .tick = .{ .key = effect_keys.stream_timer_key } }, &fx);
     }
     try testing.expect(model.is_streaming());
     try testing.expectEqual(@as(u32, 0), model.queuedCount(id));
@@ -6147,7 +6148,7 @@ test "successful finish drains only the front queued follow-up" {
 
     var n: u32 = 0;
     while (n < 16 and model.queuedCount(id) == 2) : (n += 1) {
-        main.update(&model, .{ .tick = .{ .key = main.stream_timer_key } }, &fx);
+        main.update(&model, .{ .tick = .{ .key = effect_keys.stream_timer_key } }, &fx);
     }
     try testing.expect(model.is_streaming());
     try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
@@ -6210,7 +6211,7 @@ test "non-zero fx ask exit does not drain the queue" {
     main.update(&model, .send, &fx);
     try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
 
-    try fx.feedExit(main.fx_ask_key, 1);
+    try fx.feedExit(effect_keys.fx_ask_key, 1);
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
     try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
@@ -7304,7 +7305,7 @@ test "missing daemon address still uses fx ask when the CLI is present" {
     main.update(&model, .send, &fx);
     try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
     const request = fx.pendingSpawnAt(0).?;
-    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(argvHas(request.argv, "acp"));
     try testing.expect(argvHas(request.argv, acp_proxy.SUBCOMMAND));
     try testing.expect(!argvHas(request.argv, "ask"));
@@ -7328,7 +7329,7 @@ test "missing daemon address does not attach even when last_daemon_address is se
     main.update(&model, .{ .draft_edit = .{ .insert_text = "do not attach" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
-    const request = findPendingSpawnKey(&fx, main.fx_ask_key) orelse return error.MissingFxAskSpawn;
+    const request = findPendingSpawnKey(&fx, effect_keys.fx_ask_key) orelse return error.MissingFxAskSpawn;
     try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"attachSession\"") == null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"start\"") == null);
@@ -7403,7 +7404,7 @@ test "Send records the pre-commit HEAD; a later commit stays off the rewind targ
     const after = rewind.revParseHead(allocator, testing.io, project, &after_buf) orelse return error.GitHead;
     try testing.expect(!std.mem.eql(u8, expected, after));
 
-    try fx.feedExit(main.fx_ask_key, 0);
+    try fx.feedExit(effect_keys.fx_ask_key, 0);
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
 
@@ -7472,7 +7473,7 @@ test "Send worktree snapshot includes dirty and untracked; overwrite keeps lates
     try testing.expect(std.mem.indexOf(u8, names, "README") != null);
     try testing.expect(std.mem.indexOf(u8, names, "untracked.txt") != null);
 
-    try fx.feedExit(main.fx_ask_key, 0);
+    try fx.feedExit(effect_keys.fx_ask_key, 0);
     drainEffects(&model, &fx);
     try testing.expect(rewind.isStoredSha(model.sessionById(id).?.worktreeTurnEndSha()));
     try testing.expectEqualStrings(first_owned, model.sessionById(id).?.worktreeSnapshotSha());
@@ -7538,7 +7539,7 @@ test "Send names the worktree snapshot under refs/faku" {
     const mid = try std.fmt.bufPrint(&mid_buf, "{s}{s}midstream.txt", .{ project, std.fs.path.sep_str });
     try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = mid, .data = "during\n" });
 
-    try fx.feedExit(main.fx_ask_key, 0);
+    try fx.feedExit(effect_keys.fx_ask_key, 0);
     drainEffects(&model, &fx);
 
     try testing.expect(checkpoint.hasFakuRef(allocator, testing.io, project, first_end));
@@ -7597,7 +7598,7 @@ test "Send names the worktree snapshot under refs/faku" {
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "queued next" } }, &fx);
     main.update(&model, .send, &fx);
-    try fx.feedExit(main.fx_ask_key, 0);
+    try fx.feedExit(effect_keys.fx_ask_key, 0);
     drainEffects(&model, &fx);
     try testing.expect(checkpoint.hasFakuRef(allocator, testing.io, project, second_end));
     const second_end_parsed = try runGitCapture(allocator, testing.io, &.{ "git", "-C", project, "rev-parse", second_end });
@@ -7706,7 +7707,7 @@ test "Send turn-start snapshot has parents and metadata; finish end snapshot doe
     try testing.expectEqualStrings(std.mem.trim(u8, branch, " \r\n\t"), parsed.value.object.get("branch").?.string);
     try testing.expect(parsed.value.object.get("refs").? == .object);
 
-    try fx.feedExit(main.fx_ask_key, 0);
+    try fx.feedExit(effect_keys.fx_ask_key, 0);
     drainEffects(&model, &fx);
     const end = try allocator.dupe(u8, model.sessionById(id).?.worktreeTurnEndSha());
     defer allocator.free(end);
@@ -7785,7 +7786,7 @@ test "non-git project_path records no rewind ref" {
     main.update(&model, .send, &fx);
     try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.rewind_ref_count);
     try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.worktreeSnapshotSha().len);
-    try fx.feedExit(main.fx_ask_key, 0);
+    try fx.feedExit(effect_keys.fx_ask_key, 0);
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
     try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.rewind_ref_count);
@@ -7818,7 +7819,7 @@ test "failed or cancelled turns keep the send-time rewind ref" {
     main.update(&model, .send, &fx);
     try testing.expectEqual(@as(usize, 1), model.sessionById(id).?.rewind_ref_count);
     try testing.expectEqualStrings(expected, model.sessionById(id).?.rewindRefs()[0].sha());
-    try fx.feedExit(main.fx_ask_key, 1);
+    try fx.feedExit(effect_keys.fx_ask_key, 1);
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
     try testing.expectEqual(@as(usize, 1), model.sessionById(id).?.rewind_ref_count);
@@ -7866,7 +7867,7 @@ test "Rewind restores Send-time files, pops that ref, and truncates the last pro
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt" } }, &fx);
     main.update(&model, .send, &fx);
-    try fx.feedExit(main.fx_ask_key, 0);
+    try fx.feedExit(effect_keys.fx_ask_key, 0);
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
     try testing.expectEqualStrings(first_sha, model.sessionById(id).?.rewindRefs()[0].sha());
@@ -7880,7 +7881,7 @@ test "Rewind restores Send-time files, pops that ref, and truncates the last pro
     main.update(&model, .send, &fx);
     try testing.expectEqual(@as(usize, 2), model.sessionById(id).?.rewind_ref_count);
     try testing.expectEqualStrings(second_sha, model.sessionById(id).?.rewindRefs()[1].sha());
-    try fx.feedExit(main.fx_ask_key, 0);
+    try fx.feedExit(effect_keys.fx_ask_key, 0);
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
     try testing.expectEqual(@as(u32, 4), model.turnCount(id));
@@ -7973,7 +7974,7 @@ test "Rewind restoreRef restores dirty and untracked and does not move HEAD" {
     main.update(&model, .{ .draft_edit = .{ .insert_text = "snap this tree" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(rewind.isStoredSha(model.sessionById(id).?.worktreeSnapshotSha()));
-    try fx.feedExit(main.fx_ask_key, 0);
+    try fx.feedExit(effect_keys.fx_ask_key, 0);
     drainEffects(&model, &fx);
 
     try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = readme, .data = "later\n" });
@@ -11061,14 +11062,14 @@ test "Environment Summary Monitor row opens Background with the 512KB log" {
     model.stream_turn_id = turn_id;
     model.streaming_session = sid;
     model.fx_spawn_claude_json = true;
-    model.fx_spawn_key = main.fx_ask_key;
+    model.fx_spawn_key = effect_keys.fx_ask_key;
 
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_mon_1\",\"name\":\"Monitor\"}]}}",
     } }, &fx);
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_1\",\"content\":\"line from monitor\"}]}}",
     } }, &fx);
     main.update(&model, .toggle_environment_summary, &fx);
@@ -11125,18 +11126,18 @@ test "Environment Summary Subagent row opens Background; Stop leaves Process str
     model.streaming_session = sid;
     if (model.sessionById(sid)) |session| session.busy = true;
     model.fx_spawn_claude_json = true;
-    model.fx_spawn_key = main.fx_ask_key;
+    model.fx_spawn_key = effect_keys.fx_ask_key;
 
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_mon_keep\",\"name\":\"Monitor\"}]}}",
     } }, &fx);
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_keep\",\"content\":\"monitor stays\"}]}}",
     } }, &fx);
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_agent_1\",\"name\":\"Agent\"}]}}",
     } }, &fx);
     main.update(&model, .toggle_environment_summary, &fx);
@@ -11175,13 +11176,13 @@ test "Environment Summary Subagent row opens Background; Stop leaves Process str
     try testing.expect(findByText(tree.root, .button, "Stop subagent") == null);
 
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"stream_event\",\"parent_tool_use_id\":\"toolu_agent_1\",\"event\":{\"delta\":{\"type\":\"text_delta\",\"text\":\"child\"}}}",
     } }, &fx);
     try testing.expectEqual(@as(u32, 0), model.background_subagent_count);
     try testing.expectEqualStrings("", model.turnById(turn_id).?.text());
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_agent_2\",\"name\":\"Agent\"}]}}",
     } }, &fx);
     try testing.expectEqual(@as(u32, 1), model.background_subagent_count);
@@ -11206,14 +11207,14 @@ test "Environment Summary Subagent row opens Background with the 512KB log" {
     model.stream_turn_id = turn_id;
     model.streaming_session = sid;
     model.fx_spawn_claude_json = true;
-    model.fx_spawn_key = main.fx_ask_key;
+    model.fx_spawn_key = effect_keys.fx_ask_key;
 
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"stream_event\",\"parent_tool_use_id\":\"toolu_sub_1\",\"event\":{\"delta\":{\"type\":\"text_delta\",\"text\":\"first\\nline\"}}}",
     } }, &fx);
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"assistant\",\"parent_tool_use_id\":\"toolu_sub_1\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"\\n\\u001b[31mred\\u001b[0m\"}]}}",
     } }, &fx);
     try testing.expectEqualStrings("", model.turnById(turn_id).?.text());
@@ -11263,18 +11264,18 @@ test "Environment Summary Monitor detail stays one line; Background panel shows 
     model.stream_turn_id = turn_id;
     model.streaming_session = sid;
     model.fx_spawn_claude_json = true;
-    model.fx_spawn_key = main.fx_ask_key;
+    model.fx_spawn_key = effect_keys.fx_ask_key;
 
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_mon_1\",\"name\":\"Monitor\"}]}}",
     } }, &fx);
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_1\",\"content\":\"first\\nline\"}]}}",
     } }, &fx);
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_1\",\"content\":\"\\n\\u001b[31mred\\u001b[0m\"}]}}",
     } }, &fx);
     model.now_ms = (model.background_output_cache_refresh_ms orelse 0) + environment_summary.output_cache_refresh_interval_ms;
@@ -18686,7 +18687,7 @@ fn expectGitBranchArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqualStrings(git_branch.git_bin, spawn.argv[5]);
     try testing.expectEqualStrings(git_branch.git_branch_cmd, spawn.argv[6]);
     try testing.expectEqualStrings(git_branch.git_show_current, spawn.argv[7]);
-    try testing.expect(spawn.key != main.fx_ask_key);
+    try testing.expect(spawn.key != effect_keys.fx_ask_key);
     try testing.expect(spawn.key != main.fx_probe_key);
     try testing.expect(spawn.key != sidecar_keys.maximize_window_key);
     try testing.expect(spawn.key != sidecar_keys.pick_image_key);
@@ -21484,7 +21485,7 @@ fn expectGitDirtyArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqualStrings(git_dirty.git_bin, spawn.argv[5]);
     try testing.expectEqualStrings(git_dirty.git_status_cmd, spawn.argv[6]);
     try testing.expectEqualStrings(git_dirty.git_porcelain, spawn.argv[7]);
-    try testing.expect(spawn.key != main.fx_ask_key);
+    try testing.expect(spawn.key != effect_keys.fx_ask_key);
     try testing.expect(spawn.key != main.fx_probe_key);
     try testing.expect(spawn.key != sidecar_keys.maximize_window_key);
     try testing.expect(spawn.key != sidecar_keys.pick_image_key);
@@ -21797,7 +21798,7 @@ fn expectGitNumstatArgv(spawn: anytype, cwd: []const u8) !void {
             try testing.expect(std.mem.indexOf(u8, spawn.argv[7], git_numstat.grep_text_flag) != null);
         },
     }
-    try testing.expect(spawn.key != main.fx_ask_key);
+    try testing.expect(spawn.key != effect_keys.fx_ask_key);
     try testing.expect(spawn.key != main.fx_probe_key);
     try testing.expect(spawn.key != sidecar_keys.maximize_window_key);
     try testing.expect(spawn.key != sidecar_keys.pick_image_key);
@@ -22256,7 +22257,7 @@ fn expectGitAheadBehindArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqualStrings(git_ahead_behind.git_upstream_range, spawn.argv[9]);
     try testing.expectEqualStrings("@{upstream}...HEAD", spawn.argv[9]);
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_ahead_behind.git_upstream_range) == null);
-    try testing.expect(spawn.key != main.fx_ask_key);
+    try testing.expect(spawn.key != effect_keys.fx_ask_key);
     try testing.expect(spawn.key != main.fx_probe_key);
     try testing.expect(spawn.key != sidecar_keys.maximize_window_key);
     try testing.expect(spawn.key != sidecar_keys.pick_image_key);
@@ -22659,7 +22660,7 @@ fn expectFileMentionArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqualStrings(file_mention.git_ls_files_cached, spawn.argv[7]);
     try testing.expectEqualStrings(file_mention.git_ls_files_others, spawn.argv[8]);
     try testing.expectEqualStrings(file_mention.git_ls_files_exclude_standard, spawn.argv[9]);
-    try testing.expect(spawn.key != main.fx_ask_key);
+    try testing.expect(spawn.key != effect_keys.fx_ask_key);
     try testing.expect(spawn.key != main.fx_probe_key);
     try testing.expect(spawn.key != sidecar_keys.maximize_window_key);
     try testing.expect(spawn.key != sidecar_keys.pick_image_key);
@@ -23613,7 +23614,7 @@ test "successful demo finish clears the sidebar spinner" {
 
     var n: u32 = 0;
     while (n < 16 and model.is_streaming()) : (n += 1) {
-        main.update(&model, .{ .tick = .{ .key = main.stream_timer_key } }, &fx);
+        main.update(&model, .{ .tick = .{ .key = effect_keys.stream_timer_key } }, &fx);
     }
     try testing.expect(!model.is_streaming());
     try testing.expect(!model.sessionById(session_id).?.busy);
@@ -35447,7 +35448,7 @@ test "Environment Background settles Completed on a finished turn with no queue"
     try testing.expect(model.is_streaming());
     var n: u32 = 0;
     while (n < 16 and model.is_streaming()) : (n += 1) {
-        main.update(&model, .{ .tick = .{ .key = main.stream_timer_key } }, &fx);
+        main.update(&model, .{ .tick = .{ .key = effect_keys.stream_timer_key } }, &fx);
     }
     try testing.expect(!model.is_streaming());
     try testing.expect(model.has_settled_background());
@@ -35486,10 +35487,10 @@ test "Environment Background Monitor row shows tool_result preview and hides emp
     model.stream_turn_id = turn_id;
     model.streaming_session = sid;
     model.fx_spawn_claude_json = true;
-    model.fx_spawn_key = main.fx_ask_key;
+    model.fx_spawn_key = effect_keys.fx_ask_key;
 
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_mon_1\",\"name\":\"Monitor\"}]}}",
     } }, &fx);
     main.update(&model, .toggle_environment_summary, &fx);
@@ -35505,7 +35506,7 @@ test "Environment Background Monitor row shows tool_result preview and hides emp
     try testing.expect(findByText(tree.root, .text, "Failed") == null);
 
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_1\",\"content\":\"line from monitor\"}]}}",
     } }, &fx);
     try testing.expectEqualStrings("", model.turnById(turn_id).?.text());
@@ -35538,10 +35539,10 @@ test "Environment Background Monitor Stop dismisses that row and leaves Process 
     model.streaming_session = sid;
     if (model.sessionById(sid)) |session| session.busy = true;
     model.fx_spawn_claude_json = true;
-    model.fx_spawn_key = main.fx_ask_key;
+    model.fx_spawn_key = effect_keys.fx_ask_key;
 
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_mon_1\",\"name\":\"Monitor\"}]}}",
     } }, &fx);
     main.update(&model, .toggle_environment_summary, &fx);
@@ -35590,14 +35591,14 @@ test "Environment Background Subagent Stop dismisses that row and leaves Process
     model.streaming_session = sid;
     if (model.sessionById(sid)) |session| session.busy = true;
     model.fx_spawn_claude_json = true;
-    model.fx_spawn_key = main.fx_ask_key;
+    model.fx_spawn_key = effect_keys.fx_ask_key;
 
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_mon_keep\",\"name\":\"Monitor\"}]}}",
     } }, &fx);
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_agent_1\",\"name\":\"Agent\"}]}}",
     } }, &fx);
     main.update(&model, .toggle_environment_summary, &fx);
@@ -35623,7 +35624,7 @@ test "Environment Background Subagent Stop dismisses that row and leaves Process
     try testing.expect(findByText(tree.root, .menu_item, "Stop subagent") == null);
 
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"stream_event\",\"parent_tool_use_id\":\"toolu_agent_1\",\"event\":{\"delta\":{\"type\":\"text_delta\",\"text\":\"child\"}}}",
     } }, &fx);
     try testing.expectEqual(@as(u32, 0), model.background_subagent_count);
@@ -35660,18 +35661,18 @@ test "Environment Background settled Monitor and Subagent show Dismiss; Process 
     model.streaming_session = sid;
     if (model.sessionById(sid)) |session| session.busy = true;
     model.fx_spawn_claude_json = true;
-    model.fx_spawn_key = main.fx_ask_key;
+    model.fx_spawn_key = effect_keys.fx_ask_key;
 
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_mon_1\",\"name\":\"Monitor\"}]}}",
     } }, &fx);
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_1\",\"content\":\"line from monitor\"}]}}",
     } }, &fx);
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_agent_1\",\"name\":\"Agent\"}]}}",
     } }, &fx);
     main.update(&model, .toggle_environment_summary, &fx);
@@ -35736,18 +35737,18 @@ test "Environment Background Dismiss all settled clears leftovers and leaves liv
     model.streaming_session = sid;
     if (model.sessionById(sid)) |session| session.busy = true;
     model.fx_spawn_claude_json = true;
-    model.fx_spawn_key = main.fx_ask_key;
+    model.fx_spawn_key = effect_keys.fx_ask_key;
 
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_mon_1\",\"name\":\"Monitor\"}]}}",
     } }, &fx);
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_1\",\"content\":\"line from monitor\"}]}}",
     } }, &fx);
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_agent_1\",\"name\":\"Agent\"}]}}",
     } }, &fx);
     main.update(&model, .toggle_environment_summary, &fx);
@@ -35781,7 +35782,7 @@ test "Environment Background Dismiss all settled clears leftovers and leaves liv
     model.streaming_session = sid;
     if (model.sessionById(sid)) |session| session.busy = true;
     main.update(&model, .{ .fx_line = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_mon_live\",\"name\":\"Monitor\"}]}}",
     } }, &fx);
     main.update(&model, .toggle_environment_summary, &fx);

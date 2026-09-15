@@ -319,6 +319,7 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const effect_keys = @import("effect_keys.zig");
 const layout = @import("layout.zig");
 const shell = @import("shell.zig");
 const file_mention = @import("file_mention.zig");
@@ -1899,7 +1900,7 @@ fn trySpawnDaemonWriteTextFile(model: *Model, fx: *Effects, content: []const u8)
         .key = key,
         .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
         .stdin = stdin,
-        .max_line_bytes = main.daemon_line_bytes,
+        .max_line_bytes = effect_keys.daemon_line_bytes,
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });

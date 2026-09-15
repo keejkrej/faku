@@ -27,6 +27,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const effect_keys = @import("effect_keys.zig");
 const persist = @import("persist.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const protocol = @import("protocol.zig");
@@ -270,7 +271,7 @@ fn trySpawnDaemonBrowseDirectory(model: *Model, fx: *Effects, path: ?[]const u8)
         .key = key,
         .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
         .stdin = stdin,
-        .max_line_bytes = main.daemon_line_bytes,
+        .max_line_bytes = effect_keys.daemon_line_bytes,
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });

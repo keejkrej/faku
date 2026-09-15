@@ -245,6 +245,7 @@
 
 const std = @import("std");
 const main = @import("main.zig");
+const effect_keys = @import("effect_keys.zig");
 const sidecar_keys = @import("sidecar_keys.zig");
 const i18n = @import("i18n.zig");
 const protocol = @import("protocol.zig");
@@ -2709,7 +2710,7 @@ test "environment_stop_background uses the same stopStream path as Stop" {
     try std.testing.expect(model.is_streaming());
     try std.testing.expect(model.sessionById(id).?.busy);
     try std.testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
-    try std.testing.expectEqual(main.stream_timer_key, fx.pendingTimerAt(0).?.key);
+    try std.testing.expectEqual(effect_keys.stream_timer_key, fx.pendingTimerAt(0).?.key);
     model.environment_summary_open = true;
     try expectLiveProcessRow(&model);
 
@@ -2765,7 +2766,7 @@ test "successful finishStream without a queue settles Completed" {
 
     var n: u32 = 0;
     while (n < 16 and model.is_streaming()) : (n += 1) {
-        main.update(&model, .{ .tick = .{ .key = main.stream_timer_key } }, &fx);
+        main.update(&model, .{ .tick = .{ .key = effect_keys.stream_timer_key } }, &fx);
     }
     try std.testing.expect(!model.is_streaming());
     try std.testing.expect(hasSettledBackground(&model));
@@ -2794,7 +2795,7 @@ test "queued finishStream restart stays on Process and does not flash Completed"
 
     var n: u32 = 0;
     while (n < 16 and model.queuedCount(id) > 0) : (n += 1) {
-        main.update(&model, .{ .tick = .{ .key = main.stream_timer_key } }, &fx);
+        main.update(&model, .{ .tick = .{ .key = effect_keys.stream_timer_key } }, &fx);
     }
     try std.testing.expect(model.is_streaming());
     try std.testing.expectEqual(@as(u32, 0), model.queuedCount(id));
@@ -2843,9 +2844,9 @@ test "drain=false finishStream settles Failed" {
     main.update(&model, .{ .draft_edit = .{ .insert_text = "go" } }, &fx);
     main.update(&model, .send, &fx);
     try std.testing.expect(model.is_streaming());
-    model.fx_spawn_key = main.fx_ask_key;
+    model.fx_spawn_key = effect_keys.fx_ask_key;
     main.update(&model, .{ .fx_exit = .{
-        .key = main.fx_ask_key,
+        .key = effect_keys.fx_ask_key,
         .code = 1,
         .reason = .exited,
     } }, &fx);
