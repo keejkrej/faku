@@ -3744,22 +3744,29 @@ const plan_window_chrome_ja: PlanWindowChrome = .{
 /// Provider names stay Latin (`Claude Code` / `Codex`). Paths
 /// stay as wire.
 pub const UsageDaemonErrorChrome = struct {
-    /// Known scan-unreadable sentence. `{s}` `{s}` are provider then
-    /// path (EN / zh-CN). Japanese is path then provider when
-    /// `path_first`.
-    scan_unreadable: []const u8,
+    /// Between provider and path (EN / zh-CN) or path and provider
+    /// (ja when `path_first`). English is ` transcripts at `.
+    scan_unreadable_mid: []const u8,
+    /// After the second insert. English is ` could not be read.`
+    scan_unreadable_suffix: []const u8,
+    /// When true, inserts are path then provider (ja). Else provider
+    /// then path (EN / zh-CN).
     path_first: bool,
 
     /// `wire` is a daemon `history.errors[]` string. Known Waku
     /// `{provider} transcripts at {path} could not be read.` maps
-    /// to `scan_unreadable`; unknown strings return `wire` unchanged
+    /// to this pack; unknown strings return `wire` unchanged
     /// (no alloc). Provider and path inserts use the arena.
     pub fn lineForWire(self: UsageDaemonErrorChrome, arena: std.mem.Allocator, wire: []const u8) []const u8 {
         const parsed = parseScanUnreadable(wire) orelse return wire;
-        if (self.path_first) {
-            return std.fmt.allocPrint(arena, self.scan_unreadable, .{ parsed.path, parsed.provider }) catch wire;
-        }
-        return std.fmt.allocPrint(arena, self.scan_unreadable, .{ parsed.provider, parsed.path }) catch wire;
+        const first = if (self.path_first) parsed.path else parsed.provider;
+        const second = if (self.path_first) parsed.provider else parsed.path;
+        return std.fmt.allocPrint(arena, "{s}{s}{s}{s}", .{
+            first,
+            self.scan_unreadable_mid,
+            second,
+            self.scan_unreadable_suffix,
+        }) catch wire;
     }
 };
 
@@ -3782,17 +3789,20 @@ fn parseScanUnreadable(wire: []const u8) ?ScanUnreadable {
 }
 
 const usage_daemon_error_chrome_en: UsageDaemonErrorChrome = .{
-    .scan_unreadable = "{s} transcripts at {s} could not be read.",
+    .scan_unreadable_mid = " transcripts at ",
+    .scan_unreadable_suffix = " could not be read.",
     .path_first = false,
 };
 
 const usage_daemon_error_chrome_zh_cn: UsageDaemonErrorChrome = .{
-    .scan_unreadable = "{s} 位于 {s} 的转录无法读取。",
+    .scan_unreadable_mid = " 位于 ",
+    .scan_unreadable_suffix = " 的转录无法读取。",
     .path_first = false,
 };
 
 const usage_daemon_error_chrome_ja: UsageDaemonErrorChrome = .{
-    .scan_unreadable = "{s} にある {s} のトランスクリプトを読み取れませんでした。",
+    .scan_unreadable_mid = " にある ",
+    .scan_unreadable_suffix = " のトランスクリプトを読み取れませんでした。",
     .path_first = true,
 };
 
@@ -8165,29 +8175,32 @@ test "usageDaemonErrorChromeFor english default; zh and ja chrome; unknown wire 
     const codex = "Codex transcripts at /home/me/.codex could not be read.";
     const unknown = "scan failed";
 
-    try testing.expectEqualStrings("{s} transcripts at {s} could not be read.", en.scan_unreadable);
+    try testing.expectEqualStrings(" transcripts at ", en.scan_unreadable_mid);
+    try testing.expectEqualStrings(" could not be read.", en.scan_unreadable_suffix);
     try testing.expect(!en.path_first);
     try testing.expectEqualStrings(claude, en.lineForWire(arena, claude));
     try testing.expectEqualStrings(codex, en.lineForWire(arena, codex));
     try testing.expectEqualStrings(unknown, en.lineForWire(arena, unknown));
     try testing.expectEqual(unknown.ptr, en.lineForWire(arena, unknown).ptr);
     try testing.expectEqualStrings(
-        "{s} transcripts at {s} could not be read.",
-        usageDaemonErrorChromeFor(.english, "ja").scan_unreadable,
+        " transcripts at ",
+        usageDaemonErrorChromeFor(.english, "ja").scan_unreadable_mid,
     );
     try testing.expectEqualStrings(
-        "{s} transcripts at {s} could not be read.",
-        usageDaemonErrorChromeFor(.system, "").scan_unreadable,
+        " transcripts at ",
+        usageDaemonErrorChromeFor(.system, "").scan_unreadable_mid,
     );
 
-    try testing.expectEqualStrings("{s} 位于 {s} 的转录无法读取。", zh.scan_unreadable);
+    try testing.expectEqualStrings(" 位于 ", zh.scan_unreadable_mid);
+    try testing.expectEqualStrings(" 的转录无法读取。", zh.scan_unreadable_suffix);
     try testing.expect(!zh.path_first);
     try testing.expectEqualStrings("Claude Code 位于 /tmp/claude 的转录无法读取。", zh.lineForWire(arena, claude));
     try testing.expectEqualStrings("Codex 位于 /home/me/.codex 的转录无法读取。", zh.lineForWire(arena, codex));
     try testing.expectEqualStrings(unknown, zh.lineForWire(arena, unknown));
     try testing.expectEqual(unknown.ptr, zh.lineForWire(arena, unknown).ptr);
 
-    try testing.expectEqualStrings("{s} にある {s} のトランスクリプトを読み取れませんでした。", ja.scan_unreadable);
+    try testing.expectEqualStrings(" にある ", ja.scan_unreadable_mid);
+    try testing.expectEqualStrings(" のトランスクリプトを読み取れませんでした。", ja.scan_unreadable_suffix);
     try testing.expect(ja.path_first);
     try testing.expectEqualStrings(
         "/tmp/claude にある Claude Code のトランスクリプトを読み取れませんでした。",
