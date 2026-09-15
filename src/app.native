@@ -1775,9 +1775,9 @@
                       <button variant="ghost" size="icon" icon="chevron-down" label="{file_preview_show_replace_label}" on-press="toggle_file_preview_find_replace"></button>
                     </else>
                     <search-field grow="1" height="32" placeholder="{file_preview_find_placeholder}" text="{file_preview_find_query}" on-input="file_preview_find_edit" on-submit="find_next" autofocus="true" label="{file_preview_find_in_file_label}" />
-                    <button variant="ghost" size="sm" selected="{file_preview_find_case_sensitive}" on-press="toggle_file_preview_find_case">Aa</button>
-                    <button variant="ghost" size="sm" selected="{file_preview_find_whole_word}" on-press="toggle_file_preview_find_whole_word">Ab</button>
-                    <button variant="ghost" size="sm" selected="{file_preview_find_use_regex}" on-press="toggle_file_preview_find_regex">.*</button>
+                    <button variant="ghost" size="sm" selected="{file_preview_find_case_sensitive}" on-press="toggle_file_preview_find_case" label="{file_preview_find_match_case_label}">Aa</button>
+                    <button variant="ghost" size="sm" selected="{file_preview_find_whole_word}" on-press="toggle_file_preview_find_whole_word" label="{file_preview_find_match_whole_word_label}">Ab</button>
+                    <button variant="ghost" size="sm" selected="{file_preview_find_use_regex}" on-press="toggle_file_preview_find_regex" label="{file_preview_find_use_regex_label}">.*</button>
                     <if test="{has_file_preview_find_match_label}">
                       <text wrap="false" overflow="ellipsis" foreground="text_muted">{file_preview_find_match_label}</text>
                     </if>

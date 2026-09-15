@@ -13505,8 +13505,9 @@ test "cmd-f routes to Files preview find when a preview is open" {
     _ = try expectButton(tree.root, "Aa");
     _ = try expectButton(tree.root, "Ab");
     _ = try expectButton(tree.root, ".*");
-    _ = try expectButtonMsg(tree, "Ab", .toggle_file_preview_find_whole_word);
-    _ = try expectButtonMsg(tree, ".*", .toggle_file_preview_find_regex);
+    _ = try expectButtonMsg(tree, "Match case", .toggle_file_preview_find_case);
+    _ = try expectButtonMsg(tree, "Match whole word", .toggle_file_preview_find_whole_word);
+    _ = try expectButtonMsg(tree, "Use regular expression", .toggle_file_preview_find_regex);
     try testing.expect(!model.file_preview_find_whole_word);
     try testing.expect(!model.file_preview_find_use_regex);
 
@@ -27105,6 +27106,9 @@ test "Files preview toolbar chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_show_replace_label}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"{file_preview_find_placeholder}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_find_in_file_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_find_match_case_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_find_match_whole_word_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_find_use_regex_label}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_previous_match_label}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_next_match_label}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_close_find_label}\""));
@@ -27169,6 +27173,9 @@ test "Files preview toolbar chrome follows Appearance language" {
     try testing.expectEqualStrings("Show replace", model.file_preview_show_replace_label());
     try testing.expectEqualStrings("Find", model.file_preview_find_placeholder());
     try testing.expectEqualStrings("Find in file", model.file_preview_find_in_file_label());
+    try testing.expectEqualStrings("Match case", model.file_preview_find_match_case_label());
+    try testing.expectEqualStrings("Match whole word", model.file_preview_find_match_whole_word_label());
+    try testing.expectEqualStrings("Use regular expression", model.file_preview_find_use_regex_label());
     try testing.expectEqualStrings("Previous file match", model.file_preview_previous_match_label());
     try testing.expectEqualStrings("Next file match", model.file_preview_next_match_label());
     try testing.expectEqualStrings("Close file find", model.file_preview_close_find_label());
@@ -27271,6 +27278,11 @@ test "Files preview toolbar chrome follows Appearance language" {
     _ = try expectButton(tree.root, "Previous file match");
     _ = try expectButton(tree.root, "Next file match");
     _ = try expectButton(tree.root, "Aa");
+    _ = try expectButton(tree.root, "Ab");
+    _ = try expectButton(tree.root, ".*");
+    _ = try expectButtonMsg(tree, "Match case", .toggle_file_preview_find_case);
+    _ = try expectButtonMsg(tree, "Match whole word", .toggle_file_preview_find_whole_word);
+    _ = try expectButtonMsg(tree, "Use regular expression", .toggle_file_preview_find_regex);
     main.update(&model, .toggle_file_preview_find_replace, &fx);
     tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "Hide replace", .toggle_file_preview_find_replace);
@@ -27282,6 +27294,9 @@ test "Files preview toolbar chrome follows Appearance language" {
     try testing.expectEqualStrings("未保存", model.file_preview_unsaved_label());
     try testing.expectEqualStrings("查找", model.file_preview_find_placeholder());
     try testing.expectEqualStrings("在文件中查找", model.file_preview_find_in_file_label());
+    try testing.expectEqualStrings("匹配大小写", model.file_preview_find_match_case_label());
+    try testing.expectEqualStrings("全字匹配", model.file_preview_find_match_whole_word_label());
+    try testing.expectEqualStrings("使用正则表达式", model.file_preview_find_use_regex_label());
     try testing.expectEqualStrings("隐藏替换", model.file_preview_hide_replace_label());
     try testing.expectEqualStrings("全部替换", model.file_preview_replace_all_label());
     tree = try buildTree(arena, &model);
@@ -27290,6 +27305,10 @@ test "Files preview toolbar chrome follows Appearance language" {
     _ = try expectByText(tree.root, .search_field, "在文件中查找");
     try testing.expect(findByPlaceholder(tree.root, .search_field, "查找") != null);
     _ = try expectButtonMsg(tree, "隐藏替换", .toggle_file_preview_find_replace);
+    _ = try expectButton(tree.root, "Aa");
+    _ = try expectButtonMsg(tree, "匹配大小写", .toggle_file_preview_find_case);
+    _ = try expectButtonMsg(tree, "全字匹配", .toggle_file_preview_find_whole_word);
+    _ = try expectButtonMsg(tree, "使用正则表达式", .toggle_file_preview_find_regex);
     _ = try expectButtonMsg(tree, "替换", .file_preview_find_replace_one);
     _ = try expectButtonMsg(tree, "全部替换", .file_preview_find_replace_all);
     _ = try expectByText(tree.root, .text_field, "在文件中替换");
@@ -27350,6 +27369,135 @@ test "Files preview toolbar chrome follows Appearance language" {
     _ = try expectByText(tree.root, .search_field, "在文件中查找");
     try testing.expect(findByText(tree.root, .text, "Binary file — not shown") == null);
     try testing.expect(findByText(tree.root, .text, "Read-only") == null);
+}
+
+test "Files preview find-option toggle a11y follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try absCopyProjectDir(tmp, "preview-find-toggle-a11y", &project_buf);
+    var note_buf: [320]u8 = undefined;
+    const note_path = try std.fmt.bufPrint(&note_buf, "{s}/note.txt", .{project});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = note_path,
+        .data = "alpha hello\n",
+    });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_find_match_case_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_find_match_whole_word_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_find_use_regex_label}\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"toggle_file_preview_find_case\" label=\"{file_preview_find_match_case_label}\">Aa</button>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"toggle_file_preview_find_whole_word\" label=\"{file_preview_find_match_whole_word_label}\">Ab</button>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"toggle_file_preview_find_regex\" label=\"{file_preview_find_use_regex_label}\">.*</button>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Match case\"") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Match whole word\"") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Use regular expression\"") == null);
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("preview find toggle a11y", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    defer right_panel.clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
+
+    try testing.expectEqualStrings("Match case", model.file_preview_find_match_case_label());
+    try testing.expectEqualStrings("Match whole word", model.file_preview_find_match_whole_word_label());
+    try testing.expectEqualStrings("Use regular expression", model.file_preview_find_use_regex_label());
+    try testing.expectEqualStrings(i18n.filePreviewFindToggleChromeFor(.english, "").match_case, model.file_preview_find_match_case_label());
+    try testing.expectEqualStrings(i18n.filePreviewFindToggleChromeFor(.english, "").match_whole_word, model.file_preview_find_match_whole_word_label());
+    try testing.expectEqualStrings(i18n.filePreviewFindToggleChromeFor(.english, "").use_regular_expression, model.file_preview_find_use_regex_label());
+    try testing.expect(!std.mem.eql(u8, model.file_preview_find_match_case_label(), model.file_preview_find_in_file_label()));
+    try testing.expect(!std.mem.eql(u8, model.file_preview_find_match_whole_word_label(), model.file_preview_previous_match_label()));
+    try testing.expect(!std.mem.eql(u8, model.file_preview_find_use_regex_label(), model.file_preview_next_match_label()));
+
+    main.update(&model, .show_right_panel, &fx);
+    file_mention.applyStdoutPaths(&model, "note.txt\n");
+    main.update(&model, .{ .open_right_panel_file = 1 }, &fx);
+    try testing.expect(model.right_panel_file_preview_open());
+    main.update(&model, .open_find, &fx);
+    try testing.expect(model.file_preview_find_active);
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "Aa");
+    _ = try expectButton(tree.root, "Ab");
+    _ = try expectButton(tree.root, ".*");
+    _ = try expectButtonMsg(tree, "Match case", .toggle_file_preview_find_case);
+    _ = try expectButtonMsg(tree, "Match whole word", .toggle_file_preview_find_whole_word);
+    _ = try expectButtonMsg(tree, "Use regular expression", .toggle_file_preview_find_regex);
+    try testing.expect(findByText(tree.root, .button, "匹配大小写") == null);
+    try testing.expect(findByText(tree.root, .button, "大文字と小文字を区別する") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("匹配大小写", model.file_preview_find_match_case_label());
+    try testing.expectEqualStrings("全字匹配", model.file_preview_find_match_whole_word_label());
+    try testing.expectEqualStrings("使用正则表达式", model.file_preview_find_use_regex_label());
+    try testing.expectEqualStrings(i18n.filePreviewFindToggleChromeFor(.simplified_chinese, "").match_case, model.file_preview_find_match_case_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "Aa");
+    _ = try expectButton(tree.root, "Ab");
+    _ = try expectButton(tree.root, ".*");
+    _ = try expectButtonMsg(tree, "匹配大小写", .toggle_file_preview_find_case);
+    _ = try expectButtonMsg(tree, "全字匹配", .toggle_file_preview_find_whole_word);
+    _ = try expectButtonMsg(tree, "使用正则表达式", .toggle_file_preview_find_regex);
+    try testing.expect(findByText(tree.root, .button, "Match case") == null);
+    try testing.expect(findByText(tree.root, .button, "大文字と小文字を区別する") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("大文字と小文字を区別する", model.file_preview_find_match_case_label());
+    try testing.expectEqualStrings("単語単位で検索", model.file_preview_find_match_whole_word_label());
+    try testing.expectEqualStrings("正規表現を使用する", model.file_preview_find_use_regex_label());
+    try testing.expectEqualStrings(i18n.filePreviewFindToggleChromeFor(.japanese, "").match_case, model.file_preview_find_match_case_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "Aa");
+    _ = try expectButton(tree.root, "Ab");
+    _ = try expectButton(tree.root, ".*");
+    _ = try expectButtonMsg(tree, "大文字と小文字を区別する", .toggle_file_preview_find_case);
+    _ = try expectButtonMsg(tree, "単語単位で検索", .toggle_file_preview_find_whole_word);
+    _ = try expectButtonMsg(tree, "正規表現を使用する", .toggle_file_preview_find_regex);
+    try testing.expect(findByText(tree.root, .button, "Match case") == null);
+    try testing.expect(findByText(tree.root, .button, "匹配大小写") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Match case", model.file_preview_find_match_case_label());
+    try testing.expectEqualStrings(i18n.filePreviewFindToggleChromeFor(.english, "ja_JP.UTF-8").match_case, model.file_preview_find_match_case_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Match case", .toggle_file_preview_find_case);
+    _ = try expectButton(tree.root, "Aa");
+    try testing.expect(findByText(tree.root, .button, "大文字と小文字を区別する") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("匹配大小写", model.file_preview_find_match_case_label());
+    try testing.expectEqualStrings(i18n.filePreviewFindToggleChromeFor(.system, "zh_CN.UTF-8").match_case, model.file_preview_find_match_case_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "匹配大小写", .toggle_file_preview_find_case);
+    _ = try expectButton(tree.root, "Aa");
+    try testing.expect(findByText(tree.root, .button, "Match case") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("大文字と小文字を区別する", model.file_preview_find_match_case_label());
+    try testing.expectEqualStrings("単語単位で検索", model.file_preview_find_match_whole_word_label());
+    try testing.expectEqualStrings("正規表現を使用する", model.file_preview_find_use_regex_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "大文字と小文字を区別する", .toggle_file_preview_find_case);
+    _ = try expectButton(tree.root, "Aa");
+    try testing.expect(findByText(tree.root, .button, "匹配大小写") == null);
+
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Match case", model.file_preview_find_match_case_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Match case", .toggle_file_preview_find_case);
+    _ = try expectButton(tree.root, "Aa");
 }
 
 test "Commit message composer chrome follows Appearance language" {
