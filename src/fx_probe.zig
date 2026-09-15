@@ -10,10 +10,11 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
-const max_fx_path = main.max_fx_path;
+const max_fx_path = model_exports.max_fx_path;
 
 /// Distinct from fx ask / daemon / maximize / picker keys.
 pub const fx_probe_key: u64 = 3;

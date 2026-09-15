@@ -11,6 +11,7 @@
 //! Spawn / stream effect keys live in `effect_keys.zig`.
 
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const store = @import("store.zig");
 const maximize_window = @import("maximize_window.zig");
 const goal = @import("goal.zig");
@@ -58,8 +59,8 @@ const file_preview_issue_link = @import("file_preview_issue_link.zig");
 const transcript_images = @import("transcript_images.zig");
 const transcript_details = @import("transcript_details.zig");
 
-const Model = main.Model;
-const Msg = main.Msg;
+const Model = model_exports.Model;
+const Msg = model_exports.Msg;
 const Effects = main.Effects;
 const main_window_label = shell.main_window_label;
 

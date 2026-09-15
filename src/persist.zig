@@ -6,6 +6,7 @@
 //! Behavior is unchanged from the former `main` persist helpers.
 
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const store = @import("store.zig");
 const git_branch = @import("git_branch.zig");
 const git_checkout = @import("git_checkout.zig");
@@ -19,9 +20,9 @@ const file_mention = @import("file_mention.zig");
 const file_preview_issue_link = @import("file_preview_issue_link.zig");
 const slash_commands = @import("slash_commands.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
-const max_sessions = main.max_sessions;
+const max_sessions = model_exports.max_sessions;
 
 pub fn persistAssignedFolder(model: *Model, session_id: u32, folder_id: u32, fx: *Effects) void {
     if (!model.assignSessionFolder(session_id, folder_id)) return;

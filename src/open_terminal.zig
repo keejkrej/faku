@@ -27,10 +27,11 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const i18n = @import("i18n.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
 
 /// Distinct from reveal_folder (28), pick_folder (29), maximize (30),
@@ -66,7 +67,7 @@ pub const Tool = enum { open_terminal, x_terminal_emulator, gnome_terminal, wind
 pub const Stage = enum { first, fallback };
 
 const argv_cap: usize = 7;
-pub const wd_arg_len: usize = working_directory_prefix.len + main.max_project_path;
+pub const wd_arg_len: usize = working_directory_prefix.len + model_exports.max_project_path;
 
 pub const ArgvScratch = struct {
     slots: [argv_cap][]const u8 = [_][]const u8{""} ** argv_cap,

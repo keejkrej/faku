@@ -7,6 +7,7 @@
 
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const store = @import("store.zig");
 const persist = @import("persist.zig");
 const session_switcher = @import("switcher.zig");
@@ -26,7 +27,7 @@ const litellm_rates = @import("litellm_rates.zig");
 const right_panel = @import("right_panel.zig");
 const browser_pane = @import("browser_pane.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
 const canvas = native_sdk.canvas;
 

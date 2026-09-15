@@ -27,6 +27,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const persist = @import("persist.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
@@ -34,9 +35,9 @@ const protocol = @import("protocol.zig");
 const store = @import("store.zig");
 const i18n = @import("i18n.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
-const writeFixed = main.writeFixed;
+const writeFixed = model_exports.writeFixed;
 
 /// Distinct from pick_image (31), maximize (30), copy_turn (32),
 /// attach_preview 33–63, fx_probe (3), fx_spawn 64+, git_branch 200+.
@@ -49,7 +50,7 @@ pub const max_dir_entry_name: usize = 255;
 pub const CachedDirEntry = struct {
     name_storage: [max_dir_entry_name]u8 = [_]u8{0} ** max_dir_entry_name,
     name_len: usize = 0,
-    abs_storage: [main.max_project_path]u8 = [_]u8{0} ** main.max_project_path,
+    abs_storage: [model_exports.max_project_path]u8 = [_]u8{0} ** model_exports.max_project_path,
     abs_len: usize = 0,
     is_dir: bool = false,
 

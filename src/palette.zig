@@ -1,7 +1,7 @@
 //! Command palette: row building and action specs.
 //!
 //! Overlay matching, section headers, and action ids live here. `Msg`
-//! and `Model` live in `model.zig` (re-exported from `main`). `Session`
+//! and `Model` live in `model.zig` (barrel: `model_exports`). `Session`
 //! lives in `session.zig`. Action display labels follow Appearance
 //! via `Model.palette_action_label()` (New Task / Settings / Collapse
 //! all folders reuse Sidebar / Chrome strings; remaining names live
@@ -17,9 +17,10 @@
 
 const std = @import("std");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 
-const Model = main.Model;
-const Session = main.Session;
+const Model = model_exports.Model;
+const Session = model_exports.Session;
 
 /// Palette action keys sit above folder-header keys so `for` keys stay unique.
 pub const palette_action_id_base: u32 = 2_000_000;

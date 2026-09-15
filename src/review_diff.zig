@@ -187,6 +187,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const git_ahead_behind = @import("git_ahead_behind.zig");
 const git_checkout = @import("git_checkout.zig");
@@ -201,9 +202,9 @@ const code_language = @import("code_language.zig");
 const file_icon = @import("file_icon.zig");
 const i18n = @import("i18n.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
-const writeFixed = main.writeFixed;
+const writeFixed = model_exports.writeFixed;
 
 /// One-shot Review `git diff --numstat` (Branch,
 /// Uncommitted, Staged, Unstaged, Committed, or LastTurn). Distinct from git_branch

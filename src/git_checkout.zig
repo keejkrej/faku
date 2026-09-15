@@ -257,6 +257,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const git_branch = @import("git_branch.zig");
 const git_dirty = @import("git_dirty.zig");
@@ -271,9 +272,9 @@ const daemon_proxy = @import("daemon_proxy.zig");
 const protocol = @import("protocol.zig");
 const i18n = @import("i18n.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
-const writeFixed = main.writeFixed;
+const writeFixed = model_exports.writeFixed;
 
 /// One-shot `refs/heads` + `refs/remotes` list. Distinct from
 /// git_branch (200+), git_checkout (275+; also `--track`),
@@ -1561,7 +1562,7 @@ pub fn worktreeCandidateOccupied(path_exists: bool, local_branch_exists: bool) b
 }
 
 pub fn isSafeWorktreePath(path: []const u8) bool {
-    if (path.len == 0 or path.len > main.max_project_path) return false;
+    if (path.len == 0 or path.len > model_exports.max_project_path) return false;
     if (!git_common_dir.isAbsoluteCommonDir(path)) return false;
     if (std.mem.indexOf(u8, path, "..") != null) return false;
     if (std.mem.indexOfScalar(u8, path, 0) != null) return false;
@@ -3282,7 +3283,7 @@ fn worktreeDestExists(model: *const Model, dest: []const u8) bool {
 fn assignWorktreeCandidate(model: *Model, home: []const u8, project_path: []const u8, slug: []const u8, index: u32) bool {
     var name_buf: [git_branch.max_git_branch]u8 = undefined;
     const name = worktreeCandidateName(slug, index, name_buf[0..]) orelse return false;
-    var dest_buf: [main.max_project_path]u8 = undefined;
+    var dest_buf: [model_exports.max_project_path]u8 = undefined;
     const dest = worktreeDestPathFor(home, project_path, name, dest_buf[0..], model) orelse return false;
     var branch_buf: [git_branch.max_git_branch]u8 = undefined;
     const branch = worktreeBranchName(name, branch_buf[0..]) orelse return false;
@@ -3372,7 +3373,7 @@ pub fn beginWorktreeAdd(model: *Model, fx: *Effects, name: []const u8) void {
     if (cwd.len == 0) return;
     const home = model.homeDir();
 
-    var parent_buf: [main.max_project_path]u8 = undefined;
+    var parent_buf: [model_exports.max_project_path]u8 = undefined;
     const parent = worktreeParentPathFor(home, cwd, parent_buf[0..], model) orelse return;
     writeFixed(&model.git_worktree_add_slug_storage, &model.git_worktree_add_slug_len, slug);
     if (!pickWorktreeCandidate(model, home, cwd, slug, 0)) {
@@ -4060,7 +4061,7 @@ test "worktreeNestKey is stable FNV-1a and dest nests under it" {
     try std.testing.expectEqual(@as(usize, 16), relative.len);
     try std.testing.expectEqualStrings("884e24b2b0483c33", relative);
 
-    var path_buf: [main.max_project_path]u8 = undefined;
+    var path_buf: [model_exports.max_project_path]u8 = undefined;
     try std.testing.expectEqualStrings(
         "/home/u/.faku/worktrees/2599eb06cf360587",
         worktreeParentPath("/home/u", "/tmp/proj", path_buf[0..]).?,
@@ -4185,9 +4186,9 @@ test "worktree base argv is symbolic-ref --quiet --short origin/HEAD" {
 
 test "worktree add argv is mkdir+chdir plus worktree add -b with and without base" {
     var buf: [worktree_add_argv_len][]const u8 = undefined;
-    var parent_buf: [main.max_project_path]u8 = undefined;
+    var parent_buf: [model_exports.max_project_path]u8 = undefined;
     const parent = worktreeParentPath("/home/u", "/tmp/faku-repo", parent_buf[0..]).?;
-    var dest_buf: [main.max_project_path]u8 = undefined;
+    var dest_buf: [model_exports.max_project_path]u8 = undefined;
     const dest = worktreeDestPath("/home/u", "/tmp/faku-repo", "feat", dest_buf[0..]).?;
     try std.testing.expectEqualStrings("/home/u/.faku/worktrees/7d4ac9355fd03f74", parent);
     try std.testing.expectEqualStrings("/home/u/.faku/worktrees/7d4ac9355fd03f74/feat", dest);
@@ -4933,9 +4934,9 @@ test "windows git argv is git.exe -C PATH; path is its own slot" {
 
 test "windows worktree add argv is powershell -Command + -Args; paths stay slots" {
     var buf: [worktree_add_argv_len][]const u8 = undefined;
-    var parent_buf: [main.max_project_path]u8 = undefined;
+    var parent_buf: [model_exports.max_project_path]u8 = undefined;
     const parent = worktreeParentPath("C:\\Users\\u", "C:\\tmp\\faku-repo", parent_buf[0..]).?;
-    var dest_buf: [main.max_project_path]u8 = undefined;
+    var dest_buf: [model_exports.max_project_path]u8 = undefined;
     const dest = worktreeDestPath("C:\\Users\\u", "C:\\tmp\\faku-repo", "feat", dest_buf[0..]).?;
     try std.testing.expect(std.mem.startsWith(u8, parent, "C:/Users/u/.faku/worktrees/"));
     try std.testing.expect(std.mem.startsWith(u8, dest, parent));
@@ -5023,9 +5024,9 @@ test "host argvFor matches the process OS" {
     var base_buf: [worktree_base_argv_len][]const u8 = undefined;
     const base = worktreeBaseArgvFor("/tmp/faku-wt-base", &base_buf);
     try std.testing.expect(isGitWorktreeBaseArgv(base));
-    var parent_buf: [main.max_project_path]u8 = undefined;
+    var parent_buf: [model_exports.max_project_path]u8 = undefined;
     const parent = worktreeParentPath("/home/u", "/tmp/faku-repo", parent_buf[0..]).?;
-    var dest_buf: [main.max_project_path]u8 = undefined;
+    var dest_buf: [model_exports.max_project_path]u8 = undefined;
     const dest = worktreeDestPath("/home/u", "/tmp/faku-repo", "feat", dest_buf[0..]).?;
     var wt_buf: [worktree_add_argv_len][]const u8 = undefined;
     const wt = worktreeAddArgvFor("/tmp/faku-repo", parent, "faku/feat", dest, "", &wt_buf).?;

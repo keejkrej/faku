@@ -11,10 +11,11 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 
 const canvas = native_sdk.canvas;
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
 
 pub const max_details: usize = canvas.markdown.max_markdown_details_per_document;

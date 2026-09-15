@@ -319,6 +319,7 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const layout = @import("layout.zig");
 const shell = @import("shell.zig");
@@ -343,9 +344,9 @@ const i18n = @import("i18n.zig");
 
 const canvas = native_sdk.canvas;
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
-const RightPanelFileRow = main.RightPanelFileRow;
+const RightPanelFileRow = model_exports.RightPanelFileRow;
 
 /// Runtime-only Files | Diff | Browser | Terminal | Background
 /// surface. Default `files` when the panel opens. Tab name persists on
@@ -1047,7 +1048,7 @@ fn freePreviewBody(model: *Model) void {
 }
 
 fn setPreviewStatus(model: *Model, message: []const u8) void {
-    main.writeFixed(
+    model_exports.writeFixed(
         &model.right_panel_file_preview_status_storage,
         &model.right_panel_file_preview_status_len,
         message,
@@ -1211,7 +1212,7 @@ fn openProjectPreviewFile(model: *Model, fx: *Effects, rel: []const u8) void {
 }
 
 fn setPreviewError(model: *Model, message: []const u8) void {
-    main.writeFixed(
+    model_exports.writeFixed(
         &model.right_panel_file_preview_error_storage,
         &model.right_panel_file_preview_error_len,
         message,
@@ -1512,12 +1513,12 @@ pub fn selectCachedFile(model: *Model, fx: *Effects, id: u32) void {
     clearFilePreview(model);
     model.right_panel_file_preview_id = id;
     if (first_preview) ensureInitialRightPanelFileEditorWidth(model);
-    main.writeFixed(
+    model_exports.writeFixed(
         &model.right_panel_file_preview_relpath_storage,
         &model.right_panel_file_preview_relpath_len,
         rel,
     );
-    main.writeFixed(
+    model_exports.writeFixed(
         &model.right_panel_file_preview_abs_storage,
         &model.right_panel_file_preview_abs_len,
         abs,

@@ -21,6 +21,7 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const sidecar_keys = @import("sidecar_keys.zig");
 const protocol = @import("protocol.zig");
@@ -61,13 +62,13 @@ const open_url = @import("open_url.zig");
 const open_editor = @import("open_editor.zig");
 const session_fork = @import("fork.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
-const Turn = main.Turn;
-const Session = main.Session;
+const Turn = model_exports.Turn;
+const Session = model_exports.Session;
 const max_line_keep = main.max_line_keep;
-const max_fx_session_id = main.max_fx_session_id;
-const max_body = main.max_body;
+const max_fx_session_id = model_exports.max_fx_session_id;
+const max_body = model_exports.max_body;
 const fx_ask_key = effect_keys.fx_ask_key;
 const maximize_window_key = maximize_window.maximize_window_key;
 const pick_image_key = sidecar_keys.pick_image_key;
@@ -77,7 +78,7 @@ const open_terminal_key = sidecar_keys.open_terminal_key;
 const open_url_key = sidecar_keys.open_url_key;
 const open_editor_key = sidecar_keys.open_editor_key;
 const litellm_rates_key = litellm_rates.litellm_rates_key;
-const writeFixed = main.writeFixed;
+const writeFixed = model_exports.writeFixed;
 const takeFxAskSessionId = main.takeFxAskSessionId;
 const handleMaximizeWindowExit = maximize_window.handleMaximizeWindowExit;
 

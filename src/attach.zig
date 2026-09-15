@@ -8,13 +8,14 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const store = @import("store.zig");
 const pick_image = @import("pick_image.zig");
 const composer = @import("composer.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
-const Msg = main.Msg;
+const Msg = model_exports.Msg;
 const imagePathFromDrop = composer.imagePathFromDrop;
 const isAttachImagePath = composer.isAttachImagePath;
 

@@ -21,11 +21,12 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const open_url = @import("open_url.zig");
 
 const canvas = native_sdk.canvas;
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
 
 /// Recycled ImageId / effect-key band. Distinct from attach preview

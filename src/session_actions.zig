@@ -46,6 +46,7 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const store = @import("store.zig");
 const persist = @import("persist.zig");
 const attach_helpers = @import("attach.zig");
@@ -71,11 +72,11 @@ const session_fork = @import("fork.zig");
 const pick_folder = @import("pick_folder.zig");
 const usage_meter = @import("usage_meter.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
-const max_title = main.max_title;
-const max_project_path = main.max_project_path;
-const max_queued_text = main.max_queued_text;
+const max_title = model_exports.max_title;
+const max_project_path = model_exports.max_project_path;
+const max_queued_text = model_exports.max_queued_text;
 const canvas = native_sdk.canvas;
 
 pub fn handleNewSession(model: *Model, fx: *Effects) void {

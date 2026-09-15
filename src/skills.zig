@@ -26,12 +26,13 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const file_mention = @import("file_mention.zig");
 const i18n = @import("i18n.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
-const writeFixed = main.writeFixed;
+const writeFixed = model_exports.writeFixed;
 
 /// One-shot Skills `find` for `SKILL.md`. Distinct from review hunk
 /// (520+). Band is 530+. Incremented per scan so a cancelled spawn
@@ -347,7 +348,7 @@ fn hydrateOne(model: *Model, index: usize) void {
     const root = model.skill_probe_path_storage[0..model.skill_probe_path_len];
     var name: []const u8 = "";
     if (io != null and root.len > 0) {
-        var path_buf: [main.max_project_path + max_skill_path + 1]u8 = undefined;
+        var path_buf: [model_exports.max_project_path + max_skill_path + 1]u8 = undefined;
         if (joinProbeRelpath(root, relpath, &path_buf)) |abs| {
             var file_buf: [max_skill_file_read]u8 = undefined;
             const source = readSkillSource(io.?, abs, &file_buf);
@@ -406,7 +407,7 @@ fn loadBody(model: *Model, index: usize) void {
     const root = model.skill_probe_path_storage[0..model.skill_probe_path_len];
     if (root.len == 0) return;
     const relpath = model.skill_store[index].path();
-    var path_buf: [main.max_project_path + max_skill_path + 1]u8 = undefined;
+    var path_buf: [model_exports.max_project_path + max_skill_path + 1]u8 = undefined;
     const abs = joinProbeRelpath(root, relpath, &path_buf) orelse return;
     var file_buf: [max_skill_file_read]u8 = undefined;
     const source = readSkillSource(io, abs, &file_buf);

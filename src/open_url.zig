@@ -25,12 +25,13 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
 const pick_folder = @import("pick_folder.zig");
 const i18n = @import("i18n.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
 
 /// Distinct from open_editor (26), open_terminal (27), reveal_folder (28),
@@ -138,7 +139,7 @@ pub fn isHttpUrl(text: []const u8) bool {
 }
 
 /// Path cap for markdown file-link routing (project + mention relpath).
-pub const max_file_link_path = main.max_project_path + 256;
+pub const max_file_link_path = model_exports.max_project_path + 256;
 
 /// Relative, `file:`, fragments, and other non-browser targets. Markdown
 /// Preview routes these through Files / `reveal_folder` (not `open_url`).

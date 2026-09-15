@@ -22,6 +22,7 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const protocol = @import("protocol.zig");
@@ -29,9 +30,9 @@ const store = @import("store.zig");
 const providers = @import("providers.zig");
 const composer = @import("composer.zig");
 
-const Model = main.Model;
+const Model = model_exports.Model;
 const Effects = main.Effects;
-const writeFixed = main.writeFixed;
+const writeFixed = model_exports.writeFixed;
 
 fn cancelInFlight(model: *Model, fx: *Effects) void {
     if (model.daemon_slash_commands_key == 0) return;
@@ -115,7 +116,7 @@ pub fn maybeRefresh(model: *Model, fx: *Effects) void {
     refresh(model, fx);
 }
 
-fn trySpawn(model: *Model, fx: *Effects, session: *main.Session, cwd: []const u8) bool {
+fn trySpawn(model: *Model, fx: *Effects, session: *model_exports.Session, cwd: []const u8) bool {
     const address = store.resolveDaemonMirrorAddress(model);
     if (address.len == 0) return false;
 
