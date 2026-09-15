@@ -306,7 +306,7 @@
           </scroll>
         </column>
         <row height="40" padding="10">
-          <button variant="ghost" size="icon" icon="settings" label="Settings" on-press="toggle_settings"></button>
+          <button variant="ghost" size="icon" icon="settings" label="{settings_gear_label}" on-press="toggle_settings"></button>
         </row>
       </if>
     </column>
