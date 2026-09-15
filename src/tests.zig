@@ -28,6 +28,7 @@ const git_remotes = @import("git_remotes.zig");
 const git_toplevel = @import("git_toplevel.zig");
 const git_common_dir = @import("git_common_dir.zig");
 const git_commit = @import("git_commit.zig");
+const git_keys = @import("git_keys.zig");
 const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
 const skills = @import("skills.zig");
@@ -3463,7 +3464,7 @@ test "composer $ prefix lists cached SKILL.md; filters; click inserts $name; no 
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "$" } }, &fx);
     try testing.expectEqualStrings("$", model.draft());
-    try testing.expect(model.skill_key >= main.skills_key_first);
+    try testing.expect(model.skill_key >= git_keys.skills_key_first);
     const first_key = model.skill_key;
     var i: usize = 0;
     var spawn = fx.pendingSpawnAt(0);
@@ -15501,7 +15502,7 @@ test "settings Skills lists SKILL.md name and path; select shows body" {
     main.update(&model, .toggle_settings, &fx);
     main.update(&model, .set_settings_page_skills, &fx);
     try testing.expect(model.settings_page_skills());
-    try testing.expect(model.skill_key >= main.skills_key_first);
+    try testing.expect(model.skill_key >= git_keys.skills_key_first);
     var i: usize = 0;
     var spawn = fx.pendingSpawnAt(0);
     while (spawn) |item| : (i += 1) {
@@ -18690,13 +18691,13 @@ fn expectGitBranchArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(spawn.key != main.pick_image_key);
     try testing.expect(spawn.key != main.pick_folder_key);
     try testing.expect(spawn.key != main.copy_turn_key);
-    try testing.expect(spawn.key != main.file_mention_key_first);
-    try testing.expect(spawn.key != main.git_dirty_key_first);
-    try testing.expect(spawn.key != main.git_numstat_key_first);
-    try testing.expect(spawn.key != main.git_branch_list_key_first);
-    try testing.expect(spawn.key != main.git_checkout_key_first);
-    try testing.expect(spawn.key >= main.git_branch_key_first);
-    try testing.expect(spawn.key < main.git_dirty_key_first);
+    try testing.expect(spawn.key != git_keys.file_mention_key_first);
+    try testing.expect(spawn.key != git_keys.git_dirty_key_first);
+    try testing.expect(spawn.key != git_keys.git_numstat_key_first);
+    try testing.expect(spawn.key != git_keys.git_branch_list_key_first);
+    try testing.expect(spawn.key != git_keys.git_checkout_key_first);
+    try testing.expect(spawn.key >= git_keys.git_branch_key_first);
+    try testing.expect(spawn.key < git_keys.git_dirty_key_first);
     try testing.expect(!file_mention.isGitLsFilesArgv(spawn.argv));
     try testing.expect(!git_dirty.isGitDirtyArgv(spawn.argv));
     try testing.expect(!git_numstat.isGitNumstatArgv(spawn.argv));
@@ -18921,10 +18922,10 @@ fn expectGitBranchListArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqualStrings("--format=%(refname)%00%(worktreepath)", spawn.argv[7]);
     try testing.expectEqualStrings(git_checkout.git_heads_ref, spawn.argv[8]);
     try testing.expectEqualStrings(git_checkout.git_remotes_ref, spawn.argv[9]);
-    try testing.expect(spawn.key >= main.git_branch_list_key_first);
-    try testing.expect(spawn.key < main.git_dirty_key_first);
-    try testing.expect(spawn.key != main.git_branch_key_first);
-    try testing.expect(spawn.key != main.git_checkout_key_first);
+    try testing.expect(spawn.key >= git_keys.git_branch_list_key_first);
+    try testing.expect(spawn.key < git_keys.git_dirty_key_first);
+    try testing.expect(spawn.key != git_keys.git_branch_key_first);
+    try testing.expect(spawn.key != git_keys.git_checkout_key_first);
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCheckoutArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitTrackCheckoutArgv(spawn.argv));
@@ -18943,9 +18944,9 @@ fn expectGitCheckoutArgv(spawn: anytype, cwd: []const u8, name: []const u8) !voi
     try testing.expectEqualStrings(git_checkout.git_checkout_cmd, spawn.argv[6]);
     try testing.expectEqualStrings(name, spawn.argv[7]);
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], name) == null);
-    try testing.expect(spawn.key >= main.git_checkout_key_first);
-    try testing.expect(spawn.key < main.git_create_key_first);
-    try testing.expect(spawn.key != main.git_branch_list_key_first);
+    try testing.expect(spawn.key >= git_keys.git_checkout_key_first);
+    try testing.expect(spawn.key < git_keys.git_create_key_first);
+    try testing.expect(spawn.key != git_keys.git_branch_list_key_first);
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitBranchListArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitTrackCheckoutArgv(spawn.argv));
@@ -18974,9 +18975,9 @@ fn expectGitTrackCheckoutArgv(spawn: anytype, cwd: []const u8, name: []const u8)
     try testing.expectEqualStrings(name, spawn.argv[8]);
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], name) == null);
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_checkout.git_track_flag) == null);
-    try testing.expect(spawn.key >= main.git_checkout_key_first);
-    try testing.expect(spawn.key < main.git_create_key_first);
-    try testing.expect(spawn.key != main.git_branch_list_key_first);
+    try testing.expect(spawn.key >= git_keys.git_checkout_key_first);
+    try testing.expect(spawn.key < git_keys.git_create_key_first);
+    try testing.expect(spawn.key != git_keys.git_branch_list_key_first);
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCheckoutArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitBranchListArgv(spawn.argv));
@@ -19004,10 +19005,10 @@ fn expectGitCreateArgv(spawn: anytype, cwd: []const u8, name: []const u8) !void 
     try testing.expectEqualStrings(git_checkout.git_create_b_flag, spawn.argv[7]);
     try testing.expectEqualStrings(name, spawn.argv[8]);
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], name) == null);
-    try testing.expect(spawn.key >= main.git_create_key_first);
-    try testing.expect(spawn.key < main.git_dirty_key_first);
-    try testing.expect(spawn.key != main.git_checkout_key_first);
-    try testing.expect(spawn.key != main.git_branch_list_key_first);
+    try testing.expect(spawn.key >= git_keys.git_create_key_first);
+    try testing.expect(spawn.key < git_keys.git_dirty_key_first);
+    try testing.expect(spawn.key != git_keys.git_checkout_key_first);
+    try testing.expect(spawn.key != git_keys.git_branch_list_key_first);
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCheckoutArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitTrackCheckoutArgv(spawn.argv));
@@ -19604,12 +19605,12 @@ fn expectGitDeleteArgv(spawn: anytype, cwd: []const u8, name: []const u8) !void 
     try testing.expectEqualStrings(name, spawn.argv[8]);
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], name) == null);
     try testing.expect(!std.mem.eql(u8, spawn.argv[7], "-D"));
-    try testing.expect(spawn.key >= main.git_delete_key_first);
-    try testing.expect(spawn.key < main.git_fetch_key_first);
-    try testing.expect(spawn.key != main.git_dirty_key_first);
-    try testing.expect(spawn.key != main.git_create_key_first);
-    try testing.expect(spawn.key != main.git_checkout_key_first);
-    try testing.expect(spawn.key != main.git_branch_list_key_first);
+    try testing.expect(spawn.key >= git_keys.git_delete_key_first);
+    try testing.expect(spawn.key < git_keys.git_fetch_key_first);
+    try testing.expect(spawn.key != git_keys.git_dirty_key_first);
+    try testing.expect(spawn.key != git_keys.git_create_key_first);
+    try testing.expect(spawn.key != git_keys.git_checkout_key_first);
+    try testing.expect(spawn.key != git_keys.git_branch_list_key_first);
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCheckoutArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitTrackCheckoutArgv(spawn.argv));
@@ -19829,12 +19830,12 @@ fn expectGitDeleteForceArgv(spawn: anytype, cwd: []const u8, name: []const u8) !
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], name) == null);
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_checkout.git_delete_force_flag) == null);
     try testing.expect(!std.mem.eql(u8, spawn.argv[7], git_checkout.git_delete_d_flag));
-    try testing.expect(spawn.key >= main.git_delete_key_first);
-    try testing.expect(spawn.key < main.git_fetch_key_first);
-    try testing.expect(spawn.key != main.git_dirty_key_first);
-    try testing.expect(spawn.key != main.git_create_key_first);
-    try testing.expect(spawn.key != main.git_checkout_key_first);
-    try testing.expect(spawn.key != main.git_branch_list_key_first);
+    try testing.expect(spawn.key >= git_keys.git_delete_key_first);
+    try testing.expect(spawn.key < git_keys.git_fetch_key_first);
+    try testing.expect(spawn.key != git_keys.git_dirty_key_first);
+    try testing.expect(spawn.key != git_keys.git_create_key_first);
+    try testing.expect(spawn.key != git_keys.git_checkout_key_first);
+    try testing.expect(spawn.key != git_keys.git_branch_list_key_first);
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCheckoutArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitTrackCheckoutArgv(spawn.argv));
@@ -19951,13 +19952,13 @@ fn expectGitFetchArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqualStrings(git_checkout.git_prune_flag, spawn.argv[7]);
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_checkout.git_fetch_cmd) == null);
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_checkout.git_prune_flag) == null);
-    try testing.expect(spawn.key >= main.git_fetch_key_first);
-    try testing.expect(spawn.key < main.git_numstat_key_first);
-    try testing.expect(spawn.key != main.git_delete_key_first);
-    try testing.expect(spawn.key != main.git_dirty_key_first);
-    try testing.expect(spawn.key != main.git_create_key_first);
-    try testing.expect(spawn.key != main.git_checkout_key_first);
-    try testing.expect(spawn.key != main.git_branch_list_key_first);
+    try testing.expect(spawn.key >= git_keys.git_fetch_key_first);
+    try testing.expect(spawn.key < git_keys.git_numstat_key_first);
+    try testing.expect(spawn.key != git_keys.git_delete_key_first);
+    try testing.expect(spawn.key != git_keys.git_dirty_key_first);
+    try testing.expect(spawn.key != git_keys.git_create_key_first);
+    try testing.expect(spawn.key != git_keys.git_checkout_key_first);
+    try testing.expect(spawn.key != git_keys.git_branch_list_key_first);
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCheckoutArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitTrackCheckoutArgv(spawn.argv));
@@ -20100,16 +20101,16 @@ fn expectGitPushArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[5]);
     try testing.expectEqualStrings(git_checkout.git_push_cmd, spawn.argv[6]);
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_checkout.git_push_cmd) == null);
-    try testing.expect(spawn.key >= main.git_push_key_first);
-    try testing.expect(spawn.key < main.git_worktree_add_key_first);
-    try testing.expect(spawn.key < main.file_mention_key_first);
-    try testing.expect(spawn.key != main.git_numstat_key_first);
-    try testing.expect(spawn.key != main.git_fetch_key_first);
-    try testing.expect(spawn.key != main.git_delete_key_first);
-    try testing.expect(spawn.key != main.git_dirty_key_first);
-    try testing.expect(spawn.key != main.git_create_key_first);
-    try testing.expect(spawn.key != main.git_checkout_key_first);
-    try testing.expect(spawn.key != main.git_branch_list_key_first);
+    try testing.expect(spawn.key >= git_keys.git_push_key_first);
+    try testing.expect(spawn.key < git_keys.git_worktree_add_key_first);
+    try testing.expect(spawn.key < git_keys.file_mention_key_first);
+    try testing.expect(spawn.key != git_keys.git_numstat_key_first);
+    try testing.expect(spawn.key != git_keys.git_fetch_key_first);
+    try testing.expect(spawn.key != git_keys.git_delete_key_first);
+    try testing.expect(spawn.key != git_keys.git_dirty_key_first);
+    try testing.expect(spawn.key != git_keys.git_create_key_first);
+    try testing.expect(spawn.key != git_keys.git_checkout_key_first);
+    try testing.expect(spawn.key != git_keys.git_branch_list_key_first);
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCheckoutArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitTrackCheckoutArgv(spawn.argv));
@@ -20137,8 +20138,8 @@ fn expectGitUpstreamArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqualStrings(git_checkout.git_symbolic_full_name, spawn.argv[8]);
     try testing.expectEqualStrings(git_checkout.git_upstream_rev, spawn.argv[9]);
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_checkout.git_upstream_rev) == null);
-    try testing.expect(spawn.key >= main.git_push_key_first);
-    try testing.expect(spawn.key < main.file_mention_key_first);
+    try testing.expect(spawn.key >= git_keys.git_push_key_first);
+    try testing.expect(spawn.key < git_keys.file_mention_key_first);
 }
 
 fn expectGitRemoteArgv(spawn: anytype, cwd: []const u8) !void {
@@ -20146,8 +20147,8 @@ fn expectGitRemoteArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(!git_checkout.isGitPushArgv(spawn.argv));
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
     try testing.expectEqualStrings(git_checkout.git_remote_cmd, spawn.argv[6]);
-    try testing.expect(spawn.key >= main.git_push_key_first);
-    try testing.expect(spawn.key < main.file_mention_key_first);
+    try testing.expect(spawn.key >= git_keys.git_push_key_first);
+    try testing.expect(spawn.key < git_keys.file_mention_key_first);
 }
 
 fn expectGitSetUpstreamPushArgv(spawn: anytype, cwd: []const u8, remote: []const u8, branch: []const u8) !void {
@@ -20166,8 +20167,8 @@ fn expectGitSetUpstreamPushArgv(spawn: anytype, cwd: []const u8, remote: []const
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_checkout.git_set_upstream_flag) == null);
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], remote) == null);
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], branch) == null);
-    try testing.expect(spawn.key >= main.git_push_key_first);
-    try testing.expect(spawn.key < main.file_mention_key_first);
+    try testing.expect(spawn.key >= git_keys.git_push_key_first);
+    try testing.expect(spawn.key < git_keys.file_mention_key_first);
 }
 
 fn feedUpstreamPresent(model: *Model, fx: *Effects, cwd: []const u8) !@TypeOf(fx.pendingSpawnAt(0).?) {
@@ -20406,8 +20407,8 @@ test "Push without upstream set-upstreams origin; detached and no remotes are no
     const show = findGitPushShowCurrentSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitPushShowCurrent;
     try testing.expect(git_branch.isGitBranchArgv(show.argv));
     try testing.expectEqualStrings(project, show.argv[4]);
-    try testing.expect(show.key >= main.git_push_key_first);
-    try testing.expect(show.key < main.file_mention_key_first);
+    try testing.expect(show.key >= git_keys.git_push_key_first);
+    try testing.expect(show.key < git_keys.file_mention_key_first);
     try fx.feedExit(show.key, 0);
     drainEffects(&model, &fx);
     try testing.expectEqual(@as(u64, 0), model.git_push_key);
@@ -20466,9 +20467,9 @@ fn expectGitWorktreeBaseArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqualStrings(git_checkout.git_short_flag, spawn.argv[8]);
     try testing.expectEqualStrings(git_checkout.git_origin_head_ref, spawn.argv[9]);
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_checkout.git_origin_head_ref) == null);
-    try testing.expect(spawn.key >= main.git_worktree_base_key_first);
-    try testing.expect(spawn.key < main.file_mention_key_first);
-    try testing.expect(spawn.key > main.git_ahead_behind_key_first);
+    try testing.expect(spawn.key >= git_keys.git_worktree_base_key_first);
+    try testing.expect(spawn.key < git_keys.file_mention_key_first);
+    try testing.expect(spawn.key > git_keys.git_ahead_behind_key_first);
     try testing.expect(!git_checkout.isGitWorktreeAddArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitUpstreamArgv(spawn.argv));
 }
@@ -20533,9 +20534,9 @@ fn expectGitWorktreeAddArgv(spawn: anytype, cwd: []const u8, home: []const u8, n
     try testing.expectEqualStrings(dest, spawn.argv[11]);
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], name) == null);
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], dest) == null);
-    try testing.expect(spawn.key >= main.git_worktree_add_key_first);
-    try testing.expect(spawn.key < main.file_mention_key_first);
-    try testing.expect(spawn.key != main.git_push_key_first);
+    try testing.expect(spawn.key >= git_keys.git_worktree_add_key_first);
+    try testing.expect(spawn.key < git_keys.file_mention_key_first);
+    try testing.expect(spawn.key != git_keys.git_push_key_first);
     try testing.expect(!git_checkout.isGitCreateArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitPushArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCheckoutArgv(spawn.argv));
@@ -21197,7 +21198,7 @@ test "confirm New worktree one-shots git worktree add -b; success retargets proj
     main.update(&model, .confirm_git_worktree_create, &fx);
     try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
     const probe_key = model.git_worktree_base_key;
-    try testing.expect(probe_key >= main.git_worktree_base_key_first);
+    try testing.expect(probe_key >= git_keys.git_worktree_base_key_first);
     main.update(&model, .confirm_git_worktree_create, &fx);
     try testing.expectEqual(probe_key, model.git_worktree_base_key);
     try testing.expectEqual(@as(u64, 0), model.git_push_key);
@@ -21256,7 +21257,7 @@ test "confirm New worktree one-shots git worktree add -b; success retargets proj
     main.update(&model, .{ .git_worktree_create_edit = .{ .insert_text = "feat-cancel" } }, &fx);
     main.update(&model, .confirm_git_worktree_create, &fx);
     const stale_probe = findGitWorktreeBaseSpawnKey(&fx, model.git_worktree_base_key) orelse return error.MissingGitWorktreeBaseCancel;
-    try testing.expect(stale_probe.key >= main.git_worktree_base_key_first);
+    try testing.expect(stale_probe.key >= git_keys.git_worktree_base_key_first);
     main.update(&model, .cancel_git_worktree_create, &fx);
     try testing.expectEqual(@as(u64, 0), model.git_worktree_base_key);
     try testing.expect(!model.git_worktree_create_active);
@@ -21488,14 +21489,14 @@ fn expectGitDirtyArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(spawn.key != main.pick_image_key);
     try testing.expect(spawn.key != main.pick_folder_key);
     try testing.expect(spawn.key != main.copy_turn_key);
-    try testing.expect(spawn.key != main.git_branch_key_first);
-    try testing.expect(spawn.key != main.git_numstat_key_first);
-    try testing.expect(spawn.key != main.git_delete_key_first);
-    try testing.expect(spawn.key != main.git_push_key_first);
-    try testing.expect(spawn.key != main.git_ahead_behind_key_first);
-    try testing.expect(spawn.key != main.file_mention_key_first);
-    try testing.expect(spawn.key >= main.git_dirty_key_first);
-    try testing.expect(spawn.key < main.git_numstat_key_first);
+    try testing.expect(spawn.key != git_keys.git_branch_key_first);
+    try testing.expect(spawn.key != git_keys.git_numstat_key_first);
+    try testing.expect(spawn.key != git_keys.git_delete_key_first);
+    try testing.expect(spawn.key != git_keys.git_push_key_first);
+    try testing.expect(spawn.key != git_keys.git_ahead_behind_key_first);
+    try testing.expect(spawn.key != git_keys.file_mention_key_first);
+    try testing.expect(spawn.key >= git_keys.git_dirty_key_first);
+    try testing.expect(spawn.key < git_keys.git_numstat_key_first);
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
     try testing.expect(!git_numstat.isGitNumstatArgv(spawn.argv));
     try testing.expect(!file_mention.isGitLsFilesArgv(spawn.argv));
@@ -21801,13 +21802,13 @@ fn expectGitNumstatArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(spawn.key != main.pick_image_key);
     try testing.expect(spawn.key != main.pick_folder_key);
     try testing.expect(spawn.key != main.copy_turn_key);
-    try testing.expect(spawn.key != main.git_branch_key_first);
-    try testing.expect(spawn.key != main.git_dirty_key_first);
-    try testing.expect(spawn.key != main.git_ahead_behind_key_first);
-    try testing.expect(spawn.key != main.file_mention_key_first);
-    try testing.expect(spawn.key >= main.git_numstat_key_first);
-    try testing.expect(spawn.key < main.git_push_key_first);
-    try testing.expect(spawn.key != main.git_push_key_first);
+    try testing.expect(spawn.key != git_keys.git_branch_key_first);
+    try testing.expect(spawn.key != git_keys.git_dirty_key_first);
+    try testing.expect(spawn.key != git_keys.git_ahead_behind_key_first);
+    try testing.expect(spawn.key != git_keys.file_mention_key_first);
+    try testing.expect(spawn.key >= git_keys.git_numstat_key_first);
+    try testing.expect(spawn.key < git_keys.git_push_key_first);
+    try testing.expect(spawn.key != git_keys.git_push_key_first);
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
     try testing.expect(!git_dirty.isGitDirtyArgv(spawn.argv));
     try testing.expect(!file_mention.isGitLsFilesArgv(spawn.argv));
@@ -22212,7 +22213,7 @@ fn expectGitReviewUntrackedHunkArgv(argv: []const []const u8, path: []const u8) 
 fn finishGitRemotesIfInFlight(fx: *Effects, model: *Model, line: []const u8) !void {
     if (model.git_remotes_key == 0) return;
     const spawn = findGitRemotesSpawnKey(fx, model.git_remotes_key) orelse return error.MissingGitRemotesSpawn;
-    try testing.expect(spawn.key >= main.git_remotes_key_first);
+    try testing.expect(spawn.key >= git_keys.git_remotes_key_first);
     try testing.expect(spawn.key != model.git_push_key);
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_checkout.git_remote_cmd) == null);
     if (line.len > 0) {
@@ -22260,14 +22261,14 @@ fn expectGitAheadBehindArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(spawn.key != main.pick_image_key);
     try testing.expect(spawn.key != main.pick_folder_key);
     try testing.expect(spawn.key != main.copy_turn_key);
-    try testing.expect(spawn.key != main.git_branch_key_first);
-    try testing.expect(spawn.key != main.git_dirty_key_first);
-    try testing.expect(spawn.key != main.git_numstat_key_first);
-    try testing.expect(spawn.key != main.git_push_key_first);
-    try testing.expect(spawn.key != main.git_worktree_add_key_first);
-    try testing.expect(spawn.key != main.file_mention_key_first);
-    try testing.expect(spawn.key >= main.git_ahead_behind_key_first);
-    try testing.expect(spawn.key < main.file_mention_key_first);
+    try testing.expect(spawn.key != git_keys.git_branch_key_first);
+    try testing.expect(spawn.key != git_keys.git_dirty_key_first);
+    try testing.expect(spawn.key != git_keys.git_numstat_key_first);
+    try testing.expect(spawn.key != git_keys.git_push_key_first);
+    try testing.expect(spawn.key != git_keys.git_worktree_add_key_first);
+    try testing.expect(spawn.key != git_keys.file_mention_key_first);
+    try testing.expect(spawn.key >= git_keys.git_ahead_behind_key_first);
+    try testing.expect(spawn.key < git_keys.file_mention_key_first);
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
     try testing.expect(!git_dirty.isGitDirtyArgv(spawn.argv));
     try testing.expect(!git_numstat.isGitNumstatArgv(spawn.argv));
@@ -22467,12 +22468,12 @@ test "changing session or project_path cancels the previous ahead/behind probe" 
     try expectGitAheadBehindArgv(first_spawn, project_a);
     const first_remotes = findGitRemotesSpawnKey(&fx, model.git_remotes_key) orelse return error.MissingGitRemotesSpawn;
     const first_remotes_key = first_remotes.key;
-    try testing.expect(first_remotes_key >= main.git_remotes_key_first);
+    try testing.expect(first_remotes_key >= git_keys.git_remotes_key_first);
     const first_toplevel = findGitToplevelSpawnKey(&fx, model.git_toplevel_key) orelse return error.MissingGitToplevelSpawn;
-    try testing.expect(first_toplevel.key >= main.git_toplevel_key_first);
+    try testing.expect(first_toplevel.key >= git_keys.git_toplevel_key_first);
     try testing.expect(first_toplevel.key > first_remotes_key);
     const first_common = findGitCommonDirSpawnKey(&fx, model.git_common_dir_key) orelse return error.MissingGitCommonDirSpawn;
-    try testing.expect(first_common.key >= main.git_common_dir_key_first);
+    try testing.expect(first_common.key >= git_keys.git_common_dir_key_first);
     try testing.expect(first_common.key > first_toplevel.key);
     switch (builtin.os.tag) {
         .windows => {
@@ -22666,10 +22667,10 @@ fn expectFileMentionArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(spawn.key != main.open_terminal_key);
     try testing.expect(spawn.key != main.open_editor_key);
     try testing.expect(spawn.key != main.copy_turn_key);
-    try testing.expect(spawn.key >= main.file_mention_key_first);
-    try testing.expect(spawn.key != main.git_dirty_key_first);
-    try testing.expect(spawn.key != main.git_numstat_key_first);
-    try testing.expect(spawn.key != main.git_push_key_first);
+    try testing.expect(spawn.key >= git_keys.file_mention_key_first);
+    try testing.expect(spawn.key != git_keys.git_dirty_key_first);
+    try testing.expect(spawn.key != git_keys.git_numstat_key_first);
+    try testing.expect(spawn.key != git_keys.git_push_key_first);
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
     try testing.expect(!git_dirty.isGitDirtyArgv(spawn.argv));
     try testing.expect(!git_numstat.isGitNumstatArgv(spawn.argv));
@@ -22696,7 +22697,7 @@ fn expectFileMentionWalkArgv(spawn: anytype, cwd: []const u8) !void {
     inline for (file_mention.walk_skip_names) |name| {
         try testing.expect(std.mem.indexOf(u8, spawn.argv[7], name) != null);
     }
-    try testing.expect(spawn.key >= main.file_mention_key_first);
+    try testing.expect(spawn.key >= git_keys.file_mention_key_first);
 }
 
 test "composer @ mention card filters tracked files; insert replaces last token; slash stays authoritative" {
@@ -35970,13 +35971,13 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expect(!model.review_diff_source_unstaged());
     try testing.expect(!model.review_diff_source_committed());
     try testing.expect(!model.review_diff_source_last_turn());
-    try testing.expect(model.review_diff_key >= main.review_diff_key_first);
+    try testing.expect(model.review_diff_key >= git_keys.review_diff_key_first);
     try testing.expectEqualStrings(review_diff.comparing_status, model.review_diff_status());
 
     const spawn = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffSpawn;
     try testing.expect(review_diff.isGitReviewDiffArgv(spawn.argv));
     try expectGitReviewUncommittedArgv(spawn.argv);
-    try testing.expect(spawn.key >= main.review_diff_key_first);
+    try testing.expect(spawn.key >= git_keys.review_diff_key_first);
     try testing.expect(spawn.key != model.git_ahead_behind_key);
     try testing.expect(spawn.key != model.git_common_dir_key);
 
@@ -36088,7 +36089,7 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expectEqual(@as(u32, 1), model.review_diff_selected_id);
     try testing.expect(!model.has_review_diff_hunk_file_header());
     try testing.expectEqualStrings("src/a.zig", model.review_diff_hunk_file_path());
-    try testing.expect(model.review_diff_hunk_key >= main.review_diff_hunk_key_first);
+    try testing.expect(model.review_diff_hunk_key >= git_keys.review_diff_hunk_key_first);
     const hunk = findGitReviewHunkSpawnKey(&fx, model.review_diff_hunk_key) orelse return error.MissingReviewHunkSpawn;
     try testing.expect(review_diff.isGitReviewHunkArgv(hunk.argv));
     try testing.expect(!review_diff.isGitReviewDiffArgv(hunk.argv));
@@ -36385,7 +36386,7 @@ test "Review source row switches Uncommitted and re-probes numstat plus untracke
     const uncommitted_spawn = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffUncommitted;
     try testing.expect(review_diff.isGitReviewDiffArgv(uncommitted_spawn.argv));
     try expectGitReviewUncommittedArgv(uncommitted_spawn.argv);
-    try testing.expect(uncommitted_spawn.key >= main.review_diff_key_first);
+    try testing.expect(uncommitted_spawn.key >= git_keys.review_diff_key_first);
     try testing.expect(uncommitted_spawn.key != model.git_numstat_key);
 
     var tree = try buildTree(arena, &model);
@@ -36405,7 +36406,7 @@ test "Review source row switches Uncommitted and re-probes numstat plus untracke
     const untracked_row = try expectButtonMsg(tree, "new.txt", .{ .select_review_diff_file = 2 });
     main.update(&model, tree.msgForPointer(untracked_row.id, .up).?, &fx);
     try testing.expectEqual(@as(u32, 2), model.review_diff_selected_id);
-    try testing.expect(model.review_diff_hunk_key >= main.review_diff_hunk_key_first);
+    try testing.expect(model.review_diff_hunk_key >= git_keys.review_diff_hunk_key_first);
     const untracked_hunk = findGitReviewHunkSpawnKey(&fx, model.review_diff_hunk_key) orelse return error.MissingUntrackedHunk;
     try expectGitReviewUntrackedHunkArgv(untracked_hunk.argv, "new.txt");
     try fx.feedLine(untracked_hunk.key, "diff --git a/new.txt b/new.txt\n+hello\n");
@@ -36517,7 +36518,7 @@ test "Review source row switches Staged and re-probes --cached numstat" {
     try testing.expectEqualStrings(review_diff.git_cached_flag, staged_spawn.argv[8]);
     try testing.expectEqualStrings("--cached", staged_spawn.argv[8]);
     try testing.expect(std.mem.indexOf(u8, staged_spawn.argv[2], "--cached") == null);
-    try testing.expect(staged_spawn.key >= main.review_diff_key_first);
+    try testing.expect(staged_spawn.key >= git_keys.review_diff_key_first);
     try testing.expect(staged_spawn.key != model.git_numstat_key);
 
     try fx.feedLine(staged_spawn.key, "1\t0\tstaged.zig\n");
@@ -36630,7 +36631,7 @@ test "Review source row switches Unstaged and re-probes worktree numstat" {
     try testing.expect(std.mem.indexOf(u8, unstaged_spawn.argv[2], review_diff.git_numstat) == null);
     try testing.expect(std.mem.indexOf(u8, unstaged_spawn.argv[2], review_diff.git_head) == null);
     try testing.expect(std.mem.indexOf(u8, unstaged_spawn.argv[2], review_diff.git_cached_flag) == null);
-    try testing.expect(unstaged_spawn.key >= main.review_diff_key_first);
+    try testing.expect(unstaged_spawn.key >= git_keys.review_diff_key_first);
     try testing.expect(unstaged_spawn.key != model.git_numstat_key);
 
     try fx.feedLine(unstaged_spawn.key, "3\t1\tunstaged.zig\n");
@@ -36743,7 +36744,7 @@ test "Review source row switches Committed and re-probes origin/HEAD...HEAD nums
     try testing.expectEqualStrings("origin/HEAD...HEAD", committed_spawn.argv[8]);
     try testing.expect(std.mem.indexOf(u8, committed_spawn.argv[2], review_diff.git_committed_range) == null);
     try testing.expect(std.mem.indexOf(u8, committed_spawn.argv[2], review_diff.git_upstream_range) == null);
-    try testing.expect(committed_spawn.key >= main.review_diff_key_first);
+    try testing.expect(committed_spawn.key >= git_keys.review_diff_key_first);
     try testing.expect(committed_spawn.key != model.git_numstat_key);
 
     try fx.feedLine(committed_spawn.key, "1\t1\tcommitted.zig\n");
@@ -36870,7 +36871,7 @@ test "Review source row switches Last turn and re-probes rewind sha...HEAD numst
     }
     main.update(&model, .set_review_diff_source_last_turn, &fx);
     try testing.expectEqual(review_diff.Source.last_turn, model.review_diff_source);
-    try testing.expect(model.review_diff_key >= main.review_diff_key_first);
+    try testing.expect(model.review_diff_key >= git_keys.review_diff_key_first);
     try testing.expectEqualStrings(review_diff.comparing_status, model.review_diff_status());
     const last_turn_spawn = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffLastTurn;
     try testing.expect(review_diff.isGitReviewDiffArgv(last_turn_spawn.argv));
@@ -36904,7 +36905,7 @@ test "Review source row switches Last turn and re-probes rewind sha...HEAD numst
 
     main.update(&model, tree.msgForPointer(file_row.id, .up).?, &fx);
     try testing.expectEqual(@as(u32, 1), model.review_diff_selected_id);
-    try testing.expect(model.review_diff_hunk_key >= main.review_diff_hunk_key_first);
+    try testing.expect(model.review_diff_hunk_key >= git_keys.review_diff_hunk_key_first);
     const hunk = findGitReviewHunkSpawnKey(&fx, model.review_diff_hunk_key) orelse return error.MissingLastTurnHunkUi;
     try testing.expect(review_diff.isGitReviewHunkArgv(hunk.argv));
     try testing.expectEqualStrings(range, hunk.argv[7]);
@@ -37092,7 +37093,7 @@ test "header Environment +/- opens the same Review card as Compare" {
     try testing.expect(model.right_panel_tab_diff());
     try testing.expectEqual(@as(u32, 820), model.rightPanelWidthPixels());
     try testing.expectEqual(review_diff.Source.uncommitted, model.review_diff_source);
-    try testing.expect(model.review_diff_key >= main.review_diff_key_first);
+    try testing.expect(model.review_diff_key >= git_keys.review_diff_key_first);
     try testing.expectEqualStrings(review_diff.comparing_status, model.review_diff_status());
     try testing.expect(fx.pendingSpawnCount() > pending_before_click);
 
@@ -37147,7 +37148,7 @@ test "header Environment +/- opens the same Review card as Compare" {
     try testing.expect(!model.review_diff_active);
     model.phase = .idle;
 
-    model.git_push_key = main.git_push_key_first;
+    model.git_push_key = git_keys.git_push_key_first;
     main.update(&model, tree.msgForPointer(gated.id, .up).?, &fx);
     try testing.expect(!model.review_diff_active);
     try testing.expect(git_checkout.gitMutationInFlight(&model));
