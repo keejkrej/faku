@@ -1150,8 +1150,8 @@ pub fn openFilePreviewMarkdownUrl(model: *Model, fx: *Effects, url: []const u8) 
                 model.right_panel_file_preview_status_len = 0;
             },
             .live => {},
-            .empty, .overflow => setPreviewStatus(model, open_url.relative_link_status),
-            .missing_bin => setPreviewStatus(model, open_url.hostMissingStatus()),
+            .empty, .overflow => setPreviewStatus(model, open_url.relativeLinkStatusFor(model.language_preference, model.systemLocaleId())),
+            .missing_bin => setPreviewStatus(model, open_url.hostMissingStatusFor(model.language_preference, model.systemLocaleId())),
         }
         return;
     }
@@ -1159,7 +1159,7 @@ pub fn openFilePreviewMarkdownUrl(model: *Model, fx: *Effects, url: []const u8) 
     const preview_abs = model.right_panel_file_preview_abs_storage[0..model.right_panel_file_preview_abs_len];
     var path_buf: [open_url.max_file_link_path]u8 = undefined;
     const resolved = open_url.resolveMarkdownFilePath(url, preview_abs, &path_buf) orelse {
-        setPreviewStatus(model, open_url.relative_link_status);
+        setPreviewStatus(model, open_url.relativeLinkStatusFor(model.language_preference, model.systemLocaleId()));
         return;
     };
 
@@ -1174,8 +1174,8 @@ pub fn openFilePreviewMarkdownUrl(model: *Model, fx: *Effects, url: []const u8) 
             model.right_panel_file_preview_status_len = 0;
         },
         .live => {},
-        .missing_bin => setPreviewStatus(model, reveal_folder.hostMissingStatus()),
-        .no_path => setPreviewStatus(model, open_url.relative_link_status),
+        .missing_bin => setPreviewStatus(model, reveal_folder.hostMissingStatusFor(model.language_preference, model.systemLocaleId())),
+        .no_path => setPreviewStatus(model, open_url.relativeLinkStatusFor(model.language_preference, model.systemLocaleId())),
     }
 }
 
@@ -1199,7 +1199,7 @@ fn ensureAncestorsExpanded(model: *Model, rel: []const u8) void {
 
 fn openProjectPreviewFile(model: *Model, fx: *Effects, rel: []const u8) void {
     const id = file_mention.fileIdForRelpath(model, rel) orelse {
-        setPreviewStatus(model, open_url.relative_link_status);
+        setPreviewStatus(model, open_url.relativeLinkStatusFor(model.language_preference, model.systemLocaleId()));
         return;
     };
     selectFiles(model, fx);

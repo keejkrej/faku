@@ -20,11 +20,16 @@
 //!            window (PATH-resolved `.exe` like sibling pickers; each
 //!            token its own argv slot). Missing PowerShell →
 //!            missing_exit. app.zon already includes windows.
+//! Window-status missing-tool lines follow the resolved locale this
+//! cut (same `i18n.OsHelperStatusChrome` strings; distinct from
+//! `OsFolderDialogChrome` / `OsImageDialogChrome`; binary names stay
+//! Latin).
 
 const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const i18n = @import("i18n.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -37,9 +42,9 @@ pub const maximize_window_key: u64 = 30;
 
 pub const missing_exit: u8 = 2;
 
-pub const linux_missing_status = "No OS maximize (install wmctrl or xdotool).";
-pub const macos_missing_status = "No OS maximize (osascript missing).";
-pub const windows_missing_status = "No OS maximize (powershell.exe missing).";
+pub const linux_missing_status = i18n.osHelperStatusChromeFor(.english, "").maximize_linux_missing;
+pub const macos_missing_status = i18n.osHelperStatusChromeFor(.english, "").maximize_macos_missing;
+pub const windows_missing_status = i18n.osHelperStatusChromeFor(.english, "").maximize_windows_missing;
 
 pub const osascript_bin = "osascript";
 /// System Events zoom (green-button maximize), not fullscreen.
@@ -114,17 +119,22 @@ pub fn hostArgv(stage: Stage) ?[]const []const u8 {
 }
 
 pub fn hostMissingStatus() []const u8 {
+    return hostMissingStatusFor(.english, "");
+}
+
+pub fn hostMissingStatusFor(preference: i18n.LanguagePreference, system_locale_id: []const u8) []const u8 {
+    const chrome = i18n.osHelperStatusChromeFor(preference, system_locale_id);
     return switch (builtin.os.tag) {
-        .macos => macos_missing_status,
-        .windows => windows_missing_status,
-        else => linux_missing_status,
+        .macos => chrome.maximize_macos_missing,
+        .windows => chrome.maximize_windows_missing,
+        else => chrome.maximize_linux_missing,
     };
 }
 
 pub fn startMaximizeWindow(model: *Model, fx: *Effects) void {
     if (model.maximize_window_live) return;
     const argv = hostArgv(.first) orelse {
-        model.setWindowStatus(hostMissingStatus());
+        model.setWindowStatus(hostMissingStatusFor(model.language_preference, model.systemLocaleId()));
         return;
     };
     model.maximize_window_live = true;
@@ -157,7 +167,7 @@ pub fn handleMaximizeWindowExit(model: *Model, fx: *Effects, exit: native_sdk.Ef
         }
         model.maximize_window_live = false;
         if (!model.has_window_status()) {
-            model.setWindowStatus(hostMissingStatus());
+            model.setWindowStatus(hostMissingStatusFor(model.language_preference, model.systemLocaleId()));
         }
         return;
     }
@@ -270,4 +280,35 @@ test "windows maximize argv is not a picker powershell argv" {
     try std.testing.expect(!pick_folder.isPickerArgv(argvFor(.powershell)));
     try std.testing.expect(pick_image.isPickerArgv(pick_image.argvFor(.powershell)));
     try std.testing.expect(pick_folder.isPickerArgv(pick_folder.argvFor(.powershell)));
+}
+
+test "maximize missing status follows resolved locale" {
+    const zh = i18n.osHelperStatusChromeFor(.simplified_chinese, "");
+    const ja = i18n.osHelperStatusChromeFor(.japanese, "");
+    const en = i18n.osHelperStatusChromeFor(.english, "");
+
+    try std.testing.expectEqualStrings(en.maximize_linux_missing, linux_missing_status);
+    try std.testing.expectEqualStrings(en.maximize_macos_missing, macos_missing_status);
+    try std.testing.expectEqualStrings(en.maximize_windows_missing, windows_missing_status);
+    try std.testing.expectEqualStrings(hostMissingStatusFor(.english, ""), hostMissingStatus());
+    try std.testing.expectEqualStrings(hostMissingStatusFor(.english, ""), hostMissingStatusFor(.english, "ja_JP.UTF-8"));
+    try std.testing.expectEqualStrings(hostMissingStatusFor(.simplified_chinese, ""), hostMissingStatusFor(.system, "zh_CN.UTF-8"));
+    try std.testing.expectEqualStrings(hostMissingStatusFor(.japanese, ""), hostMissingStatusFor(.system, "ja_JP.UTF-8"));
+    switch (builtin.os.tag) {
+        .macos => {
+            try std.testing.expectEqualStrings(en.maximize_macos_missing, hostMissingStatus());
+            try std.testing.expectEqualStrings(zh.maximize_macos_missing, hostMissingStatusFor(.simplified_chinese, ""));
+            try std.testing.expectEqualStrings(ja.maximize_macos_missing, hostMissingStatusFor(.japanese, ""));
+        },
+        .windows => {
+            try std.testing.expectEqualStrings(en.maximize_windows_missing, hostMissingStatus());
+            try std.testing.expectEqualStrings(zh.maximize_windows_missing, hostMissingStatusFor(.simplified_chinese, ""));
+            try std.testing.expectEqualStrings(ja.maximize_windows_missing, hostMissingStatusFor(.japanese, ""));
+        },
+        else => {
+            try std.testing.expectEqualStrings(en.maximize_linux_missing, hostMissingStatus());
+            try std.testing.expectEqualStrings(zh.maximize_linux_missing, hostMissingStatusFor(.simplified_chinese, ""));
+            try std.testing.expectEqualStrings(ja.maximize_linux_missing, hostMissingStatusFor(.japanese, ""));
+        },
+    }
 }

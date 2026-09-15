@@ -3191,9 +3191,11 @@ pub const Model = struct {
         return browser_pane.sessionRows(model, arena);
     }
 
+    /// Terminal-tab muted line when Open in Terminal is hidden (no
+    /// project). Same `i18n.OsHelperStatusChrome.terminal_no_project`
+    /// as `open_terminal.noProjectStatusFor`.
     pub fn open_terminal_no_project_status(model: *const Model) []const u8 {
-        _ = model;
-        return open_terminal.no_project_status;
+        return open_terminal.noProjectStatusFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Dedicated PTY effect key for the right-panel `<terminal>` binding.

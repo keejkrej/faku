@@ -15,7 +15,11 @@
 //! URL gate (light): trim whitespace; reject empty. Accept `http://` or
 //! `https://` as-is (scheme match is ASCII case-insensitive). Bare hosts
 //! and other text get an `https://` prefix. Overflow of the spawn buffer
-//! is a miss (same one-line empty status).
+//! is a miss (same one-line empty status). Window-status missing-tool
+//! / empty-url / relative-link lines follow the resolved locale this cut
+//! (same `i18n.OsHelperStatusChrome` strings; distinct from
+//! `OsFolderDialogChrome` / `OsImageDialogChrome`; binary names stay
+//! Latin).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -24,6 +28,7 @@ const main = @import("main.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
 const pick_folder = @import("pick_folder.zig");
+const i18n = @import("i18n.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -36,11 +41,11 @@ pub const open_url_key: u64 = 25;
 
 pub const missing_exit: u8 = 2;
 
-pub const linux_missing_status = "No OS browser (install xdg-open).";
-pub const macos_missing_status = "No OS browser (open missing).";
-pub const windows_missing_status = "No OS browser (cmd.exe missing).";
-pub const empty_url_status = "Enter a URL to open.";
-pub const relative_link_status = "Can't open that link.";
+pub const linux_missing_status = i18n.osHelperStatusChromeFor(.english, "").url_linux_missing;
+pub const macos_missing_status = i18n.osHelperStatusChromeFor(.english, "").url_macos_missing;
+pub const windows_missing_status = i18n.osHelperStatusChromeFor(.english, "").url_windows_missing;
+pub const empty_url_status = i18n.osHelperStatusChromeFor(.english, "").empty_url;
+pub const relative_link_status = i18n.osHelperStatusChromeFor(.english, "").relative_link;
 
 pub const macos_bin = "open";
 pub const linux_bin = "xdg-open";
@@ -76,11 +81,24 @@ pub fn hostBin() ?[]const u8 {
 }
 
 pub fn hostMissingStatus() []const u8 {
+    return hostMissingStatusFor(.english, "");
+}
+
+pub fn hostMissingStatusFor(preference: i18n.LanguagePreference, system_locale_id: []const u8) []const u8 {
+    const chrome = i18n.osHelperStatusChromeFor(preference, system_locale_id);
     return switch (builtin.os.tag) {
-        .macos => macos_missing_status,
-        .windows => windows_missing_status,
-        else => linux_missing_status,
+        .macos => chrome.url_macos_missing,
+        .windows => chrome.url_windows_missing,
+        else => chrome.url_linux_missing,
     };
+}
+
+pub fn emptyUrlStatusFor(preference: i18n.LanguagePreference, system_locale_id: []const u8) []const u8 {
+    return i18n.osHelperStatusChromeFor(preference, system_locale_id).empty_url;
+}
+
+pub fn relativeLinkStatusFor(preference: i18n.LanguagePreference, system_locale_id: []const u8) []const u8 {
+    return i18n.osHelperStatusChromeFor(preference, system_locale_id).relative_link;
 }
 
 pub fn binFor(tool: Tool) []const u8 {
@@ -457,8 +475,8 @@ pub fn normalizeUrl(raw: []const u8, dest: []u8) ?[]const u8 {
 pub fn startOpenUrl(model: *Model, fx: *Effects) void {
     switch (startOpenUrlText(model, fx, model.browser_url())) {
         .spawned, .live => {},
-        .empty, .overflow => model.setWindowStatus(empty_url_status),
-        .missing_bin => model.setWindowStatus(hostMissingStatus()),
+        .empty, .overflow => model.setWindowStatus(emptyUrlStatusFor(model.language_preference, model.systemLocaleId())),
+        .missing_bin => model.setWindowStatus(hostMissingStatusFor(model.language_preference, model.systemLocaleId())),
     }
 }
 
@@ -495,7 +513,7 @@ fn isMissingUrlExit(exit: native_sdk.EffectExit) bool {
 
 pub fn handleOpenUrlExit(model: *Model, exit: native_sdk.EffectExit) void {
     if (isMissingUrlExit(exit) and !model.has_window_status()) {
-        model.setWindowStatus(hostMissingStatus());
+        model.setWindowStatus(hostMissingStatusFor(model.language_preference, model.systemLocaleId()));
     }
     model.open_url_live = false;
 }
@@ -623,6 +641,45 @@ test "open_url_key is 25 and distinct from editor/terminal/reveal neighbors" {
     try std.testing.expect(open_url_key != copy.copy_turn_key);
     try std.testing.expect(open_url_key != 3);
     try std.testing.expect(open_url_key < 64);
+}
+
+test "url missing status follows resolved locale" {
+    const zh = i18n.osHelperStatusChromeFor(.simplified_chinese, "");
+    const ja = i18n.osHelperStatusChromeFor(.japanese, "");
+    const en = i18n.osHelperStatusChromeFor(.english, "");
+
+    try std.testing.expectEqualStrings(en.url_linux_missing, linux_missing_status);
+    try std.testing.expectEqualStrings(en.url_macos_missing, macos_missing_status);
+    try std.testing.expectEqualStrings(en.url_windows_missing, windows_missing_status);
+    try std.testing.expectEqualStrings(en.empty_url, empty_url_status);
+    try std.testing.expectEqualStrings(en.relative_link, relative_link_status);
+    try std.testing.expectEqualStrings(hostMissingStatusFor(.english, ""), hostMissingStatus());
+    try std.testing.expectEqualStrings(hostMissingStatusFor(.english, ""), hostMissingStatusFor(.english, "ja_JP.UTF-8"));
+    try std.testing.expectEqualStrings(hostMissingStatusFor(.simplified_chinese, ""), hostMissingStatusFor(.system, "zh_CN.UTF-8"));
+    try std.testing.expectEqualStrings(hostMissingStatusFor(.japanese, ""), hostMissingStatusFor(.system, "ja_JP.UTF-8"));
+    try std.testing.expectEqualStrings(en.empty_url, emptyUrlStatusFor(.english, ""));
+    try std.testing.expectEqualStrings(zh.empty_url, emptyUrlStatusFor(.simplified_chinese, ""));
+    try std.testing.expectEqualStrings(ja.empty_url, emptyUrlStatusFor(.japanese, ""));
+    try std.testing.expectEqualStrings(en.relative_link, relativeLinkStatusFor(.english, ""));
+    try std.testing.expectEqualStrings(zh.relative_link, relativeLinkStatusFor(.simplified_chinese, ""));
+    try std.testing.expectEqualStrings(ja.relative_link, relativeLinkStatusFor(.japanese, ""));
+    switch (builtin.os.tag) {
+        .macos => {
+            try std.testing.expectEqualStrings(en.url_macos_missing, hostMissingStatus());
+            try std.testing.expectEqualStrings(zh.url_macos_missing, hostMissingStatusFor(.simplified_chinese, ""));
+            try std.testing.expectEqualStrings(ja.url_macos_missing, hostMissingStatusFor(.japanese, ""));
+        },
+        .windows => {
+            try std.testing.expectEqualStrings(en.url_windows_missing, hostMissingStatus());
+            try std.testing.expectEqualStrings(zh.url_windows_missing, hostMissingStatusFor(.simplified_chinese, ""));
+            try std.testing.expectEqualStrings(ja.url_windows_missing, hostMissingStatusFor(.japanese, ""));
+        },
+        else => {
+            try std.testing.expectEqualStrings(en.url_linux_missing, hostMissingStatus());
+            try std.testing.expectEqualStrings(zh.url_linux_missing, hostMissingStatusFor(.simplified_chinese, ""));
+            try std.testing.expectEqualStrings(ja.url_linux_missing, hostMissingStatusFor(.japanese, ""));
+        },
+    }
 }
 
 test "stripFileLocation drops editor fragments and keeps ordinary hashes" {

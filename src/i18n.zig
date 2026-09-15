@@ -344,8 +344,13 @@
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
 //! OS image-dialog prompts / missing-picker status (same
 //! `OsImageDialogChrome` strings; osascript / PowerShell / zenity
-//! `--title` / kdialog `--title` at spawn) live here so `main.zig`
-//! does not grow. Palette ids / `PaletteAction` /
+//! `--title` / kdialog `--title` at spawn) plus OS helper
+//! window-status (same `OsHelperStatusChrome` strings; Open in
+//! Terminal / Open in Editor / Reveal folder / Open in browser /
+//! Maximize missing-tool and no-project / empty-url /
+//! relative-link; distinct from `OsFolderDialogChrome` /
+//! `OsImageDialogChrome`; binary names stay Latin) live here so
+//! `main.zig` does not grow. Palette ids / `PaletteAction` /
 //! keywords stay English.
 //! Wire `access_mode` ids stay `ask` / `auto` / `fullAccess`. Wire
 //! `reasoning_effort` ids stay `auto` / `none` / `minimal` / `low` /
@@ -587,7 +592,12 @@
 //! resolved locale this cut. OS image-dialog prompts / missing-picker
 //! status (same `OsImageDialogChrome` strings; osascript / PowerShell
 //! / zenity `--title` / kdialog `--title` at spawn) follow the
-//! resolved locale this cut. Aa / Ab / .* glyphs stay; find-option
+//! resolved locale this cut. OS helper window-status (same
+//! `OsHelperStatusChrome` strings; Open in Terminal / Open in
+//! Editor / Reveal folder / Open in browser / Maximize missing-tool
+//! and no-project / empty-url / relative-link; distinct from
+//! `OsFolderDialogChrome` / `OsImageDialogChrome`; binary names stay
+//! Latin) follow the resolved locale this cut. Aa / Ab / .* glyphs stay; find-option
 //! toggle a11y (Match case / Match whole word / Use regular
 //! expression) follows the resolved locale this cut (same
 //! `FilePreviewFindToggleChrome` strings). Path text and
@@ -2303,7 +2313,8 @@ const settings_general_chrome_ja: SettingsGeneralChrome = .{
 /// the former hardcoded `pick_folder` osascript / PowerShell /
 /// zenity-or-kdialog copy. Binary names stay Latin (`zenity` /
 /// `kdialog` / `osascript` / `powershell.exe`). OS image-dialog
-/// prompts live in `OsImageDialogChrome`.
+/// prompts live in `OsImageDialogChrome`. OS helper window-status
+/// lives in `OsHelperStatusChrome`.
 pub const OsFolderDialogChrome = struct {
     prompt: []const u8,
     linux_missing: []const u8,
@@ -2337,7 +2348,7 @@ const os_folder_dialog_chrome_ja: OsFolderDialogChrome = .{
 /// the former hardcoded `pick_image` osascript / PowerShell /
 /// zenity-or-kdialog copy. Binary names stay Latin (`zenity` /
 /// `kdialog` / `osascript` / `powershell.exe`). Filter extensions
-/// stay Latin.
+/// stay Latin. OS helper window-status lives in `OsHelperStatusChrome`.
 pub const OsImageDialogChrome = struct {
     prompt: []const u8,
     linux_missing: []const u8,
@@ -2364,6 +2375,106 @@ const os_image_dialog_chrome_ja: OsImageDialogChrome = .{
     .linux_missing = "OS の画像選択がありません（zenity または kdialog をインストールしてください）。パスを入力するかファイルをドロップしてください。",
     .macos_missing = "OS の画像選択がありません（osascript がありません）。パスを入力するかファイルをドロップしてください。",
     .windows_missing = "OS の画像選択がありません（powershell.exe がありません）。パスを入力するかファイルをドロップしてください。",
+};
+
+/// OS open-helper window-status for the resolved locale. Same resolve
+/// path as OsFolderDialogChrome / OsImageDialogChrome. English matches
+/// the former hardcoded `open_terminal` / `open_editor` /
+/// `reveal_folder` / `open_url` / `maximize_window` copy. Distinct from
+/// folder/image picker prompts. Binary names stay Latin (`xdg-open` /
+/// `wt.exe` / `wmctrl` / `osascript` / `powershell.exe` / `cmd.exe` /
+/// `explorer.exe` / `x-terminal-emulator` / `cursor` / `code` and app
+/// names Terminal / Cursor / VS Code / Terminal.app).
+pub const OsHelperStatusChrome = struct {
+    terminal_linux_missing: []const u8,
+    terminal_macos_missing: []const u8,
+    terminal_windows_missing: []const u8,
+    terminal_no_project: []const u8,
+    editor_linux_missing: []const u8,
+    editor_macos_missing: []const u8,
+    editor_windows_missing: []const u8,
+    editor_no_project: []const u8,
+    reveal_linux_missing: []const u8,
+    reveal_macos_missing: []const u8,
+    reveal_windows_missing: []const u8,
+    reveal_no_project: []const u8,
+    url_linux_missing: []const u8,
+    url_macos_missing: []const u8,
+    url_windows_missing: []const u8,
+    empty_url: []const u8,
+    relative_link: []const u8,
+    maximize_linux_missing: []const u8,
+    maximize_macos_missing: []const u8,
+    maximize_windows_missing: []const u8,
+};
+
+const os_helper_status_chrome_en: OsHelperStatusChrome = .{
+    .terminal_linux_missing = "No OS terminal (install x-terminal-emulator).",
+    .terminal_macos_missing = "Terminal.app / open missing",
+    .terminal_windows_missing = "No OS terminal (wt.exe / cmd.exe missing).",
+    .terminal_no_project = "No project folder for Terminal.",
+    .editor_linux_missing = "No OS editor (install cursor or code).",
+    .editor_macos_missing = "Cursor / VS Code / open missing",
+    .editor_windows_missing = "No OS editor (install cursor or code).",
+    .editor_no_project = "No project folder for Editor.",
+    .reveal_linux_missing = "No OS folder reveal (install xdg-open).",
+    .reveal_macos_missing = "No OS folder reveal (open missing).",
+    .reveal_windows_missing = "No OS folder reveal (explorer.exe missing).",
+    .reveal_no_project = "No project folder to reveal.",
+    .url_linux_missing = "No OS browser (install xdg-open).",
+    .url_macos_missing = "No OS browser (open missing).",
+    .url_windows_missing = "No OS browser (cmd.exe missing).",
+    .empty_url = "Enter a URL to open.",
+    .relative_link = "Can't open that link.",
+    .maximize_linux_missing = "No OS maximize (install wmctrl or xdotool).",
+    .maximize_macos_missing = "No OS maximize (osascript missing).",
+    .maximize_windows_missing = "No OS maximize (powershell.exe missing).",
+};
+
+const os_helper_status_chrome_zh_cn: OsHelperStatusChrome = .{
+    .terminal_linux_missing = "没有 OS 终端（请安装 x-terminal-emulator）。",
+    .terminal_macos_missing = "缺少 Terminal.app / open",
+    .terminal_windows_missing = "没有 OS 终端（缺少 wt.exe / cmd.exe）。",
+    .terminal_no_project = "没有可供终端使用的项目文件夹。",
+    .editor_linux_missing = "没有 OS 编辑器（请安装 cursor 或 code）。",
+    .editor_macos_missing = "缺少 Cursor / VS Code / open",
+    .editor_windows_missing = "没有 OS 编辑器（请安装 cursor 或 code）。",
+    .editor_no_project = "没有可供编辑器使用的项目文件夹。",
+    .reveal_linux_missing = "没有 OS 文件夹显示（请安装 xdg-open）。",
+    .reveal_macos_missing = "没有 OS 文件夹显示（缺少 open）。",
+    .reveal_windows_missing = "没有 OS 文件夹显示（缺少 explorer.exe）。",
+    .reveal_no_project = "没有可显示的项目文件夹。",
+    .url_linux_missing = "没有 OS 浏览器（请安装 xdg-open）。",
+    .url_macos_missing = "没有 OS 浏览器（缺少 open）。",
+    .url_windows_missing = "没有 OS 浏览器（缺少 cmd.exe）。",
+    .empty_url = "请输入要打开的 URL。",
+    .relative_link = "无法打开该链接。",
+    .maximize_linux_missing = "没有 OS 最大化（请安装 wmctrl 或 xdotool）。",
+    .maximize_macos_missing = "没有 OS 最大化（缺少 osascript）。",
+    .maximize_windows_missing = "没有 OS 最大化（缺少 powershell.exe）。",
+};
+
+const os_helper_status_chrome_ja: OsHelperStatusChrome = .{
+    .terminal_linux_missing = "OS のターミナルがありません（x-terminal-emulator をインストールしてください）。",
+    .terminal_macos_missing = "Terminal.app / open がありません",
+    .terminal_windows_missing = "OS のターミナルがありません（wt.exe / cmd.exe がありません）。",
+    .terminal_no_project = "ターミナル用のプロジェクトフォルダがありません。",
+    .editor_linux_missing = "OS のエディタがありません（cursor または code をインストールしてください）。",
+    .editor_macos_missing = "Cursor / VS Code / open がありません",
+    .editor_windows_missing = "OS のエディタがありません（cursor または code をインストールしてください）。",
+    .editor_no_project = "エディター用のプロジェクトフォルダがありません。",
+    .reveal_linux_missing = "OS のフォルダ表示がありません（xdg-open をインストールしてください）。",
+    .reveal_macos_missing = "OS のフォルダ表示がありません（open がありません）。",
+    .reveal_windows_missing = "OS のフォルダ表示がありません（explorer.exe がありません）。",
+    .reveal_no_project = "表示するプロジェクトフォルダがありません。",
+    .url_linux_missing = "OS のブラウザがありません（xdg-open をインストールしてください）。",
+    .url_macos_missing = "OS のブラウザがありません（open がありません）。",
+    .url_windows_missing = "OS のブラウザがありません（cmd.exe がありません）。",
+    .empty_url = "開く URL を入力してください。",
+    .relative_link = "そのリンクを開けません。",
+    .maximize_linux_missing = "OS の最大化がありません（wmctrl または xdotool をインストールしてください）。",
+    .maximize_macos_missing = "OS の最大化がありません（osascript がありません）。",
+    .maximize_windows_missing = "OS の最大化がありません（powershell.exe がありません）。",
 };
 
 /// Composer Image path placeholder, Pick image button, Attach image
@@ -4359,6 +4470,19 @@ pub fn osImageDialogChromeFor(preference: LanguagePreference, system_locale_id: 
         .simplified_chinese => os_image_dialog_chrome_zh_cn,
         .japanese => os_image_dialog_chrome_ja,
         .system, .english => os_image_dialog_chrome_en,
+    };
+}
+
+/// OS open-helper window-status for the resolved locale. Callers pass
+/// Model `language_preference` + `system_locale_id`; this file does
+/// not read process env. Wire ids / on-press stay English. Binary names
+/// stay Latin. Distinct from `osFolderDialogChromeFor` /
+/// `osImageDialogChromeFor`.
+pub fn osHelperStatusChromeFor(preference: LanguagePreference, system_locale_id: []const u8) OsHelperStatusChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => os_helper_status_chrome_zh_cn,
+        .japanese => os_helper_status_chrome_ja,
+        .system, .english => os_helper_status_chrome_en,
     };
 }
 
@@ -6545,6 +6669,87 @@ test "osImageDialogChromeFor english default; zh and ja chrome; english ignores 
     try testing.expectEqualStrings("Choose an image", osImageDialogChromeFor(.english, "zh_CN.UTF-8").prompt);
     try testing.expectEqualStrings("没有 OS 图片选择器（请安装 zenity 或 kdialog）。请输入路径或拖放文件。", osImageDialogChromeFor(.system, "zh_CN.UTF-8").linux_missing);
     try testing.expectEqualStrings("OS の画像選択がありません（osascript がありません）。パスを入力するかファイルをドロップしてください。", osImageDialogChromeFor(.system, "ja_JP.UTF-8").macos_missing);
+}
+
+test "osHelperStatusChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    const en = osHelperStatusChromeFor(.english, "");
+    const zh = osHelperStatusChromeFor(.simplified_chinese, "");
+    const ja = osHelperStatusChromeFor(.japanese, "");
+
+    try testing.expectEqualStrings("No OS terminal (install x-terminal-emulator).", en.terminal_linux_missing);
+    try testing.expectEqualStrings("Terminal.app / open missing", en.terminal_macos_missing);
+    try testing.expectEqualStrings("No OS terminal (wt.exe / cmd.exe missing).", en.terminal_windows_missing);
+    try testing.expectEqualStrings("No project folder for Terminal.", en.terminal_no_project);
+    try testing.expectEqualStrings("No OS editor (install cursor or code).", en.editor_linux_missing);
+    try testing.expectEqualStrings("Cursor / VS Code / open missing", en.editor_macos_missing);
+    try testing.expectEqualStrings("No OS editor (install cursor or code).", en.editor_windows_missing);
+    try testing.expectEqualStrings("No project folder for Editor.", en.editor_no_project);
+    try testing.expectEqualStrings("No OS folder reveal (install xdg-open).", en.reveal_linux_missing);
+    try testing.expectEqualStrings("No OS folder reveal (open missing).", en.reveal_macos_missing);
+    try testing.expectEqualStrings("No OS folder reveal (explorer.exe missing).", en.reveal_windows_missing);
+    try testing.expectEqualStrings("No project folder to reveal.", en.reveal_no_project);
+    try testing.expectEqualStrings("No OS browser (install xdg-open).", en.url_linux_missing);
+    try testing.expectEqualStrings("No OS browser (open missing).", en.url_macos_missing);
+    try testing.expectEqualStrings("No OS browser (cmd.exe missing).", en.url_windows_missing);
+    try testing.expectEqualStrings("Enter a URL to open.", en.empty_url);
+    try testing.expectEqualStrings("Can't open that link.", en.relative_link);
+    try testing.expectEqualStrings("No OS maximize (install wmctrl or xdotool).", en.maximize_linux_missing);
+    try testing.expectEqualStrings("No OS maximize (osascript missing).", en.maximize_macos_missing);
+    try testing.expectEqualStrings("No OS maximize (powershell.exe missing).", en.maximize_windows_missing);
+
+    try testing.expectEqualStrings("没有 OS 终端（请安装 x-terminal-emulator）。", zh.terminal_linux_missing);
+    try testing.expectEqualStrings("缺少 Terminal.app / open", zh.terminal_macos_missing);
+    try testing.expectEqualStrings("没有 OS 终端（缺少 wt.exe / cmd.exe）。", zh.terminal_windows_missing);
+    try testing.expectEqualStrings("没有可供终端使用的项目文件夹。", zh.terminal_no_project);
+    try testing.expectEqualStrings("没有 OS 编辑器（请安装 cursor 或 code）。", zh.editor_linux_missing);
+    try testing.expectEqualStrings("缺少 Cursor / VS Code / open", zh.editor_macos_missing);
+    try testing.expectEqualStrings("没有 OS 编辑器（请安装 cursor 或 code）。", zh.editor_windows_missing);
+    try testing.expectEqualStrings("没有可供编辑器使用的项目文件夹。", zh.editor_no_project);
+    try testing.expectEqualStrings("没有 OS 文件夹显示（请安装 xdg-open）。", zh.reveal_linux_missing);
+    try testing.expectEqualStrings("没有 OS 文件夹显示（缺少 open）。", zh.reveal_macos_missing);
+    try testing.expectEqualStrings("没有 OS 文件夹显示（缺少 explorer.exe）。", zh.reveal_windows_missing);
+    try testing.expectEqualStrings("没有可显示的项目文件夹。", zh.reveal_no_project);
+    try testing.expectEqualStrings("没有 OS 浏览器（请安装 xdg-open）。", zh.url_linux_missing);
+    try testing.expectEqualStrings("没有 OS 浏览器（缺少 open）。", zh.url_macos_missing);
+    try testing.expectEqualStrings("没有 OS 浏览器（缺少 cmd.exe）。", zh.url_windows_missing);
+    try testing.expectEqualStrings("请输入要打开的 URL。", zh.empty_url);
+    try testing.expectEqualStrings("无法打开该链接。", zh.relative_link);
+    try testing.expectEqualStrings("没有 OS 最大化（请安装 wmctrl 或 xdotool）。", zh.maximize_linux_missing);
+    try testing.expectEqualStrings("没有 OS 最大化（缺少 osascript）。", zh.maximize_macos_missing);
+    try testing.expectEqualStrings("没有 OS 最大化（缺少 powershell.exe）。", zh.maximize_windows_missing);
+
+    try testing.expectEqualStrings("OS のターミナルがありません（x-terminal-emulator をインストールしてください）。", ja.terminal_linux_missing);
+    try testing.expectEqualStrings("Terminal.app / open がありません", ja.terminal_macos_missing);
+    try testing.expectEqualStrings("OS のターミナルがありません（wt.exe / cmd.exe がありません）。", ja.terminal_windows_missing);
+    try testing.expectEqualStrings("ターミナル用のプロジェクトフォルダがありません。", ja.terminal_no_project);
+    try testing.expectEqualStrings("OS のエディタがありません（cursor または code をインストールしてください）。", ja.editor_linux_missing);
+    try testing.expectEqualStrings("Cursor / VS Code / open がありません", ja.editor_macos_missing);
+    try testing.expectEqualStrings("OS のエディタがありません（cursor または code をインストールしてください）。", ja.editor_windows_missing);
+    try testing.expectEqualStrings("エディター用のプロジェクトフォルダがありません。", ja.editor_no_project);
+    try testing.expectEqualStrings("OS のフォルダ表示がありません（xdg-open をインストールしてください）。", ja.reveal_linux_missing);
+    try testing.expectEqualStrings("OS のフォルダ表示がありません（open がありません）。", ja.reveal_macos_missing);
+    try testing.expectEqualStrings("OS のフォルダ表示がありません（explorer.exe がありません）。", ja.reveal_windows_missing);
+    try testing.expectEqualStrings("表示するプロジェクトフォルダがありません。", ja.reveal_no_project);
+    try testing.expectEqualStrings("OS のブラウザがありません（xdg-open をインストールしてください）。", ja.url_linux_missing);
+    try testing.expectEqualStrings("OS のブラウザがありません（open がありません）。", ja.url_macos_missing);
+    try testing.expectEqualStrings("OS のブラウザがありません（cmd.exe がありません）。", ja.url_windows_missing);
+    try testing.expectEqualStrings("開く URL を入力してください。", ja.empty_url);
+    try testing.expectEqualStrings("そのリンクを開けません。", ja.relative_link);
+    try testing.expectEqualStrings("OS の最大化がありません（wmctrl または xdotool をインストールしてください）。", ja.maximize_linux_missing);
+    try testing.expectEqualStrings("OS の最大化がありません（osascript がありません）。", ja.maximize_macos_missing);
+    try testing.expectEqualStrings("OS の最大化がありません（powershell.exe がありません）。", ja.maximize_windows_missing);
+
+    try testing.expectEqualStrings(en.terminal_no_project, osHelperStatusChromeFor(.english, "ja").terminal_no_project);
+    try testing.expectEqualStrings(en.terminal_no_project, osHelperStatusChromeFor(.system, "").terminal_no_project);
+    try testing.expectEqualStrings(zh.terminal_no_project, osHelperStatusChromeFor(.system, "zh_CN.UTF-8").terminal_no_project);
+    try testing.expectEqualStrings(ja.terminal_no_project, osHelperStatusChromeFor(.system, "ja_JP.UTF-8").terminal_no_project);
+    try testing.expectEqualStrings(en.empty_url, osHelperStatusChromeFor(.english, "ja_JP.UTF-8").empty_url);
+    try testing.expectEqualStrings(en.relative_link, osHelperStatusChromeFor(.english, "zh_CN.UTF-8").relative_link);
+    try testing.expectEqualStrings(zh.maximize_linux_missing, osHelperStatusChromeFor(.system, "zh_CN.UTF-8").maximize_linux_missing);
+    try testing.expectEqualStrings(ja.maximize_macos_missing, osHelperStatusChromeFor(.system, "ja_JP.UTF-8").maximize_macos_missing);
+    try testing.expectEqualStrings(zh.url_linux_missing, osHelperStatusChromeFor(.system, "zh_CN.UTF-8").url_linux_missing);
+    try testing.expectEqualStrings(ja.editor_macos_missing, osHelperStatusChromeFor(.system, "ja_JP.UTF-8").editor_macos_missing);
 }
 
 test "composerChromeFor english default; zh and ja chrome; english ignores ja LANG" {
