@@ -5,9 +5,9 @@
 //! that `UiApp.create` receives. `registerIcons` installs one table:
 //! minimize / maximize / stop / lock / globe plus the Material
 //! file-type subset so markup `icon="app:minimize"` and bound
-//! `app:zig` / `app:rust` / `app:ruby` / … resolve. Re-exported from `main.zig` so
-//! `UiApp` and tests keep `main.shell_scene` / `main.registerIcons` /
-//! `main.app_icons` / `main.main_window_label` / `main.window_width`.
+//! `app:zig` / `app:rust` / `app:ruby` / … resolve. Callers import this
+//! module directly (`shell.shell_scene` / `shell.registerIcons` /
+//! `shell.app_icons` / `shell.main_window_label` / `shell.window_width`).
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");

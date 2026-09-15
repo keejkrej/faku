@@ -7,6 +7,8 @@
 
 const std = @import("std");
 const main = @import("main.zig");
+const layout = @import("layout.zig");
+const shell = @import("shell.zig");
 const i18n = @import("i18n.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
 
@@ -216,34 +218,34 @@ pub fn folderTitleTaken(model: *const Model, title: []const u8) bool {
 }
 
 pub fn clampSidebarWidth(width: f32) f32 {
-    const raw = if (width > 0) width else main.sidebar_default_width;
-    return @max(main.sidebar_min_width, @min(main.sidebar_max_width, raw));
+    const raw = if (width > 0) width else layout.sidebar_default_width;
+    return @max(layout.sidebar_min_width, @min(layout.sidebar_max_width, raw));
 }
 
 pub fn collapsedSidebarSplit() f32 {
-    return main.sidebar_rail_width / main.window_width;
+    return layout.sidebar_rail_width / shell.window_width;
 }
 
 pub fn clampExpandedSidebarSplit(value: f32) f32 {
-    const min_split = main.sidebar_min_width / main.window_width;
-    const max_split = main.sidebar_max_width / main.window_width;
+    const min_split = layout.sidebar_min_width / shell.window_width;
+    const max_split = layout.sidebar_max_width / shell.window_width;
     return @max(min_split, @min(max_split, value));
 }
 
 pub fn rememberExpandedWidth(model: *Model) void {
     if (model.sidebar_collapsed) return;
-    model.sidebar_last_width = clampSidebarWidth(model.sidebar_split * main.window_width);
+    model.sidebar_last_width = clampSidebarWidth(model.sidebar_split * shell.window_width);
 }
 
 pub fn applySidebarResize(model: *Model, fraction: f32) void {
-    const width = fraction * main.window_width;
+    const width = fraction * shell.window_width;
     if (model.sidebar_collapsed) {
-        if (width < main.sidebar_min_width) return;
+        if (width < layout.sidebar_min_width) return;
         model.sidebar_collapsed = false;
         model.sidebar_last_width = clampSidebarWidth(width);
         model.syncSidebarSplit();
         return;
     }
     model.sidebar_split = clampExpandedSidebarSplit(fraction);
-    model.sidebar_last_width = clampSidebarWidth(model.sidebar_split * main.window_width);
+    model.sidebar_last_width = clampSidebarWidth(model.sidebar_split * shell.window_width);
 }

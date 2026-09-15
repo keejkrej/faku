@@ -68,6 +68,7 @@
 
 const std = @import("std");
 const main = @import("main.zig");
+const layout = @import("layout.zig");
 const file_mention = @import("file_mention.zig");
 const review_diff = @import("review_diff.zig");
 const right_panel = @import("right_panel.zig");
@@ -125,10 +126,10 @@ pub const State = struct {
     files_editor_stamp: u32 = 0,
     /// Nested Files-tree width (Waku `file_tree_width`). Default
     /// `DEFAULT_FILE_TREE_WIDTH` 184. Missing / cleared slot is 184.
-    file_tree_width: f32 = main.right_panel_default_width,
+    file_tree_width: f32 = layout.right_panel_default_width,
     /// Nested Diff file-list width (Faku parallel; same FILE_TREE
     /// clamps). Default 184. Missing / cleared slot is 184.
-    diff_file_list_width: f32 = main.right_panel_default_width,
+    diff_file_list_width: f32 = layout.right_panel_default_width,
     /// Selected Environment Summary Background row
     /// (`right_panel_background_row_id`). 0 = none. Missing /
     /// cleared slot is 0. Not sessions.json.
@@ -382,8 +383,8 @@ fn clearSlot(slot: *State) void {
     slot.tab = .files;
     slot.diff_source = .branch;
     slot.diff_source_set = false;
-    slot.file_tree_width = main.right_panel_default_width;
-    slot.diff_file_list_width = main.right_panel_default_width;
+    slot.file_tree_width = layout.right_panel_default_width;
+    slot.diff_file_list_width = layout.right_panel_default_width;
     slot.background_row_id = 0;
     clearFilesEditor(slot);
     clearBrowser(slot);
@@ -400,7 +401,7 @@ fn clearPending(model: *Model) void {
 
 fn restoreEmpty(model: *Model, fx: *Effects) void {
     right_panel.setOpen(model, false);
-    applyNestedListWidths(model, main.right_panel_default_width, main.right_panel_default_width);
+    applyNestedListWidths(model, layout.right_panel_default_width, layout.right_panel_default_width);
     applyLiveFiles(model, &.{}, 0);
     applyLiveDiff(model, &.{}, 0);
     clearPending(model);
@@ -412,7 +413,7 @@ fn restoreEmpty(model: *Model, fx: *Effects) void {
 }
 
 fn fittedNestedListWidth(model: *const Model, stored: f32) f32 {
-    const raw = if (stored > 0) stored else main.right_panel_default_width;
+    const raw = if (stored > 0) stored else layout.right_panel_default_width;
     return right_panel.clampNestedListWidthForPersist(model.right_panel_width, raw);
 }
 

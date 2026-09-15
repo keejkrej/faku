@@ -319,6 +319,8 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const layout = @import("layout.zig");
+const shell = @import("shell.zig");
 const file_mention = @import("file_mention.zig");
 const composer = @import("composer.zig");
 const code_language = @import("code_language.zig");
@@ -470,22 +472,22 @@ pub fn clampWidth(width: f32) f32 {
 
 pub fn defaultWidth(tab: Tab) f32 {
     return switch (tab) {
-        .files => main.right_panel_default_width,
-        .diff, .browser, .terminal, .background => main.right_panel_diff_default_width,
+        .files => layout.right_panel_default_width,
+        .diff, .browser, .terminal, .background => layout.right_panel_diff_default_width,
     };
 }
 
 pub fn minWidth(tab: Tab) f32 {
     return switch (tab) {
-        .files => main.right_panel_min_width,
-        .diff, .browser, .terminal, .background => main.right_panel_diff_min_width,
+        .files => layout.right_panel_min_width,
+        .diff, .browser, .terminal, .background => layout.right_panel_diff_min_width,
     };
 }
 
 pub fn maxWidth(tab: Tab) f32 {
     return switch (tab) {
-        .files => main.right_panel_max_width,
-        .diff, .browser, .terminal, .background => main.right_panel_diff_max_width,
+        .files => layout.right_panel_max_width,
+        .diff, .browser, .terminal, .background => layout.right_panel_diff_max_width,
     };
 }
 
@@ -513,12 +515,12 @@ pub fn minWidthForModel(model: *const Model) f32 {
 
 pub fn restWidth(model: *const Model) f32 {
     const sidebar = if (model.sidebar_collapsed)
-        main.sidebar_rail_width
+        layout.sidebar_rail_width
     else if (model.sidebar_last_width > 0)
         model.sidebar_last_width
     else
-        main.sidebar_default_width;
-    return @max(1, main.window_width - sidebar);
+        layout.sidebar_default_width;
+    return @max(1, shell.window_width - sidebar);
 }
 
 pub fn splitForWidth(model: *const Model, width: f32) f32 {
@@ -531,12 +533,12 @@ pub fn splitForWidth(model: *const Model, width: f32) f32 {
 /// Nested Files-tree width while a preview is open: Waku
 /// `fitted_file_tree_width` against the current pane and stored tree.
 pub fn fittedFileTreeWidthForModel(model: *const Model) f32 {
-    return main.fittedFileTreeWidth(model.right_panel_width, model.right_panel_file_tree_width);
+    return layout.fittedFileTreeWidth(model.right_panel_width, model.right_panel_file_tree_width);
 }
 
 /// Native nested-split left fraction (preview pane) for Files.
 pub fn fileTreeSplit(model: *const Model) f32 {
-    return main.fileTreeSplitFraction(model.right_panel_width, model.right_panel_file_tree_width);
+    return layout.fileTreeSplitFraction(model.right_panel_width, model.right_panel_file_tree_width);
 }
 
 /// Nested Files-tree split `on-resize`. Stores a fitted tree width.
@@ -546,8 +548,8 @@ pub fn applyFileTreeResize(model: *Model, fraction: f32) void {
     const pane = @max(1, model.right_panel_width);
     const frac = @max(0, @min(1, fraction));
     const dragged = @round(pane * (1.0 - frac));
-    const tree = if (dragged > 0) dragged else main.right_panel_min_width;
-    model.right_panel_file_tree_width = main.fittedFileTreeWidth(pane, tree);
+    const tree = if (dragged > 0) dragged else layout.right_panel_min_width;
+    model.right_panel_file_tree_width = layout.fittedFileTreeWidth(pane, tree);
 }
 
 /// Nested Diff split: file list beside hunk text or hunk status.
@@ -559,12 +561,12 @@ pub fn showsDiffNestedSplit(model: *const Model) bool {
 /// Nested Diff file-list width while hunk content sits beside the list:
 /// same FILE_TREE clamps as Files (`fittedFileTreeWidth`).
 pub fn fittedDiffFileListWidthForModel(model: *const Model) f32 {
-    return main.fittedDiffFileListWidth(model.right_panel_width, model.right_panel_diff_file_list_width);
+    return layout.fittedDiffFileListWidth(model.right_panel_width, model.right_panel_diff_file_list_width);
 }
 
 /// Native nested-split left fraction (hunk pane) for Diff.
 pub fn diffFileListSplit(model: *const Model) f32 {
-    return main.diffFileListSplitFraction(model.right_panel_width, model.right_panel_diff_file_list_width);
+    return layout.diffFileListSplitFraction(model.right_panel_width, model.right_panel_diff_file_list_width);
 }
 
 /// Nested Diff file-list split `on-resize`. Stores a fitted list width.
@@ -575,8 +577,8 @@ pub fn applyDiffFileListResize(model: *Model, fraction: f32) void {
     const pane = @max(1, model.right_panel_width);
     const frac = @max(0, @min(1, fraction));
     const dragged = @round(pane * (1.0 - frac));
-    const list = if (dragged > 0) dragged else main.right_panel_min_width;
-    model.right_panel_diff_file_list_width = main.fittedDiffFileListWidth(pane, list);
+    const list = if (dragged > 0) dragged else layout.right_panel_min_width;
+    model.right_panel_diff_file_list_width = layout.fittedDiffFileListWidth(pane, list);
 }
 
 /// FILE_TREE clamp for persist/restore of nested list widths. Uses
@@ -584,9 +586,9 @@ pub fn applyDiffFileListResize(model: *Model, fraction: f32) void {
 /// so a Files-tree-only 184px panel does not squash a stored 220.
 /// Missing / 0 is a no-op at the Model apply helpers (keep 184).
 pub fn clampNestedListWidthForPersist(panel_width: f32, stored: f32) f32 {
-    const floor = main.right_panel_max_width + main.file_editor_min_width;
+    const floor = layout.right_panel_max_width + layout.file_editor_min_width;
     const pane = @max(@max(1, panel_width), floor);
-    return main.fittedFileTreeWidth(pane, stored);
+    return layout.fittedFileTreeWidth(pane, stored);
 }
 
 /// Restore open flag, tab, and width from sessions.json. Sets the tab
@@ -808,7 +810,7 @@ pub fn selectDiff(model: *Model, fx: *Effects) void {
     const already_diff = was_open and model.right_panel_tab == .diff;
     model.right_panel_open = true;
     if (!already_diff) {
-        model.right_panel_width = main.widenedPanelWidthForReview(model.right_panel_width);
+        model.right_panel_width = layout.widenedPanelWidthForReview(model.right_panel_width);
     }
     model.right_panel_tab = .diff;
     model.right_panel_width = clampWidthTab(model.right_panel_width, .diff);
@@ -906,8 +908,8 @@ pub fn leaveDiffSurfaceOnHide(model: *Model) void {
 }
 
 fn bumpWideTabWidth(model: *Model) void {
-    if (model.right_panel_width <= main.right_panel_max_width) {
-        model.right_panel_width = main.right_panel_diff_default_width;
+    if (model.right_panel_width <= layout.right_panel_max_width) {
+        model.right_panel_width = layout.right_panel_diff_default_width;
     }
 }
 
@@ -1476,7 +1478,7 @@ pub fn previewLinesFromBody(body: []const u8, arena: std.mem.Allocator) []const 
 /// `right_panel_file_tree_width` (default 184). Preview id must
 /// already be set so the wide Files clamp applies.
 fn ensureInitialRightPanelFileEditorWidth(model: *Model) void {
-    model.right_panel_width = main.widenedPanelWidthForFileEditor(
+    model.right_panel_width = layout.widenedPanelWidthForFileEditor(
         model.right_panel_width,
         model.right_panel_file_tree_width,
     );
@@ -2064,10 +2066,10 @@ pub fn openCachedFile(model: *Model, fx: *Effects, id: u32) void {
 }
 
 test "file-tree widths match Waku DEFAULT_FILE_TREE / FILE_TREE_MIN / MAX" {
-    try std.testing.expectEqual(@as(f32, 184), main.right_panel_default_width);
-    try std.testing.expectEqual(@as(f32, 140), main.right_panel_min_width);
-    try std.testing.expectEqual(@as(f32, 360), main.right_panel_max_width);
-    try std.testing.expectEqual(@as(f32, 140), main.file_editor_min_width);
+    try std.testing.expectEqual(@as(f32, 184), layout.right_panel_default_width);
+    try std.testing.expectEqual(@as(f32, 140), layout.right_panel_min_width);
+    try std.testing.expectEqual(@as(f32, 360), layout.right_panel_max_width);
+    try std.testing.expectEqual(@as(f32, 140), layout.file_editor_min_width);
     try std.testing.expectEqual(@as(f32, 184), clampWidth(0));
     try std.testing.expectEqual(@as(f32, 140), clampWidth(100));
     try std.testing.expectEqual(@as(f32, 360), clampWidth(500));
@@ -2075,11 +2077,11 @@ test "file-tree widths match Waku DEFAULT_FILE_TREE / FILE_TREE_MIN / MAX" {
 }
 
 test "Diff nested file-list width reuses FILE_TREE clamps and resize floor" {
-    try std.testing.expectEqual(@as(f32, 184), main.fittedDiffFileListWidth(820, 184));
-    try std.testing.expectEqual(@as(f32, 140), main.fittedDiffFileListWidth(280, 184));
-    try std.testing.expectEqual(@as(f32, 360), main.fittedDiffFileListWidth(820, 500));
-    try std.testing.expectEqual(@as(f32, (820.0 - 184.0) / 820.0), main.diffFileListSplitFraction(820, 184));
-    try std.testing.expectEqual(@as(f32, 0.5), main.diffFileListSplitFraction(280, 184));
+    try std.testing.expectEqual(@as(f32, 184), layout.fittedDiffFileListWidth(820, 184));
+    try std.testing.expectEqual(@as(f32, 140), layout.fittedDiffFileListWidth(280, 184));
+    try std.testing.expectEqual(@as(f32, 360), layout.fittedDiffFileListWidth(820, 500));
+    try std.testing.expectEqual(@as(f32, (820.0 - 184.0) / 820.0), layout.diffFileListSplitFraction(820, 184));
+    try std.testing.expectEqual(@as(f32, 0.5), layout.diffFileListSplitFraction(280, 184));
 
     var model = Model{};
     model.right_panel_open = true;
@@ -2132,9 +2134,9 @@ test "persist nested list widths keep FILE_TREE clamps without a narrow Files pa
 }
 
 test "Diff tab default 460 / min 280 / max 1000; Browser Terminal Background share Diff clamp; Files clamp stays 360" {
-    try std.testing.expectEqual(@as(f32, 460), main.right_panel_diff_default_width);
-    try std.testing.expectEqual(@as(f32, 280), main.right_panel_diff_min_width);
-    try std.testing.expectEqual(@as(f32, 1000), main.right_panel_diff_max_width);
+    try std.testing.expectEqual(@as(f32, 460), layout.right_panel_diff_default_width);
+    try std.testing.expectEqual(@as(f32, 280), layout.right_panel_diff_min_width);
+    try std.testing.expectEqual(@as(f32, 1000), layout.right_panel_diff_max_width);
     try std.testing.expectEqual(@as(f32, 140), minWidth(.files));
     try std.testing.expectEqual(@as(f32, 280), minWidth(.diff));
     try std.testing.expectEqual(@as(f32, 280), minWidth(.background));
