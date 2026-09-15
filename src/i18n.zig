@@ -360,7 +360,12 @@
 //! Terminal / Open in Editor / Reveal folder / Open in browser /
 //! Maximize missing-tool and no-project / empty-url /
 //! relative-link; distinct from `OsFolderDialogChrome` /
-//! `OsImageDialogChrome`; binary names stay Latin) live here so
+//! `OsImageDialogChrome`; binary names stay Latin) plus
+//! desktop notify fallback body Reply ready and Copy provider
+//! session id empty-status No provider session id (same
+//! `NotifyCopyChrome` strings; product/notify title `Faku`
+//! stays Latin; session titles, assistant turn body text, and
+//! clipboard contents stay data) live here so
 //! `main.zig` does not grow. Palette ids / `PaletteAction` /
 //! keywords stay English.
 //! Wire `access_mode` ids stay `ask` / `auto` / `fullAccess`. Wire
@@ -613,7 +618,13 @@
 //! Editor / Reveal folder / Open in browser / Maximize missing-tool
 //! and no-project / empty-url / relative-link; distinct from
 //! `OsFolderDialogChrome` / `OsImageDialogChrome`; binary names stay
-//! Latin) follow the resolved locale this cut. Aa / Ab / .* glyphs stay; find-option
+//! Latin) follow the resolved locale this cut. Desktop notify
+//! fallback body Reply ready (empty/whitespace last assistant
+//! text) and Copy provider session id empty-status No provider
+//! session id (same `NotifyCopyChrome` strings; product/notify
+//! title `Faku` stays Latin; session titles, assistant turn body
+//! text, and clipboard contents stay data) follow the resolved
+//! locale this cut. Aa / Ab / .* glyphs stay; find-option
 //! toggle a11y (Match case / Match whole word / Use regular
 //! expression) follows the resolved locale this cut (same
 //! `FilePreviewFindToggleChrome` strings). Path text and
@@ -2491,6 +2502,34 @@ const os_helper_status_chrome_ja: OsHelperStatusChrome = .{
     .maximize_linux_missing = "OS の最大化がありません（wmctrl または xdotool をインストールしてください）。",
     .maximize_macos_missing = "OS の最大化がありません（osascript がありません）。",
     .maximize_windows_missing = "OS の最大化がありません（powershell.exe がありません）。",
+};
+
+/// Desktop notify fallback body and Copy provider session id
+/// empty-status for the resolved locale. Same resolve path as
+/// OsHelperStatusChrome. English matches the former hardcoded
+/// `copy.zig` copy. Distinct from `OsHelperStatusChrome` so
+/// notify / copy-id chrome stays independently evolvable. Product
+/// / notify title `Faku` stays Latin in every locale (same rule as
+/// `FX_MODEL` / `host:port`). Session titles, assistant turn body
+/// text, and clipboard contents stay data.
+pub const NotifyCopyChrome = struct {
+    notify_fallback_body: []const u8,
+    no_provider_session_id: []const u8,
+};
+
+const notify_copy_chrome_en: NotifyCopyChrome = .{
+    .notify_fallback_body = "Reply ready",
+    .no_provider_session_id = "No provider session id",
+};
+
+const notify_copy_chrome_zh_cn: NotifyCopyChrome = .{
+    .notify_fallback_body = "回复已就绪",
+    .no_provider_session_id = "没有提供商会话 id",
+};
+
+const notify_copy_chrome_ja: NotifyCopyChrome = .{
+    .notify_fallback_body = "返信の準備ができました",
+    .no_provider_session_id = "プロバイダーのセッション id がありません",
 };
 
 /// Composer Image path placeholder, Pick image button, Attach image
@@ -4617,6 +4656,20 @@ pub fn osHelperStatusChromeFor(preference: LanguagePreference, system_locale_id:
         .simplified_chinese => os_helper_status_chrome_zh_cn,
         .japanese => os_helper_status_chrome_ja,
         .system, .english => os_helper_status_chrome_en,
+    };
+}
+
+/// Desktop notify fallback body and Copy provider session id
+/// empty-status for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does
+/// not read process env. Distinct from `osHelperStatusChromeFor`.
+/// Product / notify title `Faku` stays Latin. Session titles,
+/// assistant turn body text, and clipboard contents stay data.
+pub fn notifyCopyChromeFor(preference: LanguagePreference, system_locale_id: []const u8) NotifyCopyChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => notify_copy_chrome_zh_cn,
+        .japanese => notify_copy_chrome_ja,
+        .system, .english => notify_copy_chrome_en,
     };
 }
 
@@ -6920,6 +6973,31 @@ test "osHelperStatusChromeFor english default; zh and ja chrome; english ignores
     try testing.expectEqualStrings(ja.maximize_macos_missing, osHelperStatusChromeFor(.system, "ja_JP.UTF-8").maximize_macos_missing);
     try testing.expectEqualStrings(zh.url_linux_missing, osHelperStatusChromeFor(.system, "zh_CN.UTF-8").url_linux_missing);
     try testing.expectEqualStrings(ja.editor_macos_missing, osHelperStatusChromeFor(.system, "ja_JP.UTF-8").editor_macos_missing);
+}
+
+test "notifyCopyChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    const en = notifyCopyChromeFor(.english, "");
+    const zh = notifyCopyChromeFor(.simplified_chinese, "");
+    const ja = notifyCopyChromeFor(.japanese, "");
+
+    try testing.expectEqualStrings("Reply ready", en.notify_fallback_body);
+    try testing.expectEqualStrings("No provider session id", en.no_provider_session_id);
+    try testing.expectEqualStrings("Reply ready", notifyCopyChromeFor(.english, "ja").notify_fallback_body);
+    try testing.expectEqualStrings("Reply ready", notifyCopyChromeFor(.system, "").notify_fallback_body);
+    try testing.expectEqualStrings("No provider session id", notifyCopyChromeFor(.system, "").no_provider_session_id);
+
+    try testing.expectEqualStrings("回复已就绪", zh.notify_fallback_body);
+    try testing.expectEqualStrings("没有提供商会话 id", zh.no_provider_session_id);
+    try testing.expectEqualStrings("返信の準備ができました", ja.notify_fallback_body);
+    try testing.expectEqualStrings("プロバイダーのセッション id がありません", ja.no_provider_session_id);
+
+    try testing.expectEqualStrings("回复已就绪", notifyCopyChromeFor(.system, "zh_CN.UTF-8").notify_fallback_body);
+    try testing.expectEqualStrings("没有提供商会话 id", notifyCopyChromeFor(.system, "zh_CN.UTF-8").no_provider_session_id);
+    try testing.expectEqualStrings("返信の準備ができました", notifyCopyChromeFor(.system, "ja_JP.UTF-8").notify_fallback_body);
+    try testing.expectEqualStrings("プロバイダーのセッション id がありません", notifyCopyChromeFor(.system, "ja_JP.UTF-8").no_provider_session_id);
+    try testing.expectEqualStrings("Reply ready", notifyCopyChromeFor(.english, "ja_JP.UTF-8").notify_fallback_body);
+    try testing.expectEqualStrings("No provider session id", notifyCopyChromeFor(.english, "zh_CN.UTF-8").no_provider_session_id);
 }
 
 test "composerChromeFor english default; zh and ja chrome; english ignores ja LANG" {
