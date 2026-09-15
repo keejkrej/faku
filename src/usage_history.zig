@@ -86,8 +86,10 @@
 //! and Daily paints a first-cut Cost quality panel from
 //! `quality` (Provider reported / Model priced / Unpriced percents
 //! plus Cache savings USD) and muted notices when `errors` are
-//! non-empty or `pricing` is `unavailable` (daemon `errors[]` text
-//! stays English data this cut). A tiny scan-summary footer uses
+//! non-empty or `pricing` is `unavailable` (known daemon `errors[]`
+//! scan-unreadable notices follow `i18n.UsageDaemonErrorChrome` at
+//! paint; cache/wire stay English; unknown `errors[]` stay
+//! English data). A tiny scan-summary footer uses
 //! `records` / `scannedFiles` / `skippedFiles` / `scanDuration` when
 //! present (unit labels follow the resolved locale this cut; ` · `
 //! separators and Latin `{d:.1}s` stay). First-cut Daily Days, Monthly, and
@@ -207,6 +209,8 @@ pub const Row = struct {
 };
 
 pub const CachedNotice = struct {
+    /// Daemon `history.errors[]` English wire. Display map lives in
+    /// `i18n.UsageDaemonErrorChrome.lineForWire`; do not localize here.
     text_storage: [max_line]u8 = [_]u8{0} ** max_line,
     text_len: usize = 0,
 
@@ -1615,17 +1619,27 @@ fn sessionsChrome(model: *const Model) i18n.UsageSessionsChrome {
     return i18n.usageSessionsChromeFor(model.language_preference, model.systemLocaleId());
 }
 
+fn daemonErrorChrome(model: *const Model) i18n.UsageDaemonErrorChrome {
+    return i18n.usageDaemonErrorChromeFor(model.language_preference, model.systemLocaleId());
+}
+
+/// Daily muted notices from daemon `errors[]` plus `pricing:
+/// unavailable`. Known scan-unreadable wires follow
+/// `i18n.UsageDaemonErrorChrome` at paint; cache stays English wire.
+/// Unknown `errors[]` pass through. Rates unavailable uses
+/// `UsageCostQualityChrome.rates_unavailable`.
 pub fn noticeRows(model: *const Model, arena: std.mem.Allocator) []const Row {
     if (!hasNotice(model)) return &.{};
     const cache = model.usage_history;
     const extra: usize = if (cache.pricing == .unavailable) 1 else 0;
     const count = cache.error_count + extra;
     const out = arena.alloc(Row, count) catch return &.{};
+    const error_chrome = daemonErrorChrome(model);
     var i: usize = 0;
     while (i < cache.error_count) : (i += 1) {
         out[i] = .{
             .id = @intCast(i + 1),
-            .line = copyArena(arena, cache.errors[i].text()),
+            .line = copyArena(arena, error_chrome.lineForWire(arena, cache.errors[i].text())),
         };
     }
     if (extra == 1) {
@@ -3755,6 +3769,78 @@ test "quality metric rates chrome follow Appearance language; english default ma
 
     model.usage_history.cost_usd = 0;
     try std.testing.expectEqualStrings("全入力レート比", metricRows(&model, arena)[4].detail);
+}
+
+test "daemon errors[] scan-unreadable notices follow Appearance language; unknown wires stay English; cache stays English wire" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const claude_wire = "Claude Code transcripts at /tmp/claude could not be read.";
+    const codex_wire = "Codex transcripts at /home/me/.codex could not be read.";
+    const unknown_wire = "scan failed";
+
+    var model = Model{};
+    model.settings_page = .usage;
+    model.usage_history.present = true;
+    model.usage_history.error_count = 3;
+    writeFixed(&model.usage_history.errors[0].text_storage, &model.usage_history.errors[0].text_len, claude_wire);
+    writeFixed(&model.usage_history.errors[1].text_storage, &model.usage_history.errors[1].text_len, codex_wire);
+    writeFixed(&model.usage_history.errors[2].text_storage, &model.usage_history.errors[2].text_len, unknown_wire);
+
+    const notices_en = noticeRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 3), notices_en.len);
+    try std.testing.expectEqualStrings(claude_wire, notices_en[0].line);
+    try std.testing.expectEqualStrings(codex_wire, notices_en[1].line);
+    try std.testing.expectEqualStrings(unknown_wire, notices_en[2].line);
+    try std.testing.expectEqualStrings(claude_wire, model.usage_history.errors[0].text());
+    try std.testing.expectEqualStrings(codex_wire, model.usage_history.errors[1].text());
+    try std.testing.expectEqualStrings(unknown_wire, model.usage_history.errors[2].text());
+
+    model.language_preference = .simplified_chinese;
+    const notices_zh = noticeRows(&model, arena);
+    try std.testing.expectEqualStrings("Claude Code 位于 /tmp/claude 的转录无法读取。", notices_zh[0].line);
+    try std.testing.expectEqualStrings("Codex 位于 /home/me/.codex 的转录无法读取。", notices_zh[1].line);
+    try std.testing.expectEqualStrings(unknown_wire, notices_zh[2].line);
+    try std.testing.expectEqualStrings(claude_wire, model.usage_history.errors[0].text());
+    try std.testing.expectEqualStrings(unknown_wire, model.usage_history.errors[2].text());
+
+    model.language_preference = .japanese;
+    const notices_ja = noticeRows(&model, arena);
+    try std.testing.expectEqualStrings(
+        "/tmp/claude にある Claude Code のトランスクリプトを読み取れませんでした。",
+        notices_ja[0].line,
+    );
+    try std.testing.expectEqualStrings(
+        "/home/me/.codex にある Codex のトランスクリプトを読み取れませんでした。",
+        notices_ja[1].line,
+    );
+    try std.testing.expectEqualStrings(unknown_wire, notices_ja[2].line);
+    try std.testing.expectEqualStrings(claude_wire, model.usage_history.errors[0].text());
+    try std.testing.expectEqualStrings(codex_wire, model.usage_history.errors[1].text());
+    try std.testing.expectEqualStrings(unknown_wire, model.usage_history.errors[2].text());
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    const notices_en_ignore = noticeRows(&model, arena);
+    try std.testing.expectEqualStrings(claude_wire, notices_en_ignore[0].line);
+    try std.testing.expectEqualStrings(codex_wire, notices_en_ignore[1].line);
+    try std.testing.expectEqualStrings(unknown_wire, notices_en_ignore[2].line);
+
+    model.language_preference = .system;
+    const notices_sys = noticeRows(&model, arena);
+    try std.testing.expectEqualStrings(
+        "/tmp/claude にある Claude Code のトランスクリプトを読み取れませんでした。",
+        notices_sys[0].line,
+    );
+    try std.testing.expectEqualStrings(unknown_wire, notices_sys[2].line);
+    try std.testing.expectEqualStrings(claude_wire, model.usage_history.errors[0].text());
+
+    model.usage_history.pricing = .unavailable;
+    const with_rates = noticeRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 4), with_rates.len);
+    try std.testing.expectEqualStrings(unknown_wire, with_rates[2].line);
+    try std.testing.expectEqualStrings("レート利用不可", with_rates[3].line);
 }
 
 test "scan footer chrome follow Appearance language; english default matches former copy" {
