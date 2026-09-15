@@ -3590,6 +3590,25 @@ pub const Model = struct {
         return model.filePreviewChrome().close_file_find;
     }
 
+    /// Files preview Match case a11y. Visible glyph stays `Aa`.
+    /// Distinct from `FilePreviewChrome` previous/next/close/
+    /// find_in_file. `on-press` stays `toggle_file_preview_find_case`.
+    pub fn file_preview_find_match_case_label(model: *const Model) []const u8 {
+        return model.filePreviewFindToggleChrome().match_case;
+    }
+
+    /// Files preview Match whole word a11y. Visible glyph stays `Ab`.
+    /// `on-press` stays `toggle_file_preview_find_whole_word`.
+    pub fn file_preview_find_match_whole_word_label(model: *const Model) []const u8 {
+        return model.filePreviewFindToggleChrome().match_whole_word;
+    }
+
+    /// Files preview Use regular expression a11y. Visible glyph stays
+    /// `.*`. `on-press` stays `toggle_file_preview_find_regex`.
+    pub fn file_preview_find_use_regex_label(model: *const Model) []const u8 {
+        return model.filePreviewFindToggleChrome().use_regular_expression;
+    }
+
     /// Files preview Replace placeholder. Replace text stays on
     /// `file_preview_find_replace`; `on-input` stays
     /// `file_preview_find_replace_edit`.
@@ -5154,6 +5173,10 @@ pub const Model = struct {
 
     pub fn filePreviewFindMatchChrome(model: *const Model) i18n.FilePreviewFindMatchChrome {
         return i18n.filePreviewFindMatchChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn filePreviewFindToggleChrome(model: *const Model) i18n.FilePreviewFindToggleChrome {
+        return i18n.filePreviewFindToggleChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     fn headerSessionChrome(model: *const Model) i18n.HeaderSessionChrome {

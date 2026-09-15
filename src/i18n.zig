@@ -60,6 +60,15 @@
 //! usage / No matching projects (same `FilterChrome` strings), and first-cut Files
 //! right-panel file-preview toolbar / find-replace / discard /
 //! truncated·binary chrome (same `FilePreviewChrome` strings), and
+//! first-cut Files preview find-option toggle a11y Match case /
+//! Match whole word / Use regular expression (same
+//! `FilePreviewFindToggleChrome` strings; distinct from
+//! `FilePreviewChrome` previous/next/close/find_in_file so this
+//! pack stays independently evolvable; visible Aa / Ab / .* glyphs
+//! stay; a11y follows locale; `on-press` stays
+//! `toggle_file_preview_find_case` /
+//! `toggle_file_preview_find_whole_word` /
+//! `toggle_file_preview_find_regex`), and
 //! first-cut Files preview error/save Cannot read file / File not
 //! found / Cannot save truncated preview — open in editor /
 //! Cannot save binary file / Cannot save file (same
@@ -111,7 +120,14 @@
 //! / `0` (same `FilePreviewFindMatchChrome` strings; distinct from
 //! `FindMatchChrome` / `FilePreviewChrome` so file-preview match
 //! chrome stays independently evolvable; numbers stay Latin; `+`
-//! cap and ` · ` stay) plus header Copy session a11y and
+//! cap and ` · ` stay) plus Files preview find-option toggle a11y
+//! Match case / Match whole word / Use regular expression (same
+//! `FilePreviewFindToggleChrome` strings; distinct from
+//! `FilePreviewChrome` previous/next/close/find_in_file; visible
+//! Aa / Ab / .* glyphs stay; a11y follows locale; `on-press` stays
+//! `toggle_file_preview_find_case` /
+//! `toggle_file_preview_find_whole_word` /
+//! `toggle_file_preview_find_regex`) plus header Copy session a11y and
 //! Fork / Rewind button chrome (same `HeaderSessionChrome` strings;
 //! distinct from `Palette.copy_session_id` / `TranscriptTurnChrome`
 //! so header session chrome stays independently
@@ -388,6 +404,14 @@
 //! `n of m · L#line` / `invalid` / `0` follow the resolved locale
 //! this cut (same `FilePreviewFindMatchChrome` strings; `on-press`
 //! / on-input / find query / replace text stay English). Files
+//! preview find-option toggle a11y Match case / Match whole word /
+//! Use regular expression follow the resolved locale this cut
+//! (same `FilePreviewFindToggleChrome` strings; distinct from
+//! `FilePreviewChrome` previous/next/close/find_in_file; visible
+//! Aa / Ab / .* glyphs stay; `on-press` stays
+//! `toggle_file_preview_find_case` /
+//! `toggle_file_preview_find_whole_word` /
+//! `toggle_file_preview_find_regex`). Files
 //! preview error/save Cannot read file / File not found / Cannot
 //! save truncated preview — open in editor / Cannot save binary
 //! file / Cannot save file follow the resolved locale this cut
@@ -526,7 +550,10 @@
 //! resolved locale this cut. OS image-dialog prompts / missing-picker
 //! status (same `OsImageDialogChrome` strings; osascript / PowerShell
 //! / zenity `--title` / kdialog `--title` at spawn) follow the
-//! resolved locale this cut. Aa / Ab / .* glyphs stay. Path text and
+//! resolved locale this cut. Aa / Ab / .* glyphs stay; find-option
+//! toggle a11y (Match case / Match whole word / Use regular
+//! expression) follows the resolved locale this cut (same
+//! `FilePreviewFindToggleChrome` strings). Path text and
 //! body content stay data.
 //! Not rust_i18n, not YAML catalogs, not full-app translation, not
 //! tz-aware grouping.
@@ -1564,7 +1591,9 @@ const filter_chrome_ja: FilterChrome = .{
 /// `n of m · L#line` / `invalid` / `0`), and from
 /// `FilePreviewErrorChrome` (Cannot read file / File not found /
 /// Cannot save truncated preview — open in editor / Cannot save
-/// binary file / Cannot save file). Aa / Ab / .* glyphs stay. Path text and body content stay
+/// binary file / Cannot save file). Aa / Ab / .* glyphs stay;
+/// find-option toggle a11y lives in `FilePreviewFindToggleChrome`
+/// and follows locale. Path text and body content stay
 /// data. Transcript Find placeholder reuses `find` via a distinct
 /// Model getter; a11y reuses `Palette.find_in_transcript`.
 pub const FilePreviewChrome = struct {
@@ -2530,6 +2559,40 @@ const file_preview_find_match_chrome_ja: FilePreviewFindMatchChrome = .{
     .invalid = "無効",
     .zero = "0",
     .match = "一致",
+};
+
+/// Files preview find-option toggle a11y (Match case / Match whole
+/// word / Use regular expression) for the resolved locale. Same
+/// resolve path as FilePreviewFindMatchChrome. English matches
+/// common editor chrome (VS Code find widget). Distinct from
+/// `FilePreviewChrome` previous/next/close/find_in_file so this
+/// pack stays independently evolvable. Visible Aa / Ab / .*
+/// glyphs stay. Wire ids / on-press stay English
+/// (`toggle_file_preview_find_case` /
+/// `toggle_file_preview_find_whole_word` /
+/// `toggle_file_preview_find_regex`).
+pub const FilePreviewFindToggleChrome = struct {
+    match_case: []const u8,
+    match_whole_word: []const u8,
+    use_regular_expression: []const u8,
+};
+
+const file_preview_find_toggle_chrome_en: FilePreviewFindToggleChrome = .{
+    .match_case = "Match case",
+    .match_whole_word = "Match whole word",
+    .use_regular_expression = "Use regular expression",
+};
+
+const file_preview_find_toggle_chrome_zh_cn: FilePreviewFindToggleChrome = .{
+    .match_case = "匹配大小写",
+    .match_whole_word = "全字匹配",
+    .use_regular_expression = "使用正则表达式",
+};
+
+const file_preview_find_toggle_chrome_ja: FilePreviewFindToggleChrome = .{
+    .match_case = "大文字と小文字を区別する",
+    .match_whole_word = "単語単位で検索",
+    .use_regular_expression = "正規表現を使用する",
 };
 
 /// Header Copy session a11y plus Fork / Rewind button chrome for the
@@ -4290,6 +4353,23 @@ pub fn formatFilePreviewFindMatchOf(
         return std.fmt.allocPrint(arena, "{d} / {d}{s} · L{d}", .{ index, count, cap, line }) catch chrome.match;
     }
     return std.fmt.allocPrint(arena, "{d} of {d}{s} · L{d}", .{ index, count, cap, line }) catch chrome.match;
+}
+
+/// Files preview find-option toggle a11y for the resolved locale.
+/// Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from FilePreviewChrome previous/next/close/find_in_file so this
+/// pack stays independently evolvable. Visible Aa / Ab / .* glyphs
+/// stay. Wire ids / on-press stay English
+/// (`toggle_file_preview_find_case` /
+/// `toggle_file_preview_find_whole_word` /
+/// `toggle_file_preview_find_regex`).
+pub fn filePreviewFindToggleChromeFor(preference: LanguagePreference, system_locale_id: []const u8) FilePreviewFindToggleChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => file_preview_find_toggle_chrome_zh_cn,
+        .japanese => file_preview_find_toggle_chrome_ja,
+        .system, .english => file_preview_find_toggle_chrome_en,
+    };
 }
 
 /// Header Copy session a11y plus Fork / Rewind button chrome for the
@@ -6579,6 +6659,47 @@ test "filePreviewFindMatchChromeFor english default; zh and ja chrome; english i
     try testing.expectEqualStrings("1 of 2 · L1", formatFilePreviewFindMatchOf(filePreviewFindMatchChromeFor(.english, "ja_JP.UTF-8"), arena, 1, 2, "", 1));
     try testing.expect(std.mem.indexOf(u8, formatFilePreviewFindMatchOf(filePreviewFindMatchChromeFor(.simplified_chinese, ""), arena, 1, 2, "", 1), " of ") == null);
     try testing.expect(std.mem.indexOf(u8, formatFilePreviewFindMatchOf(filePreviewFindMatchChromeFor(.japanese, ""), arena, 1, 2, "", 1), " of ") == null);
+}
+
+test "filePreviewFindToggleChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Match case", filePreviewFindToggleChromeFor(.english, "ja").match_case);
+    try testing.expectEqualStrings("Match whole word", filePreviewFindToggleChromeFor(.english, "").match_whole_word);
+    try testing.expectEqualStrings("Use regular expression", filePreviewFindToggleChromeFor(.english, "").use_regular_expression);
+    try testing.expectEqualStrings("Match case", filePreviewFindToggleChromeFor(.english, "").match_case);
+    try testing.expectEqualStrings("Match whole word", filePreviewFindToggleChromeFor(.english, "").match_whole_word);
+    try testing.expectEqualStrings("Use regular expression", filePreviewFindToggleChromeFor(.english, "").use_regular_expression);
+    try testing.expectEqualStrings("Match case", filePreviewFindToggleChromeFor(.system, "").match_case);
+    try testing.expectEqualStrings("Match whole word", filePreviewFindToggleChromeFor(.system, "").match_whole_word);
+    try testing.expectEqualStrings("Use regular expression", filePreviewFindToggleChromeFor(.system, "").use_regular_expression);
+
+    try testing.expectEqualStrings("匹配大小写", filePreviewFindToggleChromeFor(.simplified_chinese, "").match_case);
+    try testing.expectEqualStrings("全字匹配", filePreviewFindToggleChromeFor(.simplified_chinese, "").match_whole_word);
+    try testing.expectEqualStrings("使用正则表达式", filePreviewFindToggleChromeFor(.simplified_chinese, "").use_regular_expression);
+    try testing.expectEqualStrings("大文字と小文字を区別する", filePreviewFindToggleChromeFor(.japanese, "").match_case);
+    try testing.expectEqualStrings("単語単位で検索", filePreviewFindToggleChromeFor(.japanese, "").match_whole_word);
+    try testing.expectEqualStrings("正規表現を使用する", filePreviewFindToggleChromeFor(.japanese, "").use_regular_expression);
+
+    try testing.expectEqualStrings("匹配大小写", filePreviewFindToggleChromeFor(.system, "zh_CN.UTF-8").match_case);
+    try testing.expectEqualStrings("全字匹配", filePreviewFindToggleChromeFor(.system, "zh_CN.UTF-8").match_whole_word);
+    try testing.expectEqualStrings("使用正则表达式", filePreviewFindToggleChromeFor(.system, "zh_CN.UTF-8").use_regular_expression);
+    try testing.expectEqualStrings("大文字と小文字を区別する", filePreviewFindToggleChromeFor(.system, "ja_JP.UTF-8").match_case);
+    try testing.expectEqualStrings("単語単位で検索", filePreviewFindToggleChromeFor(.system, "ja_JP.UTF-8").match_whole_word);
+    try testing.expectEqualStrings("正規表現を使用する", filePreviewFindToggleChromeFor(.system, "ja_JP.UTF-8").use_regular_expression);
+    try testing.expectEqualStrings("Match case", filePreviewFindToggleChromeFor(.english, "ja_JP.UTF-8").match_case);
+    try testing.expectEqualStrings("Match whole word", filePreviewFindToggleChromeFor(.english, "zh_CN.UTF-8").match_whole_word);
+    try testing.expectEqualStrings("Use regular expression", filePreviewFindToggleChromeFor(.english, "zh_CN.UTF-8").use_regular_expression);
+
+    try testing.expect(!std.mem.eql(u8, filePreviewFindToggleChromeFor(.english, "").match_case, filePreviewChromeFor(.english, "").find_in_file));
+    try testing.expect(!std.mem.eql(u8, filePreviewFindToggleChromeFor(.english, "").match_whole_word, filePreviewChromeFor(.english, "").previous_file_match));
+    try testing.expect(!std.mem.eql(u8, filePreviewFindToggleChromeFor(.english, "").use_regular_expression, filePreviewChromeFor(.english, "").next_file_match));
+    try testing.expect(!std.mem.eql(u8, filePreviewFindToggleChromeFor(.english, "").match_case, filePreviewFindToggleChromeFor(.english, "").match_whole_word));
+    try testing.expect(!std.mem.eql(u8, filePreviewFindToggleChromeFor(.english, "").match_whole_word, filePreviewFindToggleChromeFor(.english, "").use_regular_expression));
+    try testing.expect(!std.mem.eql(u8, filePreviewFindToggleChromeFor(.english, "").use_regular_expression, filePreviewFindToggleChromeFor(.english, "").match_case));
+    try testing.expect(!std.mem.eql(u8, filePreviewFindToggleChromeFor(.simplified_chinese, "").match_case, filePreviewFindToggleChromeFor(.english, "").match_case));
+    try testing.expect(!std.mem.eql(u8, filePreviewFindToggleChromeFor(.japanese, "").match_whole_word, filePreviewFindToggleChromeFor(.english, "").match_whole_word));
+    try testing.expect(!std.mem.eql(u8, filePreviewFindToggleChromeFor(.simplified_chinese, "").use_regular_expression, filePreviewChromeFor(.simplified_chinese, "").find_in_file));
+    try testing.expect(!std.mem.eql(u8, filePreviewFindToggleChromeFor(.japanese, "").match_case, filePreviewChromeFor(.japanese, "").find_in_file));
 }
 
 test "headerSessionChromeFor english default; zh and ja chrome; english ignores ja LANG" {
