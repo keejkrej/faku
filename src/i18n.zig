@@ -275,8 +275,13 @@
 //! plus composer Usage meter plan-usage chrome (same
 //! `UsageMeterChrome` strings; distinct from UsageSessionsChrome so
 //! the Settings Usage history connect hint stays independently
-//! evolvable; numbers, Latin `m`/`h`/`d`, and ` · ` stay; daemon
-//! plan window labels / planLabel stay English data this cut)
+//! evolvable; numbers, Latin `m`/`h`/`d`, and ` · ` stay)
+//! plus composer Usage meter known Session/Weekly/5h plan window
+//! labels (same `PlanWindowChrome` strings; distinct from
+//! UsageMeterChrome so Resets / Plan limits stay independently
+//! evolvable; Faku-side display map only; cache stays wire text;
+//! Latin `5h` stays; planLabel and unknown window labels stay
+//! English data this cut)
 //! plus Settings Usage local session cards and the composer Usage
 //! meter panel Context window heading (same `UsageLocalChrome`
 //! strings; distinct from `Chrome.usage` / UsageMeterChrome /
@@ -3625,9 +3630,9 @@ const usage_sessions_chrome_ja: UsageSessionsChrome = .{
 /// `{d}d`). Distinct from UsageSessionsChrome so the Settings Usage
 /// history connect hint (`Connect a daemon for usage history`) stays
 /// independently evolvable. Numbers, Latin unit letters `m` / `h` /
-/// `d`, and middle-dot ` · ` stay in every locale. Daemon plan
-/// window labels / planLabel from the wire stay English data this
-/// cut.
+/// `d`, and middle-dot ` · ` stay in every locale. Known Session /
+/// Weekly / 5h window labels live in `PlanWindowChrome` this cut;
+/// planLabel and unknown window labels stay English data.
 pub const UsageMeterChrome = struct {
     connect_hint: []const u8,
     loading_hint: []const u8,
@@ -3670,6 +3675,48 @@ const usage_meter_chrome_ja: UsageMeterChrome = .{
     .plan_limits = "プラン上限",
     .resets_soon = "まもなくリセット",
     .resets_in = "あと",
+};
+
+/// Composer Usage meter known daemon plan-window labels (Session /
+/// Weekly / 5h) for the resolved locale. Same resolve path as
+/// UsageMeterChrome. English matches the former hardcoded wire copy.
+/// Distinct from UsageMeterChrome so Resets / Plan limits chrome
+/// stays independently evolvable. Display map only: `labelForWire`
+/// maps known wire labels; unknown labels pass through unchanged.
+/// Cache storage stays wire text. `five_h` stays Latin `5h` (same
+/// as UsageMeterChrome Latin `m`/`h`/`d`). planLabel stays English
+/// data this cut.
+pub const PlanWindowChrome = struct {
+    session: []const u8,
+    weekly: []const u8,
+    five_h: []const u8,
+
+    /// `wire` is a daemon `windows[].label` (`Session` / `Weekly` /
+    /// `5h`). Unknown labels pass through unchanged as English data.
+    pub fn labelForWire(self: PlanWindowChrome, wire: []const u8) []const u8 {
+        if (std.mem.eql(u8, wire, "Session")) return self.session;
+        if (std.mem.eql(u8, wire, "Weekly")) return self.weekly;
+        if (std.mem.eql(u8, wire, "5h")) return self.five_h;
+        return wire;
+    }
+};
+
+const plan_window_chrome_en: PlanWindowChrome = .{
+    .session = "Session",
+    .weekly = "Weekly",
+    .five_h = "5h",
+};
+
+const plan_window_chrome_zh_cn: PlanWindowChrome = .{
+    .session = "会话",
+    .weekly = "每周",
+    .five_h = "5h",
+};
+
+const plan_window_chrome_ja: PlanWindowChrome = .{
+    .session = "セッション",
+    .weekly = "週間",
+    .five_h = "5h",
 };
 
 /// Settings Usage local session cards (Context window / empty
@@ -4962,13 +5009,29 @@ pub fn usageSessionsChromeFor(preference: LanguagePreference, system_locale_id: 
 /// this file does not read process env. Distinct from
 /// UsageSessionsChrome so the Settings Usage history connect hint
 /// stays independently evolvable. Numbers, Latin `m`/`h`/`d`, and
-/// ` · ` stay. Daemon plan window labels / planLabel stay English
-/// data this cut.
+/// ` · ` stay. Known Session/Weekly/5h window labels live in
+/// `planWindowChromeFor`; planLabel and unknown window labels stay
+/// English data this cut.
 pub fn usageMeterChromeFor(preference: LanguagePreference, system_locale_id: []const u8) UsageMeterChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => usage_meter_chrome_zh_cn,
         .japanese => usage_meter_chrome_ja,
         .system, .english => usage_meter_chrome_en,
+    };
+}
+
+/// Composer Usage meter known Session/Weekly/5h plan window labels
+/// for the resolved locale. Callers pass Model `language_preference`
+/// + `system_locale_id`; this file does not read process env.
+/// Distinct from UsageMeterChrome so Resets / Plan limits stay
+/// independently evolvable. Display map only; cache stays wire
+/// text. Latin `5h` stays. planLabel and unknown window labels stay
+/// English data this cut.
+pub fn planWindowChromeFor(preference: LanguagePreference, system_locale_id: []const u8) PlanWindowChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => plan_window_chrome_zh_cn,
+        .japanese => plan_window_chrome_ja,
+        .system, .english => plan_window_chrome_en,
     };
 }
 
@@ -7946,6 +8009,50 @@ test "usageMeterChromeFor english default; zh and ja chrome; english ignores ja 
     try testing.expectEqualStrings("Plan limits", usageMeterChromeFor(.english, "ja_JP.UTF-8").plan_limits);
     try testing.expectEqualStrings("Resets soon", usageMeterChromeFor(.english, "zh_CN.UTF-8").resets_soon);
     try testing.expectEqualStrings("Resets in", usageMeterChromeFor(.english, "ja_JP.UTF-8").resets_in);
+}
+
+test "planWindowChromeFor english default; zh and ja chrome; unknown wire passes through; english ignores ja LANG" {
+    const testing = std.testing;
+    const en = planWindowChromeFor(.english, "");
+    const zh = planWindowChromeFor(.simplified_chinese, "");
+    const ja = planWindowChromeFor(.japanese, "");
+
+    try testing.expectEqualStrings("Session", en.session);
+    try testing.expectEqualStrings("Weekly", en.weekly);
+    try testing.expectEqualStrings("5h", en.five_h);
+    try testing.expectEqualStrings("Session", en.labelForWire("Session"));
+    try testing.expectEqualStrings("Weekly", en.labelForWire("Weekly"));
+    try testing.expectEqualStrings("5h", en.labelForWire("5h"));
+    try testing.expectEqualStrings("CustomWindow", en.labelForWire("CustomWindow"));
+    try testing.expectEqualStrings("Session", planWindowChromeFor(.english, "ja").session);
+    try testing.expectEqualStrings("Session", planWindowChromeFor(.system, "").session);
+    try testing.expectEqualStrings("5h", planWindowChromeFor(.system, "").five_h);
+
+    try testing.expectEqualStrings("会话", zh.session);
+    try testing.expectEqualStrings("每周", zh.weekly);
+    try testing.expectEqualStrings("5h", zh.five_h);
+    try testing.expectEqualStrings("会话", zh.labelForWire("Session"));
+    try testing.expectEqualStrings("每周", zh.labelForWire("Weekly"));
+    try testing.expectEqualStrings("5h", zh.labelForWire("5h"));
+    try testing.expectEqualStrings("CustomWindow", zh.labelForWire("CustomWindow"));
+    try testing.expectEqualStrings("セッション", ja.session);
+    try testing.expectEqualStrings("週間", ja.weekly);
+    try testing.expectEqualStrings("5h", ja.five_h);
+    try testing.expectEqualStrings("セッション", ja.labelForWire("Session"));
+    try testing.expectEqualStrings("週間", ja.labelForWire("Weekly"));
+    try testing.expectEqualStrings("5h", ja.labelForWire("5h"));
+    try testing.expectEqualStrings("CustomWindow", ja.labelForWire("CustomWindow"));
+
+    try testing.expectEqualStrings("会话", planWindowChromeFor(.system, "zh_CN.UTF-8").session);
+    try testing.expectEqualStrings("每周", planWindowChromeFor(.system, "zh_CN.UTF-8").weekly);
+    try testing.expectEqualStrings("5h", planWindowChromeFor(.system, "zh_CN.UTF-8").five_h);
+    try testing.expectEqualStrings("セッション", planWindowChromeFor(.system, "ja_JP.UTF-8").session);
+    try testing.expectEqualStrings("週間", planWindowChromeFor(.system, "ja_JP.UTF-8").weekly);
+    try testing.expectEqualStrings("5h", planWindowChromeFor(.system, "ja_JP.UTF-8").five_h);
+    try testing.expectEqualStrings("Session", planWindowChromeFor(.english, "ja_JP.UTF-8").session);
+    try testing.expectEqualStrings("Weekly", planWindowChromeFor(.english, "zh_CN.UTF-8").weekly);
+    try testing.expectEqualStrings("5h", planWindowChromeFor(.english, "ja_JP.UTF-8").five_h);
+    try testing.expectEqualStrings("CustomWindow", planWindowChromeFor(.simplified_chinese, "ja_JP.UTF-8").labelForWire("CustomWindow"));
 }
 
 test "usageLocalChromeFor english default; zh and ja chrome; english ignores ja LANG" {
