@@ -69,7 +69,6 @@ const palette_run = @import("palette_run.zig");
 const update_mod = @import("update.zig");
 const boot_mod = @import("boot.zig");
 const shell_mod = @import("shell.zig");
-const effect_keys = @import("effect_keys.zig");
 const model_exports = @import("model_exports.zig");
 const i18n = @import("i18n.zig");
 const environment_summary = @import("environment_summary.zig");
@@ -141,19 +140,10 @@ pub const max_line_keep = 4096;
 
 const app_permissions = [_][]const u8{ native_sdk.security.permission_command, native_sdk.security.permission_view };
 
-pub const stream_timer_key = effect_keys.stream_timer_key;
-pub const fx_ask_key = effect_keys.fx_ask_key;
 pub const fx_probe_key = fx_probe.fx_probe_key;
-pub const daemon_proxy_key_first = effect_keys.daemon_proxy_key_first;
-pub const fx_spawn_overlap_key_first = effect_keys.fx_spawn_overlap_key_first;
-pub const acp_cwd_fallback = effect_keys.acp_cwd_fallback;
 pub const max_daemon_address = model_exports.max_daemon_address;
 pub const max_daemon_token = model_exports.max_daemon_token;
 pub const max_sidecar_path = model_exports.max_sidecar_path;
-pub const daemon_line_bytes = effect_keys.daemon_line_bytes;
-pub const stream_interval_ms = effect_keys.stream_interval_ms;
-pub const stream_chunk_bytes = effect_keys.stream_chunk_bytes;
-pub const transcript_pin_offset = effect_keys.transcript_pin_offset;
 pub const demo_ticks_complete: u32 = 12;
 pub const demo_reply = "fx here (demo). The fx CLI was not found, so this is a local timer stream. Install fx and Send runs `fx ask`.";
 

@@ -117,6 +117,7 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const effect_keys = @import("effect_keys.zig");
 const store = @import("store.zig");
 const rewind = @import("rewind.zig");
 const checkpoint = @import("checkpoint.zig");
@@ -229,7 +230,7 @@ fn trySpawnDaemonCaptureTurnStart(model: *Model, fx: *Effects, session: *main.Se
         .key = key,
         .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
         .stdin = stdin,
-        .max_line_bytes = main.daemon_line_bytes,
+        .max_line_bytes = effect_keys.daemon_line_bytes,
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
@@ -429,7 +430,7 @@ fn trySpawnDaemonHasRef(
         .key = key,
         .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
         .stdin = stdin,
-        .max_line_bytes = main.daemon_line_bytes,
+        .max_line_bytes = effect_keys.daemon_line_bytes,
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
@@ -480,7 +481,7 @@ fn trySpawnDaemonCaptureRef(
         .key = key,
         .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
         .stdin = stdin,
-        .max_line_bytes = main.daemon_line_bytes,
+        .max_line_bytes = effect_keys.daemon_line_bytes,
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
@@ -648,7 +649,7 @@ fn trySpawnDaemonCaptureTurn(model: *Model, fx: *Effects, session: *main.Session
         .key = key,
         .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
         .stdin = stdin,
-        .max_line_bytes = main.daemon_line_bytes,
+        .max_line_bytes = effect_keys.daemon_line_bytes,
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
@@ -795,7 +796,7 @@ fn trySpawnDaemonCopySessionRefs(
         .key = key,
         .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
         .stdin = stdin,
-        .max_line_bytes = main.daemon_line_bytes,
+        .max_line_bytes = effect_keys.daemon_line_bytes,
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
@@ -876,7 +877,7 @@ fn trySpawnDaemonRestoreRef(model: *Model, fx: *Effects, session: *main.Session)
         .key = key,
         .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
         .stdin = stdin,
-        .max_line_bytes = main.daemon_line_bytes,
+        .max_line_bytes = effect_keys.daemon_line_bytes,
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
@@ -993,7 +994,7 @@ fn trySpawnDaemonDeleteRef(
         .key = key,
         .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
         .stdin = stdin,
-        .max_line_bytes = main.daemon_line_bytes,
+        .max_line_bytes = effect_keys.daemon_line_bytes,
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
@@ -1049,7 +1050,7 @@ fn trySpawnDaemonDeleteTurnRefsAfter(
         .key = key,
         .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
         .stdin = stdin,
-        .max_line_bytes = main.daemon_line_bytes,
+        .max_line_bytes = effect_keys.daemon_line_bytes,
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
@@ -1097,7 +1098,7 @@ fn trySpawnDaemonSessionTurnRefs(model: *Model, fx: *Effects, session: *main.Ses
         .key = key,
         .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
         .stdin = stdin,
-        .max_line_bytes = main.daemon_line_bytes,
+        .max_line_bytes = effect_keys.daemon_line_bytes,
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });

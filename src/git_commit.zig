@@ -205,6 +205,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const effect_keys = @import("effect_keys.zig");
 const git_branch = @import("git_branch.zig");
 const git_checkout = @import("git_checkout.zig");
 const git_dirty = @import("git_dirty.zig");
@@ -1054,7 +1055,7 @@ fn trySpawnDaemonInspectCommit(model: *Model, fx: *Effects, cwd: []const u8) boo
         .key = key,
         .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
         .stdin = stdin,
-        .max_line_bytes = main.daemon_line_bytes,
+        .max_line_bytes = effect_keys.daemon_line_bytes,
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
@@ -1432,7 +1433,7 @@ fn trySpawnDaemonWorkspaceCommit(model: *Model, fx: *Effects) bool {
         .key = key,
         .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
         .stdin = stdin,
-        .max_line_bytes = main.daemon_line_bytes,
+        .max_line_bytes = effect_keys.daemon_line_bytes,
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
@@ -1499,7 +1500,7 @@ fn trySpawnDaemonGenerate(model: *Model, fx: *Effects) bool {
         .key = key,
         .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
         .stdin = stdin,
-        .max_line_bytes = main.daemon_line_bytes,
+        .max_line_bytes = effect_keys.daemon_line_bytes,
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });

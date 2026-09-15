@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const main = @import("main.zig");
+const effect_keys = @import("effect_keys.zig");
 const protocol = @import("protocol.zig");
 const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
@@ -170,7 +171,7 @@ pub fn maybeSendGoal(model: *Model, fx: *Effects, session_id: u32, operation: pr
         .key = key,
         .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
         .stdin = stdin,
-        .max_line_bytes = main.daemon_line_bytes,
+        .max_line_bytes = effect_keys.daemon_line_bytes,
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
