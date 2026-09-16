@@ -1781,6 +1781,8 @@ Honest gaps this cut does not implement:
   `util.zig` with no thin `main` re-exports;
   spawn `startOptionsFromSession` / `takeFxAskSessionId` live in
   `spawn.zig` with no thin `main` re-exports;
+  fx probe `fx_probe_key` / `startFxProbe` live in
+  `fx_probe.zig` with no thin `main` re-exports;
   remaining `main.zig` leftovers are `main()` + demo seed strings)
 - Embedded Browser first-cut (right-panel Browser is a Native canvas
   webview via `web_panes` / scene `.webview` `browser-web-0`..`3`;

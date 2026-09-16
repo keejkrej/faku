@@ -60,7 +60,6 @@ const session_switcher = @import("switcher.zig");
 const sidebar_row_helpers = @import("sidebar_rows.zig");
 const attach_helpers = @import("attach.zig");
 const sidecar_lines = @import("lines.zig");
-const fx_probe = @import("fx_probe.zig");
 const palette_run = @import("palette_run.zig");
 const update_mod = @import("update.zig");
 const boot_mod = @import("boot.zig");
@@ -97,7 +96,6 @@ pub const max_line_keep = 4096;
 
 const app_permissions = [_][]const u8{ native_sdk.security.permission_command, native_sdk.security.permission_view };
 
-pub const fx_probe_key = fx_probe.fx_probe_key;
 pub const demo_ticks_complete: u32 = 12;
 pub const demo_reply = "fx here (demo). The fx CLI was not found, so this is a local timer stream. Install fx and Send runs `fx ask`.";
 
@@ -117,8 +115,6 @@ pub const applySessionSelection = palette_run.applySessionSelection;
 
 pub const update = update_mod.update;
 pub const initFx = update_mod.initFx;
-
-pub const startFxProbe = fx_probe.startFxProbe;
 
 /// Native `UiApp.Options.on_drop` → Msg. Window-level; no OS picker.
 pub const onDrop = attach_helpers.onDrop;

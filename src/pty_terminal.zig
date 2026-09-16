@@ -594,6 +594,7 @@ test "terminal_sessions_enabled is opted in by this ejected build" {
 test "pty_shell_key band is 700..703 and outside occupied bands" {
     const litellm_rates = @import("litellm_rates.zig");
     const cli_probe = @import("cli_probe.zig");
+    const fx_probe = @import("fx_probe.zig");
     try std.testing.expectEqual(@as(u64, 700), pty_shell_key);
     try std.testing.expectEqual(@as(usize, 4), max_sessions);
     try std.testing.expectEqual(@as(u64, 703), pty_shell_key_last);
@@ -601,7 +602,7 @@ test "pty_shell_key band is 700..703 and outside occupied bands" {
     try std.testing.expectEqual(pty_shell_key + 3, shellKeyAt(3));
     try std.testing.expect(pty_shell_key != effect_keys.stream_timer_key);
     try std.testing.expect(pty_shell_key != effect_keys.fx_ask_key);
-    try std.testing.expect(pty_shell_key != main.fx_probe_key);
+    try std.testing.expect(pty_shell_key != fx_probe.fx_probe_key);
     try std.testing.expect(pty_shell_key != effect_keys.daemon_proxy_key_first);
     try std.testing.expect(pty_shell_key != open_terminal.open_terminal_key);
     try std.testing.expect(pty_shell_key != effect_keys.fx_spawn_overlap_key_first);

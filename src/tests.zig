@@ -15565,7 +15565,7 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     try testing.expect(!model.settings_page_general());
     try testing.expect(!model.settings_page_skills());
     try testing.expectEqual(before_open + cli_probe.nonFxCount(), fx.pendingSpawnCount());
-    try testing.expect(findPendingSpawnKey(&fx, main.fx_probe_key) == null);
+    try testing.expect(findPendingSpawnKey(&fx, fx_probe.fx_probe_key) == null);
     try testing.expect(findCliProbeSpawn(&fx, .claude) != null);
     try testing.expect(findCliProbeSpawn(&fx, .pi) != null);
     try testing.expect(findCliProbeSpawn(&fx, .kimi) != null);
@@ -15739,7 +15739,7 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
     const refresh = try expectButtonMsg(tree, "Refresh", .refresh_providers);
     main.update(&model, tree.msgForPointer(refresh.id, .up).?, &fx);
     try testing.expect(model.fx_probe_started);
-    try testing.expect(findPendingSpawnKey(&fx, main.fx_probe_key) != null);
+    try testing.expect(findPendingSpawnKey(&fx, fx_probe.fx_probe_key) != null);
     try testing.expect(findCliProbeSpawn(&fx, .claude) != null);
     try testing.expect(findCliProbeSpawn(&fx, .cursor) != null);
     try testing.expect(findCliProbeSpawn(&fx, .pi) != null);
@@ -18693,7 +18693,7 @@ fn expectGitBranchArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqualStrings(git_branch.git_branch_cmd, spawn.argv[6]);
     try testing.expectEqualStrings(git_branch.git_show_current, spawn.argv[7]);
     try testing.expect(spawn.key != effect_keys.fx_ask_key);
-    try testing.expect(spawn.key != main.fx_probe_key);
+    try testing.expect(spawn.key != fx_probe.fx_probe_key);
     try testing.expect(spawn.key != sidecar_keys.maximize_window_key);
     try testing.expect(spawn.key != sidecar_keys.pick_image_key);
     try testing.expect(spawn.key != sidecar_keys.pick_folder_key);
@@ -21491,7 +21491,7 @@ fn expectGitDirtyArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqualStrings(git_dirty.git_status_cmd, spawn.argv[6]);
     try testing.expectEqualStrings(git_dirty.git_porcelain, spawn.argv[7]);
     try testing.expect(spawn.key != effect_keys.fx_ask_key);
-    try testing.expect(spawn.key != main.fx_probe_key);
+    try testing.expect(spawn.key != fx_probe.fx_probe_key);
     try testing.expect(spawn.key != sidecar_keys.maximize_window_key);
     try testing.expect(spawn.key != sidecar_keys.pick_image_key);
     try testing.expect(spawn.key != sidecar_keys.pick_folder_key);
@@ -21804,7 +21804,7 @@ fn expectGitNumstatArgv(spawn: anytype, cwd: []const u8) !void {
         },
     }
     try testing.expect(spawn.key != effect_keys.fx_ask_key);
-    try testing.expect(spawn.key != main.fx_probe_key);
+    try testing.expect(spawn.key != fx_probe.fx_probe_key);
     try testing.expect(spawn.key != sidecar_keys.maximize_window_key);
     try testing.expect(spawn.key != sidecar_keys.pick_image_key);
     try testing.expect(spawn.key != sidecar_keys.pick_folder_key);
@@ -22263,7 +22263,7 @@ fn expectGitAheadBehindArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqualStrings("@{upstream}...HEAD", spawn.argv[9]);
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_ahead_behind.git_upstream_range) == null);
     try testing.expect(spawn.key != effect_keys.fx_ask_key);
-    try testing.expect(spawn.key != main.fx_probe_key);
+    try testing.expect(spawn.key != fx_probe.fx_probe_key);
     try testing.expect(spawn.key != sidecar_keys.maximize_window_key);
     try testing.expect(spawn.key != sidecar_keys.pick_image_key);
     try testing.expect(spawn.key != sidecar_keys.pick_folder_key);
@@ -22666,7 +22666,7 @@ fn expectFileMentionArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqualStrings(file_mention.git_ls_files_others, spawn.argv[8]);
     try testing.expectEqualStrings(file_mention.git_ls_files_exclude_standard, spawn.argv[9]);
     try testing.expect(spawn.key != effect_keys.fx_ask_key);
-    try testing.expect(spawn.key != main.fx_probe_key);
+    try testing.expect(spawn.key != fx_probe.fx_probe_key);
     try testing.expect(spawn.key != sidecar_keys.maximize_window_key);
     try testing.expect(spawn.key != sidecar_keys.pick_image_key);
     try testing.expect(spawn.key != sidecar_keys.pick_folder_key);

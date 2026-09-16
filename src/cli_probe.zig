@@ -18,6 +18,7 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const fx_probe = @import("fx_probe.zig");
 const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const protocol = @import("protocol.zig");
@@ -111,15 +112,15 @@ test "probeKey is per-id and skips fx_probe_key / ask / daemon" {
     try std.testing.expectEqual(@as(u64, 606), probeKey(.cursor));
     try std.testing.expectEqual(@as(u64, 607), probeKey(.pi));
     try std.testing.expectEqual(@as(u64, 608), probeKey(.kimi));
-    try std.testing.expect(probeKey(.claude) != main.fx_probe_key);
+    try std.testing.expect(probeKey(.claude) != fx_probe.fx_probe_key);
     try std.testing.expect(probeKey(.claude) != effect_keys.fx_ask_key);
     try std.testing.expect(probeKey(.claude) != effect_keys.daemon_proxy_key_first);
-    try std.testing.expect(probeKey(.pi) != main.fx_probe_key);
-    try std.testing.expect(probeKey(.kimi) != main.fx_probe_key);
+    try std.testing.expect(probeKey(.pi) != fx_probe.fx_probe_key);
+    try std.testing.expect(probeKey(.kimi) != fx_probe.fx_probe_key);
     try std.testing.expectEqual(protocol.ProviderId.claude, fromProbeKey(601).?);
     try std.testing.expectEqual(protocol.ProviderId.pi, fromProbeKey(607).?);
     try std.testing.expectEqual(protocol.ProviderId.kimi, fromProbeKey(608).?);
-    try std.testing.expect(fromProbeKey(main.fx_probe_key) == null);
+    try std.testing.expect(fromProbeKey(fx_probe.fx_probe_key) == null);
     try std.testing.expect(fromProbeKey(cli_probe_key_first) == null);
     try std.testing.expect(fromProbeKey(609) == null);
     try std.testing.expectEqual(@as(usize, 8), nonFxCount());
@@ -146,7 +147,7 @@ test "startCliProbes queues PATH --help per non-fx id; skips fx; second start is
     var model = Model{};
     startCliProbes(&model, &fx);
     try testing.expectEqual(nonFxCount(), countPendingCliProbes(&fx));
-    try testing.expect(findPending(&fx, main.fx_probe_key) == null);
+    try testing.expect(findPending(&fx, fx_probe.fx_probe_key) == null);
 
     for (std.meta.tags(protocol.ProviderId)) |id| {
         if (id == .fx) {
@@ -187,7 +188,7 @@ test "success exit is Available; non-zero and missing are Not found; cancel is i
     handleCliProbeExit(&model, .{ .key = probeKey(.grok), .reason = .rejected, .code = 0 });
     try testing.expect(model.cli_available[@intFromEnum(protocol.ProviderId.grok)]);
 
-    handleCliProbeExit(&model, .{ .key = main.fx_probe_key, .reason = .exited, .code = 0 });
+    handleCliProbeExit(&model, .{ .key = fx_probe.fx_probe_key, .reason = .exited, .code = 0 });
     try testing.expect(!model.cli_available[0]);
 }
 
@@ -202,7 +203,7 @@ test "restartCliProbes requeues every non-fx probe and leaves fx_probe_key unuse
     model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
     restartCliProbes(&model, &fx);
     try testing.expectEqual(nonFxCount(), countPendingCliProbes(&fx));
-    try testing.expect(findPending(&fx, main.fx_probe_key) == null);
+    try testing.expect(findPending(&fx, fx_probe.fx_probe_key) == null);
     try testing.expect(model.cli_probe_started[@intFromEnum(protocol.ProviderId.claude)]);
     const claude = findPending(&fx, probeKey(.claude)).?;
     try testing.expect(isCliProbeArgv(claude.argv, .claude));
