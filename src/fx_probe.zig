@@ -1,8 +1,10 @@
 //! Boot fx-probe spawn/exit helpers.
 //!
 //! `startFxProbe` / `restartFxProbe` / `spawnFxProbe` /
-//! `handleFxProbeExit` / `fxProbePath` live here. Boot still starts
-//! from `initFx` in `update.zig`. Probe order is `$HOME/.fx/bin/fx`
+//! `handleFxProbeExit` / `fxProbePath` live here. Callers import this
+//! module directly (`fx_probe.fx_probe_key` / `fx_probe.startFxProbe`).
+//! Not re-exported from `main`. Boot still starts from `initFx` in
+//! `update.zig`. Probe order is `$HOME/.fx/bin/fx`
 //! `--help` (keejkrej/fx default), leftover `~/.local/bin/fx --help`
 //! (not advertised), then `fx --help` (PATH). Settings → Providers
 //! Refresh calls `restartFxProbe`.

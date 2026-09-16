@@ -30,6 +30,7 @@
 const std = @import("std");
 const main = @import("main.zig");
 const util = @import("util.zig");
+const fx_probe = @import("fx_probe.zig");
 const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const protocol = @import("protocol.zig");
@@ -56,7 +57,7 @@ const demo_reply = main.demo_reply;
 const max_queued_text = model_exports.max_queued_text;
 
 pub fn handleSend(model: *Model, fx: *Effects) void {
-    if (!model.fx_probe_started) main.startFxProbe(model, fx);
+    if (!model.fx_probe_started) fx_probe.startFxProbe(model, fx);
     const text = std.mem.trim(u8, model.draft(), " \t\r\n");
     var key_buf: [store.max_draft_key]u8 = undefined;
     const draft_key = if (model.sessionById(model.selected)) |session|
@@ -98,7 +99,7 @@ pub fn handleSend(model: *Model, fx: *Effects) void {
 /// Waku ⌘Enter: inject into a live daemon turn when attach reported
 /// `supportsSteer`. Otherwise the same as Send (queue while busy).
 pub fn handleSteer(model: *Model, fx: *Effects) void {
-    if (!model.fx_probe_started) main.startFxProbe(model, fx);
+    if (!model.fx_probe_started) fx_probe.startFxProbe(model, fx);
     const text = std.mem.trim(u8, model.draft(), " \t\r\n");
     if (text.len == 0) return;
     if (maybeSteerDaemonTurn(model, fx, text)) {
