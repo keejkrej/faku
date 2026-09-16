@@ -9,7 +9,9 @@
 //! chip and Settings General Build / Plan use `i18n.Interaction`; wire
 //! ids stay `build` / `plan`. Selection uses `accessChipId` /
 //! `effortChipId` and interaction `build` / `plan` ids, not English
-//! label text. Model chip cycling and persist stay in `main.zig`.
+//! label text. Callers import this module directly (`composer.fxPermissionMode` /
+//! `composer.accessLabel` / `composer.effortLabel` / `composer.imagePathFromDrop`).
+//! Not re-exported from `main`. Model chip cycling and persist stay in `main.zig`.
 
 const std = @import("std");
 

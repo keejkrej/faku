@@ -4,6 +4,7 @@ const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
 const model_exports = @import("model_exports.zig");
 const palette = @import("palette.zig");
+const composer = @import("composer.zig");
 const effect_keys = @import("effect_keys.zig");
 const layout_mod = @import("layout.zig");
 const shell = @import("shell.zig");
@@ -463,8 +464,8 @@ test "boot is fx-first and New / send / ticks / stop drive the demo" {
     _ = try expectByText(tree.root, .button, "Build");
     _ = try expectByText(tree.root, .button, "Local");
     try testing.expect(findByKind(tree.root, .status_bar) == null);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("Do anything...", composer.placeholder);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("Do anything...", composer_textarea.placeholder);
     }
 
     const new_btn = try expectButton(tree.root, "New Task");
@@ -1516,8 +1517,8 @@ test "composer placeholder is Queue a follow-up while streaming" {
     var model = main.initialModel();
     try testing.expectEqualStrings("Do anything...", model.composer_placeholder());
     var tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("Do anything...", composer.placeholder);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("Do anything...", composer_textarea.placeholder);
     } else return error.WidgetNotFound;
     _ = try expectByText(tree.root, .button, "Send");
 
@@ -1527,8 +1528,8 @@ test "composer placeholder is Queue a follow-up while streaming" {
     try testing.expectEqualStrings("Queue a follow-up...", model.composer_placeholder());
 
     tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("Queue a follow-up...", composer.placeholder);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("Queue a follow-up...", composer_textarea.placeholder);
     } else return error.WidgetNotFound;
     _ = try expectButtonMsg(tree, "Stop", .stop_turn);
 }
@@ -3138,8 +3139,8 @@ test "composer Commands lists stored names; empty hides; pick inserts /name and 
     try testing.expect(findByText(tree.root, .text, "/web") == null);
     try testing.expect(findByText(tree.root, .text, "Search the web for information") == null);
     _ = try expectButton(tree.root, "Commands");
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("/web ", composer.text);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("/web ", composer_textarea.text);
     }
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
@@ -3165,8 +3166,8 @@ test "composer Commands lists stored names; empty hides; pick inserts /name and 
     tree = try buildTree(arena, &loaded);
     _ = try expectButton(tree.root, "Commands");
     try testing.expect(findByText(tree.root, .text, "/web") == null);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("/web ", composer.text);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("/web ", composer_textarea.text);
     }
 
     if (loaded.sessionById(id)) |session| session.clearAvailableCommands();
@@ -3283,8 +3284,8 @@ test "composer slash prefix auto-opens stored commands; filters by name; empty h
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "/compact") == null);
     try testing.expect(findByText(tree.root, .text, "Compact the conversation") == null);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("/compact ", composer.text);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("/compact ", composer_textarea.text);
     }
 
     model.draft_buffer.clear();
@@ -3302,8 +3303,8 @@ test "composer slash prefix auto-opens stored commands; filters by name; empty h
     try testing.expect(!model.commands_list_open());
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "/compact") == null);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("/commit ", composer.text);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("/commit ", composer_textarea.text);
     }
 }
 
@@ -3368,8 +3369,8 @@ test "composer Enter confirms first slash-command row and does not send" {
     try testing.expect(!model.is_streaming());
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "/compact") == null);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("/commit ", composer.text);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("/commit ", composer_textarea.text);
     }
 
     model.draft_buffer.clear();
@@ -3541,8 +3542,8 @@ test "composer $ prefix lists cached SKILL.md; filters; click inserts $name; no 
     try testing.expectEqual(@as(usize, 1), countRole(&model, .user));
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "to-spec") == null);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("$to-spec ", composer.text);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("$to-spec ", composer_textarea.text);
     }
 
     skills.ensureScanned(&model, &fx);
@@ -3620,8 +3621,8 @@ test "composer Enter confirms first $ skill row and does not send; Esc dismisses
     try testing.expect(!model.is_streaming());
     try testing.expectEqual(@as(usize, 1), countRole(&model, .user));
     tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("$to-spec ", composer.text);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("$to-spec ", composer_textarea.text);
     }
 
     model.draft_buffer.clear();
@@ -4210,12 +4211,12 @@ test "composer attach preview binds when the file exists; missing and clear do n
 }
 
 test "imagePathFromDrop takes the first local image and ignores the rest" {
-    const png = main.imagePathFromDrop(&.{ "notes.txt", "/tmp/shot.png", "/tmp/other.jpg" });
+    const png = composer.imagePathFromDrop(&.{ "notes.txt", "/tmp/shot.png", "/tmp/other.jpg" });
     try testing.expectEqualStrings("/tmp/shot.png", png.?);
-    try testing.expect(main.imagePathFromDrop(&.{}) == null);
-    try testing.expect(main.imagePathFromDrop(&.{"notes.txt"}) == null);
-    try testing.expect(main.imagePathFromDrop(&.{"/tmp/photos/"}) == null);
-    try testing.expectEqualStrings("/tmp/photo.JPEG", main.imagePathFromDrop(&.{"/tmp/photo.JPEG"}).?);
+    try testing.expect(composer.imagePathFromDrop(&.{}) == null);
+    try testing.expect(composer.imagePathFromDrop(&.{"notes.txt"}) == null);
+    try testing.expect(composer.imagePathFromDrop(&.{"/tmp/photos/"}) == null);
+    try testing.expectEqualStrings("/tmp/photo.JPEG", composer.imagePathFromDrop(&.{"/tmp/photo.JPEG"}).?);
 }
 
 test "window drop of a png sets draft image_path; txt and empty do not" {
@@ -6005,13 +6006,13 @@ test "palette Copy project path runs the same handler" {
 }
 
 test "Waku access_mode maps to verified FX_PERMISSION_MODE values" {
-    try testing.expectEqualStrings("ask", main.fxPermissionMode("ask"));
-    try testing.expectEqualStrings("auto", main.fxPermissionMode("auto"));
-    try testing.expectEqualStrings("auto", main.fxPermissionMode("autoAcceptEdits"));
-    try testing.expectEqualStrings("yolo", main.fxPermissionMode("fullAccess"));
-    try testing.expectEqualStrings("yolo", main.fxPermissionMode("yolo"));
-    try testing.expectEqualStrings("", main.fxPermissionMode("nope"));
-    try testing.expectEqualStrings("", main.fxPermissionMode(""));
+    try testing.expectEqualStrings("ask", composer.fxPermissionMode("ask"));
+    try testing.expectEqualStrings("auto", composer.fxPermissionMode("auto"));
+    try testing.expectEqualStrings("auto", composer.fxPermissionMode("autoAcceptEdits"));
+    try testing.expectEqualStrings("yolo", composer.fxPermissionMode("fullAccess"));
+    try testing.expectEqualStrings("yolo", composer.fxPermissionMode("yolo"));
+    try testing.expectEqualStrings("", composer.fxPermissionMode("nope"));
+    try testing.expectEqualStrings("", composer.fxPermissionMode(""));
 }
 
 test "Waku access_mode maps to fx ACP ask|code, not fullAccess" {
@@ -9133,9 +9134,9 @@ test "new task and cmd-n focus the composer via the same autofocus edge" {
     var tree = try buildTree(arena, &model);
     const new_btn = try expectButton(tree.root, "New Task");
     try testing.expectEqual(Msg.new_session, tree.msgForPointer(new_btn.id, .up).?);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("Do anything...", composer.placeholder);
-        try testing.expect(!composer.autofocus);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("Do anything...", composer_textarea.placeholder);
+        try testing.expect(!composer_textarea.autofocus);
     } else return error.WidgetNotFound;
     _ = try expectByText(tree.root, .button, "Copy session");
 
@@ -9146,8 +9147,8 @@ test "new task and cmd-n focus the composer via the same autofocus edge" {
     try testing.expect(model.composer_active);
 
     tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expect(composer.autofocus);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expect(composer_textarea.autofocus);
     } else return error.WidgetNotFound;
     _ = try expectByText(tree.root, .button, "Copy session");
 
@@ -9160,8 +9161,8 @@ test "new task and cmd-n focus the composer via the same autofocus edge" {
         try testing.expectEqualStrings("Search", field.placeholder);
         try testing.expect(field.autofocus);
     } else return error.WidgetNotFound;
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expect(!composer.autofocus);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expect(!composer_textarea.autofocus);
     } else return error.WidgetNotFound;
 
     const cmd_n = canvas.WidgetKeyboardEvent{
@@ -9179,8 +9180,8 @@ test "new task and cmd-n focus the composer via the same autofocus edge" {
     try testing.expect(model.palette_open);
 
     tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expect(composer.autofocus);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expect(composer_textarea.autofocus);
     } else return error.WidgetNotFound;
     _ = try expectByText(tree.root, .button, "Copy session");
 
@@ -9213,9 +9214,9 @@ test "selecting a session focuses the composer; rename and search do not" {
     var tree = try buildTree(arena, &model);
     const auth_row = try expectButton(tree.root, "fix auth listener");
     try testing.expectEqual(Msg{ .select = auth_id }, tree.msgForPointer(auth_row.id, .up).?);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("Do anything...", composer.placeholder);
-        try testing.expect(!composer.autofocus);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("Do anything...", composer_textarea.placeholder);
+        try testing.expect(!composer_textarea.autofocus);
     } else return error.WidgetNotFound;
     _ = try expectByText(tree.root, .button, "Copy session");
 
@@ -9226,8 +9227,8 @@ test "selecting a session focuses the composer; rename and search do not" {
     try testing.expectEqual(@as(u32, 0), model.editing_session_id);
 
     tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expect(composer.autofocus);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expect(composer_textarea.autofocus);
     } else return error.WidgetNotFound;
     _ = try expectByText(tree.root, .button, "Copy session");
 
@@ -9244,8 +9245,8 @@ test "selecting a session focuses the composer; rename and search do not" {
     if (findByPlaceholder(tree.root, .text_field, "untitled")) |field| {
         try testing.expect(field.autofocus);
     } else return error.WidgetNotFound;
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expect(!composer.autofocus);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expect(!composer_textarea.autofocus);
     } else return error.WidgetNotFound;
 
     main.update(&model, .stop, &fx);
@@ -9265,8 +9266,8 @@ test "selecting a session focuses the composer; rename and search do not" {
         try testing.expectEqualStrings("Search", field.placeholder);
         try testing.expect(field.autofocus);
     } else return error.WidgetNotFound;
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expect(!composer.autofocus);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expect(!composer_textarea.autofocus);
     } else return error.WidgetNotFound;
 
     main.update(&model, .stop, &fx);
@@ -9289,8 +9290,8 @@ test "selecting a session focuses the composer; rename and search do not" {
     if (findByPlaceholder(tree.root, .text_field, "New folder")) |field| {
         try testing.expect(field.autofocus);
     } else return error.WidgetNotFound;
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expect(!composer.autofocus);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expect(!composer_textarea.autofocus);
     } else return error.WidgetNotFound;
 
     main.update(&model, .stop, &fx);
@@ -9306,8 +9307,8 @@ test "selecting a session focuses the composer; rename and search do not" {
     try testing.expectEqual(@as(u32, 0), model.editing_folder_id);
 
     tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expect(composer.autofocus);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expect(composer_textarea.autofocus);
     } else return error.WidgetNotFound;
     _ = try expectByText(tree.root, .button, "Copy session");
 }
@@ -12093,8 +12094,8 @@ test "confirming New Task from the palette creates and focuses" {
     try testing.expect(model.composer_active);
 
     tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expect(composer.autofocus);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expect(composer_textarea.autofocus);
     } else return error.WidgetNotFound;
 }
 
@@ -12624,9 +12625,9 @@ test "cmd-l and ctrl-l focus the composer via onKey" {
     try testing.expect(!model.palette_open);
 
     var tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("Do anything...", composer.placeholder);
-        try testing.expect(!composer.autofocus);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("Do anything...", composer_textarea.placeholder);
+        try testing.expect(!composer_textarea.autofocus);
     } else return error.WidgetNotFound;
     _ = try expectByText(tree.root, .button, "Copy session");
     _ = try expectButton(tree.root, "Attach image");
@@ -12647,9 +12648,9 @@ test "cmd-l and ctrl-l focus the composer via onKey" {
     try testing.expectEqualStrings("", model.draft());
 
     tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("Do anything...", composer.placeholder);
-        try testing.expect(composer.autofocus);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("Do anything...", composer_textarea.placeholder);
+        try testing.expect(composer_textarea.autofocus);
     } else return error.WidgetNotFound;
     _ = try expectByText(tree.root, .button, "Copy session");
     _ = try expectButton(tree.root, "Attach image");
@@ -12666,9 +12667,9 @@ test "cmd-l and ctrl-l focus the composer via onKey" {
         try testing.expectEqualStrings("Search", field.placeholder);
         try testing.expect(field.autofocus);
     } else return error.WidgetNotFound;
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expect(!composer.autofocus);
-        try testing.expectEqualStrings("plain l still types", composer.text);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expect(!composer_textarea.autofocus);
+        try testing.expectEqualStrings("plain l still types", composer_textarea.text);
     } else return error.WidgetNotFound;
 
     const ctrl_l = canvas.WidgetKeyboardEvent{
@@ -12682,9 +12683,9 @@ test "cmd-l and ctrl-l focus the composer via onKey" {
     try testing.expect(model.palette_open);
 
     tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expect(composer.autofocus);
-        try testing.expectEqualStrings("plain l still types", composer.text);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expect(composer_textarea.autofocus);
+        try testing.expectEqualStrings("plain l still types", composer_textarea.text);
     } else return error.WidgetNotFound;
     _ = try expectByText(tree.root, .button, "Copy session");
     _ = try expectButton(tree.root, "Attach image");
@@ -12812,8 +12813,8 @@ test "cmd-r / cmd-l / cmd-[ / cmd-] route by Browser-tab keyboard gate" {
     const tree = try buildTree(arena, &model);
     const address = try expectByText(tree.root, .text_field, "Address");
     try testing.expect(address.autofocus);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expect(!composer.autofocus);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expect(!composer_textarea.autofocus);
     } else return error.WidgetNotFound;
 
     _ = browser_pane.webPanes(&model, &panes);
@@ -22791,9 +22792,9 @@ test "composer @ mention card filters tracked files; insert replaces last token;
     try testing.expect(!model.is_streaming());
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "src/main.zig") == null);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("see @src/main.zig ", composer.text);
-        try testing.expect(composer.autofocus);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("see @src/main.zig ", composer_textarea.text);
+        try testing.expect(composer_textarea.autofocus);
     }
 
     var loaded = Model{};
@@ -22814,9 +22815,9 @@ test "composer @ mention card filters tracked files; insert replaces last token;
     try testing.expect(!model.fx_spawn_live);
     try testing.expect(!model.is_streaming());
     tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("see @src/ ", composer.text);
-        try testing.expect(composer.autofocus);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("see @src/ ", composer_textarea.text);
+        try testing.expect(composer_textarea.autofocus);
     }
 
     model.draft_buffer.clear();
@@ -23047,8 +23048,8 @@ test "composer Enter confirms first @ mention; Esc dismisses; Send button still 
     }
 
     const tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("@mai", composer.text);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("@mai", composer_textarea.text);
     } else return error.WidgetNotFound;
     const first_row = try expectButton(tree.root, "src/main.zig");
     if (@hasField(canvas.Widget, "selected")) {
@@ -23989,7 +23990,7 @@ test "composer and Settings General access labels follow Appearance language" {
     try testing.expectEqualStrings("Ask", model.access_ask_label());
     try testing.expectEqualStrings("Auto", model.access_auto_label());
     try testing.expectEqualStrings("Full access", model.access_full_label());
-    try testing.expectEqualStrings("Ask", main.accessLabel("ask"));
+    try testing.expectEqualStrings("Ask", composer.accessLabel("ask"));
     try testing.expect(model.access_selected_full());
     try testing.expect(!model.access_selected_ask());
     try testing.expect(!model.access_selected_auto());
@@ -24014,8 +24015,8 @@ test "composer and Settings General access labels follow Appearance language" {
     try testing.expectEqualStrings("询问", model.access_ask_label());
     try testing.expectEqualStrings("自动", model.access_auto_label());
     try testing.expectEqualStrings("完全访问", model.access_full_label());
-    try testing.expectEqualStrings("Full access", main.accessLabel(model.resolvedAccessMode()));
-    try testing.expectEqualStrings("Ask", main.accessLabel("ask"));
+    try testing.expectEqualStrings("Full access", composer.accessLabel(model.resolvedAccessMode()));
+    try testing.expectEqualStrings("Ask", composer.accessLabel("ask"));
     try testing.expect(model.access_selected_full());
     try testing.expect(!model.access_selected_ask());
     try testing.expect(!model.access_selected_auto());
@@ -24164,7 +24165,7 @@ test "composer and Settings General effort labels follow Appearance language" {
     try testing.expectEqualStrings("auto", model.resolvedReasoningEffort());
     try testing.expectEqualStrings("Auto", model.effort_label());
     try testing.expectEqualStrings("Auto", model.settings_effort_label());
-    try testing.expectEqualStrings("Auto", main.effortLabel("auto"));
+    try testing.expectEqualStrings("Auto", composer.effortLabel("auto"));
     try testing.expect(model.effort_selected_auto());
     try testing.expect(!model.effort_selected_none());
     try testing.expect(!model.effort_selected_high());
@@ -24205,10 +24206,10 @@ test "composer and Settings General effort labels follow Appearance language" {
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("自动", model.effort_label());
     try testing.expectEqualStrings("自动", model.settings_effort_label());
-    try testing.expectEqualStrings("Auto", main.effortLabel(model.resolvedReasoningEffort()));
-    try testing.expectEqualStrings("Auto", main.effortLabel("auto"));
-    try testing.expectEqualStrings("High", main.effortLabel("high"));
-    try testing.expectEqualStrings("Extra high", main.effortLabel("xhigh"));
+    try testing.expectEqualStrings("Auto", composer.effortLabel(model.resolvedReasoningEffort()));
+    try testing.expectEqualStrings("Auto", composer.effortLabel("auto"));
+    try testing.expectEqualStrings("High", composer.effortLabel("high"));
+    try testing.expectEqualStrings("Extra high", composer.effortLabel("xhigh"));
     try testing.expect(model.effort_selected_auto());
     try testing.expect(!model.effort_selected_none());
     try testing.expect(!model.effort_selected_high());
@@ -24271,7 +24272,7 @@ test "composer and Settings General effort labels follow Appearance language" {
     try testing.expectEqualStrings("高", model.effort_label());
     try testing.expect(model.effort_selected_high());
     try testing.expect(!model.effort_selected_auto());
-    try testing.expectEqualStrings("High", main.effortLabel(model.resolvedReasoningEffort()));
+    try testing.expectEqualStrings("High", composer.effortLabel(model.resolvedReasoningEffort()));
 
     main.update(&model, .toggle_settings, &fx);
     try testing.expect(model.settings_open);
@@ -24298,7 +24299,7 @@ test "composer and Settings General effort labels follow Appearance language" {
     try testing.expectEqualStrings("高", model.effort_label());
     try testing.expect(model.effort_selected_high());
     try testing.expect(!model.effort_selected_xhigh());
-    try testing.expectEqualStrings("Extra high", main.effortLabel(model.lastReasoningEffort()));
+    try testing.expectEqualStrings("Extra high", composer.effortLabel(model.lastReasoningEffort()));
     tree = try buildTree(arena, &model);
     _ = try expectSelectMsg(tree, "极高", .toggle_settings_effort_picker);
     try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
@@ -30646,8 +30647,8 @@ test "composer textarea placeholders follow Appearance language" {
     try testing.expect(!std.mem.eql(u8, model.composer_placeholder(), model.queued_header_label()));
 
     var tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("Do anything...", composer.placeholder);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("Do anything...", composer_textarea.placeholder);
     } else return error.WidgetNotFound;
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "hello" } }, &fx);
@@ -30656,8 +30657,8 @@ test "composer textarea placeholders follow Appearance language" {
     try testing.expectEqualStrings("Queue a follow-up...", model.composer_placeholder());
     try testing.expectEqualStrings(i18n.composerPlaceholderChromeFor(.english, "").streaming, model.composer_placeholder());
     tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("Queue a follow-up...", composer.placeholder);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("Queue a follow-up...", composer_textarea.placeholder);
     } else return error.WidgetNotFound;
 
     model.language_preference = .simplified_chinese;
@@ -30665,8 +30666,8 @@ test "composer textarea placeholders follow Appearance language" {
     try testing.expectEqualStrings(i18n.composerPlaceholderChromeFor(.simplified_chinese, "").streaming, model.composer_placeholder());
     try testing.expect(!std.mem.eql(u8, model.composer_placeholder(), model.queued_header_label()));
     tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("排队跟进...", composer.placeholder);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("排队跟进...", composer_textarea.placeholder);
     } else return error.WidgetNotFound;
     try testing.expect(findByPlaceholder(tree.root, .textarea, "Queue a follow-up...") == null);
     try testing.expect(findByPlaceholder(tree.root, .textarea, "Do anything...") == null);
@@ -30676,8 +30677,8 @@ test "composer textarea placeholders follow Appearance language" {
     try testing.expectEqualStrings("随便做什么...", model.composer_placeholder());
     try testing.expectEqualStrings(i18n.composerPlaceholderChromeFor(.simplified_chinese, "").idle, model.composer_placeholder());
     tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("随便做什么...", composer.placeholder);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("随便做什么...", composer_textarea.placeholder);
     } else return error.WidgetNotFound;
     try testing.expect(findByPlaceholder(tree.root, .textarea, "Do anything...") == null);
 
@@ -30685,8 +30686,8 @@ test "composer textarea placeholders follow Appearance language" {
     try testing.expectEqualStrings("何でもどうぞ...", model.composer_placeholder());
     try testing.expectEqualStrings(i18n.composerPlaceholderChromeFor(.japanese, "").idle, model.composer_placeholder());
     tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("何でもどうぞ...", composer.placeholder);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("何でもどうぞ...", composer_textarea.placeholder);
     } else return error.WidgetNotFound;
     try testing.expect(findByPlaceholder(tree.root, .textarea, "随便做什么...") == null);
     try testing.expect(findByPlaceholder(tree.root, .textarea, "Do anything...") == null);
@@ -30697,8 +30698,8 @@ test "composer textarea placeholders follow Appearance language" {
     try testing.expectEqualStrings("フォローアップをキュー...", model.composer_placeholder());
     try testing.expectEqualStrings(i18n.composerPlaceholderChromeFor(.japanese, "").streaming, model.composer_placeholder());
     tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("フォローアップをキュー...", composer.placeholder);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("フォローアップをキュー...", composer_textarea.placeholder);
     } else return error.WidgetNotFound;
     try testing.expect(findByPlaceholder(tree.root, .textarea, "Queue a follow-up...") == null);
     try testing.expect(findByPlaceholder(tree.root, .textarea, "排队跟进...") == null);
@@ -30707,8 +30708,8 @@ test "composer textarea placeholders follow Appearance language" {
     model.setSystemLocaleId("ja_JP.UTF-8");
     try testing.expectEqualStrings("Queue a follow-up...", model.composer_placeholder());
     tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("Queue a follow-up...", composer.placeholder);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("Queue a follow-up...", composer_textarea.placeholder);
     } else return error.WidgetNotFound;
     try testing.expect(findByPlaceholder(tree.root, .textarea, "フォローアップをキュー...") == null);
 
@@ -30716,16 +30717,16 @@ test "composer textarea placeholders follow Appearance language" {
     model.setSystemLocaleId("zh_CN.UTF-8");
     try testing.expectEqualStrings("排队跟进...", model.composer_placeholder());
     tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("排队跟进...", composer.placeholder);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("排队跟进...", composer_textarea.placeholder);
     } else return error.WidgetNotFound;
     try testing.expect(findByPlaceholder(tree.root, .textarea, "Queue a follow-up...") == null);
 
     model.setSystemLocaleId("ja_JP.UTF-8");
     try testing.expectEqualStrings("フォローアップをキュー...", model.composer_placeholder());
     tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("フォローアップをキュー...", composer.placeholder);
+    if (findByKind(tree.root, .textarea)) |composer_textarea| {
+        try testing.expectEqualStrings("フォローアップをキュー...", composer_textarea.placeholder);
     } else return error.WidgetNotFound;
     try testing.expect(findByPlaceholder(tree.root, .textarea, "Queue a follow-up...") == null);
 }
