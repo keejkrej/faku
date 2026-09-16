@@ -46,6 +46,7 @@ const fx_probe = @import("fx_probe.zig");
 const sidecar_lines = @import("lines.zig");
 const cli_probe = @import("cli_probe.zig");
 const keys = @import("keys.zig");
+const switcher = @import("switcher.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
 const goal = @import("goal.zig");
 const acp = @import("acp.zig");
@@ -9534,7 +9535,7 @@ test "ctrl-tab includes the current untitled session and caps the snapshot at te
     try testing.expectEqual(@as(u32, 12), model.session_count);
     main.update(&model, .switcher_forward, &fx);
     try testing.expect(model.switcher_open);
-    try testing.expectEqual(main.switcher_cap, model.switcher_count);
+    try testing.expectEqual(switcher.switcher_cap, model.switcher_count);
     try testing.expectEqual(model.selected, model.switcher_ids[0]);
     try testing.expectEqual(@as(u32, 1), model.switcher_highlight);
 }
