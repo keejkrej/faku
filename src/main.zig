@@ -57,7 +57,6 @@ const rewind = @import("rewind.zig");
 const keys = @import("keys.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
 const goal = @import("goal.zig");
-const composer = @import("composer.zig");
 const session_switcher = @import("switcher.zig");
 const sidebar_row_helpers = @import("sidebar_rows.zig");
 const attach_helpers = @import("attach.zig");
@@ -109,15 +108,9 @@ pub const sessionDateBucket = sidebar_dates.sessionDateBucket;
 pub const sessionRelativeTime = sidebar_dates.sessionRelativeTime;
 pub const formatThreadGoalUsage = goal.formatThreadGoalUsage;
 
-pub const fxPermissionMode = composer.fxPermissionMode;
 pub const startOptionsFromSession = prompt_spawn.startOptionsFromSession;
 pub const takeFxAskSessionId = prompt_spawn.takeFxAskSessionId;
 pub const stripFxDiagnostics = sidecar_lines.stripFxDiagnostics;
-pub const nextAccessMode = composer.nextAccessMode;
-pub const accessLabel = composer.accessLabel;
-pub const nextReasoningEffort = composer.nextReasoningEffort;
-pub const effortLabel = composer.effortLabel;
-pub const imagePathFromDrop = composer.imagePathFromDrop;
 
 pub const BackgroundRow = environment_summary.BackgroundRow;
 pub const FilePreviewLineRow = right_panel.FilePreviewLineRow;

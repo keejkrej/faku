@@ -4,6 +4,7 @@ const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
 const model_exports = @import("model_exports.zig");
 const palette = @import("palette.zig");
+const composer = @import("composer.zig");
 const effect_keys = @import("effect_keys.zig");
 const layout_mod = @import("layout.zig");
 const shell = @import("shell.zig");
@@ -4210,12 +4211,12 @@ test "composer attach preview binds when the file exists; missing and clear do n
 }
 
 test "imagePathFromDrop takes the first local image and ignores the rest" {
-    const png = main.imagePathFromDrop(&.{ "notes.txt", "/tmp/shot.png", "/tmp/other.jpg" });
+    const png = composer.imagePathFromDrop(&.{ "notes.txt", "/tmp/shot.png", "/tmp/other.jpg" });
     try testing.expectEqualStrings("/tmp/shot.png", png.?);
-    try testing.expect(main.imagePathFromDrop(&.{}) == null);
-    try testing.expect(main.imagePathFromDrop(&.{"notes.txt"}) == null);
-    try testing.expect(main.imagePathFromDrop(&.{"/tmp/photos/"}) == null);
-    try testing.expectEqualStrings("/tmp/photo.JPEG", main.imagePathFromDrop(&.{"/tmp/photo.JPEG"}).?);
+    try testing.expect(composer.imagePathFromDrop(&.{}) == null);
+    try testing.expect(composer.imagePathFromDrop(&.{"notes.txt"}) == null);
+    try testing.expect(composer.imagePathFromDrop(&.{"/tmp/photos/"}) == null);
+    try testing.expectEqualStrings("/tmp/photo.JPEG", composer.imagePathFromDrop(&.{"/tmp/photo.JPEG"}).?);
 }
 
 test "window drop of a png sets draft image_path; txt and empty do not" {
@@ -6005,13 +6006,13 @@ test "palette Copy project path runs the same handler" {
 }
 
 test "Waku access_mode maps to verified FX_PERMISSION_MODE values" {
-    try testing.expectEqualStrings("ask", main.fxPermissionMode("ask"));
-    try testing.expectEqualStrings("auto", main.fxPermissionMode("auto"));
-    try testing.expectEqualStrings("auto", main.fxPermissionMode("autoAcceptEdits"));
-    try testing.expectEqualStrings("yolo", main.fxPermissionMode("fullAccess"));
-    try testing.expectEqualStrings("yolo", main.fxPermissionMode("yolo"));
-    try testing.expectEqualStrings("", main.fxPermissionMode("nope"));
-    try testing.expectEqualStrings("", main.fxPermissionMode(""));
+    try testing.expectEqualStrings("ask", composer.fxPermissionMode("ask"));
+    try testing.expectEqualStrings("auto", composer.fxPermissionMode("auto"));
+    try testing.expectEqualStrings("auto", composer.fxPermissionMode("autoAcceptEdits"));
+    try testing.expectEqualStrings("yolo", composer.fxPermissionMode("fullAccess"));
+    try testing.expectEqualStrings("yolo", composer.fxPermissionMode("yolo"));
+    try testing.expectEqualStrings("", composer.fxPermissionMode("nope"));
+    try testing.expectEqualStrings("", composer.fxPermissionMode(""));
 }
 
 test "Waku access_mode maps to fx ACP ask|code, not fullAccess" {
@@ -23989,7 +23990,7 @@ test "composer and Settings General access labels follow Appearance language" {
     try testing.expectEqualStrings("Ask", model.access_ask_label());
     try testing.expectEqualStrings("Auto", model.access_auto_label());
     try testing.expectEqualStrings("Full access", model.access_full_label());
-    try testing.expectEqualStrings("Ask", main.accessLabel("ask"));
+    try testing.expectEqualStrings("Ask", composer.accessLabel("ask"));
     try testing.expect(model.access_selected_full());
     try testing.expect(!model.access_selected_ask());
     try testing.expect(!model.access_selected_auto());
@@ -24014,8 +24015,8 @@ test "composer and Settings General access labels follow Appearance language" {
     try testing.expectEqualStrings("询问", model.access_ask_label());
     try testing.expectEqualStrings("自动", model.access_auto_label());
     try testing.expectEqualStrings("完全访问", model.access_full_label());
-    try testing.expectEqualStrings("Full access", main.accessLabel(model.resolvedAccessMode()));
-    try testing.expectEqualStrings("Ask", main.accessLabel("ask"));
+    try testing.expectEqualStrings("Full access", composer.accessLabel(model.resolvedAccessMode()));
+    try testing.expectEqualStrings("Ask", composer.accessLabel("ask"));
     try testing.expect(model.access_selected_full());
     try testing.expect(!model.access_selected_ask());
     try testing.expect(!model.access_selected_auto());
@@ -24164,7 +24165,7 @@ test "composer and Settings General effort labels follow Appearance language" {
     try testing.expectEqualStrings("auto", model.resolvedReasoningEffort());
     try testing.expectEqualStrings("Auto", model.effort_label());
     try testing.expectEqualStrings("Auto", model.settings_effort_label());
-    try testing.expectEqualStrings("Auto", main.effortLabel("auto"));
+    try testing.expectEqualStrings("Auto", composer.effortLabel("auto"));
     try testing.expect(model.effort_selected_auto());
     try testing.expect(!model.effort_selected_none());
     try testing.expect(!model.effort_selected_high());
@@ -24205,10 +24206,10 @@ test "composer and Settings General effort labels follow Appearance language" {
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("自动", model.effort_label());
     try testing.expectEqualStrings("自动", model.settings_effort_label());
-    try testing.expectEqualStrings("Auto", main.effortLabel(model.resolvedReasoningEffort()));
-    try testing.expectEqualStrings("Auto", main.effortLabel("auto"));
-    try testing.expectEqualStrings("High", main.effortLabel("high"));
-    try testing.expectEqualStrings("Extra high", main.effortLabel("xhigh"));
+    try testing.expectEqualStrings("Auto", composer.effortLabel(model.resolvedReasoningEffort()));
+    try testing.expectEqualStrings("Auto", composer.effortLabel("auto"));
+    try testing.expectEqualStrings("High", composer.effortLabel("high"));
+    try testing.expectEqualStrings("Extra high", composer.effortLabel("xhigh"));
     try testing.expect(model.effort_selected_auto());
     try testing.expect(!model.effort_selected_none());
     try testing.expect(!model.effort_selected_high());
@@ -24271,7 +24272,7 @@ test "composer and Settings General effort labels follow Appearance language" {
     try testing.expectEqualStrings("高", model.effort_label());
     try testing.expect(model.effort_selected_high());
     try testing.expect(!model.effort_selected_auto());
-    try testing.expectEqualStrings("High", main.effortLabel(model.resolvedReasoningEffort()));
+    try testing.expectEqualStrings("High", composer.effortLabel(model.resolvedReasoningEffort()));
 
     main.update(&model, .toggle_settings, &fx);
     try testing.expect(model.settings_open);
@@ -24298,7 +24299,7 @@ test "composer and Settings General effort labels follow Appearance language" {
     try testing.expectEqualStrings("高", model.effort_label());
     try testing.expect(model.effort_selected_high());
     try testing.expect(!model.effort_selected_xhigh());
-    try testing.expectEqualStrings("Extra high", main.effortLabel(model.lastReasoningEffort()));
+    try testing.expectEqualStrings("Extra high", composer.effortLabel(model.lastReasoningEffort()));
     tree = try buildTree(arena, &model);
     _ = try expectSelectMsg(tree, "极高", .toggle_settings_effort_picker);
     try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
