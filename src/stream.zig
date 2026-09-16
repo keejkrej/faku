@@ -52,8 +52,8 @@ const stream_timer_key = effect_keys.stream_timer_key;
 const fx_ask_key = effect_keys.fx_ask_key;
 const daemon_line_bytes = effect_keys.daemon_line_bytes;
 const stream_chunk_bytes = effect_keys.stream_chunk_bytes;
-const demo_ticks_complete = main.demo_ticks_complete;
-const demo_reply = main.demo_reply;
+const demo_ticks_complete: u32 = 12;
+const demo_reply = "fx here (demo). The fx CLI was not found, so this is a local timer stream. Install fx and Send runs `fx ask`.";
 const max_queued_text = model_exports.max_queued_text;
 
 pub fn handleSend(model: *Model, fx: *Effects) void {

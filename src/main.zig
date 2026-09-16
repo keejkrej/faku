@@ -90,9 +90,6 @@ pub const fx_env_bin = "/usr/bin/env";
 
 const app_permissions = [_][]const u8{ native_sdk.security.permission_command, native_sdk.security.permission_view };
 
-pub const demo_ticks_complete: u32 = 12;
-pub const demo_reply = "fx here (demo). The fx CLI was not found, so this is a local timer stream. Install fx and Send runs `fx ask`.";
-
 const Msg = model_exports.Msg;
 const Model = model_exports.Model;
 
