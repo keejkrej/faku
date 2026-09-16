@@ -1188,9 +1188,11 @@ cut (same `i18n.Effort` strings; wire `reasoning_effort` ids stay
 Build / Plan follow the resolved locale this cut (same
 `i18n.Interaction` strings; wire `interaction_mode` ids stay
 `build` / `plan`).
-UTC-day bucketing is unchanged.
-Not full-app catalogs, not Native NSLocale, not tz-aware or east-asian
-calendar formatting.
+Sidebar date buckets and relative-time day labels (yesterday / Nd /
+YYYY-MM-DD fallback) use process-local civil Y-M-D from libc
+localtime per timestamp (Monday week start). Not a vendored tz
+database, not Native NSLocale, not east-asian calendar formatting.
+Not full-app catalogs.
 
 ## Settings Usage
 
@@ -1570,7 +1572,8 @@ Honest gaps this cut does not implement:
   macOS helper, permission probe, always-allowed app picker (Settings
   Computer Use first-cut is nav + Unavailable / Off / empty apps)
 - Full-app i18n catalogs / rust_i18n-style YAML, Native locale /
-  NSLocale API, tz-aware date grouping (Appearance language selector
+  NSLocale API, vendored tz database / east-asian calendar formatting
+  (Appearance language selector
   ships: System / English / 简体中文 / 日本語; Settings chrome,
   first-cut sidebar date-bucket titles, the chrome unassign Today
   list-item, and first-cut sidebar New Task / Search / New folder /
@@ -1691,9 +1694,9 @@ Honest gaps this cut does not implement:
   `max`). First-cut composer interaction chip and Settings General
   Build / Plan follow the resolved locale this cut (same
   `i18n.Interaction` strings; wire ids stay `build` / `plan`).
-  UTC-day bucketing is
-  unchanged. Not full-app catalogs, not Native NSLocale, not
-  east-asian calendar formatting)
+  Sidebar date buckets and relative-time day labels use process-local
+  civil Y-M-D via libc localtime. Not full-app catalogs, not Native
+  NSLocale, not a vendored tzdb, not east-asian calendar formatting)
 - Claude CLI TaskStop / long-lived ACP, full
   BackgroundWorkRegistry event/reconcile parity (Environment Summary
   ships Process / Monitor / Subagent kind chrome, a Process

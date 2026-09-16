@@ -23702,55 +23702,61 @@ test "catalog load after a busy Send does not restore session.busy" {
     try testing.expect(!loaded.sessionById(session_id).?.busy);
 }
 
-const day_ms: i64 = 86_400_000;
-const pinned_now_ms: i64 = 1_704_067_200_000; // 2024-01-01 00:00:00 UTC (Monday)
-/// Friday 2024-01-19 00:00:00 UTC so This week (Mon–Wed) and This month (1–14) are both non-empty.
-const week_month_now_ms: i64 = pinned_now_ms + (18 * day_ms);
-/// Friday 2024-03-15 00:00:00 UTC so This month (1–10) and This year (Jan–Feb) are both non-empty.
-const year_now_ms: i64 = pinned_now_ms + (74 * day_ms);
+const pinned_now_ms: i64 = 1_704_067_200_000; // 2024-01-01 00:00:00 UTC (Monday) — clock pin only
+
+fn localCivil(year: i64, month: u8, day: u8) sidebar_dates.CivilDate {
+    return .{ .year = year, .month = month, .day = day };
+}
+
+fn localNoonMs(year: i64, month: u8, day: u8) i64 {
+    return sidebar_dates.localMsFromCivil(localCivil(year, month, day)).?;
+}
 
 fn pinClock(fx: *Effects, clock: *native_sdk.TestClock, now_ms: i64) void {
     clock.setWallMs(now_ms);
     fx.clock = clock.clock();
 }
 
-test "sessionDateBucket uses UTC days; 0 and missing now are Today" {
-    try testing.expectEqual(sidebar_dates.DateBucket.today, sidebar_dates.sessionDateBucket(0, pinned_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.today, sidebar_dates.sessionDateBucket(pinned_now_ms, 0));
-    try testing.expectEqual(sidebar_dates.DateBucket.today, sidebar_dates.sessionDateBucket(pinned_now_ms, pinned_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.today, sidebar_dates.sessionDateBucket(pinned_now_ms + 1, pinned_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.yesterday, sidebar_dates.sessionDateBucket(pinned_now_ms - day_ms, pinned_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(pinned_now_ms - (2 * day_ms), pinned_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(pinned_now_ms - (40 * day_ms), pinned_now_ms));
+test "sessionDateBucket uses local civil days; 0 and missing now are Today" {
+    const now_ms = localNoonMs(2024, 1, 1);
+    try testing.expectEqual(sidebar_dates.DateBucket.today, sidebar_dates.sessionDateBucket(0, now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.today, sidebar_dates.sessionDateBucket(now_ms, 0));
+    try testing.expectEqual(sidebar_dates.DateBucket.today, sidebar_dates.sessionDateBucket(now_ms, now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.today, sidebar_dates.sessionDateBucket(now_ms + 1, now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.yesterday, sidebar_dates.sessionDateBucket(localNoonMs(2023, 12, 31), now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(localNoonMs(2023, 12, 30), now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(localNoonMs(2023, 11, 22), now_ms));
 }
 
-test "sessionDateBucket This week and This month use UTC Monday week and month" {
-    try testing.expectEqual(sidebar_dates.DateBucket.today, sidebar_dates.sessionDateBucket(week_month_now_ms, week_month_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.yesterday, sidebar_dates.sessionDateBucket(week_month_now_ms - day_ms, week_month_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.this_week, sidebar_dates.sessionDateBucket(week_month_now_ms - (2 * day_ms), week_month_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.this_week, sidebar_dates.sessionDateBucket(week_month_now_ms - (4 * day_ms), week_month_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.this_month, sidebar_dates.sessionDateBucket(week_month_now_ms - (5 * day_ms), week_month_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.this_month, sidebar_dates.sessionDateBucket(week_month_now_ms - (18 * day_ms), week_month_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(week_month_now_ms - (19 * day_ms), week_month_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(week_month_now_ms - (40 * day_ms), week_month_now_ms));
+test "sessionDateBucket This week and This month use local Monday week and month" {
+    const now_ms = localNoonMs(2024, 1, 19);
+    try testing.expectEqual(sidebar_dates.DateBucket.today, sidebar_dates.sessionDateBucket(now_ms, now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.yesterday, sidebar_dates.sessionDateBucket(localNoonMs(2024, 1, 18), now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_week, sidebar_dates.sessionDateBucket(localNoonMs(2024, 1, 17), now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_week, sidebar_dates.sessionDateBucket(localNoonMs(2024, 1, 15), now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_month, sidebar_dates.sessionDateBucket(localNoonMs(2024, 1, 14), now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_month, sidebar_dates.sessionDateBucket(localNoonMs(2024, 1, 1), now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(localNoonMs(2023, 12, 31), now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(localNoonMs(2023, 12, 10), now_ms));
     // Thursday 2024-02-01: week started Monday 2024-01-29, so late January is This week, not This month.
-    const feb_first_ms = pinned_now_ms + (31 * day_ms);
-    try testing.expectEqual(sidebar_dates.DateBucket.yesterday, sidebar_dates.sessionDateBucket(feb_first_ms - day_ms, feb_first_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.this_week, sidebar_dates.sessionDateBucket(feb_first_ms - (3 * day_ms), feb_first_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.this_year, sidebar_dates.sessionDateBucket(feb_first_ms - (4 * day_ms), feb_first_ms));
+    const feb_first_ms = localNoonMs(2024, 2, 1);
+    try testing.expectEqual(sidebar_dates.DateBucket.yesterday, sidebar_dates.sessionDateBucket(localNoonMs(2024, 1, 31), feb_first_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_week, sidebar_dates.sessionDateBucket(localNoonMs(2024, 1, 29), feb_first_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_year, sidebar_dates.sessionDateBucket(localNoonMs(2024, 1, 28), feb_first_ms));
 }
 
-test "sessionDateBucket This year is same UTC year, older than this month" {
-    try testing.expectEqual(sidebar_dates.DateBucket.today, sidebar_dates.sessionDateBucket(year_now_ms, year_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.yesterday, sidebar_dates.sessionDateBucket(year_now_ms - day_ms, year_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.this_week, sidebar_dates.sessionDateBucket(year_now_ms - (2 * day_ms), year_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.this_week, sidebar_dates.sessionDateBucket(year_now_ms - (4 * day_ms), year_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.this_month, sidebar_dates.sessionDateBucket(year_now_ms - (5 * day_ms), year_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.this_month, sidebar_dates.sessionDateBucket(year_now_ms - (14 * day_ms), year_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.this_year, sidebar_dates.sessionDateBucket(year_now_ms - (15 * day_ms), year_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.this_year, sidebar_dates.sessionDateBucket(year_now_ms - (74 * day_ms), year_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(year_now_ms - (75 * day_ms), year_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(year_now_ms - (400 * day_ms), year_now_ms));
+test "sessionDateBucket This year is same local year, older than this month" {
+    const now_ms = localNoonMs(2024, 3, 15);
+    try testing.expectEqual(sidebar_dates.DateBucket.today, sidebar_dates.sessionDateBucket(now_ms, now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.yesterday, sidebar_dates.sessionDateBucket(localNoonMs(2024, 3, 14), now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_week, sidebar_dates.sessionDateBucket(localNoonMs(2024, 3, 13), now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_week, sidebar_dates.sessionDateBucket(localNoonMs(2024, 3, 11), now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_month, sidebar_dates.sessionDateBucket(localNoonMs(2024, 3, 10), now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_month, sidebar_dates.sessionDateBucket(localNoonMs(2024, 3, 1), now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_year, sidebar_dates.sessionDateBucket(localNoonMs(2024, 2, 29), now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_year, sidebar_dates.sessionDateBucket(localNoonMs(2024, 1, 1), now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(localNoonMs(2023, 12, 31), now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(localNoonMs(2023, 2, 9), now_ms));
 }
 
 test "chrome unassign Today label follows Appearance language" {
@@ -34657,26 +34663,27 @@ test "sidebar date-bucket titles follow Appearance language preference" {
     const arena = arena_state.allocator();
 
     var model = Model{};
-    model.now_ms = year_now_ms;
+    const now_ms = localNoonMs(2024, 3, 15);
+    model.now_ms = now_ms;
     const today_id = model.addSession("today thread", .fx);
     const yesterday_id = model.addSession("yesterday thread", .fx);
     const week_id = model.addSession("week thread", .fx);
     const month_id = model.addSession("month thread", .fx);
     const year_id = model.addSession("year thread", .fx);
     const older_id = model.addSession("older thread", .fx);
-    model.sessionById(today_id).?.updated_at = year_now_ms;
-    model.sessionById(yesterday_id).?.updated_at = year_now_ms - day_ms;
-    model.sessionById(week_id).?.updated_at = year_now_ms - (3 * day_ms);
-    model.sessionById(month_id).?.updated_at = year_now_ms - (10 * day_ms);
-    model.sessionById(year_id).?.updated_at = year_now_ms - (20 * day_ms);
-    model.sessionById(older_id).?.updated_at = year_now_ms - (80 * day_ms);
+    model.sessionById(today_id).?.updated_at = now_ms;
+    model.sessionById(yesterday_id).?.updated_at = localNoonMs(2024, 3, 14);
+    model.sessionById(week_id).?.updated_at = localNoonMs(2024, 3, 12);
+    model.sessionById(month_id).?.updated_at = localNoonMs(2024, 3, 5);
+    model.sessionById(year_id).?.updated_at = localNoonMs(2024, 2, 24);
+    model.sessionById(older_id).?.updated_at = localNoonMs(2023, 12, 26);
 
-    try testing.expectEqual(sidebar_dates.DateBucket.today, sidebar_dates.sessionDateBucket(year_now_ms, year_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.yesterday, sidebar_dates.sessionDateBucket(year_now_ms - day_ms, year_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.this_week, sidebar_dates.sessionDateBucket(year_now_ms - (3 * day_ms), year_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.this_month, sidebar_dates.sessionDateBucket(year_now_ms - (10 * day_ms), year_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.this_year, sidebar_dates.sessionDateBucket(year_now_ms - (20 * day_ms), year_now_ms));
-    try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(year_now_ms - (80 * day_ms), year_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.today, sidebar_dates.sessionDateBucket(now_ms, now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.yesterday, sidebar_dates.sessionDateBucket(localNoonMs(2024, 3, 14), now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_week, sidebar_dates.sessionDateBucket(localNoonMs(2024, 3, 12), now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_month, sidebar_dates.sessionDateBucket(localNoonMs(2024, 3, 5), now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_year, sidebar_dates.sessionDateBucket(localNoonMs(2024, 2, 24), now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(localNoonMs(2023, 12, 26), now_ms));
 
     try expectSidebarTitles(model.sidebar_rows(arena), &.{
         "Today",
@@ -34801,20 +34808,21 @@ test "ungrouped sessions land in Today Yesterday Older; folder rows stay put" {
     defer fx.deinit();
     fx.executor = .fake;
     var clock = native_sdk.TestClock{};
-    pinClock(&fx, &clock, pinned_now_ms);
+    const now_ms = localNoonMs(2024, 1, 1);
+    pinClock(&fx, &clock, now_ms);
 
     var model = Model{};
-    model.now_ms = pinned_now_ms;
+    model.now_ms = now_ms;
     const today_new = model.addSession("today newer", .fx);
     const today_old = model.addSession("today older", .fx);
     const yesterday = model.addSession("yesterday thread", .fx);
     const older = model.addSession("older thread", .fx);
     const grouped = model.addSession("folder thread", .fx);
-    model.sessionById(today_new).?.updated_at = pinned_now_ms + 3_600_000;
-    model.sessionById(today_old).?.updated_at = pinned_now_ms + 1_000;
-    model.sessionById(yesterday).?.updated_at = pinned_now_ms - day_ms;
-    model.sessionById(older).?.updated_at = pinned_now_ms - (3 * day_ms);
-    model.sessionById(grouped).?.updated_at = pinned_now_ms - (10 * day_ms);
+    model.sessionById(today_new).?.updated_at = now_ms + 3_600_000;
+    model.sessionById(today_old).?.updated_at = now_ms + 1_000;
+    model.sessionById(yesterday).?.updated_at = localNoonMs(2023, 12, 31);
+    model.sessionById(older).?.updated_at = localNoonMs(2023, 12, 29);
+    model.sessionById(grouped).?.updated_at = localNoonMs(2023, 12, 22);
     const folder_id = model.addFolder("New folder");
     try testing.expect(model.assignSessionFolder(grouped, folder_id));
 
@@ -34877,10 +34885,11 @@ test "ungrouped sessions land in This week and This month; empty buckets omit he
     defer fx.deinit();
     fx.executor = .fake;
     var clock = native_sdk.TestClock{};
-    pinClock(&fx, &clock, week_month_now_ms);
+    const now_ms = localNoonMs(2024, 1, 19);
+    pinClock(&fx, &clock, now_ms);
 
     var model = Model{};
-    model.now_ms = week_month_now_ms;
+    model.now_ms = now_ms;
     const today_new = model.addSession("today newer", .fx);
     const today_old = model.addSession("today older", .fx);
     const yesterday = model.addSession("yesterday thread", .fx);
@@ -34889,14 +34898,14 @@ test "ungrouped sessions land in This week and This month; empty buckets omit he
     const month = model.addSession("month thread", .fx);
     const older = model.addSession("older thread", .fx);
     const grouped = model.addSession("folder thread", .fx);
-    model.sessionById(today_new).?.updated_at = week_month_now_ms + 3_600_000;
-    model.sessionById(today_old).?.updated_at = week_month_now_ms + 1_000;
-    model.sessionById(yesterday).?.updated_at = week_month_now_ms - day_ms;
-    model.sessionById(week_new).?.updated_at = week_month_now_ms - (2 * day_ms);
-    model.sessionById(week_old).?.updated_at = week_month_now_ms - (4 * day_ms);
-    model.sessionById(month).?.updated_at = week_month_now_ms - (10 * day_ms);
-    model.sessionById(older).?.updated_at = week_month_now_ms - (40 * day_ms);
-    model.sessionById(grouped).?.updated_at = week_month_now_ms - (10 * day_ms);
+    model.sessionById(today_new).?.updated_at = now_ms + 3_600_000;
+    model.sessionById(today_old).?.updated_at = now_ms + 1_000;
+    model.sessionById(yesterday).?.updated_at = localNoonMs(2024, 1, 18);
+    model.sessionById(week_new).?.updated_at = localNoonMs(2024, 1, 17);
+    model.sessionById(week_old).?.updated_at = localNoonMs(2024, 1, 15);
+    model.sessionById(month).?.updated_at = localNoonMs(2024, 1, 9);
+    model.sessionById(older).?.updated_at = localNoonMs(2023, 12, 10);
+    model.sessionById(grouped).?.updated_at = localNoonMs(2024, 1, 9);
     const folder_id = model.addFolder("New folder");
     try testing.expect(model.assignSessionFolder(grouped, folder_id));
 
@@ -34948,11 +34957,11 @@ test "ungrouped sessions land in This week and This month; empty buckets omit he
     try testing.expect(sessionRowHasGroupRail(tree.root, "folder thread"));
 
     var month_only = Model{};
-    month_only.now_ms = week_month_now_ms;
+    month_only.now_ms = now_ms;
     const today_only = month_only.addSession("today only", .fx);
     const month_only_id = month_only.addSession("month only", .fx);
-    month_only.sessionById(today_only).?.updated_at = week_month_now_ms;
-    month_only.sessionById(month_only_id).?.updated_at = week_month_now_ms - (10 * day_ms);
+    month_only.sessionById(today_only).?.updated_at = now_ms;
+    month_only.sessionById(month_only_id).?.updated_at = localNoonMs(2024, 1, 9);
     try expectSidebarTitles(month_only.sidebar_rows(arena), &.{
         "Today",
         "today only",
@@ -34976,10 +34985,11 @@ test "ungrouped sessions land in This year between This month and Older; empty b
     defer fx.deinit();
     fx.executor = .fake;
     var clock = native_sdk.TestClock{};
-    pinClock(&fx, &clock, year_now_ms);
+    const now_ms = localNoonMs(2024, 3, 15);
+    pinClock(&fx, &clock, now_ms);
 
     var model = Model{};
-    model.now_ms = year_now_ms;
+    model.now_ms = now_ms;
     const today_new = model.addSession("today newer", .fx);
     const today_old = model.addSession("today older", .fx);
     const yesterday = model.addSession("yesterday thread", .fx);
@@ -34990,16 +35000,16 @@ test "ungrouped sessions land in This year between This month and Older; empty b
     const year_old = model.addSession("year older", .fx);
     const older = model.addSession("older thread", .fx);
     const grouped = model.addSession("folder thread", .fx);
-    model.sessionById(today_new).?.updated_at = year_now_ms + 3_600_000;
-    model.sessionById(today_old).?.updated_at = year_now_ms + 1_000;
-    model.sessionById(yesterday).?.updated_at = year_now_ms - day_ms;
-    model.sessionById(week).?.updated_at = year_now_ms - (3 * day_ms);
-    model.sessionById(month_new).?.updated_at = year_now_ms - (5 * day_ms);
-    model.sessionById(month_old).?.updated_at = year_now_ms - (14 * day_ms);
-    model.sessionById(year_new).?.updated_at = year_now_ms - (15 * day_ms);
-    model.sessionById(year_old).?.updated_at = year_now_ms - (60 * day_ms);
-    model.sessionById(older).?.updated_at = year_now_ms - (80 * day_ms);
-    model.sessionById(grouped).?.updated_at = year_now_ms - (15 * day_ms);
+    model.sessionById(today_new).?.updated_at = now_ms + 3_600_000;
+    model.sessionById(today_old).?.updated_at = now_ms + 1_000;
+    model.sessionById(yesterday).?.updated_at = localNoonMs(2024, 3, 14);
+    model.sessionById(week).?.updated_at = localNoonMs(2024, 3, 12);
+    model.sessionById(month_new).?.updated_at = localNoonMs(2024, 3, 10);
+    model.sessionById(month_old).?.updated_at = localNoonMs(2024, 3, 1);
+    model.sessionById(year_new).?.updated_at = localNoonMs(2024, 2, 29);
+    model.sessionById(year_old).?.updated_at = localNoonMs(2024, 1, 15);
+    model.sessionById(older).?.updated_at = localNoonMs(2023, 12, 26);
+    model.sessionById(grouped).?.updated_at = localNoonMs(2024, 2, 29);
     const folder_id = model.addFolder("New folder");
     try testing.expect(model.assignSessionFolder(grouped, folder_id));
 
@@ -35055,11 +35065,11 @@ test "ungrouped sessions land in This year between This month and Older; empty b
     try testing.expect(sessionRowHasGroupRail(tree.root, "folder thread"));
 
     var year_only = Model{};
-    year_only.now_ms = year_now_ms;
+    year_only.now_ms = now_ms;
     const today_only = year_only.addSession("today only", .fx);
     const year_only_id = year_only.addSession("year only", .fx);
-    year_only.sessionById(today_only).?.updated_at = year_now_ms;
-    year_only.sessionById(year_only_id).?.updated_at = year_now_ms - (20 * day_ms);
+    year_only.sessionById(today_only).?.updated_at = now_ms;
+    year_only.sessionById(year_only_id).?.updated_at = localNoonMs(2024, 2, 24);
     try expectSidebarTitles(year_only.sidebar_rows(arena), &.{
         "Today",
         "today only",
@@ -35088,22 +35098,23 @@ test "Today unassign still works when extra date headers exist" {
     defer fx.deinit();
     fx.executor = .fake;
     var clock = native_sdk.TestClock{};
-    pinClock(&fx, &clock, pinned_now_ms);
+    const now_ms = localNoonMs(2024, 1, 1);
+    pinClock(&fx, &clock, now_ms);
 
     var model = Model{};
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
-    model.now_ms = pinned_now_ms;
+    model.now_ms = now_ms;
     const today = model.addSession("today thread", .fx);
     const yesterday = model.addSession("yesterday thread", .fx);
     const grouped = model.addSession("folder thread", .fx);
     _ = model.appendTurn(today, .user, "today");
     _ = model.appendTurn(yesterday, .user, "yesterday");
     _ = model.appendTurn(grouped, .user, "grouped");
-    model.sessionById(today).?.updated_at = pinned_now_ms;
-    model.sessionById(yesterday).?.updated_at = pinned_now_ms - day_ms;
-    model.sessionById(grouped).?.updated_at = pinned_now_ms - (4 * day_ms);
+    model.sessionById(today).?.updated_at = now_ms;
+    model.sessionById(yesterday).?.updated_at = localNoonMs(2023, 12, 31);
+    model.sessionById(grouped).?.updated_at = localNoonMs(2023, 12, 28);
     const folder_id = model.addFolder("New folder");
     try testing.expect(model.assignSessionFolder(grouped, folder_id));
     try store.saveSession(&model, today, testing.allocator, testing.io);
@@ -35131,7 +35142,7 @@ test "Today unassign still works when extra date headers exist" {
     loaded.setStoreDir(dir);
     loaded.store_io = testing.io;
     try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
-    loaded.now_ms = pinned_now_ms;
+    loaded.now_ms = now_ms;
     try testing.expectEqual(@as(u32, 0), loaded.sessionById(grouped).?.folder_id);
     try expectSidebarTitles(loaded.sidebar_rows(arena), &.{
         "Today",
@@ -35171,7 +35182,7 @@ fn expectRelativeTime(updated_at: i64, now_ms: i64, expected: ?[]const u8) !void
 }
 
 test "sessionRelativeTime covers now, minutes, hours, yesterday, days, date; omits 0" {
-    const noon = pinned_now_ms + (12 * 3_600_000);
+    const noon = localNoonMs(2024, 1, 1);
     try expectRelativeTime(0, noon, null);
     try expectRelativeTime(noon, 0, null);
     try expectRelativeTime(noon, noon, "just now");
@@ -35179,24 +35190,24 @@ test "sessionRelativeTime covers now, minutes, hours, yesterday, days, date; omi
     try expectRelativeTime(noon - 5_000, noon, "just now");
     try expectRelativeTime(noon - (5 * 60_000), noon, "5m");
     try expectRelativeTime(noon - (2 * 3_600_000), noon, "2h");
-    try expectRelativeTime(noon - day_ms, noon, "Yesterday");
-    try expectRelativeTime(noon - (3 * day_ms), noon, "3d");
-    try expectRelativeTime(pinned_now_ms - (40 * day_ms), noon, "2023-11-22");
+    try expectRelativeTime(localNoonMs(2023, 12, 31), noon, "Yesterday");
+    try expectRelativeTime(localNoonMs(2023, 12, 29), noon, "3d");
+    try expectRelativeTime(localNoonMs(2023, 11, 22), noon, "2023-11-22");
 }
 
 test "sessionRelativeTime just now and Yesterday follow dates catalog; numeric forms stay" {
-    const noon = pinned_now_ms + (12 * 3_600_000);
+    const noon = localNoonMs(2024, 1, 1);
     var buf: [16]u8 = undefined;
     const zh = i18n.datesFor(.simplified_chinese, "");
     try testing.expectEqualStrings("刚刚", sidebar_dates.sessionRelativeTimeFor(noon, noon, &buf, zh).?);
-    try testing.expectEqualStrings("昨天", sidebar_dates.sessionRelativeTimeFor(noon - day_ms, noon, &buf, zh).?);
+    try testing.expectEqualStrings("昨天", sidebar_dates.sessionRelativeTimeFor(localNoonMs(2023, 12, 31), noon, &buf, zh).?);
     try testing.expectEqualStrings("5m", sidebar_dates.sessionRelativeTimeFor(noon - (5 * 60_000), noon, &buf, zh).?);
     try testing.expectEqualStrings("2h", sidebar_dates.sessionRelativeTimeFor(noon - (2 * 3_600_000), noon, &buf, zh).?);
-    try testing.expectEqualStrings("3d", sidebar_dates.sessionRelativeTimeFor(noon - (3 * day_ms), noon, &buf, zh).?);
-    try testing.expectEqualStrings("2023-11-22", sidebar_dates.sessionRelativeTimeFor(pinned_now_ms - (40 * day_ms), noon, &buf, zh).?);
+    try testing.expectEqualStrings("3d", sidebar_dates.sessionRelativeTimeFor(localNoonMs(2023, 12, 29), noon, &buf, zh).?);
+    try testing.expectEqualStrings("2023-11-22", sidebar_dates.sessionRelativeTimeFor(localNoonMs(2023, 11, 22), noon, &buf, zh).?);
     const ja = i18n.datesFor(.japanese, "");
     try testing.expectEqualStrings("たった今", sidebar_dates.sessionRelativeTimeFor(noon, noon, &buf, ja).?);
-    try testing.expectEqualStrings("昨日", sidebar_dates.sessionRelativeTimeFor(noon - day_ms, noon, &buf, ja).?);
+    try testing.expectEqualStrings("昨日", sidebar_dates.sessionRelativeTimeFor(localNoonMs(2023, 12, 31), noon, &buf, ja).?);
     try testing.expectEqualStrings("5m", sidebar_dates.sessionRelativeTimeFor(noon - (5 * 60_000), noon, &buf, ja).?);
 }
 
@@ -35208,7 +35219,7 @@ test "sidebar session rows show static relative last-activity; 0 omits; date buc
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
-    const noon = pinned_now_ms + (12 * 3_600_000);
+    const noon = localNoonMs(2024, 1, 1);
     var clock = native_sdk.TestClock{};
     pinClock(&fx, &clock, noon);
 
@@ -35222,8 +35233,8 @@ test "sidebar session rows show static relative last-activity; 0 omits; date buc
     const grouped_id = model.addSession("folder thread", .fx);
     model.sessionById(now_id).?.updated_at = noon;
     model.sessionById(five_id).?.updated_at = noon - (5 * 60_000);
-    model.sessionById(yesterday_id).?.updated_at = noon - day_ms;
-    model.sessionById(older_id).?.updated_at = pinned_now_ms - (40 * day_ms);
+    model.sessionById(yesterday_id).?.updated_at = localNoonMs(2023, 12, 31);
+    model.sessionById(older_id).?.updated_at = localNoonMs(2023, 11, 22);
     model.sessionById(missing_id).?.updated_at = 0;
     model.sessionById(grouped_id).?.updated_at = noon - (5 * 60_000);
     const folder_id = model.addFolder("New folder");

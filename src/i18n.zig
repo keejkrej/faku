@@ -639,7 +639,7 @@
 //! `FilePreviewFindToggleChrome` strings). Path text and
 //! body content stay data.
 //! Not rust_i18n, not YAML catalogs, not full-app translation, not
-//! tz-aware grouping.
+//! Native NSLocale. Local civil date bucketing lives in `sidebar_dates`.
 
 const std = @import("std");
 
