@@ -19,6 +19,7 @@
 
 const std = @import("std");
 const main = @import("main.zig");
+const util = @import("util.zig");
 const model_exports = @import("model_exports.zig");
 
 const Model = model_exports.Model;
@@ -280,11 +281,11 @@ fn paletteSpecForModel(model: *const Model, spec: PaletteActionSpec) PaletteActi
 
 fn paletteActionMatches(model: *const Model, spec: PaletteActionSpec, query: []const u8) bool {
     if (query.len == 0) return true;
-    if (main.asciiContainsIgnoreCase(spec.label, query)) return true;
+    if (util.asciiContainsIgnoreCase(spec.label, query)) return true;
     const localized = paletteSpecForModel(model, spec);
-    if (main.asciiContainsIgnoreCase(localized.label, query)) return true;
+    if (util.asciiContainsIgnoreCase(localized.label, query)) return true;
     for (spec.keywords) |keyword| {
-        if (main.asciiContainsIgnoreCase(keyword, query)) return true;
+        if (util.asciiContainsIgnoreCase(keyword, query)) return true;
     }
     return false;
 }
@@ -315,11 +316,11 @@ fn matchingPaletteSessions(model: *const Model, query: []const u8, dest: []u32) 
 
 fn sessionMatchesQuery(model: *const Model, session: *const Session, query: []const u8) bool {
     if (query.len == 0) return true;
-    if (main.asciiContainsIgnoreCase(model.session_display_title(session), query)) return true;
-    if (main.asciiContainsIgnoreCase(session.title(), query)) return true;
-    if (main.asciiContainsIgnoreCase(session.provider_label(), query)) return true;
-    if (main.asciiContainsIgnoreCase(session.projectPath(), query)) return true;
-    return main.asciiContainsIgnoreCase(session.model(), query);
+    if (util.asciiContainsIgnoreCase(model.session_display_title(session), query)) return true;
+    if (util.asciiContainsIgnoreCase(session.title(), query)) return true;
+    if (util.asciiContainsIgnoreCase(session.provider_label(), query)) return true;
+    if (util.asciiContainsIgnoreCase(session.projectPath(), query)) return true;
+    return util.asciiContainsIgnoreCase(session.model(), query);
 }
 
 fn suggestedPaletteCount(specs: []const PaletteActionSpec) usize {

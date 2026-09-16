@@ -57,6 +57,7 @@ const litellm_rates = @import("litellm_rates.zig");
 
 const canvas = native_sdk.canvas;
 const main = @import("main.zig");
+const util = @import("util.zig");
 
 const Session = session_mod.Session;
 const Provider = session_mod.Provider;
@@ -2931,7 +2932,7 @@ pub const Model = struct {
         var count: u32 = 0;
         for (model.turn_store[0..model.turn_count]) |turn| {
             if (turn.session_id != model.selected) continue;
-            if (!main.asciiContainsIgnoreCase(turn.text(), query)) continue;
+            if (!util.asciiContainsIgnoreCase(turn.text(), query)) continue;
             count += 1;
         }
         return count;
@@ -4262,7 +4263,7 @@ pub const Model = struct {
         var count: usize = 0;
         for (model.turn_store[0..model.turn_count]) |turn| {
             if (turn.session_id != model.selected) continue;
-            if (query.len > 0 and !main.asciiContainsIgnoreCase(turn.text(), query)) continue;
+            if (query.len > 0 and !util.asciiContainsIgnoreCase(turn.text(), query)) continue;
             count += 1;
         }
         const current = model.clampedFindMatchIndex();
@@ -4270,7 +4271,7 @@ pub const Model = struct {
         var i: usize = 0;
         for (model.turn_store[0..model.turn_count]) |*turn| {
             if (turn.session_id != model.selected) continue;
-            if (query.len > 0 and !main.asciiContainsIgnoreCase(turn.text(), query)) continue;
+            if (query.len > 0 and !util.asciiContainsIgnoreCase(turn.text(), query)) continue;
             out[i] = .{
                 .id = turn.id,
                 .role_label = turn.role_label(),
@@ -4328,7 +4329,7 @@ pub const Model = struct {
     /// `untitled` use the same `HeaderUntitledChrome` pack as the header;
     /// real titles stay session data.
     pub fn session_display_title(model: *const Model, session: *const Session) []const u8 {
-        return main.sessionDisplayTitle(session, model.headerUntitledChrome());
+        return util.sessionDisplayTitle(session, model.headerUntitledChrome());
     }
 
     pub fn selected_provider(model: *const Model) []const u8 {
@@ -8091,7 +8092,7 @@ pub const Model = struct {
         const path = model.draftImagePath();
         if (path.len == 0) return "";
         const io = model.store_io orelse return "";
-        if (!main.fileExists(io, path)) return "";
+        if (!util.fileExists(io, path)) return "";
         return path;
     }
 
@@ -8102,7 +8103,7 @@ pub const Model = struct {
         const path = session.projectPath();
         if (path.len == 0) return "";
         const io = model.store_io orelse return "";
-        if (!main.directoryExists(io, path)) return "";
+        if (!util.directoryExists(io, path)) return "";
         return path;
     }
 
@@ -8280,7 +8281,7 @@ pub const Model = struct {
         if (model.sessionById(session_id)) |session| {
             session.has_started = true;
             model.forgetNewTask(session_id);
-            if (role == .user or role == .assistant) main.stampSessionActivity(session, model.now_ms);
+            if (role == .user or role == .assistant) util.stampSessionActivity(session, model.now_ms);
         }
         if (model.transcript_pinned and (session_id == model.selected or model.selected == 0)) {
             model.pinTranscriptToLatest();
@@ -8550,12 +8551,12 @@ fn hasSkillInsertMatch(model: *const Model, query: []const u8) bool {
 
 fn skillRowMatches(skill: *const skills.CachedSkill, query: []const u8) bool {
     if (query.len == 0) return true;
-    return main.asciiContainsIgnoreCase(skill.name(), query) or main.asciiContainsIgnoreCase(skill.path(), query);
+    return util.asciiContainsIgnoreCase(skill.name(), query) or util.asciiContainsIgnoreCase(skill.path(), query);
 }
 
 fn gitBranchPickerRowMatches(name: []const u8, query: []const u8) bool {
     if (query.len == 0) return true;
-    return main.asciiContainsIgnoreCase(name, query);
+    return util.asciiContainsIgnoreCase(name, query);
 }
 
 

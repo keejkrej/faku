@@ -25,6 +25,7 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const util = @import("util.zig");
 const model_exports = @import("model_exports.zig");
 const open_url = @import("open_url.zig");
 const file_preview_images = @import("file_preview_images.zig");
@@ -174,7 +175,7 @@ pub fn refresh(model: *Model, fx: ?*Effects) void {
     for (model.turn_store[0..model.turn_count]) |*turn| {
         if (wanted_len >= max_images) break;
         if (turn.session_id != model.selected) continue;
-        if (query.len > 0 and !main.asciiContainsIgnoreCase(turn.text(), query)) continue;
+        if (query.len > 0 and !util.asciiContainsIgnoreCase(turn.text(), query)) continue;
 
         var source_storage: [max_images]canvas.markdown.CollectedImageSource = undefined;
         const discovered = canvas.markdown.collectImageSources(turn.text(), &source_storage);

@@ -8,6 +8,7 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const util = @import("util.zig");
 const model_exports = @import("model_exports.zig");
 const store = @import("store.zig");
 const pick_image = @import("pick_image.zig");
@@ -99,7 +100,7 @@ pub fn applyFileDrop(model: *Model, fx: *Effects, path: []const u8) void {
     const trimmed = std.mem.trim(u8, path, " \t\r\n");
     if (!isAttachImagePath(trimmed)) return;
     if (model.store_io) |io| {
-        if (main.directoryExists(io, trimmed)) return;
+        if (util.directoryExists(io, trimmed)) return;
     }
     model.image_path_buffer.clear();
     model.applyImagePath(.{ .insert_text = trimmed });

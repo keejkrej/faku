@@ -46,6 +46,7 @@
 
 const std = @import("std");
 const main = @import("main.zig");
+const util = @import("util.zig");
 const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const protocol = @import("protocol.zig");
@@ -72,7 +73,7 @@ const max_access_mode = model_exports.max_access_mode;
 const default_access_mode = model_exports.default_access_mode;
 const default_interaction_mode = model_exports.default_interaction_mode;
 const fx_env_bin = main.fx_env_bin;
-const fx_ask_chdir_script = main.fx_ask_chdir_script;
+const fx_ask_chdir_script = util.fx_ask_chdir_script;
 
 pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u8) void {
     const session = model.sessionById(session_id) orelse return;

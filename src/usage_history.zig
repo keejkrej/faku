@@ -106,6 +106,7 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const util = @import("util.zig");
 const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
@@ -517,8 +518,8 @@ pub fn leaveUsage(model: *Model) void {
 pub fn projectFilterMatches(path: []const u8, query: []const u8) bool {
     const needle = std.mem.trim(u8, query, " \t\r\n");
     if (needle.len == 0) return true;
-    if (main.asciiContainsIgnoreCase(path, needle)) return true;
-    return main.asciiContainsIgnoreCase(projectBasename(path), needle);
+    if (util.asciiContainsIgnoreCase(path, needle)) return true;
+    return util.asciiContainsIgnoreCase(projectBasename(path), needle);
 }
 
 fn cachedProjectMatches(project: CachedProject, query: []const u8) bool {

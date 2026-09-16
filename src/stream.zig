@@ -29,6 +29,7 @@
 
 const std = @import("std");
 const main = @import("main.zig");
+const util = @import("util.zig");
 const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const protocol = @import("protocol.zig");
@@ -68,7 +69,7 @@ pub fn handleSend(model: *Model, fx: *Effects) void {
             return;
         }
         if (model.enqueue(model.selected, text) != 0) {
-            if (model.sessionById(model.selected)) |session| main.stampSessionActivity(session, model.now_ms);
+            if (model.sessionById(model.selected)) |session| util.stampSessionActivity(session, model.now_ms);
             store.persistIfPossible(model, model.selected, fx);
         }
         model.draft_buffer.clear();

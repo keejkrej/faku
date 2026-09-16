@@ -28,6 +28,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const util = @import("util.zig");
 const model_exports = @import("model_exports.zig");
 const git_checkout = @import("git_checkout.zig");
 
@@ -133,7 +134,7 @@ fn probePath(model: *const Model) []const u8 {
     const path = model.selectedProjectPath();
     if (path.len == 0) return "";
     const io = model.store_io orelse return "";
-    if (!main.directoryExists(io, path)) return "";
+    if (!util.directoryExists(io, path)) return "";
     return path;
 }
 
@@ -201,7 +202,7 @@ test "argv is chdir script plus git remote as its own slot" {
     try std.testing.expectEqual(@as(usize, unix_argv_len), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
     try std.testing.expectEqualStrings("/tmp/faku-remotes", argv[4]);
     try std.testing.expectEqualStrings(git_bin, argv[5]);

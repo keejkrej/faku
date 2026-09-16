@@ -257,6 +257,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const util = @import("util.zig");
 const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const git_branch = @import("git_branch.zig");
@@ -539,7 +540,7 @@ pub fn unixListArgvFor(cwd: []const u8, buf: *[list_argv_len][]const u8) []const
     buf.* = .{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         cwd,
         git_bin,
@@ -575,7 +576,7 @@ fn isUnixGitBranchListArgv(argv: []const []const u8) bool {
     if (argv.len != unix_list_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_for_each_ref_cmd)) return false;
     if (!std.mem.eql(u8, argv[7], git_refname_format)) return false;
@@ -606,7 +607,7 @@ pub fn unixCheckoutArgvFor(cwd: []const u8, name: []const u8, buf: *[checkout_ar
     buf.* = .{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         cwd,
         git_bin,
@@ -639,7 +640,7 @@ fn isUnixGitCheckoutArgv(argv: []const []const u8) bool {
     if (argv.len != unix_checkout_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_checkout_cmd)) return false;
     return git_branch.isPlausibleBranchName(argv[7]);
@@ -666,7 +667,7 @@ pub fn unixTrackCheckoutArgvFor(cwd: []const u8, name: []const u8, buf: *[track_
     buf.* = .{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         cwd,
         git_bin,
@@ -700,7 +701,7 @@ fn isUnixGitTrackCheckoutArgv(argv: []const []const u8) bool {
     if (argv.len != unix_track_checkout_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_checkout_cmd)) return false;
     if (!std.mem.eql(u8, argv[7], git_track_flag)) return false;
@@ -729,7 +730,7 @@ pub fn unixCreateArgvFor(cwd: []const u8, name: []const u8, buf: *[create_argv_l
     buf.* = .{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         cwd,
         git_bin,
@@ -763,7 +764,7 @@ fn isUnixGitCreateArgv(argv: []const []const u8) bool {
     if (argv.len != unix_create_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_checkout_cmd)) return false;
     if (!std.mem.eql(u8, argv[7], git_create_b_flag)) return false;
@@ -789,7 +790,7 @@ fn unixDeleteArgvWithFlag(cwd: []const u8, name: []const u8, flag: []const u8, b
     buf.* = .{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         cwd,
         git_bin,
@@ -822,7 +823,7 @@ fn isUnixGitDeleteArgvWithFlag(argv: []const []const u8, flag: []const u8) bool 
     if (argv.len != unix_delete_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_branch_cmd)) return false;
     if (!std.mem.eql(u8, argv[7], flag)) return false;
@@ -886,7 +887,7 @@ pub fn unixFetchArgvFor(cwd: []const u8, buf: *[fetch_argv_len][]const u8) []con
     buf.* = .{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         cwd,
         git_bin,
@@ -917,7 +918,7 @@ fn isUnixGitFetchArgv(argv: []const []const u8) bool {
     if (argv.len != unix_fetch_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_fetch_cmd)) return false;
     return std.mem.eql(u8, argv[7], git_prune_flag);
@@ -943,7 +944,7 @@ pub fn isGitFetchArgv(argv: []const []const u8) bool {
 fn writeUnixPushArgv(cwd: []const u8, force: bool, buf: *[push_argv_len][]const u8) []const []const u8 {
     buf[0] = sh_bin;
     buf[1] = "-c";
-    buf[2] = main.fx_ask_chdir_script;
+    buf[2] = util.fx_ask_chdir_script;
     buf[3] = "sh";
     buf[4] = cwd;
     buf[5] = git_bin;
@@ -999,7 +1000,7 @@ fn isUnixGitPushArgv(argv: []const []const u8) bool {
     if (!force and argv.len != unix_push_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_push_cmd)) return false;
     if (!force) return true;
@@ -1040,7 +1041,7 @@ pub fn unixUpstreamArgvFor(cwd: []const u8, buf: *[upstream_argv_len][]const u8)
     buf.* = .{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         cwd,
         git_bin,
@@ -1076,7 +1077,7 @@ fn isUnixGitUpstreamArgv(argv: []const []const u8) bool {
     if (argv.len != unix_upstream_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_rev_parse_cmd)) return false;
     if (!std.mem.eql(u8, argv[7], git_abbrev_ref)) return false;
@@ -1104,7 +1105,7 @@ pub fn unixRemoteArgvFor(cwd: []const u8, buf: *[remote_argv_len][]const u8) []c
     buf.* = .{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         cwd,
         git_bin,
@@ -1133,7 +1134,7 @@ fn isUnixGitRemoteArgv(argv: []const []const u8) bool {
     if (argv.len != unix_remote_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     return std.mem.eql(u8, argv[6], git_remote_cmd);
 }
@@ -1167,7 +1168,7 @@ fn writeUnixSetUpstreamPushArgv(
     if (!git_branch.isPlausibleBranchName(branch)) return null;
     buf[0] = sh_bin;
     buf[1] = "-c";
-    buf[2] = main.fx_ask_chdir_script;
+    buf[2] = util.fx_ask_chdir_script;
     buf[3] = "sh";
     buf[4] = cwd;
     buf[5] = git_bin;
@@ -1273,7 +1274,7 @@ fn isUnixGitSetUpstreamPushArgv(argv: []const []const u8) bool {
     if (!force and argv.len != unix_set_upstream_push_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_push_cmd)) return false;
     var i: usize = 7;
@@ -1402,7 +1403,7 @@ pub fn unixWorktreeBaseArgvFor(cwd: []const u8, buf: *[worktree_base_argv_len][]
     buf.* = .{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         cwd,
         git_bin,
@@ -1437,7 +1438,7 @@ fn isUnixGitWorktreeBaseArgv(argv: []const []const u8) bool {
     if (argv.len != unix_worktree_base_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_symbolic_ref_cmd)) return false;
     if (!std.mem.eql(u8, argv[7], git_quiet_flag)) return false;
@@ -2548,7 +2549,7 @@ fn probePath(model: *const Model) []const u8 {
     const path = model.selectedProjectPath();
     if (path.len == 0) return "";
     const io = model.store_io orelse return "";
-    if (!main.directoryExists(io, path)) return "";
+    if (!util.directoryExists(io, path)) return "";
     return path;
 }
 
@@ -3277,7 +3278,7 @@ fn gitWorktreeAddSlug(model: *const Model) []const u8 {
 
 fn worktreeDestExists(model: *const Model, dest: []const u8) bool {
     const io = model.store_io orelse return false;
-    return main.directoryExists(io, dest);
+    return util.directoryExists(io, dest);
 }
 
 fn assignWorktreeCandidate(model: *Model, home: []const u8, project_path: []const u8, slug: []const u8, index: u32) bool {
@@ -3498,7 +3499,7 @@ test "list argv is chdir script plus for-each-ref refs/heads and refs/remotes" {
     const argv = unixListArgvFor("/tmp/faku-heads", &buf);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
     try std.testing.expectEqualStrings("/tmp/faku-heads", argv[4]);
     try std.testing.expectEqualStrings(git_bin, argv[5]);
@@ -3511,7 +3512,7 @@ test "list argv is chdir script plus for-each-ref refs/heads and refs/remotes" {
     try std.testing.expect(!isGitBranchListArgv(&.{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/faku-heads",
         git_bin,
@@ -3524,7 +3525,7 @@ test "list argv is chdir script plus for-each-ref refs/heads and refs/remotes" {
     try std.testing.expect(!isGitBranchListArgv(&.{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/faku-heads",
         git_bin,
@@ -3546,7 +3547,7 @@ test "checkout argv keeps the name as its own slot and rejects implausible names
     var buf: [checkout_argv_len][]const u8 = undefined;
     const argv = unixCheckoutArgvFor("/tmp/faku-co", "feat/composer", &buf).?;
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("/tmp/faku-co", argv[4]);
     try std.testing.expectEqualStrings(git_bin, argv[5]);
     try std.testing.expectEqualStrings(git_checkout_cmd, argv[6]);
@@ -3588,7 +3589,7 @@ test "track checkout argv is checkout --track with the name as its own slot and 
     const argv = unixTrackCheckoutArgvFor("/tmp/faku-track", "origin/feat", &buf).?;
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
     try std.testing.expectEqualStrings("/tmp/faku-track", argv[4]);
     try std.testing.expectEqualStrings(git_bin, argv[5]);
@@ -3622,7 +3623,7 @@ test "create argv is checkout -b with the name as its own slot and rejects impla
     const argv = unixCreateArgvFor("/tmp/faku-new", "feat/new-branch", &buf).?;
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
     try std.testing.expectEqualStrings("/tmp/faku-new", argv[4]);
     try std.testing.expectEqualStrings(git_bin, argv[5]);
@@ -3655,7 +3656,7 @@ test "delete argv is branch -d with the name as its own slot and rejects implaus
     const argv = unixDeleteArgvFor("/tmp/faku-del", "feat/old-branch", &buf).?;
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
     try std.testing.expectEqualStrings("/tmp/faku-del", argv[4]);
     try std.testing.expectEqualStrings(git_bin, argv[5]);
@@ -3686,7 +3687,7 @@ test "delete argv is branch -d with the name as its own slot and rejects implaus
     try std.testing.expect(!isGitDeleteArgv(&.{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/faku-del",
         git_bin,
@@ -3701,7 +3702,7 @@ test "force delete argv is branch -D with the name as its own slot and rejects i
     const argv = unixDeleteForceArgvFor("/tmp/faku-del", "feat/old-branch", &buf).?;
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
     try std.testing.expectEqualStrings("/tmp/faku-del", argv[4]);
     try std.testing.expectEqualStrings(git_bin, argv[5]);
@@ -3733,7 +3734,7 @@ test "force delete argv is branch -D with the name as its own slot and rejects i
     try std.testing.expect(!isGitDeleteForceArgv(&.{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/faku-del",
         git_bin,
@@ -3848,7 +3849,7 @@ test "fetch argv is fetch --prune as its own slot and is not fetch-without-prune
     const argv = unixFetchArgvFor("/tmp/faku-fetch", &buf);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
     try std.testing.expectEqualStrings("/tmp/faku-fetch", argv[4]);
     try std.testing.expectEqualStrings(git_bin, argv[5]);
@@ -3868,7 +3869,7 @@ test "fetch argv is fetch --prune as its own slot and is not fetch-without-prune
     try std.testing.expect(!isGitFetchArgv(&.{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/faku-fetch",
         git_bin,
@@ -3877,7 +3878,7 @@ test "fetch argv is fetch --prune as its own slot and is not fetch-without-prune
     try std.testing.expect(!isGitFetchArgv(&.{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/faku-fetch",
         git_bin,
@@ -3887,7 +3888,7 @@ test "fetch argv is fetch --prune as its own slot and is not fetch-without-prune
     try std.testing.expect(!isGitFetchArgv(&.{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/faku-fetch",
         git_bin,
@@ -3907,7 +3908,7 @@ test "push argv is git push with no extra flags and is not fetch/checkout/create
     try std.testing.expectEqual(@as(usize, 7), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
     try std.testing.expectEqualStrings("/tmp/faku-push", argv[4]);
     try std.testing.expectEqualStrings(git_bin, argv[5]);
@@ -3926,7 +3927,7 @@ test "push argv is git push with no extra flags and is not fetch/checkout/create
     try std.testing.expect(!isGitPushArgv(&.{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/faku-push",
         git_bin,
@@ -3936,7 +3937,7 @@ test "push argv is git push with no extra flags and is not fetch/checkout/create
     try std.testing.expect(!isGitPushArgv(&.{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/faku-push",
         git_bin,
@@ -3946,7 +3947,7 @@ test "push argv is git push with no extra flags and is not fetch/checkout/create
     try std.testing.expect(!isGitPushArgv(&.{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/faku-push",
         git_bin,
@@ -3957,7 +3958,7 @@ test "push argv is git push with no extra flags and is not fetch/checkout/create
     try std.testing.expect(!isGitPushArgv(&.{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/faku-push",
         git_bin,
@@ -3968,7 +3969,7 @@ test "push argv is git push with no extra flags and is not fetch/checkout/create
     try std.testing.expect(!isGitPushArgv(&.{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/faku-push",
         git_bin,
@@ -3990,7 +3991,7 @@ test "force push argv is git push --force as its own slot and still classifies a
     try std.testing.expectEqual(@as(usize, unix_push_force_argv_len), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
     try std.testing.expectEqualStrings("/tmp/faku-push-force", argv[4]);
     try std.testing.expectEqualStrings(git_bin, argv[5]);
@@ -4005,7 +4006,7 @@ test "force push argv is git push --force as its own slot and still classifies a
     try std.testing.expect(!isGitPushArgv(&.{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/faku-push-force",
         git_bin,
@@ -4015,7 +4016,7 @@ test "force push argv is git push --force as its own slot and still classifies a
     try std.testing.expect(!isGitPushForceArgv(&.{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/faku-push-force",
         git_bin,
@@ -4166,7 +4167,7 @@ test "worktree base argv is symbolic-ref --quiet --short origin/HEAD" {
     try std.testing.expectEqual(@as(usize, 10), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
     try std.testing.expectEqualStrings("/tmp/faku-wt-base", argv[4]);
     try std.testing.expectEqualStrings(git_bin, argv[5]);
@@ -4264,7 +4265,7 @@ test "worktree add argv is mkdir+chdir plus worktree add -b with and without bas
     try std.testing.expect(!isGitWorktreeAddArgv(&.{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/repo",
         git_bin,
@@ -4656,7 +4657,7 @@ test "set-upstream push argv keeps flag, remote, and branch as their own slots" 
     try std.testing.expectEqual(@as(usize, 10), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
     try std.testing.expectEqualStrings("/tmp/faku-push-u", argv[4]);
     try std.testing.expectEqualStrings(git_bin, argv[5]);
@@ -4683,7 +4684,7 @@ test "set-upstream push argv keeps flag, remote, and branch as their own slots" 
     try std.testing.expect(!isGitSetUpstreamPushArgv(&.{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/faku-push-u",
         git_bin,
@@ -4695,7 +4696,7 @@ test "set-upstream push argv keeps flag, remote, and branch as their own slots" 
     try std.testing.expect(!isGitSetUpstreamPushArgv(&.{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/faku-push-u",
         git_bin,
@@ -4726,7 +4727,7 @@ test "upstream argv is rev-parse symbolic-full-name @{upstream}" {
     const argv = unixUpstreamArgvFor("/tmp/faku-up", &buf);
     try std.testing.expectEqual(@as(usize, 10), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("/tmp/faku-up", argv[4]);
     try std.testing.expectEqualStrings(git_bin, argv[5]);
     try std.testing.expectEqualStrings(git_rev_parse_cmd, argv[6]);
