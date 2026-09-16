@@ -3,11 +3,11 @@
 //! `sessionDisplayTitle` (untitled chrome via `i18n.HeaderUntitledChrome`) /
 //! `stampSessionActivity` /
 //! `asciiContainsIgnoreCase` / `directoryExists` / `fileExists` /
-//! `fx_ask_chdir_script` / `bindDaemonEnv` live here.
+//! `fx_ask_chdir_script` / `fx_env_bin` / `bindDaemonEnv` live here.
 //! Callers import this module directly (`util.sessionDisplayTitle` /
 //! `util.stampSessionActivity` / `util.asciiContainsIgnoreCase` /
 //! `util.directoryExists` / `util.fileExists` / `util.fx_ask_chdir_script` /
-//! `util.bindDaemonEnv`). Not re-exported from `main`.
+//! `util.fx_env_bin` / `util.bindDaemonEnv`). Not re-exported from `main`.
 //! `update` / `initFx` live in `update.zig`. `initialModel` lives in
 //! `boot.zig`. Shell scene / app icons live in `shell.zig`.
 //! Layout chrome widths live in `layout.zig`.
@@ -70,6 +70,9 @@ pub fn fileExists(io: std.Io, path: []const u8) bool {
 /// Native `SpawnOptions` (0.9.3) has no `cwd`. `std.process.spawn` does, but
 /// Effects does not expose it. `cd` + `exec` is a real child cwd, not `PWD`.
 pub const fx_ask_chdir_script = "cd -- \"$1\" && shift && exec \"$@\"";
+
+/// Spawn uses `/usr/bin/env` for FX_MODEL / permission env argv slots.
+pub const fx_env_bin = "/usr/bin/env";
 
 pub fn bindDaemonEnv(model: *Model, init: std.process.Init) void {
     if (init.environ_map.get(protocol.DAEMON_ADDRESS_ENV)) |addr| {
