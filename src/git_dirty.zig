@@ -27,6 +27,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const util = @import("util.zig");
 const model_exports = @import("model_exports.zig");
 
 const Model = model_exports.Model;
@@ -63,7 +64,7 @@ pub fn unixArgvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const 
     buf.* = .{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         cwd,
         git_bin,
@@ -95,7 +96,7 @@ fn isUnixGitDirtyArgv(argv: []const []const u8) bool {
     if (argv.len != unix_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_status_cmd)) return false;
     return std.mem.eql(u8, argv[7], git_porcelain);
@@ -218,7 +219,7 @@ fn probePath(model: *const Model) []const u8 {
     const path = model.selectedProjectPath();
     if (path.len == 0) return "";
     const io = model.store_io orelse return "";
-    if (!main.directoryExists(io, path)) return "";
+    if (!util.directoryExists(io, path)) return "";
     return path;
 }
 
@@ -283,7 +284,7 @@ test "argv is chdir script plus git status --porcelain" {
     try std.testing.expectEqual(@as(usize, unix_argv_len), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
     try std.testing.expectEqualStrings("/tmp/faku-dirty", argv[4]);
     try std.testing.expectEqualStrings(git_bin, argv[5]);

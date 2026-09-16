@@ -27,6 +27,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const util = @import("util.zig");
 const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const persist = @import("persist.zig");
@@ -392,7 +393,7 @@ pub fn applyPickFolderLine(model: *Model, fx: *Effects, line: native_sdk.EffectL
     }
     if (raw.len == 0) return;
     if (model.store_io) |io| {
-        if (!main.directoryExists(io, raw)) return;
+        if (!util.directoryExists(io, raw)) return;
     }
     model.setSelectedProjectPath(raw);
     model.clearWindowStatus();

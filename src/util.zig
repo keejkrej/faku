@@ -4,6 +4,10 @@
 //! `stampSessionActivity` /
 //! `asciiContainsIgnoreCase` / `directoryExists` / `fileExists` /
 //! `fx_ask_chdir_script` / `bindDaemonEnv` live here.
+//! Callers import this module directly (`util.sessionDisplayTitle` /
+//! `util.stampSessionActivity` / `util.asciiContainsIgnoreCase` /
+//! `util.directoryExists` / `util.fileExists` / `util.fx_ask_chdir_script` /
+//! `util.bindDaemonEnv`). Not re-exported from `main`.
 //! `update` / `initFx` live in `update.zig`. `initialModel` lives in
 //! `boot.zig`. Shell scene / app icons live in `shell.zig`.
 //! Layout chrome widths live in `layout.zig`.

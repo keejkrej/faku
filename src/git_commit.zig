@@ -205,6 +205,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const util = @import("util.zig");
 const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const git_branch = @import("git_branch.zig");
@@ -352,7 +353,7 @@ fn probePath(model: *const Model) []const u8 {
     const path = model.selectedProjectPath();
     if (path.len == 0) return "";
     const io = model.store_io orelse return "";
-    if (!main.directoryExists(io, path)) return "";
+    if (!util.directoryExists(io, path)) return "";
     return path;
 }
 
@@ -437,7 +438,7 @@ pub fn unixAddArgvFor(cwd: []const u8, buf: *[add_argv_len][]const u8) []const [
     buf.* = .{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         cwd,
         git_bin,
@@ -473,7 +474,7 @@ fn isUnixGitCommitAddArgv(argv: []const []const u8) bool {
     if (argv.len != unix_add_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_add_cmd)) return false;
     if (!std.mem.eql(u8, argv[7], git_add_all_flag)) return false;
@@ -501,7 +502,7 @@ pub fn unixCommitArgvFor(cwd: []const u8, message: []const u8, buf: *[commit_arg
     buf.* = .{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         cwd,
         git_bin,
@@ -535,7 +536,7 @@ fn isUnixGitCommitArgv(argv: []const []const u8) bool {
     if (argv.len != unix_commit_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_commit_cmd)) return false;
     return std.mem.eql(u8, argv[7], git_message_flag);
@@ -561,7 +562,7 @@ pub fn unixAmendArgvFor(cwd: []const u8, message: []const u8, buf: *[amend_argv_
     buf.* = .{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         cwd,
         git_bin,
@@ -597,7 +598,7 @@ fn isUnixGitCommitAmendArgv(argv: []const []const u8) bool {
     if (argv.len != unix_amend_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_commit_cmd)) return false;
     if (!std.mem.eql(u8, argv[7], git_amend_flag)) return false;
@@ -627,7 +628,7 @@ pub fn unixCachedQuietArgvFor(cwd: []const u8, buf: *[cached_quiet_argv_len][]co
     buf.* = .{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         cwd,
         git_bin,
@@ -663,7 +664,7 @@ fn isUnixGitCommitCachedQuietArgv(argv: []const []const u8) bool {
     if (argv.len != unix_cached_quiet_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_diff_cmd)) return false;
     if (!std.mem.eql(u8, argv[7], git_cached_flag)) return false;
@@ -691,7 +692,7 @@ fn isUnixChdirGitDiffArgv(argv: []const []const u8) bool {
     if (argv.len != unix_commit_numstat_cached_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     return std.mem.eql(u8, argv[6], git_diff_cmd);
 }
@@ -702,7 +703,7 @@ pub fn unixCommitNumstatCachedArgvFor(cwd: []const u8, buf: *[commit_numstat_arg
     buf.* = .{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         cwd,
         git_bin,
@@ -830,7 +831,7 @@ pub fn unixGenerateArgvFor(
     buf.* = .{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         cwd,
         fx_path,
@@ -887,7 +888,7 @@ fn isUnixGitCommitGenerateArgv(argv: []const []const u8) bool {
     if (argv.len != unix_generate_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[6], fx_ask_cmd)) return false;
     if (!std.mem.eql(u8, argv[7], fx_ask_no_save)) return false;
     if (!std.mem.eql(u8, argv[8], fx_ask_auto)) return false;
@@ -1799,7 +1800,7 @@ test "add argv is chdir script plus git add -A -- ." {
     try std.testing.expectEqual(@as(usize, unix_add_argv_len), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
     try std.testing.expectEqualStrings("/tmp/faku-commit", argv[4]);
     try std.testing.expectEqualStrings(git_bin, argv[5]);
@@ -1832,7 +1833,7 @@ test "commit argv is chdir script plus git commit -m and its own message slot" {
     try std.testing.expectEqual(@as(usize, unix_commit_argv_len), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
     try std.testing.expectEqualStrings("/tmp/faku-commit", argv[4]);
     try std.testing.expectEqualStrings(git_bin, argv[5]);
@@ -1866,7 +1867,7 @@ test "amend argv is chdir script plus git commit --amend -m and its own message 
     try std.testing.expectEqual(@as(usize, unix_amend_argv_len), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
     try std.testing.expectEqualStrings("/tmp/faku-amend", argv[4]);
     try std.testing.expectEqualStrings(git_bin, argv[5]);
@@ -1898,7 +1899,7 @@ test "cached-quiet argv is chdir script plus git diff --cached --quiet --" {
     try std.testing.expectEqual(@as(usize, unix_cached_quiet_argv_len), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
     try std.testing.expectEqualStrings("/tmp/faku-commit", argv[4]);
     try std.testing.expectEqualStrings(git_bin, argv[5]);
@@ -2168,7 +2169,7 @@ test "host add/commit/amend/cached-quiet/numstat/generate argvFor match the proc
             try std.testing.expectEqualStrings(sh_bin, work[0]);
             try std.testing.expectEqualStrings(git_numstat.numstat_untracked_script, work[7]);
             try std.testing.expectEqualStrings(sh_bin, gen[0]);
-            try std.testing.expectEqualStrings(main.fx_ask_chdir_script, gen[2]);
+            try std.testing.expectEqualStrings(util.fx_ask_chdir_script, gen[2]);
             try std.testing.expectEqual(@as(usize, unix_generate_argv_len), gen.len);
         },
     }
@@ -3293,7 +3294,7 @@ test "commit snapshot argv is numstat untracked script when include-unstaged and
     try std.testing.expectEqual(git_numstat.unix_argv_len, work.len);
     try std.testing.expectEqualStrings(sh_bin, work[0]);
     try std.testing.expectEqualStrings("-c", work[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, work[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, work[2]);
     try std.testing.expectEqualStrings("sh", work[3]);
     try std.testing.expectEqualStrings("/tmp/faku-commit-snap", work[4]);
     try std.testing.expectEqualStrings(sh_bin, work[5]);
@@ -3558,7 +3559,7 @@ fn expectGenerateArgv(argv: []const []const u8, cwd: []const u8, include_unstage
             try std.testing.expectEqual(@as(usize, unix_generate_argv_len), argv.len);
             try std.testing.expectEqualStrings(sh_bin, argv[0]);
             try std.testing.expectEqualStrings("-c", argv[1]);
-            try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+            try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
             try std.testing.expectEqualStrings("sh", argv[3]);
             try std.testing.expectEqualStrings(cwd, argv[4]);
             try std.testing.expectEqualStrings("fx", argv[5]);

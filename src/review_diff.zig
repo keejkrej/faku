@@ -187,6 +187,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const util = @import("util.zig");
 const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const git_ahead_behind = @import("git_ahead_behind.zig");
@@ -890,7 +891,7 @@ pub fn unixArgvForSourceRangeWith(
 ) []const []const u8 {
     buf[0] = sh_bin;
     buf[1] = "-c";
-    buf[2] = main.fx_ask_chdir_script;
+    buf[2] = util.fx_ask_chdir_script;
     buf[3] = "sh";
     buf[4] = cwd;
     if (source == .uncommitted) {
@@ -1005,7 +1006,7 @@ pub fn unixArgvForHunkRange(
 ) []const []const u8 {
     buf[0] = sh_bin;
     buf[1] = "-c";
-    buf[2] = main.fx_ask_chdir_script;
+    buf[2] = util.fx_ask_chdir_script;
     buf[3] = "sh";
     buf[4] = cwd;
     buf[5] = git_bin;
@@ -1093,7 +1094,7 @@ pub fn unixArgvForUntrackedHunk(
 ) []const []const u8 {
     buf[0] = sh_bin;
     buf[1] = "-c";
-    buf[2] = main.fx_ask_chdir_script;
+    buf[2] = util.fx_ask_chdir_script;
     buf[3] = "sh";
     buf[4] = cwd;
     buf[5] = git_bin;
@@ -1153,7 +1154,7 @@ fn isUnixGitReviewUncommittedArgv(argv: []const []const u8) bool {
     if (argv.len != unix_argv_len_uncommitted) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[6], "-c")) return false;
     return std.mem.eql(u8, argv[7], uncommitted_untracked_script);
@@ -1188,7 +1189,7 @@ fn isUnixGitReviewDiffArgv(argv: []const []const u8) bool {
     if (argv.len != unix_argv_len and argv.len != unix_argv_len_unstaged) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_diff_cmd)) return false;
     if (!std.mem.eql(u8, argv[7], git_numstat)) return false;
@@ -1218,7 +1219,7 @@ fn isUnixGitReviewHunkArgv(argv: []const []const u8) bool {
         argv.len != unix_argv_len_hunk_untracked) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_diff_cmd)) return false;
     if (argv.len == unix_argv_len_hunk_untracked) {
@@ -1576,7 +1577,7 @@ pub fn pathFilter(model: *const Model) []const u8 {
 
 fn pathFilterMatches(path: []const u8, query: []const u8) bool {
     if (query.len == 0) return true;
-    return main.asciiContainsIgnoreCase(path, query);
+    return util.asciiContainsIgnoreCase(path, query);
 }
 
 pub fn applyFilter(model: *Model, edit: native_sdk.canvas.TextInputEvent) void {
@@ -2375,7 +2376,7 @@ fn probePath(model: *const Model) []const u8 {
     const path = model.selectedProjectPath();
     if (path.len == 0) return "";
     const io = model.store_io orelse return "";
-    if (!main.directoryExists(io, path)) return "";
+    if (!util.directoryExists(io, path)) return "";
     return path;
 }
 
@@ -2948,7 +2949,7 @@ test "argv is chdir script plus git diff --numstat @{upstream}...HEAD" {
     try std.testing.expectEqual(@as(usize, 9), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
     try std.testing.expectEqualStrings("/tmp/faku-review", argv[4]);
     try std.testing.expectEqualStrings(git_bin, argv[5]);
@@ -2967,7 +2968,7 @@ test "argv is chdir script plus git diff --numstat @{upstream}...HEAD" {
     try std.testing.expectEqual(argv_len_uncommitted, uncommitted.len);
     try std.testing.expectEqualStrings(sh_bin, uncommitted[0]);
     try std.testing.expectEqualStrings("-c", uncommitted[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, uncommitted[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, uncommitted[2]);
     try std.testing.expectEqualStrings("sh", uncommitted[3]);
     try std.testing.expectEqualStrings("/tmp/faku-review", uncommitted[4]);
     try std.testing.expectEqualStrings(sh_bin, uncommitted[5]);
@@ -2990,7 +2991,7 @@ test "argv is chdir script plus git diff --numstat @{upstream}...HEAD" {
     try std.testing.expect(!isGitReviewUncommittedArgv(&.{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/faku-review",
         git_bin,
@@ -3001,7 +3002,7 @@ test "argv is chdir script plus git diff --numstat @{upstream}...HEAD" {
     try std.testing.expect(!isGitReviewDiffArgv(&.{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/faku-review",
         git_bin,
@@ -3014,7 +3015,7 @@ test "argv is chdir script plus git diff --numstat @{upstream}...HEAD" {
     try std.testing.expectEqual(@as(usize, 9), staged.len);
     try std.testing.expectEqualStrings(sh_bin, staged[0]);
     try std.testing.expectEqualStrings("-c", staged[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, staged[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, staged[2]);
     try std.testing.expectEqualStrings("sh", staged[3]);
     try std.testing.expectEqualStrings("/tmp/faku-review", staged[4]);
     try std.testing.expectEqualStrings(git_bin, staged[5]);
@@ -3033,7 +3034,7 @@ test "argv is chdir script plus git diff --numstat @{upstream}...HEAD" {
     try std.testing.expectEqual(argv_len_unstaged, unstaged.len);
     try std.testing.expectEqualStrings(sh_bin, unstaged[0]);
     try std.testing.expectEqualStrings("-c", unstaged[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, unstaged[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, unstaged[2]);
     try std.testing.expectEqualStrings("sh", unstaged[3]);
     try std.testing.expectEqualStrings("/tmp/faku-review", unstaged[4]);
     try std.testing.expectEqualStrings(git_bin, unstaged[5]);
@@ -3051,7 +3052,7 @@ test "argv is chdir script plus git diff --numstat @{upstream}...HEAD" {
     try std.testing.expectEqual(argv_len, committed.len);
     try std.testing.expectEqualStrings(sh_bin, committed[0]);
     try std.testing.expectEqualStrings("-c", committed[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, committed[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, committed[2]);
     try std.testing.expectEqualStrings("sh", committed[3]);
     try std.testing.expectEqualStrings("/tmp/faku-review", committed[4]);
     try std.testing.expectEqualStrings(git_bin, committed[5]);
@@ -3137,7 +3138,7 @@ test "argv is chdir script plus git diff --numstat @{upstream}...HEAD" {
     try std.testing.expectEqual(argv_len, last_turn.len);
     try std.testing.expectEqualStrings(sh_bin, last_turn[0]);
     try std.testing.expectEqualStrings("-c", last_turn[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, last_turn[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, last_turn[2]);
     try std.testing.expectEqualStrings("sh", last_turn[3]);
     try std.testing.expectEqualStrings("/tmp/faku-review", last_turn[4]);
     try std.testing.expectEqualStrings(git_bin, last_turn[5]);
@@ -3172,7 +3173,7 @@ test "argv is chdir script plus git diff --numstat @{upstream}...HEAD" {
     const head_tilde = [_][]const u8{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/faku-review",
         git_bin,
@@ -3881,7 +3882,7 @@ test "Uncommitted argv is nested sh -c; old HEAD-only argv is not Review" {
     const old_head = [_][]const u8{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/faku-uncommitted",
         git_bin,
@@ -5119,7 +5120,7 @@ test "hunk argv is chdir plus git diff operand -- path; Unstaged omits operand" 
     try std.testing.expectEqual(argv_len_hunk, branch.len);
     try std.testing.expectEqualStrings(sh_bin, branch[0]);
     try std.testing.expectEqualStrings("-c", branch[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, branch[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, branch[2]);
     try std.testing.expectEqualStrings("sh", branch[3]);
     try std.testing.expectEqualStrings("/tmp/faku-hunk", branch[4]);
     try std.testing.expectEqualStrings(git_bin, branch[5]);
@@ -5227,7 +5228,7 @@ test "hunk argv is chdir plus git diff operand -- path; Unstaged omits operand" 
     const head_tilde_hunk = [_][]const u8{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/faku-hunk",
         git_bin,
@@ -5298,7 +5299,7 @@ test "isGitReviewHunkArgv does not match numstat; numstat detector rejects hunks
     try std.testing.expect(!isGitReviewHunkArgv(&.{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         "/tmp/faku-hunk",
         git_bin,

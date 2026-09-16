@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const util = @import("util.zig");
 const model_exports = @import("model_exports.zig");
 const palette = @import("palette.zig");
 const composer = @import("composer.zig");
@@ -18685,7 +18686,7 @@ fn findGitBranchSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?
 fn expectGitBranchArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(git_branch.isGitBranchArgv(spawn.argv));
     try testing.expectEqualStrings(git_branch.sh_bin, spawn.argv[0]);
-    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(util.fx_ask_chdir_script, spawn.argv[2]);
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
     try testing.expectEqualStrings(git_branch.git_bin, spawn.argv[5]);
     try testing.expectEqualStrings(git_branch.git_branch_cmd, spawn.argv[6]);
@@ -18919,7 +18920,7 @@ fn findGitCheckoutSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0)
 fn expectGitBranchListArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(git_checkout.isGitBranchListArgv(spawn.argv));
     try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
-    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(util.fx_ask_chdir_script, spawn.argv[2]);
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
     try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[5]);
     try testing.expectEqualStrings(git_checkout.git_for_each_ref_cmd, spawn.argv[6]);
@@ -18943,7 +18944,7 @@ fn expectGitBranchListArgv(spawn: anytype, cwd: []const u8) !void {
 fn expectGitCheckoutArgv(spawn: anytype, cwd: []const u8, name: []const u8) !void {
     try testing.expect(git_checkout.isGitCheckoutArgv(spawn.argv));
     try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
-    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(util.fx_ask_chdir_script, spawn.argv[2]);
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
     try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[5]);
     try testing.expectEqualStrings(git_checkout.git_checkout_cmd, spawn.argv[6]);
@@ -18972,7 +18973,7 @@ fn findGitTrackCheckoutSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawn
 fn expectGitTrackCheckoutArgv(spawn: anytype, cwd: []const u8, name: []const u8) !void {
     try testing.expect(git_checkout.isGitTrackCheckoutArgv(spawn.argv));
     try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
-    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(util.fx_ask_chdir_script, spawn.argv[2]);
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
     try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[5]);
     try testing.expectEqualStrings(git_checkout.git_checkout_cmd, spawn.argv[6]);
@@ -19003,7 +19004,7 @@ fn findGitCreateSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?
 fn expectGitCreateArgv(spawn: anytype, cwd: []const u8, name: []const u8) !void {
     try testing.expect(git_checkout.isGitCreateArgv(spawn.argv));
     try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
-    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(util.fx_ask_chdir_script, spawn.argv[2]);
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
     try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[5]);
     try testing.expectEqualStrings(git_checkout.git_checkout_cmd, spawn.argv[6]);
@@ -19602,7 +19603,7 @@ fn expectGitDeleteArgv(spawn: anytype, cwd: []const u8, name: []const u8) !void 
     try testing.expect(git_checkout.isGitDeleteArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitDeleteForceArgv(spawn.argv));
     try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
-    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(util.fx_ask_chdir_script, spawn.argv[2]);
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
     try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[5]);
     try testing.expectEqualStrings(git_checkout.git_branch_cmd, spawn.argv[6]);
@@ -19826,7 +19827,7 @@ fn expectGitDeleteForceArgv(spawn: anytype, cwd: []const u8, name: []const u8) !
     try testing.expect(git_checkout.isGitDeleteForceArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitDeleteArgv(spawn.argv));
     try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
-    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(util.fx_ask_chdir_script, spawn.argv[2]);
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
     try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[5]);
     try testing.expectEqualStrings(git_checkout.git_branch_cmd, spawn.argv[6]);
@@ -19950,7 +19951,7 @@ fn findGitFetchSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?)
 fn expectGitFetchArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(git_checkout.isGitFetchArgv(spawn.argv));
     try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
-    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(util.fx_ask_chdir_script, spawn.argv[2]);
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
     try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[5]);
     try testing.expectEqualStrings(git_checkout.git_fetch_cmd, spawn.argv[6]);
@@ -20101,7 +20102,7 @@ fn expectGitPushArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(!git_checkout.isGitPushForceArgv(spawn.argv));
     try testing.expectEqual(@as(usize, 7), spawn.argv.len);
     try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
-    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(util.fx_ask_chdir_script, spawn.argv[2]);
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
     try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[5]);
     try testing.expectEqualStrings(git_checkout.git_push_cmd, spawn.argv[6]);
@@ -20135,7 +20136,7 @@ fn expectGitUpstreamArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(!git_checkout.isGitSetUpstreamPushArgv(spawn.argv));
     try testing.expectEqual(@as(usize, 10), spawn.argv.len);
     try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
-    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(util.fx_ask_chdir_script, spawn.argv[2]);
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
     try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[5]);
     try testing.expectEqualStrings(git_checkout.git_rev_parse_cmd, spawn.argv[6]);
@@ -20162,7 +20163,7 @@ fn expectGitSetUpstreamPushArgv(spawn: anytype, cwd: []const u8, remote: []const
     try testing.expect(!git_checkout.isGitPushArgv(spawn.argv));
     try testing.expectEqual(@as(usize, 10), spawn.argv.len);
     try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
-    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(util.fx_ask_chdir_script, spawn.argv[2]);
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
     try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[5]);
     try testing.expectEqualStrings(git_checkout.git_push_cmd, spawn.argv[6]);
@@ -20464,7 +20465,7 @@ fn expectGitWorktreeBaseArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(git_checkout.isGitWorktreeBaseArgv(spawn.argv));
     try testing.expectEqual(@as(usize, 10), spawn.argv.len);
     try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
-    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(util.fx_ask_chdir_script, spawn.argv[2]);
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
     try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[5]);
     try testing.expectEqualStrings(git_checkout.git_symbolic_ref_cmd, spawn.argv[6]);
@@ -21483,7 +21484,7 @@ fn findGitDirtySpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?)
 fn expectGitDirtyArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(git_dirty.isGitDirtyArgv(spawn.argv));
     try testing.expectEqualStrings(git_dirty.sh_bin, spawn.argv[0]);
-    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(util.fx_ask_chdir_script, spawn.argv[2]);
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
     try testing.expectEqualStrings(git_dirty.git_bin, spawn.argv[5]);
     try testing.expectEqualStrings(git_dirty.git_status_cmd, spawn.argv[6]);
@@ -21790,7 +21791,7 @@ fn expectGitNumstatArgv(spawn: anytype, cwd: []const u8) !void {
         },
         else => {
             try testing.expectEqualStrings(git_numstat.sh_bin, spawn.argv[0]);
-            try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+            try testing.expectEqualStrings(util.fx_ask_chdir_script, spawn.argv[2]);
             try testing.expectEqualStrings(cwd, spawn.argv[4]);
             try testing.expectEqualStrings(git_numstat.sh_bin, spawn.argv[5]);
             try testing.expectEqualStrings("-c", spawn.argv[6]);
@@ -22250,7 +22251,7 @@ fn expectGitAheadBehindArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqual(@as(usize, 10), spawn.argv.len);
     try testing.expectEqualStrings(git_ahead_behind.sh_bin, spawn.argv[0]);
     try testing.expectEqualStrings("-c", spawn.argv[1]);
-    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(util.fx_ask_chdir_script, spawn.argv[2]);
     try testing.expectEqualStrings("sh", spawn.argv[3]);
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
     try testing.expectEqualStrings(git_ahead_behind.git_bin, spawn.argv[5]);
@@ -22656,7 +22657,7 @@ fn countFileMentionWalkSpawns(fx: *Effects) usize {
 fn expectFileMentionArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(file_mention.isGitLsFilesArgv(spawn.argv));
     try testing.expectEqualStrings(file_mention.sh_bin, spawn.argv[0]);
-    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(util.fx_ask_chdir_script, spawn.argv[2]);
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
     try testing.expectEqualStrings(file_mention.git_bin, spawn.argv[5]);
     try testing.expectEqualStrings(file_mention.git_ls_files_cmd, spawn.argv[6]);
@@ -22689,7 +22690,7 @@ fn expectFileMentionWalkArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(!git_dirty.isGitDirtyArgv(spawn.argv));
     try testing.expect(!git_numstat.isGitNumstatArgv(spawn.argv));
     try testing.expectEqualStrings(file_mention.sh_bin, spawn.argv[0]);
-    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(util.fx_ask_chdir_script, spawn.argv[2]);
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
     try testing.expectEqualStrings(file_mention.sh_bin, spawn.argv[5]);
     try testing.expectEqualStrings("-c", spawn.argv[6]);

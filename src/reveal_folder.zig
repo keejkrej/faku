@@ -22,6 +22,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const util = @import("util.zig");
 const model_exports = @import("model_exports.zig");
 const i18n = @import("i18n.zig");
 
@@ -134,7 +135,7 @@ fn existingProjectDir(model: *const Model) ?[]const u8 {
     const path = std.mem.trim(u8, model.selectedProjectPath(), " \t\r\n");
     if (path.len == 0) return null;
     const io = model.store_io orelse return null;
-    if (!main.directoryExists(io, path)) return null;
+    if (!util.directoryExists(io, path)) return null;
     return path;
 }
 
@@ -173,10 +174,10 @@ fn parentDirectory(path: []const u8) []const u8 {
 /// Directory `open` / `xdg-open` / Explorer can show. Files reveal their
 /// parent directory. Missing local parents are a miss (daemon-only).
 fn revealTargetDir(io: std.Io, path: []const u8) ?[]const u8 {
-    if (main.directoryExists(io, path)) return path;
+    if (util.directoryExists(io, path)) return path;
     const parent = parentDirectory(path);
     if (parent.len == 0) return null;
-    if (!main.directoryExists(io, parent)) return null;
+    if (!util.directoryExists(io, parent)) return null;
     return parent;
 }
 

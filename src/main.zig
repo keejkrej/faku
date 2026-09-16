@@ -111,15 +111,6 @@ pub const stripFxDiagnostics = sidecar_lines.stripFxDiagnostics;
 pub const BackgroundRow = environment_summary.BackgroundRow;
 pub const FilePreviewLineRow = right_panel.FilePreviewLineRow;
 
-pub const sessionDisplayTitle = util.sessionDisplayTitle;
-pub const stampSessionActivity = util.stampSessionActivity;
-pub const asciiContainsIgnoreCase = util.asciiContainsIgnoreCase;
-pub const directoryExists = util.directoryExists;
-pub const fileExists = util.fileExists;
-/// Native `SpawnOptions` (0.9.3) has no `cwd`. `std.process.spawn` does, but
-/// Effects does not expose it. `cd` + `exec` is a real child cwd, not `PWD`.
-pub const fx_ask_chdir_script = util.fx_ask_chdir_script;
-
 const Msg = model_exports.Msg;
 const Model = model_exports.Model;
 

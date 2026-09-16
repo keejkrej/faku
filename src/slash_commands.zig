@@ -22,6 +22,7 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const util = @import("util.zig");
 const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
@@ -50,7 +51,7 @@ fn probePath(model: *const Model) []const u8 {
     const path = model.selectedProjectPath();
     if (path.len == 0) return "";
     const io = model.store_io orelse return "";
-    if (!main.directoryExists(io, path)) return "";
+    if (!util.directoryExists(io, path)) return "";
     return path;
 }
 

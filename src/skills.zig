@@ -26,6 +26,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const util = @import("util.zig");
 const model_exports = @import("model_exports.zig");
 const file_mention = @import("file_mention.zig");
 const i18n = @import("i18n.zig");
@@ -107,7 +108,7 @@ pub fn argvFor(cwd: []const u8, buf: *[walk_argv_len][]const u8) []const []const
     buf.* = .{
         sh_bin,
         "-c",
-        main.fx_ask_chdir_script,
+        util.fx_ask_chdir_script,
         "sh",
         cwd,
         sh_bin,
@@ -125,7 +126,7 @@ pub fn isSkillsWalkArgv(argv: []const []const u8) bool {
     if (argv.len != walk_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[6], "-c")) return false;
     if (!std.mem.eql(u8, argv[7], find_skills_script)) return false;
@@ -181,9 +182,9 @@ fn cancelInFlight(model: *Model, fx: *Effects) void {
 pub fn probePath(model: *const Model) []const u8 {
     const io = model.store_io orelse return "";
     const selected = model.selectedProjectPath();
-    if (selected.len > 0 and main.directoryExists(io, selected)) return selected;
+    if (selected.len > 0 and util.directoryExists(io, selected)) return selected;
     const last = model.lastProjectPath();
-    if (last.len > 0 and main.directoryExists(io, last)) return last;
+    if (last.len > 0 and util.directoryExists(io, last)) return last;
     return "";
 }
 
@@ -440,7 +441,7 @@ test "argv is chdir script plus find SKILL.md skips; not file-mention walk" {
     const argv = argvFor("/tmp/faku-skills", &buf);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
     try std.testing.expectEqualStrings("/tmp/faku-skills", argv[4]);
     try std.testing.expectEqualStrings(sh_bin, argv[5]);

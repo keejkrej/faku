@@ -48,6 +48,7 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const util = @import("util.zig");
 const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
@@ -307,7 +308,7 @@ fn createLocalWorkspace(model: *const Model, dest: []u8) ?[]const u8 {
     var root_buf: [model_exports.max_project_path]u8 = undefined;
     const root = joinHomeSuffix(home, "/.waku/projects", &root_buf) orelse return null;
     std.Io.Dir.cwd().createDirPath(io, root) catch return null;
-    if (!main.directoryExists(io, root)) return null;
+    if (!util.directoryExists(io, root)) return null;
 
     if (model.now_ms <= 0) return null;
     var date_buf: [10]u8 = undefined;
@@ -315,7 +316,7 @@ fn createLocalWorkspace(model: *const Model, dest: []u8) ?[]const u8 {
     var date_dir_buf: [model_exports.max_project_path]u8 = undefined;
     const date_dir = joinPath(root, date, &date_dir_buf) orelse return null;
     std.Io.Dir.cwd().createDirPath(io, date_dir) catch return null;
-    if (!main.directoryExists(io, date_dir)) return null;
+    if (!util.directoryExists(io, date_dir)) return null;
 
     var index: u32 = 0;
     while (index < max_numbered_candidates) : (index += 1) {
@@ -323,9 +324,9 @@ fn createLocalWorkspace(model: *const Model, dest: []u8) ?[]const u8 {
         const name = candidateName(index, &name_buf) orelse continue;
         var dest_buf: [model_exports.max_project_path]u8 = undefined;
         const cwd = joinPath(date_dir, name, &dest_buf) orelse continue;
-        if (main.directoryExists(io, cwd)) continue;
+        if (util.directoryExists(io, cwd)) continue;
         std.Io.Dir.cwd().createDirPath(io, cwd) catch continue;
-        if (!main.directoryExists(io, cwd)) continue;
+        if (!util.directoryExists(io, cwd)) continue;
         if (cwd.len > dest.len) return null;
         @memcpy(dest[0..cwd.len], cwd);
         return dest[0..cwd.len];
@@ -354,14 +355,14 @@ fn migrateLocalWorkspace(model: *const Model, path: []const u8, dest: []u8) ?[]c
         return createLocalWorkspace(model, dest);
     }
     const parts = legacyDatedParts(home, trimmed) orelse return null;
-    if (!main.directoryExists(io, trimmed)) return null;
+    if (!util.directoryExists(io, trimmed)) return null;
 
     std.Io.Dir.cwd().createDirPath(io, root) catch return null;
-    if (!main.directoryExists(io, root)) return null;
+    if (!util.directoryExists(io, root)) return null;
     var date_dir_buf: [model_exports.max_project_path]u8 = undefined;
     const date_dir = joinPath(root, parts.date, &date_dir_buf) orelse return null;
     std.Io.Dir.cwd().createDirPath(io, date_dir) catch return null;
-    if (!main.directoryExists(io, date_dir)) return null;
+    if (!util.directoryExists(io, date_dir)) return null;
 
     var index: u32 = 0;
     while (index < max_numbered_candidates) : (index += 1) {
@@ -369,9 +370,9 @@ fn migrateLocalWorkspace(model: *const Model, path: []const u8, dest: []u8) ?[]c
         const name = numberedName(parts.slug, index, &name_buf) orelse continue;
         var dest_buf: [model_exports.max_project_path]u8 = undefined;
         const cwd = joinPath(date_dir, name, &dest_buf) orelse continue;
-        if (main.directoryExists(io, cwd)) continue;
+        if (util.directoryExists(io, cwd)) continue;
         if (!renamePath(io, trimmed, cwd)) continue;
-        if (!main.directoryExists(io, cwd)) continue;
+        if (!util.directoryExists(io, cwd)) continue;
         if (cwd.len > dest.len) return null;
         @memcpy(dest[0..cwd.len], cwd);
         return dest[0..cwd.len];
@@ -627,7 +628,7 @@ test "CreateProjectlessWorkspace sidecar miss falls back locally without clearin
     const expected = try std.fmt.bufPrint(&expected_buf, "{s}/.waku/projects/{s}/new-chat", .{ home, date });
     try std.testing.expectEqualStrings(expected, model.sessionById(id).?.projectPath());
     try std.testing.expectEqualStrings(expected, model.lastProjectPath());
-    try std.testing.expect(main.directoryExists(std.testing.io, expected));
+    try std.testing.expect(util.directoryExists(std.testing.io, expected));
 }
 
 test "New Task without a daemon address mkdirs ~/.waku/projects/<date>/new-chat" {
@@ -658,7 +659,7 @@ test "New Task without a daemon address mkdirs ~/.waku/projects/<date>/new-chat"
     var expected_buf: [model_exports.max_project_path]u8 = undefined;
     const expected = try std.fmt.bufPrint(&expected_buf, "{s}/.waku/projects/{s}/new-chat", .{ home, date });
     try std.testing.expectEqualStrings(expected, model.sessionById(id).?.projectPath());
-    try std.testing.expect(main.directoryExists(std.testing.io, expected));
+    try std.testing.expect(util.directoryExists(std.testing.io, expected));
 
     const second = model.addSession("untitled 2", .fx);
     model.selected = second;
@@ -666,7 +667,7 @@ test "New Task without a daemon address mkdirs ~/.waku/projects/<date>/new-chat"
     var expected2_buf: [model_exports.max_project_path]u8 = undefined;
     const expected2 = try std.fmt.bufPrint(&expected2_buf, "{s}/.waku/projects/{s}/new-chat-2", .{ home, date });
     try std.testing.expectEqualStrings(expected2, model.sessionById(second).?.projectPath());
-    try std.testing.expect(main.directoryExists(std.testing.io, expected2));
+    try std.testing.expect(util.directoryExists(std.testing.io, expected2));
 }
 
 test "New Task with a real project path does not spawn createProjectlessWorkspace" {
@@ -839,8 +840,8 @@ test "MigrateProjectlessWorkspace sidecar miss falls back to local rename" {
     const expected = try std.fmt.bufPrint(&expected_buf, "{s}/.waku/projects/2026-09-06/legacy-chat", .{home});
     try std.testing.expectEqualStrings(expected, model.sessionById(id).?.projectPath());
     try std.testing.expectEqualStrings(expected, model.lastProjectPath());
-    try std.testing.expect(main.directoryExists(std.testing.io, expected));
-    try std.testing.expect(!main.directoryExists(std.testing.io, legacy));
+    try std.testing.expect(util.directoryExists(std.testing.io, expected));
+    try std.testing.expect(!util.directoryExists(std.testing.io, legacy));
     var moved_notes_buf: [model_exports.max_project_path]u8 = undefined;
     const moved_notes = try std.fmt.bufPrint(&moved_notes_buf, "{s}/notes.txt", .{expected});
     const moved = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, moved_notes, std.testing.allocator, .limited(64));
@@ -879,8 +880,8 @@ test "MigrateProjectlessWorkspace without a daemon address renames dated legacy 
     var expected_buf: [model_exports.max_project_path]u8 = undefined;
     const expected = try std.fmt.bufPrint(&expected_buf, "{s}/.waku/projects/2026-09-06/legacy-chat", .{home});
     try std.testing.expectEqualStrings(expected, model.sessionById(id).?.projectPath());
-    try std.testing.expect(main.directoryExists(std.testing.io, expected));
-    try std.testing.expect(!main.directoryExists(std.testing.io, legacy));
+    try std.testing.expect(util.directoryExists(std.testing.io, expected));
+    try std.testing.expect(!util.directoryExists(std.testing.io, legacy));
 }
 
 test "local migrate uses numbered -2 when the destination is taken" {
@@ -911,8 +912,8 @@ test "local migrate uses numbered -2 when the destination is taken" {
     var expected_buf: [model_exports.max_project_path]u8 = undefined;
     const expected = try std.fmt.bufPrint(&expected_buf, "{s}/.waku/projects/2026-09-06/legacy-chat-2", .{home});
     try std.testing.expectEqualStrings(expected, model.sessionById(id).?.projectPath());
-    try std.testing.expect(main.directoryExists(std.testing.io, expected));
-    try std.testing.expect(main.directoryExists(std.testing.io, taken));
+    try std.testing.expect(util.directoryExists(std.testing.io, expected));
+    try std.testing.expect(util.directoryExists(std.testing.io, taken));
 }
 
 test "bare ~/.waku migrate fallback mkdirs a fresh projects workspace" {
@@ -944,8 +945,8 @@ test "bare ~/.waku migrate fallback mkdirs a fresh projects workspace" {
     var expected_buf: [model_exports.max_project_path]u8 = undefined;
     const expected = try std.fmt.bufPrint(&expected_buf, "{s}/.waku/projects/{s}/new-chat", .{ home, date });
     try std.testing.expectEqualStrings(expected, model.sessionById(id).?.projectPath());
-    try std.testing.expect(main.directoryExists(std.testing.io, expected));
-    try std.testing.expect(main.directoryExists(std.testing.io, legacy));
+    try std.testing.expect(util.directoryExists(std.testing.io, expected));
+    try std.testing.expect(util.directoryExists(std.testing.io, legacy));
 }
 
 test "real project path and already-under-projects do not spawn migrateProjectlessWorkspace" {
