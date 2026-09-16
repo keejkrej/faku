@@ -59,7 +59,6 @@ const goal = @import("goal.zig");
 const session_switcher = @import("switcher.zig");
 const sidebar_row_helpers = @import("sidebar_rows.zig");
 const attach_helpers = @import("attach.zig");
-const sidecar_lines = @import("lines.zig");
 const palette_run = @import("palette_run.zig");
 const update_mod = @import("update.zig");
 const boot_mod = @import("boot.zig");
@@ -92,7 +91,6 @@ pub const date_row_id_base = sidebar_row_helpers.date_row_id_base;
 /// Runtime-only Ctrl-Tab switcher snapshot. Same cap as Waku's overlay.
 pub const switcher_cap = session_switcher.switcher_cap;
 pub const fx_env_bin = "/usr/bin/env";
-pub const max_line_keep = 4096;
 
 const app_permissions = [_][]const u8{ native_sdk.security.permission_command, native_sdk.security.permission_view };
 
@@ -100,8 +98,6 @@ pub const demo_ticks_complete: u32 = 12;
 pub const demo_reply = "fx here (demo). The fx CLI was not found, so this is a local timer stream. Install fx and Send runs `fx ask`.";
 
 pub const formatThreadGoalUsage = goal.formatThreadGoalUsage;
-
-pub const stripFxDiagnostics = sidecar_lines.stripFxDiagnostics;
 
 pub const BackgroundRow = environment_summary.BackgroundRow;
 pub const FilePreviewLineRow = right_panel.FilePreviewLineRow;

@@ -43,6 +43,7 @@ const providers = @import("providers.zig");
 const i18n = @import("i18n.zig");
 const litellm_rates = @import("litellm_rates.zig");
 const fx_probe = @import("fx_probe.zig");
+const sidecar_lines = @import("lines.zig");
 const cli_probe = @import("cli_probe.zig");
 const keys = @import("keys.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
@@ -3927,13 +3928,13 @@ test "fx ask --image when draft image_path exists" {
 }
 
 test "stripFxDiagnostics drops skill warnings and keeps the glued reply" {
-    try testing.expectEqualStrings("Hi! How can I help?", main.stripFxDiagnostics(
+    try testing.expectEqualStrings("Hi! How can I help?", sidecar_lines.stripFxDiagnostics(
         "skill discovery warning: candidate \"/home/jack/.codex/skills/omarchy\" was skipped because its linked skill directory could not be resolved to an authorized readable directory; repair or remove the link, or authorize its external location, then reload skills; 2 additional diagnostics omitted; relaunch with FX_TRACE=1 to write a trace logHi! How can I help?\n",
     ));
-    try testing.expectEqualStrings("", main.stripFxDiagnostics(
+    try testing.expectEqualStrings("", sidecar_lines.stripFxDiagnostics(
         "skill discovery warning: candidate \"/tmp/x\" was skipped because its linked skill directory could not be resolved to an authorized readable directory",
     ));
-    try testing.expectEqualStrings("plain reply", main.stripFxDiagnostics("plain reply"));
+    try testing.expectEqualStrings("plain reply", sidecar_lines.stripFxDiagnostics("plain reply"));
 }
 
 test "fx ask stdout skill warning is not turn text" {
