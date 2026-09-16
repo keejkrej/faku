@@ -65,7 +65,6 @@ const browser_pane = @import("browser_pane.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
-const canvas = native_sdk.canvas;
 const geometry = native_sdk.geometry;
 
 const canvas_label = shell_mod.canvas_label;
@@ -75,9 +74,6 @@ const shell_scene = shell_mod.shell_scene;
 const registerIcons = shell_mod.registerIcons;
 /// Native model contract looks for `pub const app_icons` on the app root.
 pub const app_icons = shell_mod.app_icons;
-/// Sidebar folder-header keys sit above session ids so `for` keys stay unique.
-pub const folder_row_id_base: u32 = 1_000_000;
-pub const fx_env_bin = "/usr/bin/env";
 
 const app_permissions = [_][]const u8{ native_sdk.security.permission_command, native_sdk.security.permission_view };
 
@@ -92,7 +88,6 @@ pub const initFx = update_mod.initFx;
 /// Native `UiApp.Options.on_drop` → Msg. Window-level; no OS picker.
 pub const onDrop = attach_helpers.onDrop;
 
-pub const AppUi = canvas.Ui(Msg);
 pub const app_markup = @embedFile("app.native");
 
 const FakuApp = native_sdk.UiApp(Model, Msg);

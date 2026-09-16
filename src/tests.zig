@@ -56,9 +56,9 @@ const right_panel = @import("right_panel.zig");
 const canvas = native_sdk.canvas;
 const testing = std.testing;
 
-const AppUi = main.AppUi;
 const Model = model_exports.Model;
 const Msg = model_exports.Msg;
+const AppUi = canvas.Ui(Msg);
 const Effects = main.Effects;
 
 const AppMarkup = canvas.MarkupView(Model, Msg);
@@ -3764,9 +3764,9 @@ test "fx ask spawn records FX_MODEL and FX_PERMISSION_MODE" {
     const request = fx.pendingSpawnAt(0).?;
     try testing.expect(argvHas(request.argv, acp_proxy.SUBCOMMAND));
     try testing.expect(argvHas(request.argv, "--"));
-    try testing.expect(argvHas(request.argv, main.fx_env_bin));
+    try testing.expect(argvHas(request.argv, util.fx_env_bin));
     const dash_at = argvIndex(request.argv, "--") orelse return error.MissingDash;
-    const env_at = argvIndex(request.argv, main.fx_env_bin) orelse return error.MissingEnv;
+    const env_at = argvIndex(request.argv, util.fx_env_bin) orelse return error.MissingEnv;
     try testing.expect(dash_at < env_at);
     try testing.expect(argvHas(request.argv, "FX_MODEL=openai/gpt-5.4"));
     try testing.expect(argvHas(request.argv, "FX_PERMISSION_MODE=yolo"));

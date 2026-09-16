@@ -75,7 +75,7 @@ const max_fx_model = model_exports.max_fx_model;
 const max_access_mode = model_exports.max_access_mode;
 const default_access_mode = model_exports.default_access_mode;
 const default_interaction_mode = model_exports.default_interaction_mode;
-const fx_env_bin = main.fx_env_bin;
+const fx_env_bin = util.fx_env_bin;
 const fx_ask_chdir_script = util.fx_ask_chdir_script;
 
 pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u8) void {

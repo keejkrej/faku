@@ -6,7 +6,6 @@
 //! bucket math is unchanged.
 
 const std = @import("std");
-const main = @import("main.zig");
 const model_exports = @import("model_exports.zig");
 const layout = @import("layout.zig");
 const shell = @import("shell.zig");
@@ -20,6 +19,8 @@ const DateBucket = sidebar_dates.DateBucket;
 const sessionDateBucket = sidebar_dates.sessionDateBucket;
 const sessionRelativeTimeFor = sidebar_dates.sessionRelativeTimeFor;
 
+/// Sidebar folder-header keys sit above session ids so `for` keys stay unique.
+pub const folder_row_id_base: u32 = 1_000_000;
 /// Date-bucket header keys sit above folder headers.
 pub const date_row_id_base: u32 = 4_000_000;
 
@@ -82,7 +83,7 @@ pub fn rows(model: *const Model, arena: std.mem.Allocator) []const SidebarRow {
     }
     for (model.folder_store[0..model.folder_count]) |*folder| {
         out[i] = .{
-            .id = main.folder_row_id_base + folder.id,
+            .id = folder_row_id_base + folder.id,
             .title = folder.title(),
             .provider = "",
             .selected = selectedSessionInFolder(model, folder.id),
