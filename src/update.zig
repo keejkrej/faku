@@ -628,6 +628,12 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
     // cut. Skip a provider that already has an in-flight sidecar;
     // open / Refresh stay immediate for the selected provider only.
     usage_meter.maybeRefresh(model, fx);
+    // First-cut InspectBranches open-picker poll (5s). Same
+    // `now_ms` / update-tick piggyback. Native has no dedicated
+    // timer this cut. Not Waku's live watch. Skips when a list
+    // sidecar is already in flight; `refresh` / toggle-open stay
+    // immediate.
+    git_checkout.maybeRefresh(model, fx);
     // First-cut Files preview live reload via size + mtime poll.
     // Same `now_ms` / update-tick piggyback. Native has no FS
     // watcher / dedicated timer this cut.
