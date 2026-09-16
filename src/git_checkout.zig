@@ -2238,6 +2238,10 @@ fn appendListedBranch(model: *Model, name: []const u8, remote: bool, occupied: b
 }
 
 pub fn applyStdoutBranches(model: *Model, raw: []const u8) void {
+    if (model.git_branch_list_rebuild) {
+        clearListedBranches(model);
+        model.git_branch_list_rebuild = false;
+    }
     var refs: [max_listed_branches]ParsedRef = undefined;
     const n = collectStdoutRefsFor(raw, occupancyCwd(model), refs[0..], model);
     var i: usize = 0;
@@ -2291,6 +2295,7 @@ fn cancelList(model: *Model, fx: *Effects) void {
     model.git_branch_list_key = 0;
     model.git_branch_list_via_daemon = false;
     model.git_branch_list_merge_remotes = false;
+    model.git_branch_list_rebuild = false;
 }
 
 fn cancelCheckout(model: *Model, fx: *Effects) void {
@@ -2623,8 +2628,9 @@ pub fn refresh(model: *Model, fx: *Effects) void {
 /// quiet spawn is actually attempted). Unset last fires on the
 /// first eligible tick. An in-flight `git_branch_list_key` skips
 /// quietly — the tick does not cancel/re-spawn. Does **not** call
-/// `refresh` (that cancels unrelated git and `closePicker`s).
-/// Open-path `refresh` / toggle-open stay immediate and are not
+/// `refresh` (that cancels unrelated git and `closePicker`s). Keeps
+/// last-good listed heads until the new list applies. Open-path
+/// `refresh` / toggle-open stay immediate and are not
 /// gated by this throttle. Closing the picker does not clear the
 /// stamp.
 pub fn maybeRefresh(model: *Model, fx: *Effects) void {
@@ -2639,7 +2645,6 @@ pub fn maybeRefresh(model: *Model, fx: *Effects) void {
     const cwd = probePath(model);
     if (cwd.len == 0) return;
     model.last_git_branch_list_refresh_ms = model.now_ms;
-    clearListedBranches(model);
     spawnBranchList(model, fx, cwd);
 }
 
@@ -2651,6 +2656,7 @@ fn listedHeadsPickerOpen(model: *const Model) bool {
 /// daemon address is set, else local `git for-each-ref`. Shared by
 /// open-path `refresh` and the open-picker poll.
 fn spawnBranchList(model: *Model, fx: *Effects, cwd: []const u8) void {
+    model.git_branch_list_rebuild = true;
     if (trySpawnDaemonInspectBranches(model, fx, cwd)) return;
     spawnLocalBranchList(model, fx, cwd, false);
 }
@@ -2693,6 +2699,7 @@ fn spawnLocalBranchList(model: *Model, fx: *Effects, cwd: []const u8, merge_remo
     model.git_branch_list_key = key;
     model.git_branch_list_via_daemon = false;
     model.git_branch_list_merge_remotes = merge_remotes;
+    if (!merge_remotes) model.git_branch_list_rebuild = true;
     model.git_branch_list_probe_session = model.selected;
     const probed = model.git_branch_list_probe_path_storage[0..model.git_branch_list_probe_path_len];
     if (cwd.ptr != probed.ptr) {
@@ -2796,6 +2803,7 @@ fn applyDaemonBranchesLine(model: *Model, raw: []const u8) void {
     const parsed = protocol.parseBranches(arena_state.allocator(), raw);
     if (!parsed.ok) return;
     clearListedBranches(model);
+    model.git_branch_list_rebuild = false;
     var i: usize = 0;
     while (i < parsed.entry_count) : (i += 1) {
         const entry = parsed.entries[i];
@@ -2809,16 +2817,18 @@ pub fn handleListExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) 
     const current = listStillCurrent(model);
     const via_daemon = model.git_branch_list_via_daemon;
     const merge_remotes = model.git_branch_list_merge_remotes;
+    const rebuild = model.git_branch_list_rebuild;
     model.git_branch_list_key = 0;
     model.git_branch_list_via_daemon = false;
     model.git_branch_list_merge_remotes = false;
+    model.git_branch_list_rebuild = false;
     if (!current) {
         clearListedBranches(model);
         if (!git_branch.hasGitBranch(model)) closePicker(model);
         return;
     }
     if (via_daemon) {
-        if (model.git_branch_list_count > 0) {
+        if (model.git_branch_list_count > 0 and !rebuild) {
             finalizeListedBranches(model);
             const cwd = occupancyCwd(model);
             if (cwd.len == 0) return;
@@ -2839,9 +2849,15 @@ pub fn handleListExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) 
         return;
     }
     if (exit.reason != .exited or exit.code != 0) {
+        if (rebuild and listedHeadsPickerOpen(model) and model.git_branch_list_count > 0) {
+            return;
+        }
         clearListedBranches(model);
         if (!git_branch.hasGitBranch(model)) closePicker(model);
         return;
+    }
+    if (rebuild) {
+        clearListedBranches(model);
     }
     finalizeListedBranches(model);
 }
@@ -6313,7 +6329,9 @@ test "maybeRefresh open + unset last spawns; throttle, in-flight, and aged key" 
     try std.testing.expectEqualStrings("", first.stdin);
     try std.testing.expect(!model.git_branch_list_via_daemon);
     try std.testing.expectEqual(@as(?i64, 10_000), model.last_git_branch_list_refresh_ms);
-    try std.testing.expectEqual(@as(u32, 0), model.git_branch_list_count);
+    try std.testing.expectEqual(@as(u32, 1), model.git_branch_list_count);
+    try std.testing.expectEqualStrings("stale", listedBranch(&model, 0));
+    try std.testing.expect(model.git_branch_list_rebuild);
     try std.testing.expect(model.git_branch_picker_open);
     try std.testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
@@ -6373,6 +6391,8 @@ test "maybeRefresh keeps picker, search, and cards; filter still applies" {
     try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
 
     var model = seedOpenPickerListModel(project);
+    model.git_branch_list_store[0].set("stale", false, false);
+    model.git_branch_list_count = 1;
     model.applyGitBranchSearch(.{ .insert_text = "FEAT" });
     model.git_branch_create_active = true;
     model.git_branch_delete_active = true;
@@ -6382,6 +6402,7 @@ test "maybeRefresh keeps picker, search, and cards; filter still applies" {
     maybeRefresh(&model, &fx);
     const list = pendingSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingQuietListUiSpawn;
     try std.testing.expect(model.git_branch_picker_open);
+    try std.testing.expectEqualStrings("stale", listedBranch(&model, 0));
     try std.testing.expectEqualStrings("FEAT", model.git_branch_search());
     try std.testing.expect(model.git_branch_create_active);
     try std.testing.expect(model.git_branch_delete_active);
@@ -6393,6 +6414,10 @@ test "maybeRefresh keeps picker, search, and cards; filter still applies" {
         .line = "refs/heads/feat\nrefs/heads/main\n",
     });
     handleListExit(&model, &fx, .{ .key = list.key, .reason = .exited, .code = 0 });
+    try std.testing.expect(!model.git_branch_list_rebuild);
+    try std.testing.expectEqual(@as(u32, 2), model.git_branch_list_count);
+    try std.testing.expectEqualStrings("feat", listedBranch(&model, 0));
+    try std.testing.expectEqualStrings("main", listedBranch(&model, 1));
     try std.testing.expect(model.git_branch_picker_open);
     try std.testing.expectEqualStrings("FEAT", model.git_branch_search());
     try std.testing.expect(model.git_branch_create_active);

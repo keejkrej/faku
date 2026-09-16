@@ -1462,6 +1462,10 @@ pub const Model = struct {
     /// the update tick; Native has no dedicated 5s timer this cut.
     /// Open-path `refresh` / toggle-open are not gated by this stamp.
     last_git_branch_list_refresh_ms: ?i64 = null,
+    /// True until the in-flight list's first apply replaces the store
+    /// (`applyStdoutBranches` / daemon snapshot). Quiet poll keeps the
+    /// last good heads visible until that apply. Runtime only.
+    git_branch_list_rebuild: bool = false,
     git_checkout_key: u64 = 0,
     next_git_checkout_key: u64 = git_checkout.git_checkout_key_first,
     git_checkout_probe_session: u32 = 0,
@@ -2330,6 +2334,7 @@ pub const Model = struct {
         "git_branch_list_via_daemon",
         "git_branch_list_merge_remotes",
         "last_git_branch_list_refresh_ms",
+        "git_branch_list_rebuild",
         "git_checkout_key",
         "next_git_checkout_key",
         "git_checkout_probe_session",
