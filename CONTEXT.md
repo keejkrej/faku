@@ -1774,6 +1774,8 @@ Honest gaps this cut does not implement:
   ids / rows live in `palette.zig` with no thin `main` re-exports;
   composer access / effort / image-drop helpers live in
   `composer.zig` with no thin `main` re-exports;
+  sidebar date-bucket / relative-time helpers live in
+  `sidebar_dates.zig` with no thin `main` re-exports;
   remaining `main.zig` leftovers are `main()` + demo seed strings)
 - Embedded Browser first-cut (right-panel Browser is a Native canvas
   webview via `web_panes` / scene `.webview` `browser-web-0`..`3`;

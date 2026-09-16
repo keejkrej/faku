@@ -5,7 +5,9 @@
 //! — Zig has no tz database, and Faku does not invent one. Header titles
 //! (and the static relative-time words) take an `i18n.Dates` catalog from
 //! the caller's resolved Appearance language. This file does not read
-//! process env.
+//! process env. Callers import this module directly (`sidebar_dates.DateBucket` /
+//! `sidebar_dates.sessionDateBucket` / `sidebar_dates.sessionRelativeTime`).
+//! Not re-exported from `main`.
 
 const std = @import("std");
 const i18n = @import("i18n.zig");
