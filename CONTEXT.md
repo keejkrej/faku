@@ -1385,7 +1385,7 @@ enable/disable. Not persisted, not a live watch.
 
 | Area | Start here |
 | --- | --- |
-| Window loop | `src/main.zig` |
+| Window loop | `src/main.zig`, `src/app_run.zig` |
 | Seed model / theme boot | `src/boot.zig` |
 | Shell scene / app icons | `src/shell.zig` |
 | Layout chrome widths | `src/layout.zig` |
@@ -1785,7 +1785,8 @@ Honest gaps this cut does not implement:
   `fx_probe.zig` with no thin `main` re-exports;
   lines `stripFxDiagnostics` / `max_line_keep` live in
   `lines.zig` with no thin `main` re-exports;
-  remaining `main.zig` leftovers are `main()` + demo seed strings)
+  window loop body lives in `app_run.zig`; remaining `main.zig`
+  leftovers are Native-root contracts + thin `main()`)
 - Embedded Browser first-cut (right-panel Browser is a Native canvas
   webview via `web_panes` / scene `.webview` `browser-web-0`..`3`;
   **Open in browser** stays OS-open via `open` / `xdg-open` / Windows
