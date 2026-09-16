@@ -92,6 +92,7 @@
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const boot_mod = @import("boot.zig");
 const model_exports = @import("model_exports.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
 const effect_keys = @import("effect_keys.zig");
@@ -3962,7 +3963,7 @@ test "missing store keeps demos; corrupt store is not overwritten" {
     const io = testing.io;
     const allocator = testing.allocator;
 
-    var missing = main.initialModel();
+    var missing = boot_mod.initialModel();
     missing.setStoreDir(dir);
     missing.store_io = io;
     try testing.expectEqual(LoadKind.missing, boot(&missing, allocator, io));
@@ -3971,7 +3972,7 @@ test "missing store keeps demos; corrupt store is not overwritten" {
     try testing.expect(missing.task_state_loaded);
 
     try writeRaw(io, dir, "{not json");
-    var corrupt = main.initialModel();
+    var corrupt = boot_mod.initialModel();
     corrupt.setStoreDir(dir);
     corrupt.store_io = io;
     try testing.expectEqual(LoadKind.failed, boot(&corrupt, allocator, io));
