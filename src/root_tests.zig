@@ -51,6 +51,7 @@ test {
     _ = @import("settings_actions.zig");
     _ = @import("update.zig");
     _ = @import("boot.zig");
+    _ = @import("app_run.zig");
     _ = @import("shell.zig");
     _ = @import("layout.zig");
     _ = @import("effect_keys.zig");
