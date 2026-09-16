@@ -55,7 +55,6 @@ const daemon_proxy = @import("daemon_proxy.zig");
 const acp_proxy = @import("acp_proxy.zig");
 const rewind = @import("rewind.zig");
 const keys = @import("keys.zig");
-const goal = @import("goal.zig");
 const session_switcher = @import("switcher.zig");
 const sidebar_row_helpers = @import("sidebar_rows.zig");
 const attach_helpers = @import("attach.zig");
@@ -96,8 +95,6 @@ const app_permissions = [_][]const u8{ native_sdk.security.permission_command, n
 
 pub const demo_ticks_complete: u32 = 12;
 pub const demo_reply = "fx here (demo). The fx CLI was not found, so this is a local timer stream. Install fx and Send runs `fx ask`.";
-
-pub const formatThreadGoalUsage = goal.formatThreadGoalUsage;
 
 pub const BackgroundRow = environment_summary.BackgroundRow;
 pub const FilePreviewLineRow = right_panel.FilePreviewLineRow;
