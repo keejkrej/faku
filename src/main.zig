@@ -58,7 +58,6 @@ const keys = @import("keys.zig");
 const session_switcher = @import("switcher.zig");
 const sidebar_row_helpers = @import("sidebar_rows.zig");
 const attach_helpers = @import("attach.zig");
-const palette_run = @import("palette_run.zig");
 const update_mod = @import("update.zig");
 const boot_mod = @import("boot.zig");
 const shell_mod = @import("shell.zig");
@@ -98,8 +97,6 @@ const Msg = model_exports.Msg;
 const Model = model_exports.Model;
 
 pub const Effects = native_sdk.Effects(Msg);
-
-pub const applySessionSelection = palette_run.applySessionSelection;
 
 pub const update = update_mod.update;
 pub const initFx = update_mod.initFx;

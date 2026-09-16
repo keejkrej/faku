@@ -10,6 +10,7 @@
 
 const main = @import("main.zig");
 const model_exports = @import("model_exports.zig");
+const palette_run = @import("palette_run.zig");
 
 const Model = model_exports.Model;
 const Effects = main.Effects;
@@ -117,7 +118,7 @@ fn commitSwitcher(model: *Model, fx: *Effects, id: u32) void {
     closeSwitcher(model);
     if (model.sessionById(id) == null) return;
     model.pushSelectionHistory(id);
-    main.applySessionSelection(model, fx, id);
+    palette_run.applySessionSelection(model, fx, id);
 }
 
 pub fn confirmSwitcher(model: *Model, fx: *Effects) void {

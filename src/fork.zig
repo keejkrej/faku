@@ -118,6 +118,7 @@ const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
 const model_exports = @import("model_exports.zig");
+const palette_run = @import("palette_run.zig");
 const effect_keys = @import("effect_keys.zig");
 const store = @import("store.zig");
 const rewind = @import("rewind.zig");
@@ -738,7 +739,7 @@ pub fn forkSelectedThrough(model: *Model, fx: *Effects, through_index: u32) void
     }
 
     model.pushSelectionHistory(fork_id);
-    main.applySessionSelection(model, fx, fork_id);
+    palette_run.applySessionSelection(model, fx, fork_id);
     store.persistIfPossible(model, fork_id, fx);
     _ = trySpawnDaemonCopySessionRefs(model, fx, source_id, fork_id, through_index);
 }
