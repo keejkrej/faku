@@ -1762,7 +1762,8 @@ Honest gaps this cut does not implement:
   README Install Faku leads with the live `v0.1.0` downloaders;
   clone / Native CLI is secondary.
 - Further `main.zig` extract (`initialModel` / appearance boot live in
-  `boot.zig`; icons + shell scene live in `shell.zig` with no thin
+  `boot.zig` with no thin `main` re-exports; icons + shell scene live in
+  `shell.zig` with no thin
   `main` re-exports except `app_icons` for Native `native check`;
   layout chrome lives in `layout.zig` with no thin `main` re-exports;
   spawn / stream effect keys live in `effect_keys.zig` with no thin

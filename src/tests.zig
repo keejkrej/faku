@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
 const util = @import("util.zig");
+const boot = @import("boot.zig");
 const model_exports = @import("model_exports.zig");
 const palette = @import("palette.zig");
 const composer = @import("composer.zig");
@@ -445,7 +446,7 @@ test "boot is fx-first and New / send / ticks / stop drive the demo" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqual(@as(u32, 2), model.session_count);
     try testing.expectEqualStrings("port waku to zig", model.selected_title());
     try testing.expectEqualStrings("fx", model.selected_provider());
@@ -521,7 +522,7 @@ test "selecting the claude session shows its transcript" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     var tree = try buildTree(arena, &model);
     const auth = try expectButton(tree.root, "fix auth listener");
     main.update(&model, tree.msgForPointer(auth.id, .up).?, &fx);
@@ -1427,7 +1428,7 @@ test "escape stops a live demo stream" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .{ .draft_edit = .{ .insert_text = "hello" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
@@ -1445,7 +1446,7 @@ test "composer Stop cancels without enqueueing a typed follow-up" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const id = model.selected;
     main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt" } }, &fx);
     main.update(&model, .send, &fx);
@@ -1467,7 +1468,7 @@ test "send while streaming still queues a follow-up" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const id = model.selected;
     main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt" } }, &fx);
     main.update(&model, .send, &fx);
@@ -1488,13 +1489,13 @@ test "idle send is muted and usage chrome stays hidden until ACP reports a windo
     var model = Model{};
     try testing.expect(!model.has_draft());
     try testing.expect(!model.has_context_usage());
-    const tokens = main.designTokens(&model);
+    const tokens = boot.designTokens(&model);
     try testing.expect(!tokens.pixel_snap.geometry);
     try testing.expectEqual(model_exports.ThemePreference.system, model.theme_preference);
     try testing.expect(model.theme_system());
     try testing.expectEqual(model_exports.LanguagePreference.system, model.language_preference);
     try testing.expect(model.language_system());
-    try testing.expectEqual(canvas.ColorScheme.dark, main.resolvedColorScheme(&model));
+    try testing.expectEqual(canvas.ColorScheme.dark, boot.resolvedColorScheme(&model));
 
     const tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "Send", .send);
@@ -1515,7 +1516,7 @@ test "composer placeholder is Queue a follow-up while streaming" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Do anything...", model.composer_placeholder());
     var tree = try buildTree(arena, &model);
     if (findByKind(tree.root, .textarea)) |composer_textarea| {
@@ -1552,7 +1553,7 @@ test "send without fx still starts the demo timer" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(!model.fx_available);
     main.update(&model, .{ .draft_edit = .{ .insert_text = "hello without fx" } }, &fx);
     main.update(&model, .send, &fx);
@@ -1568,7 +1569,7 @@ test "send with fx_available spawns one-shot fx acp and streams session/update t
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.fx_available = true;
     model.fx_probe_started = true;
     model.setFxPath("fx");
@@ -6660,7 +6661,7 @@ test "fx ask Stop does not spawn a cancel sidecar" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.fx_available = true;
     model.fx_probe_started = true;
     model.setFxPath("fx");
@@ -6686,7 +6687,7 @@ test "missing daemon address does not spawn cancel even with last_daemon_address
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.fx_available = true;
     model.fx_probe_started = true;
     model.setFxPath("fx");
@@ -6834,7 +6835,7 @@ test "fx ask busy send still queues and does not steer" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.fx_available = true;
     model.fx_probe_started = true;
     model.setFxPath("fx");
@@ -6866,7 +6867,7 @@ test "missing daemon address does not steer even with last_daemon_address" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.fx_available = true;
     model.fx_probe_started = true;
     model.setFxPath("fx");
@@ -7046,7 +7047,7 @@ test "no daemon address leaves the fx path alone and does not fake Goal" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.fx_available = true;
     model.fx_probe_started = true;
     model.setFxPath("fx");
@@ -7299,7 +7300,7 @@ test "missing daemon address still uses fx ask when the CLI is present" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.fx_available = true;
     model.fx_probe_started = true;
     model.setFxPath("fx");
@@ -7323,7 +7324,7 @@ test "missing daemon address does not attach even when last_daemon_address is se
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.fx_available = true;
     model.fx_probe_started = true;
     model.setFxPath("fx");
@@ -8223,7 +8224,7 @@ test "missing catalog plus daemon address records hello and loadTaskState on spa
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.setStoreDir(dir);
     model.store_io = testing.io;
     model.setDaemonAddress("127.0.0.1:8787");
@@ -8257,7 +8258,7 @@ test "last_daemon_address with a missing catalog still records loadTaskState" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.setStoreDir(dir);
     model.store_io = testing.io;
     model.setLastDaemonAddress("10.0.0.2:9");
@@ -8280,7 +8281,7 @@ test "fake loadTaskState response installs daemon skeletons and not demos" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.setStoreDir(dir);
     model.store_io = testing.io;
     model.setDaemonAddress("127.0.0.1:8787");
@@ -8313,7 +8314,7 @@ test "missing catalog without a daemon address still uses demos" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.setStoreDir(dir);
     model.store_io = testing.io;
     try testing.expectEqual(@as(usize, 0), model.daemonAddress().len);
@@ -8336,7 +8337,7 @@ test "failed loadTaskState sidecar keeps the demo sessions" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.setStoreDir(dir);
     model.store_io = testing.io;
     model.setDaemonAddress("127.0.0.1:8787");
@@ -8370,7 +8371,7 @@ test "existing local catalog is not replaced by a daemon load" {
     _ = source.appendTurn(id, .user, "already persisted");
     try store.saveSession(&source, id, testing.allocator, testing.io);
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.setStoreDir(dir);
     model.store_io = testing.io;
     model.setDaemonAddress("127.0.0.1:8787");
@@ -8401,7 +8402,7 @@ test "corrupt catalog plus a daemon address still refuses overwrite" {
     const path = store.catalogPath(dir, &path_buf).?;
     try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = path, .data = "{not json" });
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.setStoreDir(dir);
     model.store_io = testing.io;
     model.setDaemonAddress("127.0.0.1:8787");
@@ -8467,7 +8468,7 @@ test "first view of a catalog session with empty local turns records hydrateSess
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.setStoreDir(dir);
     model.store_io = testing.io;
     model.setDaemonAddress("127.0.0.1:8787");
@@ -9022,7 +9023,7 @@ test "the view lays out through the canvas engine" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const tree = try buildTree(arena_state.allocator(), &model);
 
     var nodes: [256]canvas.WidgetLayoutNode = undefined;
@@ -9050,7 +9051,7 @@ test "cmd-n and ctrl-n create a session via onKey" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqual(@as(u32, 2), model.session_count);
 
     // Composer typing: plain n is draft text, not New Task.
@@ -9127,7 +9128,7 @@ test "new task and cmd-n focus the composer via the same autofocus edge" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqual(@as(u32, 2), model.session_count);
     try testing.expect(!model.composer_active);
     try testing.expect(!model.palette_open);
@@ -9203,7 +9204,7 @@ test "selecting a session focuses the composer; rename and search do not" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const port_id = model.session_store[0].id;
     const auth_id = model.session_store[1].id;
     try testing.expectEqual(port_id, model.selected);
@@ -9319,7 +9320,7 @@ test "cmd-[ / cmd-] and ctrl-[ / ctrl-] walk session history via onKey" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("port waku to zig", model.selected_title());
     try testing.expect(!model.can_go_back());
     try testing.expect(!model.can_go_forward());
@@ -9402,7 +9403,7 @@ test "plain tab and super-tab stay unbound; ctrl-tab opens the session switcher"
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const port = model.session_store[0].id;
     const auth = model.session_store[1].id;
     try testing.expectEqual(port, model.selected);
@@ -9504,7 +9505,7 @@ test "ctrl-tab includes the current untitled session and caps the snapshot at te
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const port = model.session_store[0].id;
     main.update(&model, .new_session, &fx);
     const draft = model.selected;
@@ -9546,7 +9547,7 @@ test "cmd-b and ctrl-b toggle sidebar collapse via onKey" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(!model.sidebar_collapsed);
     try testing.expect(model.sidebar_expanded());
 
@@ -9630,7 +9631,7 @@ test "cmd-b persist extras stay merge-only" {
     };
     try testing.expectEqual(Msg.toggle_sidebar, keys.onKey(cmd_b).?);
 
-    var missing = main.initialModel();
+    var missing = boot.initialModel();
     missing.task_state_loaded = true;
     missing.setStoreDir(dir);
     missing.store_io = testing.io;
@@ -9639,7 +9640,7 @@ test "cmd-b persist extras stay merge-only" {
     var missing_path: [std.fs.max_path_bytes]u8 = undefined;
     try testing.expectError(error.FileNotFound, std.Io.Dir.cwd().readFileAlloc(testing.io, store.catalogPath(dir, &missing_path).?, testing.allocator, .limited(64)));
 
-    var source = main.initialModel();
+    var source = boot.initialModel();
     source.task_state_loaded = true;
     source.setStoreDir(dir);
     source.store_io = testing.io;
@@ -9683,7 +9684,7 @@ test "toggle right panel opens and closes the Files pane" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(!model.right_panel_open);
     try testing.expectEqual(@as(f32, 1.0), model.right_panel_split);
     try testing.expectEqual(@as(u32, 184), model.rightPanelWidthPixels());
@@ -10344,7 +10345,7 @@ test "palette Show right panel and Hide right panel toggle the Files pane" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .start_search, &fx);
     const empty = model.palette_rows(arena);
     try testing.expect(paletteHasLabel(empty, "Show right panel"));
@@ -10388,7 +10389,7 @@ test "right panel Files, Diff, Browser, Terminal, and Background tabs switch sur
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(!model.right_panel_open);
     try testing.expect(model.right_panel_tab_files());
     try testing.expectEqual(@as(u32, 184), model.rightPanelWidthPixels());
@@ -10532,7 +10533,7 @@ test "Terminal tab binds <terminal> to pty 700; exit shows Restart and re-spawns
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .set_right_panel_tab_terminal, &fx);
     try testing.expect(model.right_panel_showing_terminal());
     try testing.expect(model.term_session_live());
@@ -10586,7 +10587,7 @@ test "Terminal New / switch / Close host four runtime-only shells" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .set_right_panel_tab_terminal, &fx);
     try testing.expectEqual(pty_terminal.pty_shell_key, model.shell_key());
 
@@ -10647,7 +10648,7 @@ test "right panel Browser Open in browser spawns key-25 URL sidecar; empty URL i
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .show_right_panel, &fx);
     main.update(&model, .set_right_panel_tab_browser, &fx);
     try testing.expectEqualStrings("", model.browser_url());
@@ -10702,7 +10703,7 @@ test "Browser Navigate commits a normalized URL; hidden tab parks the web pane" 
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     var panes: [browser_pane.max_sessions]browser_pane.WebViewPane = undefined;
 
     try testing.expectEqual(@as(usize, 4), browser_pane.webPanes(&model, &panes));
@@ -10783,7 +10784,7 @@ test "Browser New / switch / Close host four sessions; toolbar targets the activ
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     var panes: [browser_pane.max_sessions]browser_pane.WebViewPane = undefined;
     main.update(&model, .set_right_panel_tab_browser, &fx);
 
@@ -10873,7 +10874,7 @@ test "Browser Navigate resolves localhost to http and search text to Google" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     var panes: [browser_pane.max_sessions]browser_pane.WebViewPane = undefined;
     main.update(&model, .set_right_panel_tab_browser, &fx);
 
@@ -10883,7 +10884,7 @@ test "Browser Navigate resolves localhost to http and search text to Google" {
     try testing.expectEqualStrings("http://localhost:3000", panes[0].url);
     try testing.expect(!model.browser_url_secure());
 
-    var search_model = main.initialModel();
+    var search_model = boot.initialModel();
     main.update(&search_model, .set_right_panel_tab_browser, &fx);
     main.update(&search_model, .{ .browser_url_edit = .{ .insert_text = "what is wry" } }, &fx);
     main.update(&search_model, .browser_navigate, &fx);
@@ -10910,7 +10911,7 @@ test "palette Show Browser tab and Show Terminal tab open the wide surfaces" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .start_search, &fx);
     const empty = model.palette_rows(arena);
     try testing.expect(paletteHasLabel(empty, "Show Browser tab"));
@@ -10939,7 +10940,7 @@ test "Environment Summary Process row opens right-panel Background; unknown id n
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const selected = model.selected;
     main.update(&model, .{ .draft_edit = .{ .insert_text = "stream for background panel" } }, &fx);
     main.update(&model, .send, &fx);
@@ -11010,7 +11011,7 @@ test "update tick path advances live Background elapsed after 1s and skips settl
     var clock = native_sdk.TestClock{};
     pinClock(&fx, &clock, 2_000);
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .{ .draft_edit = .{ .insert_text = "stream for elapsed tick" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
@@ -11482,7 +11483,7 @@ test "sidebar Search opens the command palette; title match stays in Tasks" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqual(@as(u32, 2), model.session_count);
     try testing.expectEqualStrings("", model.search_query());
     try testing.expect(!model.palette_open);
@@ -11584,7 +11585,7 @@ test "sidebar collapse hides the session list and expand restores it" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(!model.sidebar_collapsed);
     try testing.expect(model.sidebar_expanded());
 
@@ -11638,7 +11639,7 @@ test "sidebar collapsed flag reloads and hides the session list" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var source = main.initialModel();
+    var source = boot.initialModel();
     source.task_state_loaded = true;
     source.setStoreDir(dir);
     source.store_io = testing.io;
@@ -11673,7 +11674,7 @@ test "palette query also matches provider and Esc closes the palette" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .start_search, &fx);
     main.update(&model, .{ .search_edit = .{ .insert_text = "claude" } }, &fx);
     try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
@@ -11697,7 +11698,7 @@ test "cmd-k and ctrl-k open the command palette via onKey" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(!model.palette_open);
     try testing.expectEqualStrings("", model.search_query());
 
@@ -11766,7 +11767,7 @@ test "empty palette lists New Task; query new t still includes it" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .start_search, &fx);
     try testing.expect(model.palette_open);
     const empty = model.palette_rows(arena);
@@ -11820,7 +11821,7 @@ test "palette Collapse all folders follows Appearance language when folders exis
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(!model.can_collapse_folders());
     main.update(&model, .start_search, &fx);
     try testing.expect(!paletteHasLabel(model.palette_rows(arena), "Collapse all folders"));
@@ -11901,7 +11902,7 @@ test "palette copies local session id and fx session id; empty fx id skips clipb
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const selected = model.selected;
     try testing.expect(selected != 0);
     try testing.expectEqual(@as(usize, 0), model.sessionById(selected).?.fxSessionId().len);
@@ -11991,7 +11992,7 @@ test "palette Tasks match session model; miss query shows no-results copy" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const port_id = model.session_store[0].id;
     const selected_before = model.selected;
     if (model.sessionById(port_id)) |session| {
@@ -12049,7 +12050,7 @@ test "palette query matching a demo session lists that session; confirm selects 
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const port_id = model.session_store[0].id;
     try testing.expectEqual(port_id, model.selected);
     try testing.expect(!model.composer_active);
@@ -12079,7 +12080,7 @@ test "confirming New Task from the palette creates and focuses" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqual(@as(u32, 2), model.session_count);
     main.update(&model, .start_search, &fx);
     try testing.expect(model.palette_open);
@@ -12105,7 +12106,7 @@ test "Esc with palette_open does not cancel a busy demo stream" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .{ .draft_edit = .{ .insert_text = "keep streaming" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
@@ -12128,7 +12129,7 @@ test "opening the Ctrl-Tab switcher closes the command palette first" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .start_search, &fx);
     main.update(&model, .{ .search_edit = .{ .insert_text = "auth" } }, &fx);
     try testing.expect(model.palette_open);
@@ -12156,7 +12157,7 @@ test "cmd-f and ctrl-f open transcript find via onKey" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(!model.find_active);
     try testing.expectEqualStrings("", model.find_query());
     try testing.expect(!model.palette_open);
@@ -12621,7 +12622,7 @@ test "cmd-l and ctrl-l focus the composer via onKey" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(!model.composer_active);
     try testing.expect(!model.palette_open);
 
@@ -12760,7 +12761,7 @@ test "cmd-r / cmd-l / cmd-[ / cmd-] route by Browser-tab keyboard gate" {
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
     try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const right_panel_session = @import("right_panel_session.zig");
     defer right_panel_session.freeStores(&model);
     var panes: [browser_pane.max_sessions]browser_pane.WebViewPane = undefined;
@@ -12878,7 +12879,7 @@ test "cmd-shift-r Hard Reload blanks then restores on the next update tick" {
     try testing.expectEqual(Msg.browser_hard_reload, keys.onKey(cmd_shift_r).?);
     try testing.expectEqual(Msg.browser_reload, keys.onKey(cmd_r).?);
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     var panes: [browser_pane.max_sessions]browser_pane.WebViewPane = undefined;
     try testing.expect(!model.browser_keyboard_active());
     main.update(&model, keys.onKey(cmd_shift_r).?, &fx);
@@ -12945,7 +12946,7 @@ test "Browser Hard Reload toolbar shares Reload disable gate and drives blank ho
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     var panes: [browser_pane.max_sessions]browser_pane.WebViewPane = undefined;
 
     main.update(&model, .show_right_panel, &fx);
@@ -13019,7 +13020,7 @@ test "Browser Stop loading toolbar and Esc restore previous URL or blank during 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
     try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     var panes: [browser_pane.max_sessions]browser_pane.WebViewPane = undefined;
 
     main.update(&model, .show_right_panel, &fx);
@@ -13110,7 +13111,7 @@ test "escape restores Browser address draft without stopping a live turn" {
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
     try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
 
-    var empty = main.initialModel();
+    var empty = boot.initialModel();
     main.update(&empty, .set_right_panel_tab_browser, &fx);
     main.update(&empty, .{ .browser_url_edit = .{ .insert_text = "half-typed" } }, &fx);
     try testing.expect(empty.browser_address_active);
@@ -13122,7 +13123,7 @@ test "escape restores Browser address draft without stopping a live turn" {
     try testing.expectEqualStrings("", empty.browser_url());
     try testing.expect(!empty.browser_address_active);
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .set_right_panel_tab_browser, &fx);
     try testing.expect(model.browser_keyboard_active());
     main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://a.example" } }, &fx);
@@ -13166,7 +13167,7 @@ test "escape still stops a live turn when Browser address is not active" {
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
     try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .set_right_panel_tab_browser, &fx);
     try testing.expect(model.browser_keyboard_active());
     main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://a.example" } }, &fx);
@@ -13184,7 +13185,7 @@ test "escape still stops a live turn when Browser address is not active" {
     try testing.expect(!model.is_streaming());
     try testing.expectEqualStrings("dirty-draft", model.browser_url());
 
-    var files = main.initialModel();
+    var files = boot.initialModel();
     main.update(&files, .set_right_panel_tab_browser, &fx);
     main.update(&files, .{ .browser_url_edit = .{ .insert_text = "https://b.example" } }, &fx);
     main.update(&files, .browser_navigate, &fx);
@@ -13210,7 +13211,7 @@ test "cmd-comma and ctrl-comma open settings via onKey" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(!model.settings_open);
     try testing.expect(!model.palette_open);
 
@@ -13281,7 +13282,7 @@ test "cmd-shift-b and ctrl-shift-b toggle the right panel via onKey" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(!model.right_panel_open);
     try testing.expect(!model.sidebar_collapsed);
 
@@ -13351,7 +13352,7 @@ test "cmd-u and ctrl-u toggle the usage meter via onKey" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(model.usage_meter_available());
     try testing.expect(!model.usage_meter_open);
 
@@ -13419,7 +13420,7 @@ test "cmd-s and ctrl-s save the Files preview via onKey" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "s" } }, &fx);
     try testing.expectEqualStrings("s", model.draft());
@@ -13758,7 +13759,7 @@ test "cmd-o and ctrl-o pick a folder via onKey" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqual(@as(u32, 2), model.session_count);
     try testing.expect(!model.pick_folder_live);
 
@@ -13828,7 +13829,7 @@ test "send while busy shows a queued card that dismiss clears" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const session_id = model.selected;
     main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt" } }, &fx);
     main.update(&model, .send, &fx);
@@ -13881,7 +13882,7 @@ test "queued card lists each follow-up; drop one persists the rest; dismiss all 
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -13975,7 +13976,7 @@ test "click queued follow-up restores composer and persists the remaining item" 
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -14046,7 +14047,7 @@ test "settings gear opens the panel; Esc and gear return to the session" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(!model.settings_open);
 
     var tree = try buildTree(arena, &model);
@@ -14114,7 +14115,7 @@ test "settings General and Skills pages switch; Skills empty without a project" 
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .toggle_settings, &fx);
     try testing.expect(model.settings_open);
     try testing.expect(model.settings_page_general());
@@ -14206,7 +14207,7 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -14268,7 +14269,7 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     try testing.expectEqual(model_exports.ThemePreference.light, model.theme_preference);
     try testing.expect(model.theme_light());
     try testing.expect(!model.theme_system());
-    try testing.expectEqual(canvas.ColorScheme.light, main.resolvedColorScheme(&model));
+    try testing.expectEqual(canvas.ColorScheme.light, boot.resolvedColorScheme(&model));
 
     tree = try buildTree(arena, &model);
     try testing.expect((try expectButtonMsg(tree, "Light", .settings_theme_light)).state.selected);
@@ -14277,7 +14278,7 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     main.update(&model, .settings_theme_dark, &fx);
     try testing.expectEqual(model_exports.ThemePreference.dark, model.theme_preference);
     try testing.expect(model.theme_dark());
-    try testing.expectEqual(canvas.ColorScheme.dark, main.resolvedColorScheme(&model));
+    try testing.expectEqual(canvas.ColorScheme.dark, boot.resolvedColorScheme(&model));
 
     var loaded = Model{};
     loaded.setStoreDir(dir);
@@ -14313,7 +14314,7 @@ test "settings Appearance language chips persist and re-label Settings chrome" {
     try testing.expectEqual(model_exports.LanguagePreference.english, i18n.fromLocaleId(""));
     try testing.expectEqual(model_exports.LanguagePreference.english, i18n.resolve(.english, "ja_JP.UTF-8"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -14420,7 +14421,7 @@ test "settings Usage tab sits after Skills; local context and thread-goal labels
     try testing.expect(!empty.has_goal_usage());
     try testing.expectEqualStrings("New task", empty.settings_usage_session_label());
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("port waku to zig", model.settings_usage_session_label());
     try testing.expectEqual(@as(usize, 0), model.context_usage_label(arena).len);
     try testing.expectEqual(@as(usize, 0), model.goal_usage_label().len);
@@ -14548,7 +14549,7 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.setLastDaemonAddress("127.0.0.1:8787");
     model.setSidecarPath("faku");
     const id = model.selected;
@@ -14890,7 +14891,7 @@ test "settings Usage Daily Days paints nested Claude/Codex byProvider bars" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.setLastDaemonAddress("127.0.0.1:8787");
     model.setSidecarPath("faku");
     const id = model.selected;
@@ -14987,7 +14988,7 @@ test "settings Usage Monthly paints nested Claude/Codex byProvider bars" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.setLastDaemonAddress("127.0.0.1:8787");
     model.setSidecarPath("faku");
     const id = model.selected;
@@ -15098,7 +15099,7 @@ test "settings Usage Projects paints nested Claude/Codex byProvider bars" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.setLastDaemonAddress("127.0.0.1:8787");
     model.setSidecarPath("faku");
     const id = model.selected;
@@ -15202,7 +15203,7 @@ test "settings Usage Daily paints Cost quality and rates-unavailable notice" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.setLastDaemonAddress("127.0.0.1:8787");
     model.setSidecarPath("faku");
     const id = model.selected;
@@ -15293,7 +15294,7 @@ test "settings Usage Daily paints LiteLLM Rates cached and a model-row per-MTok 
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     defer model.litellm_rates.deinit();
     model.setLastDaemonAddress("127.0.0.1:8787");
     model.setSidecarPath("faku");
@@ -15357,7 +15358,7 @@ test "settings Computer Use tab sits after Usage; Unavailable, Off, empty apps" 
     try testing.expect(empty.computer_use_off());
     try testing.expect(!empty.computer_use_has_allowed_apps());
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(!model.computer_use_enabled());
     try testing.expect(!model.computer_use_has_allowed_apps());
 
@@ -15438,32 +15439,32 @@ test "theme preference defaults to System; Light/Dark force scheme regardless of
     try testing.expectEqual(model_exports.ThemePreference.dark, model_exports.ThemePreference.fromPersist("dark"));
 
     model.appearance = .{ .color_scheme = .dark };
-    try testing.expectEqual(canvas.ColorScheme.dark, main.resolvedColorScheme(&model));
-    const os_dark = main.designTokens(&model);
+    try testing.expectEqual(canvas.ColorScheme.dark, boot.resolvedColorScheme(&model));
+    const os_dark = boot.designTokens(&model);
     try testing.expect(!os_dark.pixel_snap.geometry);
 
     model.appearance = .{ .color_scheme = .light };
-    try testing.expectEqual(canvas.ColorScheme.light, main.resolvedColorScheme(&model));
-    const os_light = main.designTokens(&model);
+    try testing.expectEqual(canvas.ColorScheme.light, boot.resolvedColorScheme(&model));
+    const os_light = boot.designTokens(&model);
     try testing.expect(!std.meta.eql(os_dark.colors.background, os_light.colors.background));
 
     model.appearance = .{ .color_scheme = .dark };
     model.theme_preference = .light;
-    try testing.expectEqual(canvas.ColorScheme.light, main.resolvedColorScheme(&model));
-    const forced_light = main.designTokens(&model);
+    try testing.expectEqual(canvas.ColorScheme.light, boot.resolvedColorScheme(&model));
+    const forced_light = boot.designTokens(&model);
     try testing.expect(std.meta.eql(forced_light.colors.background, os_light.colors.background));
     try testing.expect(!forced_light.pixel_snap.geometry);
 
     model.appearance = .{ .color_scheme = .light };
     model.theme_preference = .dark;
-    try testing.expectEqual(canvas.ColorScheme.dark, main.resolvedColorScheme(&model));
-    const forced_dark = main.designTokens(&model);
+    try testing.expectEqual(canvas.ColorScheme.dark, boot.resolvedColorScheme(&model));
+    const forced_dark = boot.designTokens(&model);
     try testing.expect(std.meta.eql(forced_dark.colors.background, os_dark.colors.background));
 
     model.theme_preference = .light;
     model.appearance = .{ .color_scheme = .dark, .high_contrast = true, .reduce_motion = true };
-    try testing.expectEqual(canvas.ColorScheme.light, main.resolvedColorScheme(&model));
-    const forced_light_a11y = main.designTokens(&model);
+    try testing.expectEqual(canvas.ColorScheme.light, boot.resolvedColorScheme(&model));
+    const forced_light_a11y = boot.designTokens(&model);
     try testing.expect(!std.meta.eql(forced_light_a11y.colors.background, os_light.colors.background) or
         !std.meta.eql(forced_light_a11y.colors.text, os_light.colors.text));
     try testing.expectEqualStrings("High contrast on, reduce motion on. These follow the OS.", model.appearance_os_caption());
@@ -15546,7 +15547,7 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const before_open = fx.pendingSpawnCount();
     main.update(&model, .toggle_settings, &fx);
     try testing.expect(model.settings_page_general());
@@ -15641,7 +15642,7 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.fx_probe_started = true;
     model.fx_available = true;
     model.setFxPath("/home/probe/.local/bin/fx");
@@ -15768,7 +15769,7 @@ test "settings Providers Use for this session applies to selected session and pe
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -15831,7 +15832,7 @@ test "settings Providers fx copy install when missing, copy login when available
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(!model.fx_available);
     main.update(&model, .toggle_settings, &fx);
     main.update(&model, .set_settings_page_providers, &fx);
@@ -15913,7 +15914,7 @@ test "settings edits persist model access and daemon address and reload" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -15984,7 +15985,7 @@ test "composer access and effort chips open pickers; interaction still cycles" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("fullAccess", model.session_store[0].accessMode());
     try testing.expectEqualStrings("build", model.session_store[0].interactionMode());
     try testing.expectEqualStrings("Full access", model.access_label());
@@ -16038,7 +16039,7 @@ test "composer access picker lists Ask Auto Full access; pick_access ask persist
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -16094,7 +16095,7 @@ test "composer effort picker lists fx documented values; pick_effort high commit
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("auto", model.session_store[0].reasoningEffort());
     try testing.expectEqualStrings("Auto", model.effort_label());
     try testing.expect(model.effort_selected_auto());
@@ -16162,7 +16163,7 @@ test "composer chips persist access interaction and last-used model and reload" 
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -16259,7 +16260,7 @@ test "demo model picker shows FX_MODEL fallback; Cmd-/ toggles; plain slash does
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("FX_MODEL", model.model_label());
     try testing.expectEqual(@as(usize, 0), model.lastModel().len);
     try testing.expect(!model.model_picker_open);
@@ -16320,7 +16321,7 @@ test "Esc with model_picker_open does not cancel a busy demo stream" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .{ .draft_edit = .{ .insert_text = "keep streaming" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
@@ -16347,7 +16348,7 @@ test "Esc and on-dismiss close access or effort picker without canceling a busy 
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .{ .draft_edit = .{ .insert_text = "keep streaming" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
@@ -16382,7 +16383,7 @@ test "opening access picker closes model and effort pickers" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .toggle_model_picker, &fx);
     main.update(&model, .toggle_effort_picker, &fx);
     try testing.expect(!model.model_picker_open);
@@ -16414,7 +16415,7 @@ test "settings access buttons still write lastAccessMode; composer selected uses
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("fullAccess", model.session_store[0].accessMode());
     try testing.expect(model.access_selected_full());
     try testing.expect(model.access_full());
@@ -16458,7 +16459,7 @@ test "settings Interaction Plan writes lastInteractionMode; selected session sta
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -16510,7 +16511,7 @@ test "settings Effort select lists fx documented values; pick High writes lastRe
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -16596,7 +16597,7 @@ test "Esc with settings effort menu open closes the menu and leaves settings ope
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .toggle_settings, &fx);
     try testing.expect(model.settings_open);
     try testing.expect(!model.settings_effort_picker_open);
@@ -16637,7 +16638,7 @@ test "composer effort chip persists reasoning_effort and last_reasoning_effort" 
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -16685,7 +16686,7 @@ test "sidebar back and forward walk session selection history" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(!model.can_go_back());
     try testing.expect(!model.can_go_forward());
     try testing.expectEqualStrings("port waku to zig", model.selected_title());
@@ -16889,7 +16890,7 @@ test "sidebar New folder creates a persisted catalog folder" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var missing = main.initialModel();
+    var missing = boot.initialModel();
     missing.task_state_loaded = true;
     missing.setStoreDir(dir);
     missing.store_io = testing.io;
@@ -16901,7 +16902,7 @@ test "sidebar New folder creates a persisted catalog folder" {
     var missing_path: [std.fs.max_path_bytes]u8 = undefined;
     try testing.expectError(error.FileNotFound, std.Io.Dir.cwd().readFileAlloc(testing.io, store.catalogPath(dir, &missing_path).?, testing.allocator, .limited(64)));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -16958,7 +16959,7 @@ test "session with folder_id appears under that folder not Today" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -17026,7 +17027,7 @@ test "palette Tasks still matches session titles across folders" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .new_folder, &fx);
     const folder_id = model.folder_store[0].id;
     main.update(&model, .{ .assign_folder = .{
@@ -17091,7 +17092,7 @@ test "collapse all folders hides grouped sessions and persists collapsed_folder_
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqual(@as(u32, 0), model.folder_count);
     try testing.expect(model.all_folders_collapsed());
     try testing.expect(!model.can_collapse_folders());
@@ -17190,7 +17191,7 @@ test "grouped folder sessions get a Native guide rail; Today rows stay flush" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .new_folder, &fx);
     const folder_id = model.folder_store[0].id;
     const port_id = model.session_store[0].id;
@@ -17311,7 +17312,7 @@ test "clicking a folder header assigns the selected session; Today unassigns" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -17412,7 +17413,7 @@ test "second click on a folder title edits it; empty name becomes New folder" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -17530,7 +17531,7 @@ test "deleting a folder unassigns its sessions; they stay in Today" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -17646,7 +17647,7 @@ test "sidebar trash removes a session and it stays gone after reload" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -17788,7 +17789,7 @@ test "sidebar session rows declare a Rename/Remove context menu" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -17880,7 +17881,7 @@ test "sidebar folder rows declare a Rename/Delete context menu" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -17994,7 +17995,7 @@ test "click the selected session title edits it; empty name becomes untitled" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -18120,7 +18121,7 @@ test "long session and folder titles stay one line with Native ellipsis" {
     try testing.expect(long_folder.len >= 60);
     try testing.expect(long_folder.len <= 64);
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const port_id = model.session_store[0].id;
     const auth_id = model.session_store[1].id;
     model.sessionById(port_id).?.setTitle(long_session);
@@ -18197,7 +18198,7 @@ test "OS titlebar is hidden_inset_tall; canvas does not draw window buttons" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(shell.shell_scene.windows[0].titlebar == .hidden_inset_tall);
     try testing.expectEqualStrings(shell.main_window_label, shell.shell_scene.windows[0].label);
 
@@ -18229,7 +18230,7 @@ test "cmd-m and ctrl-m minimize the window via onKey" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "m" } }, &fx);
     try testing.expectEqualStrings("m", model.draft());
@@ -18313,7 +18314,7 @@ test "maximize_window sidecar still runs without in-canvas window buttons" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const tree = try buildTree(arena, &model);
     try testing.expect(findPressableContaining(tree.root, "Maximize") == null);
     try testing.expect(findPressableContaining(tree.root, "Close") == null);
@@ -18341,7 +18342,7 @@ test "cmd-shift-m and ctrl-shift-m maximize via onKey without stealing cmd-m" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .{ .draft_edit = .{ .insert_text = "m" } }, &fx);
     try testing.expectEqualStrings("m", model.draft());
 
@@ -18446,7 +18447,7 @@ test "cmd-w and ctrl-w close the window via onKey" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "w" } }, &fx);
     try testing.expectEqualStrings("w", model.draft());
@@ -18491,7 +18492,7 @@ test "cmd-q and ctrl-q quit the app via onKey" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "q" } }, &fx);
     try testing.expectEqualStrings("q", model.draft());
@@ -18538,7 +18539,7 @@ test "header Close requests the real window close; Esc stays with settings" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(shell.shell_scene.windows[0].titlebar == .hidden_inset_tall);
     try testing.expectEqualStrings(shell.main_window_label, shell.shell_scene.windows[0].label);
 
@@ -18591,7 +18592,7 @@ test "composer project row sets selected session project_path and reloads" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -23462,7 +23463,7 @@ test "composer usage meter panel shows context and parsed plan lanes" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const claude_id = model.session_store[1].id;
     try testing.expectEqual(protocol.ProviderId.claude, model.sessionById(claude_id).?.provider);
     main.update(&model, .{ .select = claude_id }, &fx);
@@ -23535,7 +23536,7 @@ test "idle sidebar has no spinner; Send shows one on the busy session only" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const selected_id = model.selected;
     const other_id = model.session_store[1].id;
     try testing.expectEqualStrings("port waku to zig", model.selected_title());
@@ -23577,7 +23578,7 @@ test "Stop and Esc clear the sidebar spinner and session.busy" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const session_id = model.selected;
     main.update(&model, .{ .draft_edit = .{ .insert_text = "stop the spinner" } }, &fx);
     main.update(&model, .send, &fx);
@@ -23610,7 +23611,7 @@ test "successful demo finish clears the sidebar spinner" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const session_id = model.selected;
     main.update(&model, .{ .draft_edit = .{ .insert_text = "finish the spinner" } }, &fx);
     main.update(&model, .send, &fx);
@@ -23636,7 +23637,7 @@ test "grouped folder session spinner stays inside the railed list-item" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .new_folder, &fx);
     const folder_id = model.folder_store[0].id;
     const auth_id = model.session_store[1].id;
@@ -23680,7 +23681,7 @@ test "catalog load after a busy Send does not restore session.busy" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -23985,7 +23986,7 @@ test "composer and Settings General access labels follow Appearance language" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("fullAccess", model.resolvedAccessMode());
     try testing.expectEqualStrings("Full access", model.access_label());
     try testing.expectEqualStrings("Ask", model.access_ask_label());
@@ -24162,7 +24163,7 @@ test "composer and Settings General effort labels follow Appearance language" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("auto", model.resolvedReasoningEffort());
     try testing.expectEqualStrings("Auto", model.effort_label());
     try testing.expectEqualStrings("Auto", model.settings_effort_label());
@@ -24393,7 +24394,7 @@ test "composer and Settings General Build/Plan labels follow Appearance language
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("build", model.resolvedInteractionMode());
     try testing.expectEqualStrings("Build", model.interaction_label());
     try testing.expectEqualStrings("Build", model.interaction_build_label());
@@ -24517,7 +24518,7 @@ test "palette action labels follow Appearance language" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("New Task", model.palette_action_label(.new_task));
     try testing.expectEqualStrings(model.new_task_label(), model.palette_action_label(.new_task));
     try testing.expectEqualStrings("Settings", model.palette_action_label(.settings));
@@ -24757,7 +24758,7 @@ test "palette section headers and empty-state follow Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "text=\"{palette_dialog_title}\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "text=\"Command palette\""));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Suggested", model.paletteOverlayChrome().suggested);
     try testing.expectEqualStrings("Commands", model.paletteOverlayChrome().commands);
     try testing.expectEqualStrings("Tasks", model.paletteOverlayChrome().tasks);
@@ -24960,7 +24961,7 @@ test "right panel tab labels follow Appearance language" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Files", model.right_panel_tab_files_label());
     try testing.expectEqualStrings("Review", model.right_panel_tab_diff_label());
     try testing.expectEqualStrings("Browser", model.right_panel_tab_browser_label());
@@ -25074,7 +25075,7 @@ test "right panel Diff filter and Files/Background empty chrome follow Appearanc
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No background work<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No output<"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Filter files", model.review_diff_filter_placeholder());
     try testing.expectEqualStrings("No project open", model.right_panel_no_project_label());
     try testing.expectEqualStrings("Open a project to browse its files", model.right_panel_files_empty_secondary_label());
@@ -25280,7 +25281,7 @@ test "right panel Browser start page and Open in browser/Terminal follow Appeara
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Open in browser<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Open in Terminal</button>"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.store_io = testing.io;
     model.setSelectedProjectPath(project);
     try testing.expect(model.can_open_terminal());
@@ -25402,7 +25403,7 @@ test "Browser start-page globe icon a11y follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Browse\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Browse the web<"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Browse", model.browser_start_icon_label());
     try testing.expectEqualStrings("Browse the web", model.browser_start_title());
     try testing.expectEqualStrings(i18n.browserStartIconChromeFor(.english, "").browse, model.browser_start_icon_label());
@@ -25495,7 +25496,7 @@ test "composer project-row Pick folder / Reveal folder / Open in Terminal / Open
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Open in Editor</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Copy path</button>"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.store_io = testing.io;
     model.setSelectedProjectPath(project);
     try testing.expect(model.can_open_terminal());
@@ -25640,7 +25641,7 @@ test "Review Diff header title / Cancel / source chips follow Appearance languag
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Committed</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Last turn</button>"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Review", model.review_diff_title_label());
     try testing.expectEqualStrings("Cancel", model.review_diff_cancel_label());
     try testing.expectEqualStrings("Branch", model.review_diff_source_branch_label());
@@ -25798,7 +25799,7 @@ test "Review Diff gap expand Start / End / Both / All follow Appearance language
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Both</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">All</button>"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Start", model.review_diff_gap_expand_start_label());
     try testing.expectEqualStrings("End", model.review_diff_gap_expand_end_label());
     try testing.expectEqualStrings("Both", model.review_diff_gap_expand_both_label());
@@ -25912,7 +25913,7 @@ test "Review Diff hunk a11y chrome follows Appearance language" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Review hunk\"") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Review hunks\"") == null);
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Review hunk", model.review_hunk_label());
     try testing.expectEqualStrings("Review hunks", model.review_hunks_label());
     try testing.expectEqualStrings(i18n.reviewHunkA11yChromeFor(.english, "").review_hunk, model.review_hunk_label());
@@ -26025,7 +26026,7 @@ test "Review Diff unmodified-line gap labels follow Appearance language" {
     try testing.expect(std.mem.indexOf(u8, @embedFile("review_diff.zig"), "1 unmodified line") == null);
     try testing.expect(std.mem.indexOf(u8, @embedFile("review_diff.zig"), "{d} unmodified lines") == null);
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings(
         "1 unmodified line",
         i18n.formatReviewDiffGapLabel(i18n.reviewDiffGapLabelChromeFor(.english, ""), arena, 1),
@@ -26147,7 +26148,7 @@ test "Review Diff status chrome follows Appearance language" {
     try testing.expect(std.mem.indexOf(u8, @embedFile("review_diff.zig"), "pub const hunk_empty_status = \"No hunks\"") == null);
     try testing.expect(std.mem.indexOf(u8, @embedFile("review_diff.zig"), "pub const hunk_failed_status = \"Could not show diff.\"") == null);
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Comparing…", model.review_diff_comparing_status());
     try testing.expectEqualStrings("No changes to compare", model.review_diff_empty_status());
     try testing.expectEqualStrings("Could not compare.", model.review_diff_failed_status());
@@ -26347,7 +26348,7 @@ test "Review Diff Binary file changed Meta body follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Binary file changed"));
     try testing.expect(std.mem.indexOf(u8, @embedFile("review_diff.zig"), "pub const binary_file_changed = \"Binary file changed\"") == null);
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Binary file changed", model.review_diff_binary_file_changed());
     try testing.expectEqualStrings(review_diff.binary_file_changed, model.review_diff_binary_file_changed());
     try testing.expectEqualStrings(i18n.reviewDiffBinaryMetaChromeFor(.english, "").binary_file_changed, model.review_diff_binary_file_changed());
@@ -26611,7 +26612,7 @@ test "Environment menu chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Dismiss all settled</menu-item>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Background</text>"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const selected = model.selected;
     try testing.expect(selected != 0);
     if (model.sessionById(selected)) |session| {
@@ -26776,7 +26777,7 @@ test "Settings Skills filter and Usage Projects filter chrome follow Appearance 
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No project usage<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No matching projects<"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Filter skills", model.skills_filter_placeholder());
     try testing.expectEqualStrings("Filter projects", model.usage_project_filter_placeholder());
     try testing.expectEqualStrings("Filter projects", model.usage_project_filter_label());
@@ -26966,7 +26967,7 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Open a project<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No skills found<"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Open a project", model.skills_empty_hint());
     try testing.expectEqualStrings("Open a project", model.skills_insert_hint());
     try testing.expectEqualStrings(
@@ -28350,7 +28351,7 @@ test "Session switcher chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"switcher_cancel\">Cancel</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"switcher_confirm\">Switch</button>"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Switch session", model.switcher_title());
     try testing.expectEqualStrings("Switch", model.switcher_confirm_label());
     try testing.expectEqualStrings(model.git_commit_cancel_label(), model.switcher_cancel_label());
@@ -28431,7 +28432,7 @@ test "Workspace path placeholders follow Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-input=\"project_path_edit\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Workspace path\""));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Workspace path", model.workspace_path_placeholder());
     try testing.expectEqualStrings(i18n.workspacePathChromeFor(.english, "").placeholder, model.workspace_path_placeholder());
 
@@ -28525,7 +28526,7 @@ test "transcript Find bar follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Find\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Find in transcript\""));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Find", model.find_placeholder());
     try testing.expectEqualStrings(model.file_preview_find_placeholder(), model.find_placeholder());
     try testing.expectEqualStrings(i18n.filePreviewChromeFor(.english, "").find, model.find_placeholder());
@@ -28603,7 +28604,7 @@ test "transcript Find bar Previous/Next/Close a11y follows Appearance language" 
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Next match\" on-press=\"find_next\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Close find\" on-press=\"close_find\""));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Previous match", model.find_previous_match_label());
     try testing.expectEqualStrings("Next match", model.find_next_match_label());
     try testing.expectEqualStrings("Close find", model.close_find_label());
@@ -29217,7 +29218,7 @@ test "header Copy session / Fork / Rewind chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "on-press=\"fork_turn:{t.id}\">{fork_turn_label}</button>"));
     try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "label=\"{copy_turn_label}\" on-press=\"copy_turn:{t.id}\""));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(model.can_fork());
     try testing.expect(!model.can_rewind());
     if (model.sessionById(model.selected)) |session| {
@@ -29750,7 +29751,7 @@ test "session title untitled placeholders follow Appearance language" {
     try testing.expectEqual(@as(usize, 3), std.mem.count(u8, main.app_markup, "on-input=\"session_title_edit\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"untitled\""));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("untitled", model.untitled_placeholder());
     try testing.expectEqualStrings(i18n.untitledChromeFor(.english, "").placeholder, model.untitled_placeholder());
 
@@ -29846,7 +29847,7 @@ test "header untitled New task chrome follows Appearance language" {
     empty.setSystemLocaleId("ja_JP.UTF-8");
     try testing.expectEqualStrings("新しいタスク", empty.header_title());
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("port waku to zig", model.header_title());
     try testing.expectEqualStrings("New Task", model.new_task_label());
     try testing.expect(!std.mem.eql(u8, model.header_title(), model.new_task_label()));
@@ -29933,7 +29934,7 @@ test "Settings General daemon address placeholder follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-input=\"settings_daemon_edit\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"host:port\""));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("host:port", model.daemon_address_placeholder());
     try testing.expectEqualStrings(i18n.daemonAddressChromeFor(.english, "").placeholder, model.daemon_address_placeholder());
     try testing.expectEqualStrings(i18n.daemonAddressChromeFor(.simplified_chinese, "").placeholder, model.daemon_address_placeholder());
@@ -30000,7 +30001,7 @@ test "Settings General field labels follow Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"FX_MODEL\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Effort\""));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Default model", model.settings_default_model_label());
     try testing.expectEqualStrings("Access mode", model.settings_access_mode_label());
     try testing.expectEqualStrings("Interaction", model.settings_interaction_field_label());
@@ -30126,7 +30127,7 @@ test "Composer Image path and Status chrome follow Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Image path\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Status\""));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Image path", model.image_path_placeholder());
     try testing.expectEqualStrings("Status", model.goal_status_placeholder());
     try testing.expectEqualStrings("Status", model.goal_status_label());
@@ -30216,7 +30217,7 @@ test "Composer Pick image and Attach image chrome follow Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Pick image</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Attach image\""));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Pick image", model.pick_image_label());
     try testing.expectEqualStrings("Attach image", model.attach_image_label());
     try testing.expectEqualStrings(i18n.composerChromeFor(.english, "").pick_image, model.pick_image_label());
@@ -30300,7 +30301,7 @@ test "Composer Clear image and Attached image chrome follow Appearance language"
     const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/clear-attach.png", .{tmp.sub_path[0..]});
     try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.store_io = testing.io;
     try testing.expectEqualStrings("Clear image", model.clear_image_label());
     try testing.expectEqualStrings("Attached image", model.attached_image_label());
@@ -30387,7 +30388,7 @@ test "Composer Commands chip chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Commands</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"toggle_commands\">Commands</button>"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Commands", model.composer_commands_label());
     try testing.expectEqualStrings(i18n.composerChromeFor(.english, "").commands, model.composer_commands_label());
     try testing.expectEqualStrings(i18n.paletteChromeFor(.english, "").commands, model.composer_commands_label());
@@ -30457,7 +30458,7 @@ test "Composer Send and Stop a11y chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Send\" on-press=\"send\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Stop\" on-press=\"stop_turn\""));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Send", model.composer_send_label());
     try testing.expectEqualStrings("Stop", model.composer_stop_label());
     try testing.expectEqualStrings(i18n.composerSendStopChromeFor(.english, "").send, model.composer_send_label());
@@ -30559,7 +30560,7 @@ test "composer send_label follows Appearance language" {
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "on-press=\"send\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"stop_turn\""));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(!model.is_streaming());
     try testing.expectEqualStrings("Send", model.send_label());
     try testing.expectEqualStrings(i18n.composerSendStopChromeFor(.english, "").send, model.send_label());
@@ -30640,7 +30641,7 @@ test "composer textarea placeholders follow Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Do anything...\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Queue a follow-up...\""));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(!model.is_streaming());
     try testing.expectEqualStrings("Do anything...", model.composer_placeholder());
     try testing.expectEqualStrings(i18n.composerPlaceholderChromeFor(.english, "").idle, model.composer_placeholder());
@@ -30746,7 +30747,7 @@ test "composer Message composer a11y follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Message composer\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "<input-group grow=\"1\" label=\"Message composer\" height=\"88\">"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Message composer", model.message_composer_label());
     try testing.expectEqualStrings(i18n.composerRegionChromeFor(.english, "").message_composer, model.message_composer_label());
     try testing.expect(!std.mem.eql(u8, model.message_composer_label(), model.composer_placeholder()));
@@ -30856,7 +30857,7 @@ test "structural region a11y follows Appearance language" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Terminal\"") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Browser\"") == null);
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.store_io = testing.io;
     model.setSelectedProjectPath(project);
     defer right_panel.clearFilePreview(&model);
@@ -31117,7 +31118,7 @@ test "empty transcript welcome chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "What should we build?"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Pick a project, or just start typing."));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("What should we build?", model.welcome_title());
     try testing.expectEqualStrings("Pick a project, or just start typing.", model.welcome_subtitle());
     try testing.expectEqualStrings(i18n.welcomeChromeFor(.english, "").title, model.welcome_title());
@@ -31652,7 +31653,7 @@ test "Browser Address field chrome follows Appearance language; placeholder stay
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"https://example.com\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Address\""));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Address", model.browser_address_label());
     try testing.expectEqualStrings("https://example.com", model.browser_address_placeholder());
     try testing.expectEqualStrings(i18n.browserAddressChromeFor(.english, "").address, model.browser_address_label());
@@ -31751,7 +31752,7 @@ test "Browser toolbar chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"{browser_address_placeholder}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{browser_address_label}\""));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Back", model.browser_back_label());
     try testing.expectEqualStrings("Forward", model.browser_forward_label());
     try testing.expectEqualStrings("Reload", model.browser_reload_label());
@@ -31911,7 +31912,7 @@ test "Sidebar titlebar history chrome follows Appearance language; Browser toolb
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"browser_back\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"browser_forward\""));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Back", model.sidebar_history_back_label());
     try testing.expectEqualStrings("Forward", model.sidebar_history_forward_label());
     try testing.expectEqualStrings(i18n.sidebarHistoryChromeFor(.english, "").back, model.sidebar_history_back_label());
@@ -31997,7 +31998,7 @@ test "Browser / Terminal session New / Close chips follow Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">New</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Close</button>"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("New", model.session_chip_new_label());
     try testing.expectEqualStrings("Close", model.session_chip_close_label());
     try testing.expectEqualStrings(i18n.sessionChipsChromeFor(.english, "").new, model.session_chip_new_label());
@@ -32102,7 +32103,7 @@ test "Terminal Restart chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Restart</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"restart_terminal\">Restart</button>"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Restart", model.terminal_restart_label());
     try testing.expectEqualStrings(i18n.terminalRestartChromeFor(.english, "").restart, model.terminal_restart_label());
 
@@ -32171,7 +32172,7 @@ test "Terminal Shell ended/failed status follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{term_status}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{has_term_status}"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .set_right_panel_tab_terminal, &fx);
     try testing.expect(model.term_session_live());
 
@@ -32243,7 +32244,7 @@ test "Computer Use page chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Always-allowed apps</text>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No always-allowed apps</text>"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Computer Use", model.computer_use_title());
     try testing.expectEqualStrings(i18n.computerUseChromeFor(.english, "").title, model.computer_use_title());
     try testing.expectEqualStrings(i18n.chromeFor(.english, "").computer_use, model.computer_use_title());
@@ -32420,7 +32421,7 @@ test "Usage view and window chips follow Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_window_this_month\">This month</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_window_last_month\">Last month</button>"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Daily", model.usage_view_daily_label());
     try testing.expectEqualStrings(i18n.usageViewChromeFor(.english, "").daily, model.usage_view_daily_label());
     try testing.expectEqualStrings("Monthly", model.usage_view_monthly_label());
@@ -32557,7 +32558,7 @@ test "Settings Providers Skills Usage Refresh follow Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"refresh_plan_usage\">Refresh</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"goal_refresh\">Refresh goal</button>"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Refresh", model.settings_refresh_label());
     try testing.expectEqualStrings(i18n.settingsRefreshChromeFor(.english, "").refresh, model.settings_refresh_label());
 
@@ -32643,7 +32644,7 @@ test "composer Refresh goal and plan Refresh follow Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"goal_refresh\">Refresh goal</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"refresh_plan_usage\">Refresh</button>"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Refresh goal", model.refresh_goal_label());
     try testing.expectEqualStrings("Refresh", model.plan_refresh_label());
     try testing.expectEqualStrings(i18n.goalPlanRefreshChromeFor(.english, "").refresh_goal, model.refresh_goal_label());
@@ -32751,7 +32752,7 @@ test "composer Set goal and Clear goal follow Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{refresh_goal_label}"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"goal_refresh\">Refresh goal</button>"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Set goal", model.set_goal_label());
     try testing.expectEqualStrings("Clear goal", model.clear_goal_label());
     try testing.expectEqualStrings(i18n.goalActionChromeFor(.english, "").set_goal, model.set_goal_label());
@@ -32859,7 +32860,7 @@ test "composer Goal empty label follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"goal_clear\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"goal_refresh\""));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     model.selected = 0;
     try testing.expectEqualStrings("No goal", model.goal_label());
     try testing.expectEqualStrings(i18n.goalEmptyChromeFor(.english, "").no_goal, model.goal_label());
@@ -32942,7 +32943,7 @@ test "composer Goal Status display labels follow Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"pick_goal_status:{g.id}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, ">{g.label}</menu-item>"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Status", model.goal_status_label());
     try testing.expectEqualStrings("Status", model.goal_status_placeholder());
     try testing.expectEqualStrings(i18n.composerChromeFor(.english, "").status, model.goal_status_placeholder());
@@ -33124,7 +33125,7 @@ test "Usage Cost Tokens Model Days chips follow Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_breakdown_model\">Model</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"set_usage_breakdown_days\">Days</button>"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Cost", model.usage_share_cost_label());
     try testing.expectEqualStrings(i18n.usageViewChromeFor(.english, "").cost, model.usage_share_cost_label());
     try testing.expectEqualStrings("Tokens", model.usage_share_tokens_label());
@@ -33278,7 +33279,7 @@ test "Usage Cost quality Rates metric-strip chrome follow Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "each=\"usage_quality_rows\""));
     try testing.expectEqual(@as(usize, 3), std.mem.count(u8, main.app_markup, "each=\"usage_metric_rows\""));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Cost quality", model.usage_cost_quality_label());
     try testing.expectEqualStrings(i18n.usageCostQualityChromeFor(.english, "").cost_quality, model.usage_cost_quality_label());
     try testing.expectEqualStrings("Rates fresh", litellm_rates.statusLabel(.fresh, .english, ""));
@@ -33451,7 +33452,7 @@ test "Usage sessions unit and connect-daemon hint follow Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{usage_history_hint}"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "<text>Connect a daemon for usage history</text>"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Connect a daemon for usage history", i18n.usageSessionsChromeFor(.english, "").connect_daemon);
     try testing.expectEqualStrings("sessions", i18n.usageSessionsChromeFor(.english, "").sessions);
 
@@ -33581,7 +33582,7 @@ test "composer usage meter chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"refresh_plan_usage\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"refresh_plan_usage\">Refresh</button>"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const claude_id = model.session_store[1].id;
     try testing.expectEqual(protocol.ProviderId.claude, model.sessionById(claude_id).?.provider);
     main.update(&model, .{ .select = claude_id }, &fx);
@@ -33700,7 +33701,7 @@ test "settings Usage local session cards follow Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Thread goal tokens</text>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No thread goal usage</text>"));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Context window", model.context_window_label());
     try testing.expectEqualStrings("No context usage reported yet", model.no_context_usage_label());
     try testing.expectEqualStrings("Thread goal tokens", model.thread_goal_tokens_label());
@@ -33847,7 +33848,7 @@ test "settings Usage Monthly empty chrome follows Appearance language" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Daily usage\"") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Projects usage\"") == null);
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("No monthly usage", model.no_monthly_usage_label());
     try testing.expectEqualStrings(i18n.usageMonthlyEmptyChromeFor(.english, "").no_monthly_usage, model.no_monthly_usage_label());
     try testing.expectEqualStrings("No project usage", model.no_project_usage_label());
@@ -33950,7 +33951,7 @@ test "settings Usage chart a11y chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 12), countNeedle(main.app_markup, "label=\"Claude\""));
     try testing.expectEqual(@as(usize, 12), countNeedle(main.app_markup, "label=\"Codex\""));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Daily usage", model.usage_daily_chart_label());
     try testing.expectEqualStrings("Monthly usage", model.usage_monthly_chart_label());
     try testing.expectEqualStrings("Projects usage", model.usage_projects_chart_label());
@@ -34099,7 +34100,7 @@ test "settings Usage progress a11y chrome follows Appearance language" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Usage meter\"") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Session context\"") == null);
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Context usage", model.context_usage_progress_label());
     try testing.expectEqualStrings("Usage meter", model.usage_meter_label());
     try testing.expectEqualStrings("Session context", model.session_context_label());
@@ -34237,7 +34238,7 @@ test "composer Usage meter toggle follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), countNeedle(main.app_markup, "label=\"{usage_meter_label}\""));
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"toggle_usage_meter\">Usage</button>") == null);
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(model.usage_meter_available());
     try testing.expectEqualStrings("Usage", model.usage_meter_toggle_label());
     try testing.expectEqualStrings("Usage meter", model.usage_meter_label());
@@ -34334,7 +34335,7 @@ test "sidebar Settings gear a11y follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "icon=\"settings\""));
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Settings\" on-press=\"toggle_settings\"") == null);
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expect(model.sidebar_expanded());
     try testing.expectEqualStrings("Settings", model.settings_gear_label());
     try testing.expectEqualStrings("Settings", model.settings_title());
@@ -34427,7 +34428,7 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"copy_fx_login\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"apply_session_provider\""));
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     try testing.expectEqualStrings("Use for this session", model.apply_session_provider_label());
     try testing.expectEqualStrings("Copy install command", model.copy_fx_install_label());
     try testing.expectEqualStrings("Copy login command", model.copy_fx_login_label());
@@ -34564,7 +34565,7 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
 }
 
 test "Settings Providers fx_login_note fx_login_codex_note other_install_hint follow Appearance language" {
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const en = i18n.providersDetailChromeFor(.english, "");
     const zh = i18n.providersDetailChromeFor(.simplified_chinese, "");
     const ja = i18n.providersDetailChromeFor(.japanese, "");
@@ -35148,7 +35149,7 @@ test "Send stamps updated_at from Effects.wallMs" {
     var clock = native_sdk.TestClock{};
     pinClock(&fx, &clock, pinned_now_ms);
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const id = model.selected;
     try testing.expectEqual(@as(i64, 0), model.sessionById(id).?.updated_at);
     main.update(&model, .{ .draft_edit = .{ .insert_text = "stamp this send" } }, &fx);
@@ -35287,7 +35288,7 @@ test "header Environment trigger opens a dropdown; Esc and second click close it
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     var tree = try buildTree(arena, &model);
     const toolbar = try expectByText(tree.root, .row, "Toolbar");
     _ = try expectByText(toolbar, .row, "header-environment-controls");
@@ -35368,7 +35369,7 @@ test "Environment Background Stop appears while streaming and reuses composer St
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const selected = model.selected;
     main.update(&model, .toggle_environment_summary, &fx);
     var tree = try buildTree(arena, &model);
@@ -35446,7 +35447,7 @@ test "Environment Background settles Completed on a finished turn with no queue"
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     main.update(&model, .{ .draft_edit = .{ .insert_text = "stream for background complete" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
@@ -35871,7 +35872,7 @@ test "Environment Copy task ID writes the local session id" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const selected = model.selected;
     try testing.expect(selected != 0);
 
@@ -35903,7 +35904,7 @@ test "Environment Copy agent CLI thread ID is gated and writes fx_session_id" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    var model = main.initialModel();
+    var model = boot.initialModel();
     const selected = model.selected;
     try testing.expect(selected != 0);
     try testing.expectEqual(@as(usize, 0), model.sessionById(selected).?.fxSessionId().len);

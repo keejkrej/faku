@@ -120,10 +120,6 @@ pub const applySessionSelection = palette_run.applySessionSelection;
 
 pub const update = update_mod.update;
 pub const initFx = update_mod.initFx;
-pub const initialModel = boot_mod.initialModel;
-pub const onAppearance = boot_mod.onAppearance;
-pub const resolvedColorScheme = boot_mod.resolvedColorScheme;
-pub const designTokens = boot_mod.designTokens;
 
 pub const startFxProbe = fx_probe.startFxProbe;
 
@@ -149,13 +145,13 @@ pub fn main(init: std.process.Init) !void {
         .init_fx = initFx,
         .on_key = keys.onKey,
         .on_drop = onDrop,
-        .on_appearance = onAppearance,
-        .tokens_fn = designTokens,
+        .on_appearance = boot_mod.onAppearance,
+        .tokens_fn = boot_mod.designTokens,
         .markup = .{ .source = app_markup, .watch_path = "src/app.native", .io = init.io },
         .web_panes = browser_pane.webPanes,
     });
     defer app_state.destroy();
-    app_state.model = initialModel();
+    app_state.model = boot_mod.initialModel();
     if (init.environ_map.get("HOME")) |home| {
         app_state.model.setHome(home);
         store.bindDefaultDir(&app_state.model, home, init.environ_map.get("XDG_DATA_HOME"));

@@ -3,7 +3,7 @@
 //! `Mode` / `Role` / `Phase` / `ReplyPath`, Turn / Folder / row types,
 //! `Msg`, and `Model` live here. `update` / `initFx` live in
 //! `update.zig` (re-exported from `main`). `initialModel` lives in
-//! `boot.zig` (re-exported from `main`). Shell scene / app icons live
+//! `boot.zig`. Shell scene / app icons live
 //! in `shell.zig`. Layout chrome widths live in `layout.zig`. Spawn / stream effect
 //! keys live in `effect_keys.zig`. `app_icons` stays
 //! re-exported from `main` so Native `native check` sees the model-contract

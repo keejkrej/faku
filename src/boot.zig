@@ -3,10 +3,10 @@
 //! `initialModel` is the first-run demo catalog (port + auth).
 //! `onAppearance` / `resolvedColorScheme` / `designTokens` keep Geist
 //! tokens in lockstep with OS appearance and Settings theme preference.
-//! Re-exported from `main.zig` so `UiApp` and tests keep
-//! `main.initialModel` / `main.onAppearance` / `main.resolvedColorScheme`
-//! / `main.designTokens`. Behavior is unchanged from the former `main`
-//! functions.
+//! Callers import this module directly (`boot.initialModel` /
+//! `boot.onAppearance` / `boot.resolvedColorScheme` /
+//! `boot.designTokens`). Not re-exported from `main`.
+//! Behavior is unchanged from the former `main` functions.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
