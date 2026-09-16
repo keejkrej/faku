@@ -106,15 +106,17 @@
 //! Monitor / Subagent slots plus the cap-1 Process settle; live
 //! rows and the stream stay). First-cut Waku
 //! `BACKGROUND_WORK_TICK_INTERVAL` (1s) elapsed duration labels
-//! ship (`maybeTickElapsed` piggybacks `now_ms` / the update tick;
-//! Native has no dedicated timer; stamps `started_ms` on become-live
+//! ship (`maybeTickElapsed` piggybacks `now_ms` / the update tick,
+//! including the first-cut 1s chrome tick while idle; stamps
+//! `started_ms` on become-live
 //! for Process / Monitor / Subagent / daemon-sourced rows; compact
 //! `0s` / `12s` / `1m 5s` / `1h 2m`; empty on settled rows). Leftovers:
 //! Claude CLI TaskStop / long-lived ACP, full BackgroundWorkRegistry
 //! / GPUI SharedString parity. First-cut 5s
 //! `BACKGROUND_WORK_REFRESH_INTERVAL` tick ships
 //! (`background_work.maybeRefresh` piggybacks `now_ms` / the
-//! update tick; Native has no dedicated timer; skips in-flight;
+//! update tick, including the first-cut 1s chrome tick while idle;
+//! Native has no dedicated 5s timer; skips in-flight;
 //! prefers selected, else one live other session). First-cut daemon `refreshBackgroundWork`
 //! prefers hello + that command when a daemon address and usable
 //! session `runtimeId` are set on Background tab / Environment Summary
@@ -352,8 +354,8 @@ pub const output_cache_refresh_interval_ms: i64 = 100;
 
 /// Waku `BACKGROUND_WORK_TICK_INTERVAL`. First-cut 1s elapsed
 /// duration label throttle for live Background rows, piggybacked
-/// off `model.now_ms` / the update tick. Native has no dedicated
-/// timer this cut. Compact labels (`0s` / `12s` / `1m 5s` /
+/// off `model.now_ms` / the update tick, including the first-cut
+/// 1s chrome tick while idle. Compact labels (`0s` / `12s` / `1m 5s` /
 /// `1h 2m`) are a sibling of the Codex goal meter (`3m` drops
 /// seconds under an hour) — elapsed wall time, not a token budget.
 pub const background_work_tick_interval_ms: i64 = 1000;
@@ -1439,8 +1441,8 @@ fn refreshElapsedLabels(model: *Model) void {
 }
 
 /// First-cut Waku `BACKGROUND_WORK_TICK_INTERVAL` (1s) elapsed
-/// labels. Piggybacks `model.now_ms` / the update tick — Native has
-/// no dedicated timer. Skips when no live Process / Monitor /
+/// labels. Piggybacks `model.now_ms` / the update tick, including
+/// the first-cut 1s chrome tick while idle. Skips when no live Process / Monitor /
 /// Subagent / daemon-sourced row needs a duration. Within 1s of the
 /// last stamp, leaves labels alone (no churn). Returns true when
 /// labels were rewritten.

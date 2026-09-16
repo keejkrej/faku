@@ -2,7 +2,7 @@
 //!
 //! `pub fn update` is the TEA switch over `Msg`. `initFx` is the
 //! matching `.init_fx` boot (catalog hydrate + git probes + fx `--help`
-//! + non-fx PATH `--help` probes). Re-exported from `main.zig` so
+//! + non-fx PATH `--help` probes + first-cut 1s chrome tick). Re-exported from `main.zig` so
 //! `UiApp` and tests keep `main.update` / `main.initFx`. Behavior is
 //! unchanged from the former `main` functions.
 //! `initialModel` / appearance boot live in `boot.zig`.
@@ -20,6 +20,8 @@ const sidebar_row_helpers = @import("sidebar_rows.zig");
 const attach_helpers = @import("attach.zig");
 const session_fork = @import("fork.zig");
 const turn_stream = @import("stream.zig");
+const prompt_spawn = @import("spawn.zig");
+const effect_keys = @import("effect_keys.zig");
 const sidecar_lines = @import("lines.zig");
 const fx_probe = @import("fx_probe.zig");
 const cli_probe = @import("cli_probe.zig");
@@ -601,7 +603,9 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .transcript_image_done => |result| transcript_images.applyResult(model, fx, result),
         .tick => |timer| {
             if (timer.outcome != .fired) return;
-            turn_stream.tickStream(model, fx);
+            if (timer.key == effect_keys.stream_timer_key) {
+                turn_stream.tickStream(model, fx);
+            }
         },
         .fx_line => |line| sidecar_lines.handleFxLine(model, fx, line),
         .fx_exit => |exit| sidecar_lines.handleFxExit(model, fx, exit),
@@ -609,34 +613,40 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .cli_probe_exit => |exit| cli_probe.handleCliProbeExit(model, exit),
     }
     // Waku-parity 100ms Background render cache. Piggybacks
-    // `now_ms` (stamped above) and this stream tick / fx_line
-    // path. Native has no dedicated 100ms timer this cut.
+    // `now_ms` (stamped above) and this update tick / fx_line
+    // path, including the first-cut 1s chrome tick while idle.
+    // Native has no dedicated 100ms timer this cut.
     _ = environment_summary.refreshBackgroundOutputCache(model);
     // First-cut Waku BACKGROUND_WORK_TICK_INTERVAL (1s) elapsed
-    // duration labels. Same `now_ms` / update-tick piggyback.
-    // Native has no dedicated timer this cut. Skips when no live
-    // Background row needs a duration; within 1s is a no-op.
+    // duration labels. Same `now_ms` / update-tick piggyback,
+    // including the first-cut 1s chrome tick
+    // (`effect_keys.chrome_tick_key`) so idle windows keep
+    // advancing. Skips when no live Background row needs a
+    // duration; within 1s is a no-op.
     _ = environment_summary.maybeTickElapsed(model);
     // First-cut Waku BACKGROUND_WORK_REFRESH_INTERVAL (5s).
-    // Same `now_ms` / update-tick piggyback. Native has no
-    // dedicated timer this cut. Skips when a refresh sidecar is
-    // already in flight; open-path `refresh` stays immediate.
+    // Same `now_ms` / update-tick piggyback, including the 1s
+    // chrome tick while idle. Native has no dedicated 5s timer
+    // this cut. Skips when a refresh sidecar is already in
+    // flight; open-path `refresh` stays immediate.
     background_work.maybeRefresh(model, fx);
     // First-cut Waku plan-usage cadence (loop all four providers;
     // 300s idle / 600s Grok / 30s stale / 90s retry). Same `now_ms`
-    // / update-tick piggyback. Native has no dedicated timer this
-    // cut. Skip a provider that already has an in-flight sidecar;
-    // open / Refresh stay immediate for the selected provider only.
+    // / update-tick piggyback, including the 1s chrome tick while
+    // idle. Native has no dedicated 300s timer this cut. Skip a
+    // provider that already has an in-flight sidecar; open /
+    // Refresh stay immediate for the selected provider only.
     usage_meter.maybeRefresh(model, fx);
     // First-cut InspectBranches open-picker poll (5s). Same
-    // `now_ms` / update-tick piggyback. Native has no dedicated
-    // timer this cut. Not Waku's live watch. Skips when a list
-    // sidecar is already in flight; `refresh` / toggle-open stay
-    // immediate.
+    // `now_ms` / update-tick piggyback, including the 1s chrome
+    // tick while idle. Native has no dedicated 5s timer this cut.
+    // Not Waku's live watch. Skips when a list sidecar is already
+    // in flight; `refresh` / toggle-open stay immediate.
     git_checkout.maybeRefresh(model, fx);
     // First-cut Files preview live reload via size + mtime poll.
-    // Same `now_ms` / update-tick piggyback. Native has no FS
-    // watcher / dedicated timer this cut.
+    // Same `now_ms` / update-tick piggyback, including the 1s
+    // chrome tick while idle. Native has no FS watcher / dedicated
+    // mtime timer this cut.
     _ = right_panel.pollFilePreviewDisk(model, fx);
     // First-cut transcript markdown `images=`. Reconciles
     // visible user / tool / reasoning / assistant sources after stream
@@ -649,10 +659,12 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
 /// then `fx --help` (PATH), plus every non-fx PATH
 /// `{defaultBinary()} --help` (`cli_probe.startCliProbes`). Wired
 /// through `.init_fx` so the first paint already has those spawns in
-/// flight. Settings → Providers open calls `startProbes` (no-op when
+/// flight. Also arms the first-cut 1s chrome tick for the app
+/// lifetime. Settings → Providers open calls `startProbes` (no-op when
 /// already started) and does not restart fx.
 pub fn initFx(model: *Model, fx: *Effects) void {
     model.now_ms = fx.wallMs();
+    prompt_spawn.startChromeTick(fx);
     store.maybeLoadDaemonCatalog(model, fx);
     store.maybeHydrateDaemonSession(model, fx, model.selected);
     attach_helpers.refreshAttachPreview(model, fx);

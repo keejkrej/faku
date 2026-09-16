@@ -13,7 +13,8 @@
 //! Closing the panel leaves the runtime map. Refresh re-spawns the
 //! selected provider immediately (cancel that slot's in-flight only).
 //! First-cut Waku cadence ships as `maybeRefresh` on the existing
-//! `now_ms` / update tick (Native has no dedicated timer): loop all
+//! `now_ms` / update tick, including the first-cut 1s chrome tick
+//! while idle (Native has no dedicated 300s timer): loop all
 //! four plan-usage providers (Claude / Codex / OpenCode / Grok);
 //! 300s idle, 600s Grok, 30s when that slot is stale (panel open /
 //! turn settle), 90s after that slot's fetch error. Skip a provider

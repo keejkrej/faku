@@ -1,17 +1,22 @@
 //! Spawn / stream effect keys and related runtime constants.
 //!
-//! Fixed Native effect keys for the demo stream timer (1), one-shot
-//! `fx ask` / ACP child (2), daemon-proxy band start (4), and overlapping
-//! fx spawn band start (64). Probe stays on `fx_probe_key` (3) in
-//! `fx_probe.zig`. Sidecar line cap, demo stream tick, and transcript
-//! pin overshoot live here too. Callers import this module directly
-//! (`effect_keys.stream_timer_key` / `effect_keys.fx_ask_key`).
+//! Fixed Native effect keys for the demo stream timer (1), chrome tick
+//! timer (2; timer namespace — does not collide with spawn `fx_ask_key`
+//! 2), one-shot `fx ask` / ACP child (2), daemon-proxy band start (4),
+//! and overlapping fx spawn band start (64). Probe stays on
+//! `fx_probe_key` (3) in `fx_probe.zig`. Sidecar line cap, demo stream
+//! tick, chrome tick, and transcript pin overshoot live here too.
+//! Callers import this module directly (`effect_keys.stream_timer_key` /
+//! `effect_keys.chrome_tick_key` / `effect_keys.fx_ask_key`).
 //! Not re-exported from `main`. Behavior is unchanged from the former
-//! `main` constants.
+//! `main` constants except the first-cut chrome tick key.
 
 const std = @import("std");
 
 pub const stream_timer_key: u64 = 1;
+/// Repeating idle chrome tick. Timer key namespace — distinct from
+/// spawn `fx_ask_key` even though both are numeric 2.
+pub const chrome_tick_key: u64 = 2;
 pub const fx_ask_key: u64 = 2;
 pub const daemon_proxy_key_first: u64 = 4;
 /// Overlapping one-shot `fx acp` / `fx ask` children (queue drain while
@@ -20,6 +25,9 @@ pub const fx_spawn_overlap_key_first: u64 = 64;
 pub const acp_cwd_fallback = ".";
 pub const daemon_line_bytes: usize = 64 * 1024;
 pub const stream_interval_ms: u64 = 90;
+/// First-cut idle chrome tick. Drives `now_ms` piggybacks while the
+/// window sits with no other Msg.
+pub const chrome_tick_interval_ms: u64 = 1000;
 pub const stream_chunk_bytes: usize = 8;
 /// Overshoot for a programmatic jump to the transcript end. Native
 /// clamps `scroll` `value` against the content edge
@@ -30,11 +38,14 @@ pub const transcript_pin_offset: f32 = 1_000_000;
 
 test "spawn/stream effect keys and runtime sizes match known values" {
     try std.testing.expectEqual(@as(u64, 1), stream_timer_key);
+    try std.testing.expectEqual(@as(u64, 2), chrome_tick_key);
     try std.testing.expectEqual(@as(u64, 2), fx_ask_key);
+    try std.testing.expect(chrome_tick_key != stream_timer_key);
     try std.testing.expectEqual(@as(u64, 4), daemon_proxy_key_first);
     try std.testing.expectEqual(@as(u64, 64), fx_spawn_overlap_key_first);
     try std.testing.expectEqual(@as(usize, 65536), daemon_line_bytes);
     try std.testing.expectEqual(@as(u64, 90), stream_interval_ms);
+    try std.testing.expectEqual(@as(u64, 1000), chrome_tick_interval_ms);
     try std.testing.expectEqual(@as(usize, 8), stream_chunk_bytes);
     try std.testing.expectEqual(@as(f32, 1_000_000), transcript_pin_offset);
     try std.testing.expectEqualStrings(".", acp_cwd_fallback);

@@ -255,8 +255,10 @@ pub const SidebarRow = struct {
     /// Today / Yesterday / This week / This month / This year / Older label.
     /// Not a folder; no assign/delete chrome.
     is_date_header: bool = false,
-    /// Static last-activity label from `updated_at` vs `now_ms`. Empty when
+    /// Last-activity label from `updated_at` vs `now_ms`. Empty when
     /// `updated_at` or the clock is missing/0 so chrome does not invent a time.
+    /// First-cut 1s chrome tick stamps `now_ms` while idle so the label
+    /// can advance; still computed at paint from last `now_ms`.
     relative_time: []const u8 = "",
     has_relative_time: bool = false,
     /// Folder headers mirror `Folder.collapsed`. Session and date rows stay false.
@@ -964,8 +966,9 @@ pub const Model = struct {
     /// Null until the first rebuild. Registry-level; throttles every
     /// LastWindow rendered buffer to
     /// `output_cache_refresh_interval_ms`. Runtime-only; not
-    /// sessions.json. Piggybacks `now_ms` / the stream tick; Native
-    /// has no dedicated 100ms timer this cut.
+    /// sessions.json. Piggybacks `now_ms` / the update tick, including
+    /// the first-cut 1s chrome tick while idle. Native has no dedicated
+    /// 100ms timer this cut.
     background_output_cache_refresh_ms: ?i64 = null,
     /// Process-row started wall time (`now_ms`) while the Agent
     /// turn is live. Runtime-only; first `noteLiveProcess` /
@@ -977,7 +980,7 @@ pub const Model = struct {
     /// become-live stamp or `maybeTickElapsed`. Runtime-only; not
     /// sessions.json. Throttles to `background_work_tick_interval_ms`
     /// (Waku `BACKGROUND_WORK_TICK_INTERVAL`). Piggybacks `now_ms` /
-    /// the update tick; Native has no dedicated 1s timer this cut.
+    /// the update tick; first-cut 1s chrome tick drives this while idle.
     last_background_work_tick_ms: ?i64 = null,
     /// Runtime-only Environment Compare Review card. Not persisted.
     review_diff_active: bool = false,
@@ -1219,7 +1222,7 @@ pub const Model = struct {
     /// Runtime-only disk fingerprint for Files preview live reload.
     /// `file.stat` size + mtime (ns since epoch). Not sessions.json.
     /// Native has no FS watcher this cut; poll piggybacks `now_ms` /
-    /// the stream tick.
+    /// the update tick, including the first-cut 1s chrome tick while idle.
     right_panel_file_preview_disk_size: u64 = 0,
     right_panel_file_preview_disk_mtime_ns: i64 = 0,
     right_panel_file_preview_disk_valid: bool = false,
@@ -1292,7 +1295,8 @@ pub const Model = struct {
     /// not sessions.json. Throttles `maybeRefresh` to
     /// `background_work_refresh_interval_ms` (Waku
     /// `BACKGROUND_WORK_REFRESH_INTERVAL`). Piggybacks `now_ms` /
-    /// the update tick; Native has no dedicated 5s timer this cut.
+    /// the update tick, including the first-cut 1s chrome tick while
+    /// idle. Native has no dedicated 5s timer this cut.
     last_background_work_refresh_ms: ?i64 = null,
     /// In-flight `stopBackgroundWork` sidecar. Distinct from refresh
     /// so Stop cannot cancel a Background fill, and miss cannot
@@ -1459,7 +1463,8 @@ pub const Model = struct {
     /// spawn. Runtime-only; not sessions.json. Throttles
     /// `git_checkout.maybeRefresh` to
     /// `git_branch_list_refresh_interval_ms`. Piggybacks `now_ms` /
-    /// the update tick; Native has no dedicated 5s timer this cut.
+    /// the update tick, including the first-cut 1s chrome tick while
+    /// idle. Native has no dedicated 5s timer this cut.
     /// Open-path `refresh` / toggle-open are not gated by this stamp.
     last_git_branch_list_refresh_ms: ?i64 = null,
     /// True until the in-flight list's first apply replaces the store
