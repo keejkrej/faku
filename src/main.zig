@@ -59,7 +59,6 @@ const goal = @import("goal.zig");
 const session_switcher = @import("switcher.zig");
 const sidebar_row_helpers = @import("sidebar_rows.zig");
 const attach_helpers = @import("attach.zig");
-const prompt_spawn = @import("spawn.zig");
 const sidecar_lines = @import("lines.zig");
 const fx_probe = @import("fx_probe.zig");
 const palette_run = @import("palette_run.zig");
@@ -104,8 +103,6 @@ pub const demo_reply = "fx here (demo). The fx CLI was not found, so this is a l
 
 pub const formatThreadGoalUsage = goal.formatThreadGoalUsage;
 
-pub const startOptionsFromSession = prompt_spawn.startOptionsFromSession;
-pub const takeFxAskSessionId = prompt_spawn.takeFxAskSessionId;
 pub const stripFxDiagnostics = sidecar_lines.stripFxDiagnostics;
 
 pub const BackgroundRow = environment_summary.BackgroundRow;
