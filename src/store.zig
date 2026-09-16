@@ -93,6 +93,7 @@ const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
 const model_exports = @import("model_exports.zig");
+const sidebar_dates = @import("sidebar_dates.zig");
 const effect_keys = @import("effect_keys.zig");
 const protocol = @import("protocol.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
@@ -4068,7 +4069,7 @@ test "updated_at persists; missing field loads as 0" {
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&legacy, allocator, io));
     try testing.expectEqual(@as(u32, 1), legacy.session_count);
     try testing.expectEqual(@as(i64, 0), legacy.session_store[0].updated_at);
-    try testing.expectEqual(main.DateBucket.today, main.sessionDateBucket(legacy.session_store[0].updated_at, 1_704_067_200_000));
+    try testing.expectEqual(sidebar_dates.DateBucket.today, sidebar_dates.sessionDateBucket(legacy.session_store[0].updated_at, 1_704_067_200_000));
 }
 
 test "removeSession catalog selected follows same-project newest not sessions[0]" {
