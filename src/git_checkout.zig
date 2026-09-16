@@ -126,8 +126,15 @@
 //! no-daemon path: remotes with no listed local counterpart, skip
 //! `*/HEAD`; daemon heads stay source of truth for heads/current/
 //! occupied). Local `for-each-ref` (heads+remotes) remains the
-//! no-daemon path and the miss/overflow/error/null fallback. Not a
-//! live watch. First-cut daemon `WorkspaceOperation::CheckoutBranch`
+//! no-daemon path and the miss/overflow/error/null fallback. Not
+//! Waku's live watch — first-cut is an open-picker 5s poll
+//! (`maybeRefresh` piggybacks `now_ms` / the update tick; Native
+//! has no dedicated timer) while the branch picker is open
+//! (delete-branch / New-worktree Base pickers too when they show
+//! the same listed heads). An in-flight list skips quietly and
+//! does not call `refresh` (that cancels unrelated git and
+//! `closePicker`s). Open-path `refresh` / toggle-open stay
+//! immediate. First-cut daemon `WorkspaceOperation::CheckoutBranch`
 //! ships on picker local-head checkout (`create: false`) and New
 //! branch confirm (`create: true`) when a daemon address is set
 //! (nil request-frame session/runtime ids; `{ "type":
@@ -142,12 +149,13 @@
 //! Cap is 64 local heads plus 32
 //! remote-tracking names that have no local counterpart (skip
 //! symbolic `*/HEAD`), sorted lexicographically. Not Waku's live
-//! watch, `waku/` prefix /
+//! watch (open-picker 5s poll instead), `waku/` prefix /
 //! `~/.waku/worktrees/{project_id}` UUID nest. Composer Push… still
 //! closes any open Commit… card; a push started from that card
 //! keeps it open with in-dialog Pushing… until the push ends.
-//! Leftovers: other daemon `WorkspaceOperation` variants
-//! (amend/force over daemon,
+//! Leftovers: true InspectBranches live watch / daemon push
+//! subscription (first-cut is the open-picker 5s poll); other
+//! daemon `WorkspaceOperation` variants (amend/force over daemon,
 //! remote `--track` over daemon, …). Fetch
 //! already `--prune`; there is no prune-alone menu (not in Waku).
 //! First-cut defer-until-Send Work in reuses this same add path on
@@ -283,8 +291,16 @@ const writeFixed = model_exports.writeFixed;
 /// git_fetch (340+), git_numstat (350+), git_push (360+),
 /// git_worktree_add (370+), git_ahead_behind (380+),
 /// git_worktree_base (390+), and file_mention (400+). Incremented
-/// per refresh so a cancelled spawn cannot paint a later session.
+/// per list spawn so a cancelled sidecar cannot paint a later
+/// session. Quiet open-picker poll reuses this band.
 pub const git_branch_list_key_first: u64 = 250;
+
+/// First-cut InspectBranches live-watch workaround. 5s throttle
+/// for `maybeRefresh` while a listed-heads picker is open,
+/// piggybacked off `model.now_ms` / the update tick. Native has
+/// no dedicated timer this cut. Matches
+/// `background_work_refresh_interval_ms`.
+pub const git_branch_list_refresh_interval_ms: i64 = 5000;
 
 /// One-shot `git checkout <name>` or `git checkout --track <name>`.
 /// Distinct from the list family (250+), git_create (290+),
@@ -2596,6 +2612,45 @@ pub fn refresh(model: *Model, fx: *Effects) void {
     if (!probeSupported()) return;
     const cwd = probePath(model);
     if (cwd.len == 0) return;
+    spawnBranchList(model, fx, cwd);
+}
+
+/// First-cut Waku InspectBranches live-watch workaround. While a
+/// listed-heads picker is open, re-list on the existing update /
+/// stream tick (`now_ms` piggyback; Native has no dedicated timer).
+/// Throttled to `git_branch_list_refresh_interval_ms` from
+/// `last_git_branch_list_refresh_ms` (runtime-only; stamped when a
+/// quiet spawn is actually attempted). Unset last fires on the
+/// first eligible tick. An in-flight `git_branch_list_key` skips
+/// quietly — the tick does not cancel/re-spawn. Does **not** call
+/// `refresh` (that cancels unrelated git and `closePicker`s).
+/// Open-path `refresh` / toggle-open stay immediate and are not
+/// gated by this throttle. Closing the picker does not clear the
+/// stamp.
+pub fn maybeRefresh(model: *Model, fx: *Effects) void {
+    if (!listedHeadsPickerOpen(model)) return;
+    if (model.git_branch_list_key != 0) return;
+    if (model.last_git_branch_list_refresh_ms) |last| {
+        if (model.now_ms >= last and model.now_ms - last < git_branch_list_refresh_interval_ms) {
+            return;
+        }
+    }
+    if (!probeSupported()) return;
+    const cwd = probePath(model);
+    if (cwd.len == 0) return;
+    model.last_git_branch_list_refresh_ms = model.now_ms;
+    clearListedBranches(model);
+    spawnBranchList(model, fx, cwd);
+}
+
+fn listedHeadsPickerOpen(model: *const Model) bool {
+    return model.git_branch_picker_open or model.git_branch_delete_picker_open or model.git_worktree_base_picker_open;
+}
+
+/// Prefer hello + `WorkspaceOperation::InspectBranches` when a
+/// daemon address is set, else local `git for-each-ref`. Shared by
+/// open-path `refresh` and the open-picker poll.
+fn spawnBranchList(model: *Model, fx: *Effects, cwd: []const u8) void {
     if (trySpawnDaemonInspectBranches(model, fx, cwd)) return;
     spawnLocalBranchList(model, fx, cwd, false);
 }
@@ -3492,6 +3547,18 @@ fn pendingSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
         if (spawn.key == key) return spawn;
     }
     return null;
+}
+
+fn seedOpenPickerListModel(project: []const u8) Model {
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setSidecarPath("faku");
+    model.now_ms = 10_000;
+    const id = model.addSession("list poll", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.git_branch_picker_open = true;
+    return model;
 }
 
 test "list argv is chdir script plus for-each-ref refs/heads and refs/remotes" {
@@ -6176,6 +6243,236 @@ test "InspectBranches error still falls back to local for-each-ref" {
     const list = pendingSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingGitBranchListErrorFallback;
     try std.testing.expect(isGitBranchListArgv(list.argv));
     try std.testing.expect(!isDaemonWorkspacePushArgv(list.argv));
+}
+
+test "maybeRefresh no-op when listed-heads pickers are closed" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-list-poll-closed", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = seedOpenPickerListModel(project);
+    model.git_branch_picker_open = false;
+    try std.testing.expect(!model.git_branch_delete_picker_open);
+    try std.testing.expect(!model.git_worktree_base_picker_open);
+    try std.testing.expectEqual(@as(?i64, null), model.last_git_branch_list_refresh_ms);
+
+    maybeRefresh(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.git_branch_list_key);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try std.testing.expectEqual(@as(?i64, null), model.last_git_branch_list_refresh_ms);
+}
+
+test "maybeRefresh delete-branch picker still re-lists" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-list-poll-delete", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = seedOpenPickerListModel(project);
+    model.git_branch_picker_open = false;
+    model.git_branch_delete_picker_open = true;
+
+    maybeRefresh(&model, &fx);
+    const list = pendingSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingQuietDeletePickerList;
+    try std.testing.expect(isGitBranchListArgv(list.argv));
+    try std.testing.expect(model.git_branch_delete_picker_open);
+    try std.testing.expect(!model.git_branch_picker_open);
+}
+
+test "maybeRefresh open + unset last spawns; throttle, in-flight, and aged key" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-list-poll-throttle", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = seedOpenPickerListModel(project);
+    model.git_branch_list_store[0].set("stale", false, false);
+    model.git_branch_list_count = 1;
+    try std.testing.expectEqual(@as(?i64, null), model.last_git_branch_list_refresh_ms);
+
+    maybeRefresh(&model, &fx);
+    const first = pendingSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingQuietListSpawn;
+    try std.testing.expect(isGitBranchListArgv(first.argv));
+    try std.testing.expect(!isDaemonWorkspacePushArgv(first.argv));
+    try std.testing.expectEqualStrings("", first.stdin);
+    try std.testing.expect(!model.git_branch_list_via_daemon);
+    try std.testing.expectEqual(@as(?i64, 10_000), model.last_git_branch_list_refresh_ms);
+    try std.testing.expectEqual(@as(u32, 0), model.git_branch_list_count);
+    try std.testing.expect(model.git_branch_picker_open);
+    try std.testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    maybeRefresh(&model, &fx);
+    try std.testing.expectEqual(first.key, model.git_branch_list_key);
+    try std.testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    model.git_branch_list_key = 0;
+    maybeRefresh(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.git_branch_list_key);
+    try std.testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    try std.testing.expectEqual(@as(?i64, 10_000), model.last_git_branch_list_refresh_ms);
+
+    model.now_ms = 10_000 + git_branch_list_refresh_interval_ms;
+    maybeRefresh(&model, &fx);
+    const second = pendingSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingQuietListRespawn;
+    try std.testing.expect(second.key != first.key);
+    try std.testing.expect(isGitBranchListArgv(second.argv));
+    try std.testing.expectEqual(@as(?i64, 10_000 + git_branch_list_refresh_interval_ms), model.last_git_branch_list_refresh_ms);
+    try std.testing.expectEqual(@as(usize, 2), fx.pendingSpawnCount());
+}
+
+test "maybeRefresh with a daemon address prefers InspectBranches stdin" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-list-poll-daemon", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = seedOpenPickerListModel(project);
+    model.setLastDaemonAddress("127.0.0.1:8787");
+
+    maybeRefresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingQuietDaemonInspectBranches;
+    try std.testing.expect(isDaemonWorkspacePushArgv(sidecar.argv));
+    try std.testing.expect(!isGitBranchListArgv(sidecar.argv));
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"inspectBranches\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, project) != null);
+    try std.testing.expect(model.git_branch_list_via_daemon);
+    try std.testing.expect(!model.git_branch_list_merge_remotes);
+    try std.testing.expect(model.git_branch_picker_open);
+}
+
+test "maybeRefresh keeps picker, search, and cards; filter still applies" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-list-poll-ui", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = seedOpenPickerListModel(project);
+    model.applyGitBranchSearch(.{ .insert_text = "FEAT" });
+    model.git_branch_create_active = true;
+    model.git_branch_delete_active = true;
+    model.git_push_confirm_active = true;
+    model.git_worktree_create_active = true;
+
+    maybeRefresh(&model, &fx);
+    const list = pendingSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingQuietListUiSpawn;
+    try std.testing.expect(model.git_branch_picker_open);
+    try std.testing.expectEqualStrings("FEAT", model.git_branch_search());
+    try std.testing.expect(model.git_branch_create_active);
+    try std.testing.expect(model.git_branch_delete_active);
+    try std.testing.expect(model.git_push_confirm_active);
+    try std.testing.expect(model.git_worktree_create_active);
+
+    applyListLine(&model, .{
+        .key = list.key,
+        .line = "refs/heads/feat\nrefs/heads/main\n",
+    });
+    handleListExit(&model, &fx, .{ .key = list.key, .reason = .exited, .code = 0 });
+    try std.testing.expect(model.git_branch_picker_open);
+    try std.testing.expectEqualStrings("FEAT", model.git_branch_search());
+    try std.testing.expect(model.git_branch_create_active);
+    try std.testing.expect(model.git_branch_delete_active);
+    try std.testing.expect(model.git_push_confirm_active);
+
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const filtered = model.git_branch_picker_rows(arena);
+    try std.testing.expectEqual(@as(usize, 1), filtered.len);
+    try std.testing.expectEqualStrings("feat", filtered[0].id);
+
+    model.applyGitBranchSearch(.clear);
+    const all = model.git_branch_picker_rows(arena);
+    try std.testing.expectEqual(@as(usize, 2), all.len);
+}
+
+test "refresh is not gated by the open-picker poll stamp" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-list-poll-refresh", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = seedOpenPickerListModel(project);
+    model.last_git_branch_list_refresh_ms = model.now_ms;
+    model.git_branch_create_active = true;
+
+    refresh(&model, &fx);
+    const list = pendingSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingImmediateOpenRefresh;
+    try std.testing.expect(isGitBranchListArgv(list.argv));
+    try std.testing.expect(!model.git_branch_picker_open);
+    try std.testing.expect(!model.git_branch_create_active);
+    try std.testing.expectEqual(@as(?i64, 10_000), model.last_git_branch_list_refresh_ms);
+}
+
+test "update tick path maybeRefresh after 5s; refresh still immediate" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var clock = native_sdk.TestClock{};
+    clock.setWallMs(1_000);
+    fx.clock = clock.clock();
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-list-poll-tick", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = seedOpenPickerListModel(project);
+    model.now_ms = 0;
+
+    main.update(&model, .close_environment_summary, &fx);
+    const first = pendingSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingUpdateTickQuietList;
+    try std.testing.expect(isGitBranchListArgv(first.argv));
+    try std.testing.expectEqual(@as(?i64, 1_000), model.last_git_branch_list_refresh_ms);
+    try std.testing.expect(model.git_branch_picker_open);
+    model.git_branch_list_key = 0;
+
+    clock.setWallMs(1_000 + git_branch_list_refresh_interval_ms - 1);
+    main.update(&model, .close_environment_summary, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.git_branch_list_key);
+
+    clock.setWallMs(1_000 + git_branch_list_refresh_interval_ms);
+    main.update(&model, .close_environment_summary, &fx);
+    const tick = pendingSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingUpdateTickQuietListAged;
+    try std.testing.expect(tick.key != first.key);
+    try std.testing.expect(isGitBranchListArgv(tick.argv));
+    try std.testing.expect(model.git_branch_picker_open);
+
+    refresh(&model, &fx);
+    const open = pendingSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingOpenRefreshAfterTick;
+    try std.testing.expect(open.key != tick.key);
+    try std.testing.expect(!model.git_branch_picker_open);
 }
 
 const branch_changed_feat_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"branchChanged\",\"snapshot\":{\"repository\":\"/tmp/faku\",\"current\":\"feat\",\"detached_head\":null,\"default_branch\":\"main\",\"branches\":[{\"name\":\"feat\",\"checked_out_elsewhere\":false},{\"name\":\"main\",\"checked_out_elsewhere\":false}],\"additions\":0,\"deletions\":0}}}}}";

@@ -32,7 +32,7 @@ send circle.
 | **fx_session_id** | Saved fx / ACP `sessionId`, or Claude stream-json `session_id`. Same field `fx ask --json` uses. Empty on a Fork clone so the next Send calls `session/new` (ACP) or omits `--resume` (Claude). |
 | **runtime_id** | Daemon runtime id. Empty until a daemon `start` / attach path stores one. |
 | **project_path** | Session cwd. Empty is Local / host cwd. |
-| **workspace** | Session workspace kind. `local` (default; omitted from `sessions.json`) is the ordinary `project_path` checkout. `newWorktree` is a composer draft until Send — it does not spawn `git worktree add` yet. `worktree` is `{path, branch}` after Send materializes that dest and retargets `project_path`. Composer **Work in**. Optional Base for `newWorktree` persists camelCase `baseBranch` (Waku `SessionWorkspace::NewWorktree { base_branch }`; omitted when empty) and keeps the runtime New worktree… picker (`git_worktree_base_override_*`) in sync. Fork copies `project_path` (including a materialized dest) and resets kind to `local`. First-cut daemon `WorkspaceOperation::CreateWorktree` is a best-effort sidecar on Send when a daemon address is set; no address keeps local `git worktree add`. |
+| **workspace** | Session workspace kind. `local` (default; omitted from `sessions.json`) is the ordinary `project_path` checkout. `newWorktree` is a composer draft until Send. Send then materializes via local `git worktree add` or daemon `CreateWorktree`, retargets `project_path`, and sets `worktree` `{path, branch}`. Composer **Work in**. Optional Base for `newWorktree` persists camelCase `baseBranch` (Waku `SessionWorkspace::NewWorktree { base_branch }`; omitted when empty) and keeps the runtime New worktree… picker (`git_worktree_base_override_*`) in sync. Fork copies `project_path` (including a materialized dest) and resets kind to `local`. First-cut daemon `WorkspaceOperation::CreateWorktree` is a best-effort sidecar on Send when a daemon address is set; no address keeps local `git worktree add`. |
 | **access_mode** | Stored Waku runtime mode. Maps onto fx `ask` / `code` (ACP) and `FX_PERMISSION_MODE` (`ask` / `auto` / `yolo`). New Task create prefers the selected session's access mode (Waku `new_task_runtime_mode`); else remembered `last_access_mode`; else Waku `fullAccess`. |
 | **loadTaskState** | Catalog fill. Local JSON today. Daemon `loadTaskState` is only a first-run fill when the local catalog is missing. |
 | **saveTaskState** | Best-effort daemon mirror of one started-session skeleton. Does not replace the local catalog. |
@@ -351,7 +351,9 @@ Composer project-row git (branch, checkout, commit, push, fetch,
 worktree, dirty / numstat / ahead-behind) and Environment Compare are
 one-shot `git` spawns. Runtime-only labels are not stored on
 `sessions.json`. This is not Waku's daemon `InspectBranches` live
-watch, not `{project_id}` UUID nesting. First-cut composer Force
+watch (first-cut Faku workaround is an open-picker 5s poll
+piggybacked on `now_ms` / the update tick while the composer
+branch picker is open), not `{project_id}` UUID nesting. First-cut composer Force
 push ships (runtime-only ghost toggle on Push… confirm and
 Commit…; default off; reset when those cards open; not persisted;
 `--force` its own argv slot after `push`). First-cut daemon
@@ -371,8 +373,10 @@ branch-list picker when a daemon address is set (ok is nested
 are the source of truth for heads/current/occupied; a follow-up
 local `git for-each-ref` merges remote-tracking rows the same as
 the no-daemon path; Native 4 KiB stdin overflow / error /
-null snapshot falls back to local `git for-each-ref`; not a live
-watch). The open picker filters listed names with a runtime-only
+null snapshot falls back to local `git for-each-ref`; not Waku's
+live watch — first-cut open-picker poll (5s `now_ms` / update-tick
+piggyback) while the branch picker is open; in-flight list skips
+quietly; open/refresh list stays immediate). The open picker filters listed names with a runtime-only
 case-insensitive substring (empty query shows every row; not
 persisted to sessions.json). First-cut daemon `WorkspaceOperation::CheckoutBranch` ships
 on picker local-head checkout (`create: false`) and New branch
@@ -1879,7 +1883,10 @@ Honest gaps this cut does not implement:
   heads only; remotes-on-daemon-list ships as a follow-up local
   `git for-each-ref` merge (daemon heads stay source of truth);
   Native 4 KiB stdin overflow / error / null snapshot falls back to
-  local `git for-each-ref`; not a live watch. First-cut
+  local `git for-each-ref`; not Waku's live watch — first-cut
+  open-picker poll (5s `now_ms` / update-tick piggyback) while the
+  branch picker is open; in-flight list skips quietly; open/refresh
+  list stays immediate. First-cut
   `WorkspaceOperation::CheckoutBranch` ships on picker local-head
   checkout and New branch create when a daemon address is set; ok is
   nested `branchChanged` + snake_case snapshot; Native 4 KiB stdin

@@ -1454,6 +1454,14 @@ pub const Model = struct {
     /// already-filled InspectBranches heads snapshot without wiping
     /// those heads. Runtime only; not persisted.
     git_branch_list_merge_remotes: bool = false,
+    /// Last attempted quiet branch-list spawn (`now_ms`) while a
+    /// listed-heads picker is open. Null until the first 5s-tick
+    /// spawn. Runtime-only; not sessions.json. Throttles
+    /// `git_checkout.maybeRefresh` to
+    /// `git_branch_list_refresh_interval_ms`. Piggybacks `now_ms` /
+    /// the update tick; Native has no dedicated 5s timer this cut.
+    /// Open-path `refresh` / toggle-open are not gated by this stamp.
+    last_git_branch_list_refresh_ms: ?i64 = null,
     git_checkout_key: u64 = 0,
     next_git_checkout_key: u64 = git_checkout.git_checkout_key_first,
     git_checkout_probe_session: u32 = 0,
@@ -2321,6 +2329,7 @@ pub const Model = struct {
         "git_branch_list_probe_path_len",
         "git_branch_list_via_daemon",
         "git_branch_list_merge_remotes",
+        "last_git_branch_list_refresh_ms",
         "git_checkout_key",
         "next_git_checkout_key",
         "git_checkout_probe_session",
