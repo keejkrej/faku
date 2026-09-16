@@ -30,6 +30,7 @@ const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const attach_helpers = @import("attach.zig");
 const turn_stream = @import("stream.zig");
+const prompt_spawn = @import("spawn.zig");
 const maximize_window = @import("maximize_window.zig");
 const git_branch = @import("git_branch.zig");
 const git_checkout = @import("git_checkout.zig");
@@ -79,7 +80,7 @@ const open_url_key = sidecar_keys.open_url_key;
 const open_editor_key = sidecar_keys.open_editor_key;
 const litellm_rates_key = litellm_rates.litellm_rates_key;
 const writeFixed = model_exports.writeFixed;
-const takeFxAskSessionId = main.takeFxAskSessionId;
+const takeFxAskSessionId = prompt_spawn.takeFxAskSessionId;
 const handleMaximizeWindowExit = maximize_window.handleMaximizeWindowExit;
 
 pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {

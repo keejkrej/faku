@@ -3,7 +3,10 @@
 //! `startPrompt` path selection (daemon / fx acp / fx ask / probed
 //! ACP stdio via acp-proxy / Claude print-mode / Codex exec / Amp
 //! execute-mode / Pi json-mode / demo), StartOptions mapping, and
-//! `takeFxAskSessionId` live here. Stream lifecycle lives in
+//! `takeFxAskSessionId` live here. Callers import this module
+//! directly (`spawn.startOptionsFromSession` /
+//! `spawn.takeFxAskSessionId` / `spawn.startPrompt`). Not
+//! re-exported from `main`. Stream lifecycle lives in
 //! `stream.zig`. Line handlers live in `lines.zig`.
 //!
 //! Non-fx live Send this cut: `ProviderId.speaksAcpStdio` (cursor /
