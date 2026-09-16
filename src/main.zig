@@ -64,7 +64,6 @@ const boot_mod = @import("boot.zig");
 const shell_mod = @import("shell.zig");
 const model_exports = @import("model_exports.zig");
 const i18n = @import("i18n.zig");
-const environment_summary = @import("environment_summary.zig");
 const right_panel = @import("right_panel.zig");
 const util = @import("util.zig");
 const browser_pane = @import("browser_pane.zig");
@@ -96,7 +95,6 @@ const app_permissions = [_][]const u8{ native_sdk.security.permission_command, n
 pub const demo_ticks_complete: u32 = 12;
 pub const demo_reply = "fx here (demo). The fx CLI was not found, so this is a local timer stream. Install fx and Send runs `fx ask`.";
 
-pub const BackgroundRow = environment_summary.BackgroundRow;
 pub const FilePreviewLineRow = right_panel.FilePreviewLineRow;
 
 const Msg = model_exports.Msg;
