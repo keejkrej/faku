@@ -2,10 +2,12 @@
 //!
 //! `handleFxLine` / `handleAcpLine` / `handlePiJsonLine` /
 //! `handleClaudeJsonLine` / `handleDaemonLine`, ACP apply helpers,
-//! daemon goalUpdated apply, and `handleFxExit` live here. Maximize
-//! spawn/exit helpers live in `maximize_window.zig`. Probe helpers
-//! live in `fx_probe.zig`. Stream finish still comes from
-//! `stream.zig`. Behavior is unchanged from the former `main` line
+//! daemon goalUpdated apply, `handleFxExit`, `stripFxDiagnostics`,
+//! and `max_line_keep` live here. Callers import this module
+//! directly (`lines.stripFxDiagnostics`). Not re-exported from
+//! `main`. Maximize spawn/exit helpers live in `maximize_window.zig`.
+//! Probe helpers live in `fx_probe.zig`. Stream finish still comes
+//! from `stream.zig`. Behavior is unchanged from the former `main` line
 //! handlers except Pi `--mode json` and Claude `--output-format
 //! stream-json` stdout, which are parsed as JSON events instead of
 //! appended as prose. Claude `parent_tool_use_id` is subagent
@@ -67,7 +69,7 @@ const Model = model_exports.Model;
 const Effects = main.Effects;
 const Turn = model_exports.Turn;
 const Session = model_exports.Session;
-const max_line_keep = main.max_line_keep;
+pub const max_line_keep = 4096;
 const max_fx_session_id = model_exports.max_fx_session_id;
 const max_body = model_exports.max_body;
 const fx_ask_key = effect_keys.fx_ask_key;
