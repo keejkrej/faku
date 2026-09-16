@@ -107,8 +107,8 @@
 //! `BACKGROUND_WORK_REFRESH_INTERVAL` (5s) tick ships as
 //! `background_work.maybeRefresh` on the update tick. First-cut 1s
 //! `BACKGROUND_WORK_TICK_INTERVAL` elapsed duration labels ship as
-//! `environment_summary.maybeTickElapsed` (same `now_ms` piggyback;
-//! Native has no dedicated timer). Fuller BackgroundWorkRegistry
+//! `environment_summary.maybeTickElapsed` (same `now_ms` piggyback,
+//! including the first-cut 1s chrome tick while idle). Fuller BackgroundWorkRegistry
 //! / GPUI SharedString parity still leftover. Hello stays protocol v4.
 //!
 //! `stopBackgroundWork` is not a bare command. Verified against

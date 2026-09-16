@@ -69,6 +69,8 @@ const writeFixed = model_exports.writeFixed;
 const fxPermissionMode = composer.fxPermissionMode;
 const stream_timer_key = effect_keys.stream_timer_key;
 const stream_interval_ms = effect_keys.stream_interval_ms;
+const chrome_tick_key = effect_keys.chrome_tick_key;
+const chrome_tick_interval_ms = effect_keys.chrome_tick_interval_ms;
 const fx_ask_key = effect_keys.fx_ask_key;
 const daemon_line_bytes = effect_keys.daemon_line_bytes;
 const max_fx_model = model_exports.max_fx_model;
@@ -187,6 +189,19 @@ pub fn startDemoTimer(fx: *Effects) void {
     fx.startTimer(.{
         .key = stream_timer_key,
         .interval_ms = stream_interval_ms,
+        .mode = .repeating,
+        .on_fire = Effects.timerMsg(.tick),
+    });
+}
+
+/// First-cut repeating idle chrome tick. Arms for the app lifetime
+/// from `initFx`. Own timer key — `finishStream` / `stopStream` must
+/// not cancel it. `on_fire` is the same `.tick` Msg as the demo
+/// stream timer; `update` gates `tickStream` on `stream_timer_key`.
+pub fn startChromeTick(fx: *Effects) void {
+    fx.startTimer(.{
+        .key = chrome_tick_key,
+        .interval_ms = chrome_tick_interval_ms,
         .mode = .repeating,
         .on_fire = Effects.timerMsg(.tick),
     });
@@ -810,6 +825,18 @@ fn testArgvHas(argv: []const []const u8, needle: []const u8) bool {
 fn testArgvIndex(argv: []const []const u8, needle: []const u8) ?usize {
     for (argv, 0..) |arg, i| {
         if (std.mem.eql(u8, arg, needle)) return i;
+    }
+    return null;
+}
+
+fn drainEffects(model: *Model, fx: *Effects) void {
+    while (fx.takeMsg()) |msg| main.update(model, msg, fx);
+}
+
+fn pendingTimerByKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingTimerAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingTimerAt(i)) |timer| : (i += 1) {
+        if (timer.key == key) return timer;
     }
     return null;
 }
@@ -2541,4 +2568,91 @@ test "startPrompt without a daemon address does not spawn CaptureTurnStart" {
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"captureTurnStart\"") == null);
     }
+}
+
+test "startChromeTick arms a repeating 1s timer distinct from the demo stream timer" {
+    const testing = std.testing;
+    const native_sdk = @import("native_sdk");
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    startChromeTick(&fx);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    const chrome = pendingTimerByKey(&fx, chrome_tick_key) orelse return error.ChromeTickMissing;
+    try testing.expectEqual(chrome_tick_key, chrome.key);
+    try testing.expectEqual(chrome_tick_interval_ms, chrome.interval_ms);
+    try testing.expectEqual(native_sdk.TimerMode.repeating, chrome.mode);
+    try testing.expect(pendingTimerByKey(&fx, stream_timer_key) == null);
+}
+
+test "initFx arms chrome tick for the app lifetime" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    main.initFx(&model, &fx);
+    const chrome = pendingTimerByKey(&fx, chrome_tick_key) orelse return error.ChromeTickMissing;
+    try testing.expectEqual(chrome_tick_interval_ms, chrome.interval_ms);
+}
+
+test "chrome tick does not bump demo stream_cursor; stream tick still does when phase=.streaming" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("chrome tick stream", .fx);
+    model.selected = id;
+    startChromeTick(&fx);
+    startPrompt(&model, &fx, id, "hello chrome tick");
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
+    try testing.expect(pendingTimerByKey(&fx, chrome_tick_key) != null);
+    try testing.expect(pendingTimerByKey(&fx, stream_timer_key) != null);
+    const before = model.stream_cursor;
+
+    try fx.fireTimer(chrome_tick_key);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(before, model.stream_cursor);
+    try testing.expect(model.is_streaming());
+
+    try fx.fireTimer(stream_timer_key);
+    drainEffects(&model, &fx);
+    try testing.expect(model.stream_cursor > before);
+    try testing.expect(model.is_streaming());
+}
+
+test "finishStream and stopStream leave the chrome tick armed" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("chrome tick survives", .fx);
+    model.selected = id;
+    startChromeTick(&fx);
+    startPrompt(&model, &fx, id, "keep chrome ticking");
+    try testing.expect(model.is_streaming());
+
+    var n: u32 = 0;
+    while (n < 16 and model.is_streaming()) : (n += 1) {
+        try fx.fireTimer(stream_timer_key);
+        drainEffects(&model, &fx);
+    }
+    try testing.expect(!model.is_streaming());
+    try testing.expect(pendingTimerByKey(&fx, stream_timer_key) == null);
+    const after_finish = pendingTimerByKey(&fx, chrome_tick_key) orelse return error.ChromeTickCancelledOnFinish;
+    try testing.expectEqual(chrome_tick_interval_ms, after_finish.interval_ms);
+
+    startPrompt(&model, &fx, id, "stop without dropping chrome");
+    try testing.expect(model.is_streaming());
+    main.update(&model, .stop_turn, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expect(pendingTimerByKey(&fx, stream_timer_key) == null);
+    try testing.expect(pendingTimerByKey(&fx, chrome_tick_key) != null);
 }

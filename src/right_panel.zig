@@ -59,7 +59,8 @@
 //! First-cut `stopFailed` clears Stopping on a still-live daemon
 //! row. First-cut 1s `BACKGROUND_WORK_TICK_INTERVAL` elapsed
 //! duration labels ship (`environment_summary.maybeTickElapsed`
-//! piggybacks `now_ms` / the update tick). Leftover remains full
+//! piggybacks `now_ms` / the update tick, including the first-cut
+//! 1s chrome tick while idle). Leftover remains full
 //! BackgroundWorkRegistry / GPUI SharedString parity. This cut ships a
 //! 100ms CSI-stripped last-window render cache on Monitor / Subagent
 //! (piggybacks `now_ms` / the stream tick; Native has no dedicated
@@ -195,7 +196,8 @@
 //! (dirty becomes false) clears the pending confirm. First-cut live
 //! reload polls the open preview file's `stat` size + mtime on the
 //! TEA `update` tick (same `now_ms` piggyback as Background's 100ms
-//! render cache; Native has no FS watcher / dedicated timer). Dirty
+//! render cache, including the first-cut 1s chrome tick while idle;
+//! Native has no FS watcher). Dirty
 //! buffers are never auto-reloaded. Not a real FS watcher / Native
 //! watch API, not Waku BrowserView UUID-tab chrome (that tab is a
 //! first-cut embedded `web_panes` webview plus OS-open fallback, with
@@ -417,8 +419,8 @@ pub const file_preview_daemon_line_bytes: usize = max_file_preview_bytes;
 
 /// First-cut Files preview live reload. Stat size + mtime at most
 /// once per this many milliseconds of `model.now_ms`. Piggybacks the
-/// update loop / stream tick; Native has no FS watcher / dedicated
-/// timer this cut.
+/// update loop / stream tick, including the first-cut 1s chrome tick
+/// while idle; Native has no FS watcher this cut.
 pub const file_preview_disk_poll_interval_ms: i64 = 500;
 
 /// Cap Native gutter rows materialized for the preview body. Typical
@@ -2030,7 +2032,7 @@ fn refreshPreviewDiskFingerprint(model: *Model) void {
 /// Size or mtime change (or a failed stat after a previously valid
 /// fingerprint) reuses `reloadFilePreview`. A daemon fill that could
 /// not stat keeps `disk_valid` false and does not spam Reload.
-/// Native has no FS watcher / dedicated timer this cut. Returns true
+/// Native has no FS watcher this cut. Returns true
 /// when a reload ran.
 pub fn pollFilePreviewDisk(model: *Model, fx: *Effects) bool {
     if (model.right_panel_file_preview_id == 0) return false;

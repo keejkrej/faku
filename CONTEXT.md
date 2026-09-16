@@ -352,7 +352,8 @@ worktree, dirty / numstat / ahead-behind) and Environment Compare are
 one-shot `git` spawns. Runtime-only labels are not stored on
 `sessions.json`. This is not Waku's daemon `InspectBranches` live
 watch (first-cut Faku workaround is an open-picker 5s poll
-piggybacked on `now_ms` / the update tick while the composer
+piggybacked on `now_ms` / the update tick — including the first-cut
+1s chrome tick while idle — while the composer
 branch picker is open), not `{project_id}` UUID nesting. First-cut composer Force
 push ships (runtime-only ghost toggle on Push… confirm and
 Commit…; default off; reset when those cards open; not persisted;
@@ -375,7 +376,7 @@ local `git for-each-ref` merges remote-tracking rows the same as
 the no-daemon path; Native 4 KiB stdin overflow / error /
 null snapshot falls back to local `git for-each-ref`; not Waku's
 live watch — first-cut open-picker poll (5s `now_ms` / update-tick
-piggyback) while the branch picker is open; in-flight list skips
+piggyback, including the first-cut 1s chrome tick while idle) while the branch picker is open; in-flight list skips
 quietly; open/refresh list stays immediate). The open picker filters listed names with a runtime-only
 case-insensitive substring (empty query shows every row; not
 persisted to sessions.json). First-cut daemon `WorkspaceOperation::CheckoutBranch` ships
@@ -893,8 +894,9 @@ reconcileLive / upsert / outputDelta / stopFailed into daemon-sourced rows; miss
 no address keeps local Process / Monitor / Subagent). First-cut 5s
 Waku `BACKGROUND_WORK_REFRESH_INTERVAL` tick ships as
 `background_work.maybeRefresh` on the existing update / stream tick
-(same `now_ms` piggyback as the 100ms output cache; Native has no
-dedicated timer; skips when a refresh sidecar is already in flight;
+(same `now_ms` piggyback as the 100ms output cache, including the
+first-cut 1s chrome tick while idle; Native has no dedicated 5s
+timer; skips when a refresh sidecar is already in flight;
 prefers the selected session when it has a usable `runtimeId` and
 the Background tab is showing, Environment Summary is open, or that
 session has live Process / Monitor / Subagent / daemon-sourced
@@ -904,7 +906,8 @@ daemon address, single in-flight sidecar). First-cut 1s Waku
 `environment_summary.maybeTickElapsed` on that same update tick
 (stamps `started_ms` on become-live for Process / Monitor / Subagent /
 daemon-sourced rows; compact `0s` / `12s` / `1m 5s` / `1h 2m` on live
-rows; empty on settled; Native has no dedicated timer; skips when
+rows; empty on settled; first-cut 1s chrome tick drives this while
+idle; skips when
 nothing live needs a duration). First-cut daemon
 `stopBackgroundWork` prefers hello + that command when Background
 Stop targets a daemon-sourced live row and a daemon address, usable
@@ -1345,7 +1348,8 @@ unix-seconds `resetsAt`). JSON-null `usage` is unconfigured. No daemon
 keeps local context and a muted connect hint. Unknown-command / parse
 miss keep a prior snapshot or a muted error. First-cut Waku cadence
 ships as `maybeRefresh` on the same `now_ms` / update tick as
-`background_work.maybeRefresh` (Native has no dedicated timer): loop
+`background_work.maybeRefresh` (including the first-cut 1s chrome
+tick while idle; Native has no dedicated 300s timer): loop
 all four plan-usage providers (Claude / Codex / OpenCode / Grok);
 300s idle for Claude / Codex / OpenCode, 600s Grok, 30s when that
 slot is stale (panel open or a settled turn), 90s retry after that
@@ -1736,7 +1740,7 @@ Honest gaps this cut does not implement:
   Subagent / daemon-sourced rows; else one other live session with
   a usable `runtimeId` and a daemon address; one in-flight sidecar;
   skips an in-flight refresh sidecar; Native has no dedicated
-  timer); first-cut
+  5s timer — first-cut 1s chrome tick drives the piggyback while idle); first-cut
   daemon `stopBackgroundWork` prefers hello + that command when
   Background Stop targets a daemon-sourced live row and a daemon
   address, usable `runtimeId`, and usable `controlId` are set
@@ -1754,7 +1758,7 @@ Honest gaps this cut does not implement:
   the selected row is a settled Monitor, Subagent, or daemon row;
   first-cut 1s `BACKGROUND_WORK_TICK_INTERVAL` elapsed duration
   labels ship (`maybeTickElapsed` piggybacks `now_ms` / the update
-  tick; stamps `started_ms` on become-live; compact `0s` / `12s` /
+  tick, including the first-cut 1s chrome tick while idle; stamps `started_ms` on become-live; compact `0s` / `12s` /
   `1m 5s` / `1h 2m` on live rows; empty on settled); not Waku
   BackgroundWorkRegistry event/reconcile/driver-refresh / GPUI
   SharedString parity)
@@ -1887,7 +1891,8 @@ Honest gaps this cut does not implement:
   `git for-each-ref` merge (daemon heads stay source of truth);
   Native 4 KiB stdin overflow / error / null snapshot falls back to
   local `git for-each-ref`; not Waku's live watch — first-cut
-  open-picker poll (5s `now_ms` / update-tick piggyback) while the
+  open-picker poll (5s `now_ms` / update-tick piggyback, including
+  the first-cut 1s chrome tick while idle) while the
   branch picker is open; in-flight list skips quietly; open/refresh
   list stays immediate. First-cut
   `WorkspaceOperation::CheckoutBranch` ships on picker local-head

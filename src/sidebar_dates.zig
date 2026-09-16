@@ -175,7 +175,9 @@ pub fn sessionDateBucket(updated_at: i64, now_ms: i64) DateBucket {
 /// Short last-activity label from `updated_at` vs wall ms. Missing/0
 /// returns null so chrome does not invent a time. Same local-civil-day
 /// rules as `sessionDateBucket` for yesterday / `Nd` / date fallback.
-/// Static: last `now_ms`, not a live ticker. English default;
+/// First-cut 1s chrome tick (`effect_keys.chrome_tick_key`) stamps
+/// `now_ms` while idle so labels can advance; still computed from last
+/// `now_ms` at paint, not a per-row timer. English default;
 /// Appearance callers pass `sessionRelativeTimeFor`.
 pub fn sessionRelativeTime(updated_at: i64, now_ms: i64, buf: []u8) ?[]const u8 {
     return sessionRelativeTimeFor(updated_at, now_ms, buf, i18n.datesFor(.english, ""));

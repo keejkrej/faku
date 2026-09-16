@@ -16,8 +16,9 @@
 //!
 //! First-cut Waku `BACKGROUND_WORK_REFRESH_INTERVAL` (5s) tick
 //! ships as `maybeRefresh` on the existing update / stream tick
-//! (same `now_ms` piggyback as the 100ms output cache; Native has
-//! no dedicated timer). It reuses `trySpawn` (hello +
+//! (same `now_ms` piggyback as the 100ms output cache, including
+//! the first-cut 1s chrome tick while idle; Native has no
+//! dedicated 5s timer). It reuses `trySpawn` (hello +
 //! `refreshBackgroundWork`) for **one** session when a daemon
 //! address and usable `runtimeId` are set (Waku
 //! `maybe_refresh_background_work`: `selected == session ||
@@ -38,7 +39,8 @@
 //! (cancel in-flight then `trySpawn` selected). First-cut 1s
 //! `BACKGROUND_WORK_TICK_INTERVAL` elapsed duration labels ship
 //! in `environment_summary.maybeTickElapsed` (same `now_ms`
-//! piggyback; Native has no dedicated timer). Not full
+//! piggyback, including the first-cut 1s chrome tick while idle).
+//! Not full
 //! BackgroundWorkRegistry / GPUI SharedString parity. First-cut
 //! `outputDelta` appends a bounded last-window onto an existing
 //! daemon-sourced row; first-cut `stopFailed` restores a live
@@ -68,7 +70,8 @@ const Effects = main.Effects;
 
 /// Waku `BACKGROUND_WORK_REFRESH_INTERVAL`. First-cut 5s daemon
 /// `refreshBackgroundWork` throttle, piggybacked off `model.now_ms`
-/// / the update tick. Native has no dedicated timer this cut.
+/// / the update tick, including the first-cut 1s chrome tick while
+/// idle. Native has no dedicated 5s timer this cut.
 pub const background_work_refresh_interval_ms: i64 = 5000;
 
 /// Waku `BACKGROUND_WORK_TICK_INTERVAL`. First-cut 1s elapsed

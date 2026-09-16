@@ -128,8 +128,9 @@
 //! occupied). Local `for-each-ref` (heads+remotes) remains the
 //! no-daemon path and the miss/overflow/error/null fallback. Not
 //! Waku's live watch — first-cut is an open-picker 5s poll
-//! (`maybeRefresh` piggybacks `now_ms` / the update tick; Native
-//! has no dedicated timer) while the branch picker is open
+//! (`maybeRefresh` piggybacks `now_ms` / the update tick, including
+//! the first-cut 1s chrome tick while idle; Native has no dedicated
+//! 5s timer) while the branch picker is open
 //! (delete-branch / New-worktree Base pickers too when they show
 //! the same listed heads). An in-flight list skips quietly and
 //! does not call `refresh` (that cancels unrelated git and
@@ -297,8 +298,9 @@ pub const git_branch_list_key_first: u64 = 250;
 
 /// First-cut InspectBranches live-watch workaround. 5s throttle
 /// for `maybeRefresh` while a listed-heads picker is open,
-/// piggybacked off `model.now_ms` / the update tick. Native has
-/// no dedicated timer this cut. Matches
+/// piggybacked off `model.now_ms` / the update tick, including the
+/// first-cut 1s chrome tick while idle. Native has no dedicated 5s
+/// timer this cut. Matches
 /// `background_work_refresh_interval_ms`.
 pub const git_branch_list_refresh_interval_ms: i64 = 5000;
 
@@ -2622,7 +2624,8 @@ pub fn refresh(model: *Model, fx: *Effects) void {
 
 /// First-cut Waku InspectBranches live-watch workaround. While a
 /// listed-heads picker is open, re-list on the existing update /
-/// stream tick (`now_ms` piggyback; Native has no dedicated timer).
+/// stream tick (`now_ms` piggyback, including the first-cut 1s
+/// chrome tick while idle; Native has no dedicated 5s timer).
 /// Throttled to `git_branch_list_refresh_interval_ms` from
 /// `last_git_branch_list_refresh_ms` (runtime-only; stamped when a
 /// quiet spawn is actually attempted). Unset last fires on the
