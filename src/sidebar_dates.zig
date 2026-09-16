@@ -68,7 +68,7 @@ pub const CivilDate = struct {
 const ms_per_minute: i64 = 60_000;
 const ms_per_hour: i64 = 3_600_000;
 
-const time_t = std.c.time_t;
+const time_t = if (builtin.os.tag == .windows) i64 else std.c.time_t;
 
 /// libc `struct tm`. POSIX (glibc/musl/Darwin) carries `tm_gmtoff` /
 /// `tm_zone`; Windows CRT does not.

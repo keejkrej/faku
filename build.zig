@@ -16,9 +16,12 @@ const std = @import("std");
 const native_sdk = @import("native_sdk");
 
 pub fn build(b: *std.Build) void {
-    _ = native_sdk.addAppArtifacts(b, b.dependency("native_sdk", .{}), .{
+    const artifacts = native_sdk.addAppArtifacts(b, b.dependency("native_sdk", .{}), .{
         .name = "faku",
         .manifest = "app.json",
         .terminal_sessions = true,
     });
+    // Sidebar date buckets use libc localtime. The desktop host already
+    // links libc; `native test` / `zig build test` does not unless set.
+    artifacts.tests.root_module.link_libc = true;
 }
