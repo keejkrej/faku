@@ -2,8 +2,8 @@
 //!
 //! Ungrouped date-header rows, folder headers, session row shaping,
 //! and sidebar split clamp/resize live here. Date-bucket titles follow
-//! the Model's resolved Appearance language (`sidebarDates`). UTC
-//! bucket math is unchanged.
+//! the Model's resolved Appearance language (`sidebarDates`). Date
+//! buckets use process-local civil days (`sidebar_dates`).
 
 const std = @import("std");
 const model_exports = @import("model_exports.zig");
