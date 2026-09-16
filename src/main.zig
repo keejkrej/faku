@@ -55,8 +55,6 @@ const daemon_proxy = @import("daemon_proxy.zig");
 const acp_proxy = @import("acp_proxy.zig");
 const rewind = @import("rewind.zig");
 const keys = @import("keys.zig");
-const session_switcher = @import("switcher.zig");
-const sidebar_row_helpers = @import("sidebar_rows.zig");
 const attach_helpers = @import("attach.zig");
 const update_mod = @import("update.zig");
 const boot_mod = @import("boot.zig");
@@ -65,8 +63,6 @@ const model_exports = @import("model_exports.zig");
 const i18n = @import("i18n.zig");
 const util = @import("util.zig");
 const browser_pane = @import("browser_pane.zig");
-const file_preview_details = @import("file_preview_details.zig");
-const transcript_details = @import("transcript_details.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -82,10 +78,6 @@ const registerIcons = shell_mod.registerIcons;
 pub const app_icons = shell_mod.app_icons;
 /// Sidebar folder-header keys sit above session ids so `for` keys stay unique.
 pub const folder_row_id_base: u32 = 1_000_000;
-/// Date-bucket header keys sit above folder headers.
-pub const date_row_id_base = sidebar_row_helpers.date_row_id_base;
-/// Runtime-only Ctrl-Tab switcher snapshot. Same cap as Waku's overlay.
-pub const switcher_cap = session_switcher.switcher_cap;
 pub const fx_env_bin = "/usr/bin/env";
 
 const app_permissions = [_][]const u8{ native_sdk.security.permission_command, native_sdk.security.permission_view };
