@@ -50,7 +50,7 @@
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
 //! `last_reasoning_effort` /
 //! `last_project_path` / `last_daemon_address` / `theme_preference` /
-//! `ui_font_size` / `code_font_size` / `language_preference` / `disabled_providers` /
+//! `ui_font_size` / `code_font_size` / `language_preference` / `settings_page` / `disabled_providers` /
 //! `usage_view` / `usage_window` / `usage_metric` / `usage_breakdown` /
 //! `usage_project_filter` so the settings gear and
 //! composer chips can edit persisted defaults, and `folders` /
@@ -106,6 +106,7 @@ const open_url = @import("open_url.zig");
 const browser_pane = @import("browser_pane.zig");
 const pty_terminal = @import("pty_terminal.zig");
 const usage_history = @import("usage_history.zig");
+const skills = @import("skills.zig");
 
 const Model = model_exports.Model;
 const Role = model_exports.Role;
@@ -296,6 +297,7 @@ pub fn saveSession(model: *const Model, session_id: u32, allocator: std.mem.Allo
     document.ui_font_size = model.ui_font_size;
     document.code_font_size = model.code_font_size;
     document.language_preference = model.language_preference;
+    document.settings_page = model.settings_page;
     document.disabled_providers = model.disabled_providers;
     applyUsageExtras(&document, model);
     applySidebarExtras(&document, model);
@@ -341,6 +343,7 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
     document.ui_font_size = model.ui_font_size;
     document.code_font_size = model.code_font_size;
     document.language_preference = model.language_preference;
+    document.settings_page = model.settings_page;
     document.disabled_providers = model.disabled_providers;
     applyUsageExtras(&document, model);
     applySidebarExtras(&document, model);
@@ -400,7 +403,7 @@ pub fn persistLayoutIfPossible(model: *const Model) void {
 
 /// Merge-only write of settings extras (`last_model`, `last_access_mode`,
 /// `last_interaction_mode`, `last_reasoning_effort`, `last_project_path`, `last_daemon_address`,
-/// `theme_preference`, `ui_font_size`, `code_font_size`, `language_preference`, `disabled_providers`,
+/// `theme_preference`, `ui_font_size`, `code_font_size`, `language_preference`, `settings_page`, `disabled_providers`,
 /// `usage_view`, `usage_window`, `usage_metric`, `usage_breakdown`,
 /// `usage_project_filter`).
 /// Same first-run rule as sidebar collapse: does not create `sessions.json`
@@ -507,6 +510,7 @@ fn applySettingsExtras(document: *Document, model: *const Model) void {
     document.ui_font_size = model.ui_font_size;
     document.code_font_size = model.code_font_size;
     document.language_preference = model.language_preference;
+    document.settings_page = model.settings_page;
     document.disabled_providers = model.disabled_providers;
     applyUsageExtras(document, model);
 }
@@ -1044,6 +1048,7 @@ const Document = struct {
     ui_font_size: u8 = model_exports.default_ui_font_size,
     code_font_size: u8 = model_exports.default_code_font_size,
     language_preference: model_exports.LanguagePreference = .system,
+    settings_page: skills.Page = .general,
     disabled_providers: [protocol.provider_id_count]bool = [_]bool{false} ** protocol.provider_id_count,
     usage_view: usage_history.View = .daily,
     usage_window: usage_history.WindowChoice = .trailing_30,
@@ -1085,6 +1090,7 @@ const Document = struct {
             .ui_font_size = model.ui_font_size,
             .code_font_size = model.code_font_size,
             .language_preference = model.language_preference,
+            .settings_page = model.settings_page,
             .disabled_providers = model.disabled_providers,
             .usage_view = model.usage_view,
             .usage_window = model.usage_window,
@@ -1161,6 +1167,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.ui_font_size = document.ui_font_size;
     model.code_font_size = document.code_font_size;
     model.language_preference = document.language_preference;
+    model.settings_page = document.settings_page;
     model.disabled_providers = document.disabled_providers;
     model.usage_view = document.usage_view;
     model.usage_window = document.usage_window;
@@ -1480,6 +1487,7 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .ui_font_size = parsed_ui_font_size,
         .code_font_size = parseCodeFontSize(obj.get("code_font_size"), parsed_ui_font_size),
         .language_preference = model_exports.LanguagePreference.fromPersist(jsonString(obj.get("language_preference")) orelse ""),
+        .settings_page = skills.Page.fromPersist(jsonString(obj.get("settings_page")) orelse ""),
         .disabled_providers = parseDisabledProviders(obj.get("disabled_providers")),
         .usage_view = usage_history.View.fromPersist(jsonString(obj.get("usage_view")) orelse ""),
         .usage_window = usage_history.WindowChoice.fromPersist(jsonString(obj.get("usage_window")) orelse ""),
@@ -2030,6 +2038,8 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
     try appendUint(&out, allocator, @as(u32, document.code_font_size));
     try out.appendSlice(allocator, ",\"language_preference\":");
     try appendJsonString(&out, allocator, document.language_preference.persistName());
+    try out.appendSlice(allocator, ",\"settings_page\":");
+    try appendJsonString(&out, allocator, document.settings_page.persistName());
     try out.appendSlice(allocator, ",\"disabled_providers\":[");
     var disabled_written = false;
     for (std.meta.tags(protocol.ProviderId)) |id| {
@@ -3971,6 +3981,80 @@ test "usage chrome extras persist on sessions.json; missing or unknown load defa
     try testing.expectEqual(usage_history.ShareMetric.tokens, combo.usage_share_metric);
     try testing.expectEqual(usage_history.Breakdown.days, combo.usage_breakdown);
     try testing.expectEqualStrings("faku", usage_history.projectFilter(&combo));
+}
+
+test "settings_page extras persist on sessions.json; missing or unknown load general" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var missing_catalog = Model{};
+    missing_catalog.task_state_loaded = true;
+    missing_catalog.setStoreDir(dir);
+    missing_catalog.store_io = io;
+    missing_catalog.settings_page = .appearance;
+    persistSettingsIfPossible(&missing_catalog);
+    var missing_path: [std.fs.max_path_bytes]u8 = undefined;
+    try testing.expectError(error.FileNotFound, std.Io.Dir.cwd().readFileAlloc(io, catalogPath(dir, &missing_path).?, allocator, .limited(64)));
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var missing = Model{};
+    missing.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&missing, allocator, io));
+    try testing.expectEqual(skills.Page.general, missing.settings_page);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"settings_page":"","sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var empty = Model{};
+    empty.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&empty, allocator, io));
+    try testing.expectEqual(skills.Page.general, empty.settings_page);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"settings_page":"nope","sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var unknown = Model{};
+    unknown.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&unknown, allocator, io));
+    try testing.expectEqual(skills.Page.general, unknown.settings_page);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"settings_page":"computer-use","sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var hyphen = Model{};
+    hyphen.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&hyphen, allocator, io));
+    try testing.expectEqual(skills.Page.general, hyphen.settings_page);
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("settings page later", .fx);
+    _ = source.appendTurn(id, .user, "remember settings page");
+    try saveSession(&source, id, allocator, io);
+
+    const pages = [_]skills.Page{ .general, .appearance, .providers, .skills, .usage, .computer_use };
+    for (pages) |page| {
+        source.settings_page = page;
+        persistSettingsIfPossible(&source);
+        var loaded = Model{};
+        loaded.setStoreDir(dir);
+        try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+        try testing.expectEqual(page, loaded.settings_page);
+    }
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, catalogPath(dir, &path_buf).?, allocator, .limited(64 * 1024));
+    defer allocator.free(bytes);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"settings_page\":\"computer_use\"") != null);
 }
 
 test "folder extras persist untitled folders; missing catalog is not created" {

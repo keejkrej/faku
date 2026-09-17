@@ -193,6 +193,7 @@ pub fn handleToggleSettings(model: *Model, fx: *Effects) void {
     pick_folder.closeDaemonBrowser(model, fx);
     usage_meter.close(model);
     model.openSettings();
+    resumeSettingsPage(model, fx);
 }
 
 pub fn handleSettingsModelEdit(model: *Model, edit: canvas.TextInputEvent) void {
@@ -252,29 +253,34 @@ pub fn handlePickSettingsEffort(model: *Model, id: []const u8) void {
 pub fn handleSetSettingsPageGeneral(model: *Model) void {
     leaveUsagePage(model);
     model.settings_page = .general;
+    store.persistSettingsIfPossible(model);
 }
 
 pub fn handleSetSettingsPageAppearance(model: *Model) void {
     leaveUsagePage(model);
     model.settings_page = .appearance;
+    store.persistSettingsIfPossible(model);
 }
 
 pub fn handleSetSettingsPageProviders(model: *Model, fx: *Effects) void {
     leaveUsagePage(model);
     model.settings_page = .providers;
     providers.startProbes(model, fx);
+    store.persistSettingsIfPossible(model);
 }
 
 pub fn handleSetSettingsPageSkills(model: *Model, fx: *Effects) void {
     leaveUsagePage(model);
     model.settings_page = .skills;
     skills.refresh(model, fx);
+    store.persistSettingsIfPossible(model);
 }
 
 pub fn handleSetSettingsPageUsage(model: *Model, fx: *Effects) void {
     model.settings_page = .usage;
     usage_history.refresh(model, fx);
     litellm_rates.ensure(model, fx);
+    store.persistSettingsIfPossible(model);
 }
 
 pub fn handleSetUsageViewDaily(model: *Model, fx: *Effects) void {
@@ -390,11 +396,27 @@ pub fn handleUsageProjectFilterEdit(model: *Model, edit: canvas.TextInputEvent) 
 pub fn handleSetSettingsPageComputerUse(model: *Model) void {
     leaveUsagePage(model);
     model.settings_page = .computer_use;
+    store.persistSettingsIfPossible(model);
 }
 
 fn leaveUsagePage(model: *Model) void {
     if (model.settings_page != .usage) return;
     usage_history.leaveUsage(model);
+}
+
+/// Re-kick Providers / Skills / Usage probes when Settings opens onto a
+/// persisted page. Nav handlers already start those probes; open must
+/// match so reboot-restore is not an empty page until Refresh.
+fn resumeSettingsPage(model: *Model, fx: *Effects) void {
+    switch (model.settings_page) {
+        .providers => providers.startProbes(model, fx),
+        .skills => skills.refresh(model, fx),
+        .usage => {
+            usage_history.refresh(model, fx);
+            litellm_rates.ensure(model, fx);
+        },
+        .general, .appearance, .computer_use => {},
+    }
 }
 
 pub fn handleSettingsThemeSystem(model: *Model) void {

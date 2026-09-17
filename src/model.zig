@@ -5918,7 +5918,6 @@ pub const Model = struct {
         model.environment_summary_open = false;
         model.review_diff_active = false;
         model.settings_open = true;
-        model.settings_page = .general;
         model.settings_model_buffer.set(model.lastModel());
         model.settings_project_buffer.set(model.lastProjectPath());
         model.settings_daemon_buffer.set(model.lastDaemonAddress());
@@ -5927,7 +5926,6 @@ pub const Model = struct {
     pub fn closeSettings(model: *Model) void {
         model.closeSettingsEffortPicker();
         model.settings_open = false;
-        model.settings_page = .general;
         model.provider_selected_id = 0;
         model.usage_view = .daily;
         usage_history.clearProjectFilter(model);
