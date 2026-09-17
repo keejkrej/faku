@@ -15797,8 +15797,139 @@ test "settings Skills lists SKILL.md name and path; select shows body" {
     main.update(&model, .{ .select_skill = 1 }, &fx);
     try testing.expectEqual(@as(u32, 1), model.skill_selected_id);
     try testing.expectEqualStrings("Use this skill.", model.skill_body());
+    try testing.expect(model.has_selected_skill());
+    try testing.expect(model.skill_enabled());
+    try testing.expectEqualStrings(skills.disable_label, model.skill_enable_label());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Use this skill.");
+    _ = try expectButtonMsg(tree, skills.disable_label, .toggle_skill_enabled);
+    try testing.expect(findByText(tree.root, .text, skills.disabled_badge) == null);
+}
+
+test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabled" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-disabled-ui", .{tmp.sub_path[0..]});
+    var off_dir_buf: [256]u8 = undefined;
+    const off_dir = try std.fmt.bufPrint(&off_dir_buf, "{s}/.cursor/skills/off", .{project});
+    var on_dir_buf: [256]u8 = undefined;
+    const on_dir = try std.fmt.bufPrint(&on_dir_buf, "{s}/.cursor/skills/on", .{project});
+    try std.Io.Dir.cwd().createDirPath(testing.io, off_dir);
+    try std.Io.Dir.cwd().createDirPath(testing.io, on_dir);
+    var off_file_buf: [256]u8 = undefined;
+    const off_path = try std.fmt.bufPrint(&off_file_buf, "{s}/SKILL.md.disabled", .{off_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = off_path,
+        .data =
+        \\---
+        \\name: off-skill
+        \\---
+        \\
+        \\Hidden from insert.
+        \\
+        ,
+    });
+    var on_file_buf: [256]u8 = undefined;
+    const on_path = try std.fmt.bufPrint(&on_file_buf, "{s}/SKILL.md", .{on_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = on_path,
+        .data =
+        \\---
+        \\name: on-skill
+        \\---
+        \\
+        \\Visible.
+        \\
+        ,
+    });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.store_io = testing.io;
+    const id = model.addSession("skills disabled ui", .fx);
+    _ = model.appendTurn(id, .user, "already started");
+    model.selected = id;
+    model.sessionById(id).?.setProjectPath(project);
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"toggle_skill_enabled\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{k.disabled_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_enable_label}"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"toggle_skill_enabled\">Disable</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Disabled</text>"));
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_skills, &fx);
+    skills.applyStdoutPaths(&model, ".cursor/skills/off/SKILL.md.disabled\n.cursor/skills/on/SKILL.md\n");
+    try testing.expectEqual(@as(u32, 2), model.skill_count);
+    try testing.expect(!skills.cachedEnabled(&model, 0));
+    try testing.expect(skills.cachedEnabled(&model, 1));
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .list_item, "off-skill");
+    _ = try expectByText(tree.root, .text, skills.disabled_badge);
+    _ = try expectByText(tree.root, .text, ".cursor/skills/off/SKILL.md.disabled");
+    _ = try expectByText(tree.root, .list_item, "on-skill");
+
+    main.update(&model, .{ .select_skill = 1 }, &fx);
+    try testing.expect(!model.skill_enabled());
+    try testing.expectEqualStrings(skills.enable_label, model.skill_enable_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, skills.enable_label, .toggle_skill_enabled);
+    _ = try expectByText(tree.root, .text, "Hidden from insert.");
+
+    main.update(&model, .toggle_skill_enabled, &fx);
+    try testing.expect(model.skill_rename_key >= git_keys.skills_rename_key_first);
+    var i: usize = 0;
+    var spawn = fx.pendingSpawnAt(0);
+    while (spawn) |item| : (i += 1) {
+        if (item.key == model.skill_rename_key and skills.isSkillsRenameArgv(item.argv)) break;
+        spawn = fx.pendingSpawnAt(i + 1);
+    }
+    try testing.expect(spawn != null);
+    try testing.expectEqualStrings(skills.disabled_skill_filename, spawn.?.argv[7]);
+    try testing.expectEqualStrings(skills.skill_filename, spawn.?.argv[8]);
+
+    model.language_preference = .simplified_chinese;
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "已禁用");
+    _ = try expectButtonMsg(tree, "启用", .toggle_skill_enabled);
+    model.language_preference = .japanese;
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "無効");
+    _ = try expectButtonMsg(tree, "有効", .toggle_skill_enabled);
+    model.language_preference = .english;
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(!model.settings_open);
+    model_exports.writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, project);
+    skills.applyStdoutPaths(&model, ".cursor/skills/off/SKILL.md.disabled\n.cursor/skills/on/SKILL.md\n");
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "$" } }, &fx);
+    try testing.expect(model.skills_list_open());
+    {
+        const rows = model.skill_insert_rows(arena);
+        try testing.expectEqual(@as(usize, 1), rows.len);
+        try testing.expectEqualStrings("on-skill", rows[0].name);
+        try testing.expectEqual(@as(u32, 2), rows[0].id);
+        try testing.expect(!rows[0].disabled);
+    }
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "on-skill");
+    try testing.expect(findByText(tree.root, .text, "off-skill") == null);
+    try testing.expect(findByText(tree.root, .text, skills.disabled_badge) == null);
+
+    model.insertAvailableSkill(1);
+    try testing.expectEqualStrings("$", model.draft());
+    model.insertAvailableSkill(2);
+    try testing.expectEqualStrings("$on-skill ", model.draft());
 }
 
 test "settings Providers tab lists catalog; fx Available vs Not found from model fields" {

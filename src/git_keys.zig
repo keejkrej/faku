@@ -1,9 +1,10 @@
 //! Git / review / skills / probe spawn effect-key re-exports.
 //!
 //! One-shot git_branch / checkout / dirty / numstat / commit / remotes /
-//! toplevel / common-dir keys, plus file_mention, review diff, skills,
-//! Files Preview issue-link, CLI `--help` probe, and LiteLLM rate-table
-//! keys. Owning modules keep the values; this file only re-exports them.
+//! toplevel / common-dir keys, plus file_mention, review diff, skills
+//! scan / rename, Files Preview issue-link, CLI `--help` probe, and
+//! LiteLLM rate-table keys. Owning modules keep the values; this file
+//! only re-exports them.
 //! Callers import this module directly (`git_keys.git_branch_key_first` /
 //! `git_keys.litellm_rates_key`). Not re-exported from `main`. Behavior is
 //! unchanged from the former `main` constants.
@@ -124,16 +125,22 @@ pub const review_diff_key_first = review_diff.review_diff_key_first;
 /// Distinct from file-list 510+. Band is 520+. Incremented
 /// per file click from `review_diff_hunk_key_first`.
 pub const review_diff_hunk_key_first = review_diff.review_diff_hunk_key_first;
-/// One-shot Settings Skills `find` for `SKILL.md`. Distinct from
-/// review hunk (520+). Band is 530+. Incremented per scan from
-/// `skills_key_first`.
+/// One-shot Settings Skills `find` for `SKILL.md` /
+/// `SKILL.md.disabled`. Distinct from review hunk (520+). Band is
+/// 530+. Incremented per scan from `skills_key_first`.
 pub const skills_key_first = skills.skills_key_first;
+/// One-shot Settings Skills enable/disable `mv` rename
+/// (`SKILL.md` ↔ `SKILL.md.disabled`). Distinct from the scan key
+/// (530+) and Files Preview issue-link (540+). Band is 580+.
+/// Incremented per toggle from `skills_rename_key_first`.
+pub const skills_rename_key_first = skills.skills_rename_key_first;
 /// One-shot Files Preview + transcript `git remote` / `git remote get-url`
-/// for markdown `issue-link-base`. Distinct from skills (530+). Band is
-/// 540+. Incremented per spawn from `file_preview_issue_link_key_first`.
+/// for markdown `issue-link-base`. Distinct from skills scan (530+) and
+/// skills rename (580+). Band is 540+. Incremented per spawn from
+/// `file_preview_issue_link_key_first`.
 pub const file_preview_issue_link_key_first = file_preview_issue_link.key_first;
 /// One-shot Settings Providers non-fx `{binary} --help` probes.
-/// Distinct from skills (530+). Band is 600+ `@intFromEnum(id)`
+/// Distinct from skills rename (580+). Band is 600+ `@intFromEnum(id)`
 /// so claude=601 … kimi=608. fx stays on `fx_probe_key` (3).
 pub const cli_probe_key_first = cli_probe.cli_probe_key_first;
 /// One-shot LiteLLM rate-table curl (`-o` into the Faku data dir).
@@ -164,6 +171,7 @@ test "git/review/skills/probe spawn keys match owning modules" {
     try std.testing.expectEqual(review_diff.review_diff_key_first, review_diff_key_first);
     try std.testing.expectEqual(review_diff.review_diff_hunk_key_first, review_diff_hunk_key_first);
     try std.testing.expectEqual(skills.skills_key_first, skills_key_first);
+    try std.testing.expectEqual(skills.skills_rename_key_first, skills_rename_key_first);
     try std.testing.expectEqual(file_preview_issue_link.key_first, file_preview_issue_link_key_first);
     try std.testing.expectEqual(cli_probe.cli_probe_key_first, cli_probe_key_first);
     try std.testing.expectEqual(litellm_rates.litellm_rates_key, litellm_rates_key);
@@ -191,6 +199,7 @@ test "git/review/skills/probe spawn keys match owning modules" {
     try std.testing.expectEqual(@as(u64, 520), review_diff_hunk_key_first);
     try std.testing.expectEqual(@as(u64, 530), skills_key_first);
     try std.testing.expectEqual(@as(u64, 540), file_preview_issue_link_key_first);
+    try std.testing.expectEqual(@as(u64, 580), skills_rename_key_first);
     try std.testing.expectEqual(@as(u64, 600), cli_probe_key_first);
     try std.testing.expectEqual(@as(u64, 650), litellm_rates_key);
 }

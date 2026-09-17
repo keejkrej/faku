@@ -1182,6 +1182,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
         skills.handleExit(model, fx, exit);
         return;
     }
+    if (model.skill_rename_key != 0 and exit.key == model.skill_rename_key) {
+        skills.handleRenameExit(model, fx, exit);
+        return;
+    }
     if (exit.key == maximize_window_key) {
         handleMaximizeWindowExit(model, fx, exit);
         return;

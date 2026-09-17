@@ -348,11 +348,19 @@
                 <for each="skill_rows" key="id" as="k">
                   <list-item height="44" padding="8" gap="4" cross="center" selected="{k.selected}" on-press="select_skill:{k.id}" label="{k.name}">
                     <column gap="2" grow="1">
-                      <text wrap="false" overflow="ellipsis">{k.name}</text>
+                      <row gap="8" cross="center">
+                        <text wrap="false" overflow="ellipsis">{k.name}</text>
+                        <if test="{k.disabled}">
+                          <text wrap="false" overflow="ellipsis" foreground="text_muted">{k.disabled_label}</text>
+                        </if>
+                      </row>
                       <text wrap="false" overflow="ellipsis" foreground="text_muted">{k.path}</text>
                     </column>
                   </list-item>
                 </for>
+                <if test="{has_selected_skill}">
+                  <button variant="ghost" size="sm" selected="{skill_enabled}" on-press="toggle_skill_enabled">{skill_enable_label}</button>
+                </if>
                 <if test="{has_skill_body}">
                   <text wrap="true">{skill_body}</text>
                 </if>

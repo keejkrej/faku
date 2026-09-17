@@ -371,12 +371,17 @@ pub const RightPanelFileRow = struct {
 /// Settings Skills row. `id` is a 1-based index into the runtime
 /// `SKILL.md` cache so Native `select_skill:{k.id}` /
 /// `insert_skill:{sk.id}` never binds 0 and a filtered click still
-/// targets that path, not a neighbor.
+/// targets that path, not a neighbor. `disabled` / `disabled_label`
+/// gate the Settings list Disabled badge (`SKILL.md.disabled`);
+/// composer `$` insert rows stay enabled-only so those fields stay
+/// false / empty there.
 pub const SkillRow = struct {
     id: u32,
     name: []const u8,
     path: []const u8,
     selected: bool = false,
+    disabled: bool = false,
+    disabled_label: []const u8 = "",
 };
 
 /// Settings Usage history row. `id` is a 1-based Native `for` key.
@@ -651,6 +656,10 @@ pub const Msg = union(enum) {
     refresh_providers,
     skills_filter_edit: canvas.TextInputEvent,
     select_skill: u32,
+    /// Settings Skills detail: rename `SKILL.md` ↔ `SKILL.md.disabled`
+    /// for the selected skill. Enable when disabled, Disable when
+    /// enabled.
+    toggle_skill_enabled,
     select_provider: u32,
     /// Settings Providers: toggle persisted `disabled_providers` for that row.
     toggle_provider_enabled: u32,
@@ -1415,6 +1424,10 @@ pub const Model = struct {
     skill_count: u32 = 0,
     skill_key: u64 = 0,
     next_skill_key: u64 = skills.skills_key_first,
+    skill_rename_key: u64 = 0,
+    next_skill_rename_key: u64 = skills.skills_rename_key_first,
+    skill_rename_cwd_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    skill_rename_cwd_len: usize = 0,
     skill_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     skill_probe_path_len: usize = 0,
     skill_selected_id: u32 = 0,
@@ -2238,6 +2251,7 @@ pub const Model = struct {
         "usageCostQualityChrome",
         "providersChrome",
         "providersDetailChrome",
+        "skillsEnableChrome",
         "palette_action_label",
         "show_right_panel_label",
         "sidebarDates",
@@ -2252,6 +2266,10 @@ pub const Model = struct {
         "skill_count",
         "skill_key",
         "next_skill_key",
+        "skill_rename_key",
+        "next_skill_rename_key",
+        "skill_rename_cwd_storage",
+        "skill_rename_cwd_len",
         "skill_probe_path_storage",
         "skill_probe_path_len",
         "skill_selected_id",
@@ -4541,6 +4559,7 @@ pub const Model = struct {
         var count: usize = 0;
         var i: usize = 0;
         while (i < model.skill_count) : (i += 1) {
+            if (!model.skill_store[i].enabled) continue;
             if (!skillRowMatches(&model.skill_store[i], query)) continue;
             count += 1;
         }
@@ -4549,6 +4568,7 @@ pub const Model = struct {
         var n: usize = 0;
         i = 0;
         while (i < model.skill_count) : (i += 1) {
+            if (!model.skill_store[i].enabled) continue;
             if (!skillRowMatches(&model.skill_store[i], query)) continue;
             out[n] = .{
                 .id = skills.skillId(i),
@@ -5571,6 +5591,10 @@ pub const Model = struct {
         return i18n.providersDetailChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn skillsEnableChrome(model: *const Model) i18n.SkillsEnableChrome {
+        return i18n.skillsEnableChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     /// Palette row display label for `action`. New Task / Settings /
     /// Collapse all folders reuse Sidebar / Chrome strings; remaining
     /// names come from `i18n.Palette`. Ids / keywords stay English.
@@ -5879,11 +5903,14 @@ pub const Model = struct {
         while (i < model.skill_count) : (i += 1) {
             if (!skillRowMatches(&model.skill_store[i], query)) continue;
             const id = skills.skillId(i);
+            const disabled = !model.skill_store[i].enabled;
             out[n] = .{
                 .id = id,
                 .name = model.skill_store[i].name(),
                 .path = model.skill_store[i].path(),
                 .selected = model.skill_selected_id == id,
+                .disabled = disabled,
+                .disabled_label = if (disabled) model.skillsEnableChrome().disabled else "",
             };
             n += 1;
         }
@@ -5912,6 +5939,24 @@ pub const Model = struct {
 
     pub fn has_skill_body(model: *const Model) bool {
         return model.settings_page == .skills and model.skill_body_len > 0;
+    }
+
+    pub fn has_selected_skill(model: *const Model) bool {
+        return model.settings_page == .skills and model.skill_selected_id != 0 and model.skill_selected_id <= model.skill_count;
+    }
+
+    pub fn skill_enabled(model: *const Model) bool {
+        if (!model.has_selected_skill()) return false;
+        return model.skill_store[model.skill_selected_id - 1].enabled;
+    }
+
+    /// Settings Skills detail Enable / Disable chip. Localized via
+    /// `i18n.SkillsEnableChrome`. Distinct from Providers Enable /
+    /// Disable. `on-press` stays `toggle_skill_enabled`.
+    pub fn skill_enable_label(model: *const Model) []const u8 {
+        const chrome = model.skillsEnableChrome();
+        if (model.skill_enabled()) return chrome.disable;
+        return chrome.enable;
     }
 
     pub fn skill_body(model: *const Model) []const u8 {
@@ -8184,10 +8229,12 @@ pub const Model = struct {
     }
 
     /// Replace the last `$query` token with `$name ` from the runtime
-    /// SKILL.md cache. Writes the composer draft only — no spawn, no
-    /// SKILL.md body stuffing. Focuses the composer.
+    /// SKILL.md cache. Disabled skills are skipped. Writes the composer
+    /// draft only — no spawn, no SKILL.md body stuffing. Focuses the
+    /// composer.
     pub fn insertAvailableSkill(model: *Model, id: u32) void {
         if (id == 0 or id > model.skill_count) return;
+        if (!model.skill_store[id - 1].enabled) return;
         const name = model.skill_store[id - 1].name();
         if (name.len == 0) return;
         var buf: [max_draft]u8 = undefined;
@@ -8745,6 +8792,7 @@ fn hasSkillInsertMatch(model: *const Model, query: []const u8) bool {
     if (model.skill_count == 0) return false;
     var i: usize = 0;
     while (i < model.skill_count) : (i += 1) {
+        if (!model.skill_store[i].enabled) continue;
         if (skillRowMatches(&model.skill_store[i], query)) return true;
     }
     return false;
