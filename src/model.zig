@@ -662,6 +662,11 @@ pub const Msg = union(enum) {
     /// for the selected skill. Enable when disabled, Disable when
     /// enabled.
     toggle_skill_enabled,
+    /// Settings Skills detail: first click arms Delete.
+    arm_skill_delete,
+    /// Settings Skills detail: second click confirms daemon
+    /// `trashSkills` or the Faku-side permanent directory remove.
+    confirm_skill_delete,
     select_provider: u32,
     /// Settings Providers: toggle persisted `disabled_providers` for that row.
     toggle_provider_enabled: u32,
@@ -1440,6 +1445,20 @@ pub const Model = struct {
     /// `setSkillsEnabled` sidecar. Exit refreshes; miss falls back
     /// to rename.
     skill_set_skills_enabled_ok: bool = false,
+    /// In-flight `trashSkills` sidecar. Distinct from find-walk
+    /// (530+), rename (580+), remove (590+), `loadSkills`, and
+    /// `setSkillsEnabled` so Delete cannot settle those keys.
+    daemon_trash_skills_key: u64 = 0,
+    /// True once an ok Ack landed for the in-flight `trashSkills`
+    /// sidecar. Exit refreshes; miss falls back to permanent remove.
+    skill_trash_ok: bool = false,
+    /// Two-click Delete arming. Selecting another skill or leaving
+    /// Skills clears it.
+    skill_delete_arming: bool = false,
+    skill_remove_key: u64 = 0,
+    next_skill_remove_key: u64 = skills.skills_remove_key_first,
+    skill_trash_cwd_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    skill_trash_cwd_len: usize = 0,
     /// Target `enabled` for the in-flight toggle (daemon sidecar or
     /// rename fallback).
     skill_toggle_enable: bool = false,
@@ -2271,6 +2290,7 @@ pub const Model = struct {
         "providersChrome",
         "providersDetailChrome",
         "skillsEnableChrome",
+        "skillsTrashChrome",
         "palette_action_label",
         "show_right_panel_label",
         "sidebarDates",
@@ -2290,6 +2310,12 @@ pub const Model = struct {
         "daemon_load_skills_key",
         "daemon_set_skills_enabled_key",
         "skill_set_skills_enabled_ok",
+        "daemon_trash_skills_key",
+        "skill_trash_ok",
+        "skill_remove_key",
+        "next_skill_remove_key",
+        "skill_trash_cwd_storage",
+        "skill_trash_cwd_len",
         "skill_toggle_enable",
         "skill_rename_cwd_storage",
         "skill_rename_cwd_len",
@@ -5641,6 +5667,10 @@ pub const Model = struct {
         return i18n.skillsEnableChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn skillsTrashChrome(model: *const Model) i18n.SkillsTrashChrome {
+        return i18n.skillsTrashChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     /// Palette row display label for `action`. New Task / Settings /
     /// Collapse all folders reuse Sidebar / Chrome strings; remaining
     /// names come from `i18n.Palette`. Ids / keywords stay English.
@@ -6003,6 +6033,22 @@ pub const Model = struct {
         const chrome = model.skillsEnableChrome();
         if (model.skill_enabled()) return chrome.disable;
         return chrome.enable;
+    }
+
+    /// Settings Skills detail Delete / Confirm delete chip. Localized
+    /// via `i18n.SkillsTrashChrome`. Distinct from Enable / Disable
+    /// and from BranchChrome Delete. `on-press` stays
+    /// `arm_skill_delete` / `confirm_skill_delete`.
+    pub fn skill_delete_label(model: *const Model) []const u8 {
+        return model.skillsTrashChrome().delete;
+    }
+
+    pub fn skill_confirm_delete_label(model: *const Model) []const u8 {
+        return model.skillsTrashChrome().confirm;
+    }
+
+    pub fn skill_delete_idle(model: *const Model) bool {
+        return model.has_selected_skill() and !model.skill_delete_arming;
     }
 
     pub fn skill_body(model: *const Model) []const u8 {

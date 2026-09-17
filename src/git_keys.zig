@@ -132,16 +132,20 @@ pub const skills_key_first = skills.skills_key_first;
 /// One-shot Settings Skills enable/disable `mv` rename
 /// (`SKILL.md` ↔ `SKILL.md.disabled`) — the no-daemon fallback.
 /// Distinct from the scan key (530+), Files Preview issue-link
-/// (540+), and `setSkillsEnabled` (`next_daemon_key`). Band is 580+.
-/// Incremented per toggle from `skills_rename_key_first`.
+/// (540+), and `setSkillsEnabled` / `trashSkills` (`next_daemon_key`).
+/// Band is 580+. Incremented per toggle from `skills_rename_key_first`.
 pub const skills_rename_key_first = skills.skills_rename_key_first;
+/// One-shot Settings Skills Delete `rm -rf` / Remove-Item fallback
+/// (permanent directory remove, not OS Trash). Distinct from rename
+/// (580+) and daemon `trashSkills` (`next_daemon_key`). Band is 590+.
+pub const skills_remove_key_first = skills.skills_remove_key_first;
 /// One-shot Files Preview + transcript `git remote` / `git remote get-url`
-/// for markdown `issue-link-base`. Distinct from skills scan (530+) and
-/// skills rename (580+). Band is 540+. Incremented per spawn from
+/// for markdown `issue-link-base`. Distinct from skills scan (530+),
+/// skills rename (580+), and skills remove (590+). Band is 540+. Incremented per spawn from
 /// `file_preview_issue_link_key_first`.
 pub const file_preview_issue_link_key_first = file_preview_issue_link.key_first;
 /// One-shot Settings Providers non-fx `{binary} --help` probes.
-/// Distinct from skills rename (580+). Band is 600+ `@intFromEnum(id)`
+/// Distinct from skills remove (590+). Band is 600+ `@intFromEnum(id)`
 /// so claude=601 … kimi=608. fx stays on `fx_probe_key` (3).
 pub const cli_probe_key_first = cli_probe.cli_probe_key_first;
 /// One-shot LiteLLM rate-table curl (`-o` into the Faku data dir).
@@ -173,6 +177,7 @@ test "git/review/skills/probe spawn keys match owning modules" {
     try std.testing.expectEqual(review_diff.review_diff_hunk_key_first, review_diff_hunk_key_first);
     try std.testing.expectEqual(skills.skills_key_first, skills_key_first);
     try std.testing.expectEqual(skills.skills_rename_key_first, skills_rename_key_first);
+    try std.testing.expectEqual(skills.skills_remove_key_first, skills_remove_key_first);
     try std.testing.expectEqual(file_preview_issue_link.key_first, file_preview_issue_link_key_first);
     try std.testing.expectEqual(cli_probe.cli_probe_key_first, cli_probe_key_first);
     try std.testing.expectEqual(litellm_rates.litellm_rates_key, litellm_rates_key);
@@ -201,6 +206,7 @@ test "git/review/skills/probe spawn keys match owning modules" {
     try std.testing.expectEqual(@as(u64, 530), skills_key_first);
     try std.testing.expectEqual(@as(u64, 540), file_preview_issue_link_key_first);
     try std.testing.expectEqual(@as(u64, 580), skills_rename_key_first);
+    try std.testing.expectEqual(@as(u64, 590), skills_remove_key_first);
     try std.testing.expectEqual(@as(u64, 600), cli_probe_key_first);
     try std.testing.expectEqual(@as(u64, 650), litellm_rates_key);
 }

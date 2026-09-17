@@ -359,6 +359,11 @@
 //! `ProvidersChrome` Enable / Disable so Skills enable stays
 //! independently evolvable; on-press stays `toggle_skill_enabled`;
 //! wire ids stay English)
+//! plus Settings Skills Delete / Confirm delete (same
+//! `SkillsTrashChrome` strings; distinct from `SkillsEnableChrome` /
+//! `SkillsEmptyChrome` so Delete stays independently evolvable;
+//! on-press stays `arm_skill_delete` / `confirm_skill_delete`;
+//! wire ids stay English)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -400,6 +405,8 @@
 //! filter `on-input` stay `skills_filter_edit` /
 //! `usage_project_filter_edit`; filter text stays English (user-typed).
 //! Skills Enable / Disable `on-press` stays `toggle_skill_enabled`.
+//! Skills Delete / Confirm delete `on-press` stays `arm_skill_delete`
+//! / `confirm_skill_delete`.
 //! File-preview toolbar `on-press` / `on-input` stay English
 //! (`file_preview_save` / `close_right_panel_file_preview` /
 //! `toggle_file_preview_find_replace` / `file_preview_find_edit` /
@@ -4258,6 +4265,31 @@ const skills_enable_chrome_ja: SkillsEnableChrome = .{
     .disabled = "無効",
 };
 
+/// Settings Skills Delete / Confirm delete chip for the resolved
+/// locale. Same resolve path as SkillsEnableChrome. Distinct from
+/// Enable / Disable / empty-state so Delete stays independently
+/// evolvable. Wire ids / on-press stay English (`arm_skill_delete` /
+/// `confirm_skill_delete`).
+pub const SkillsTrashChrome = struct {
+    delete: []const u8,
+    confirm: []const u8,
+};
+
+const skills_trash_chrome_en: SkillsTrashChrome = .{
+    .delete = "Delete",
+    .confirm = "Confirm delete",
+};
+
+const skills_trash_chrome_zh_cn: SkillsTrashChrome = .{
+    .delete = "删除",
+    .confirm = "确认删除",
+};
+
+const skills_trash_chrome_ja: SkillsTrashChrome = .{
+    .delete = "削除",
+    .confirm = "削除を確認",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -5482,6 +5514,19 @@ pub fn skillsEnableChromeFor(preference: LanguagePreference, system_locale_id: [
         .simplified_chinese => skills_enable_chrome_zh_cn,
         .japanese => skills_enable_chrome_ja,
         .system, .english => skills_enable_chrome_en,
+    };
+}
+
+/// Settings Skills Delete / Confirm delete for the resolved locale.
+/// Callers pass Model `language_preference` + `system_locale_id`; this
+/// file does not read process env. Distinct from SkillsEnableChrome /
+/// SkillsEmptyChrome. Wire ids / on-press stay English
+/// (`arm_skill_delete` / `confirm_skill_delete`).
+pub fn skillsTrashChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsTrashChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_trash_chrome_zh_cn,
+        .japanese => skills_trash_chrome_ja,
+        .system, .english => skills_trash_chrome_en,
     };
 }
 
@@ -8883,5 +8928,28 @@ test "skillsEnableChromeFor english default; zh and ja chrome; english ignores j
     try testing.expectEqualStrings("Enable", skillsEnableChromeFor(.english, "ja_JP.UTF-8").enable);
     try testing.expectEqualStrings("Disabled", skillsEnableChromeFor(.english, "zh_CN.UTF-8").disabled);
     try testing.expectEqualStrings("Disable", skillsEnableChromeFor(.english, "").disable);
+}
+
+test "skillsTrashChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Delete", skillsTrashChromeFor(.english, "ja").delete);
+    try testing.expectEqualStrings("Confirm delete", skillsTrashChromeFor(.english, "").confirm);
+    try testing.expectEqualStrings("Delete", skillsTrashChromeFor(.system, "").delete);
+    try testing.expectEqualStrings("Confirm delete", skillsTrashChromeFor(.system, "").confirm);
+
+    try testing.expectEqualStrings("删除", skillsTrashChromeFor(.simplified_chinese, "").delete);
+    try testing.expectEqualStrings("确认删除", skillsTrashChromeFor(.simplified_chinese, "").confirm);
+    try testing.expectEqualStrings("削除", skillsTrashChromeFor(.japanese, "").delete);
+    try testing.expectEqualStrings("削除を確認", skillsTrashChromeFor(.japanese, "").confirm);
+
+    try testing.expectEqualStrings("删除", skillsTrashChromeFor(.system, "zh_CN.UTF-8").delete);
+    try testing.expectEqualStrings("确认删除", skillsTrashChromeFor(.system, "zh_CN.UTF-8").confirm);
+    try testing.expectEqualStrings("削除", skillsTrashChromeFor(.system, "ja_JP.UTF-8").delete);
+    try testing.expectEqualStrings("削除を確認", skillsTrashChromeFor(.system, "ja_JP.UTF-8").confirm);
+    try testing.expectEqualStrings("Delete", skillsTrashChromeFor(.english, "ja_JP.UTF-8").delete);
+    try testing.expectEqualStrings("Confirm delete", skillsTrashChromeFor(.english, "zh_CN.UTF-8").confirm);
+
+    try testing.expect(!std.mem.eql(u8, skillsTrashChromeFor(.english, "").delete, skillsEnableChromeFor(.english, "").disable));
+    try testing.expect(!std.mem.eql(u8, skillsTrashChromeFor(.english, "").confirm, skillsEnableChromeFor(.english, "").disable));
 }
 

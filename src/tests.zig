@@ -15977,10 +15977,44 @@ test "settings Skills lists SKILL.md name and path; select shows body" {
     try testing.expect(model.has_selected_skill());
     try testing.expect(model.skill_enabled());
     try testing.expectEqualStrings(skills.disable_label, model.skill_enable_label());
+    try testing.expectEqualStrings(skills.delete_label, model.skill_delete_label());
+    try testing.expectEqualStrings(skills.confirm_delete_label, model.skill_confirm_delete_label());
+    try testing.expect(!model.skill_delete_arming);
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Use this skill.");
     _ = try expectButtonMsg(tree, skills.disable_label, .toggle_skill_enabled);
+    _ = try expectButtonMsg(tree, skills.delete_label, .arm_skill_delete);
     try testing.expect(findByText(tree.root, .text, skills.disabled_badge) == null);
+    try testing.expect(findByText(tree.root, .text, skills.confirm_delete_label) == null);
+
+    main.update(&model, .arm_skill_delete, &fx);
+    try testing.expect(model.skill_delete_arming);
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, skills.confirm_delete_label, .confirm_skill_delete);
+    try testing.expect(findByText(tree.root, .text, skills.delete_label) == null);
+
+    main.update(&model, .confirm_skill_delete, &fx);
+    try testing.expect(model.skill_remove_key >= git_keys.skills_remove_key_first);
+    try testing.expectEqual(@as(u64, 0), model.daemon_trash_skills_key);
+    var di: usize = 0;
+    var dspawn = fx.pendingSpawnAt(0);
+    while (dspawn) |item| : (di += 1) {
+        if (item.key == model.skill_remove_key and skills.isSkillsRemoveArgv(item.argv)) break;
+        dspawn = fx.pendingSpawnAt(di + 1);
+    }
+    try testing.expect(dspawn != null);
+    try testing.expect(skills.isSkillsRemoveArgv(dspawn.?.argv));
+    const remove_dir = dspawn.?.argv[dspawn.?.argv.len - 1];
+    try testing.expect(std.mem.indexOf(u8, remove_dir, "demo") != null);
+    try testing.expect(!skills.isSkillsRenameArgv(dspawn.?.argv));
+
+    skills.applyStdoutPaths(&model, ".cursor/skills/demo/SKILL.md\n");
+    skills.selectSkill(&model, 1);
+    skills.armSkillDelete(&model);
+    try testing.expect(model.skill_delete_arming);
+    main.update(&model, .set_settings_page_general, &fx);
+    try testing.expect(!model.skill_delete_arming);
+    try testing.expect(model.settings_page_general());
 }
 
 test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabled" {
@@ -16040,8 +16074,15 @@ test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabl
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"toggle_skill_enabled\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{k.disabled_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_enable_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"arm_skill_delete\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"confirm_skill_delete\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_delete_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_confirm_delete_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_delete_idle}"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"toggle_skill_enabled\">Disable</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Disabled</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"arm_skill_delete\">Delete</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"confirm_skill_delete\">Confirm delete</button>"));
 
     main.update(&model, .toggle_settings, &fx);
     main.update(&model, .set_settings_page_skills, &fx);
@@ -16061,6 +16102,7 @@ test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabl
     try testing.expectEqualStrings(skills.enable_label, model.skill_enable_label());
     tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, skills.enable_label, .toggle_skill_enabled);
+    _ = try expectButtonMsg(tree, skills.delete_label, .arm_skill_delete);
     _ = try expectByText(tree.root, .text, "Hidden from insert.");
 
     main.update(&model, .toggle_skill_enabled, &fx);
@@ -16079,10 +16121,12 @@ test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabl
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "已禁用");
     _ = try expectButtonMsg(tree, "启用", .toggle_skill_enabled);
+    _ = try expectButtonMsg(tree, "删除", .arm_skill_delete);
     model.language_preference = .japanese;
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "無効");
     _ = try expectButtonMsg(tree, "有効", .toggle_skill_enabled);
+    _ = try expectButtonMsg(tree, "削除", .arm_skill_delete);
     model.language_preference = .english;
 
     main.update(&model, .toggle_settings, &fx);

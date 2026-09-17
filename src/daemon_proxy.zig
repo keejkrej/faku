@@ -7,6 +7,7 @@
 //! hello + closeSession, hello + cancel, hello + steer, hello +
 //! hello + `goal`, hello + `loadUsageHistory`, hello +
 //! `loadSkills`, hello + `setSkillsEnabled`, hello +
+//! `trashSkills`, hello +
 //! `fetchPlanUsage`, hello +
 //! `refreshBackgroundWork`, hello + `stopBackgroundWork`, or hello + `workspace`) and,
 //! when run as `faku daemon-proxy <addr>`, forwards those JSON frames over
@@ -16,6 +17,7 @@
 //! waits for the `taskState` response (not hello) because a nil
 //! `requestId` is a notify and would never return the catalog. A
 //! `loadUsageHistory` / `loadSkills` / `setSkillsEnabled` /
+//! `trashSkills` /
 //! `fetchPlanUsage` stdin waits
 //! for the `response` frame (not hello) the same way. A
 //! hydrate-only stdin waits for the `session` response the same way. A
@@ -98,6 +100,11 @@ pub const LOAD_SKILLS_REQUEST_ID = "00000000-0000-0000-0000-000000000019";
 /// for `setSkillsEnabled`. Distinct from `loadSkills` so in-flight
 /// catalog fill and Enable/Disable sidecars do not share a request id.
 pub const SET_SKILLS_ENABLED_REQUEST_ID = "00000000-0000-0000-0000-00000000001a";
+/// Non-nil: a nil `requestId` is a notify and the daemon sends no Ack
+/// for `trashSkills`. Distinct from `loadSkills` and
+/// `setSkillsEnabled` so in-flight catalog fill, Enable/Disable, and
+/// Delete sidecars do not share a request id.
+pub const TRASH_SKILLS_REQUEST_ID = "00000000-0000-0000-0000-00000000001b";
 /// Non-nil: a nil `requestId` is a notify and the daemon sends no
 /// `planUsage`.
 pub const PLAN_USAGE_REQUEST_ID = "00000000-0000-0000-0000-000000000018";
@@ -145,6 +152,13 @@ pub const SetSkillsEnabledStdin = struct {
     request_id: []const u8 = SET_SKILLS_ENABLED_REQUEST_ID,
     dirs: []const []const u8 = &.{},
     enabled: bool = false,
+};
+
+pub const TrashSkillsStdin = struct {
+    token: []const u8 = "",
+    client_id: []const u8 = CLIENT_ID,
+    request_id: []const u8 = TRASH_SKILLS_REQUEST_ID,
+    dirs: []const []const u8 = &.{},
 };
 
 pub const PlanUsageStdin = struct {
@@ -430,6 +444,25 @@ pub fn writeSetSkillsEnabledStdin(buf: []u8, args: SetSkillsEnabledStdin) WriteE
     return cur.slice();
 }
 
+/// NDJSON stdin for Settings → Skills Delete. Hello +
+/// `trashSkills`, no prompt. Uses a non-nil requestId so the
+/// daemon replies with a bare Ack. Native stdin is still one 4 KiB
+/// buffer. `dirs` are absolute skill directories.
+pub fn writeTrashSkillsStdin(buf: []u8, args: TrashSkillsStdin) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    const hello = try protocol.writeClientHello(cur.remaining(), args.token, args.client_id, &.{});
+    cur.pos += hello.len;
+    try cur.write("\n");
+    const trash = try protocol.writeTrashSkills(
+        cur.remaining(),
+        args.request_id,
+        args.dirs,
+    );
+    cur.pos += trash.len;
+    try cur.write("\n");
+    return cur.slice();
+}
+
 /// NDJSON stdin for the composer usage meter. Hello + `fetchPlanUsage`,
 /// no prompt. Uses a non-nil requestId so the daemon replies. Native
 /// stdin is still one 4 KiB buffer. `binaryOverride` / `cliVersion`
@@ -615,6 +648,7 @@ fn outboundWaitsForLoadResponse(outbound: []const u8) bool {
         std.mem.indexOf(u8, outbound, "\"type\":\"loadUsageHistory\"") != null or
         std.mem.indexOf(u8, outbound, "\"type\":\"loadSkills\"") != null or
         std.mem.indexOf(u8, outbound, "\"type\":\"setSkillsEnabled\"") != null or
+        std.mem.indexOf(u8, outbound, "\"type\":\"trashSkills\"") != null or
         std.mem.indexOf(u8, outbound, "\"type\":\"fetchPlanUsage\"") != null) and
         std.mem.indexOf(u8, outbound, "\"type\":\"prompt\"") == null and
         std.mem.indexOf(u8, outbound, "\"type\":\"saveTaskState\"") == null;
@@ -1156,6 +1190,37 @@ test "writeSetSkillsEnabledStdin emits hello and setSkillsEnabled with a non-nil
     try std.testing.expectError(error.NoSpaceLeft, writeSetSkillsEnabledStdin(&tiny, .{
         .dirs = &.{"/tmp/faku/.cursor/skills/to-spec"},
         .enabled = false,
+    }));
+}
+
+test "writeTrashSkillsStdin emits hello and trashSkills with a non-nil requestId" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeTrashSkillsStdin(&buf, .{
+        .token = "secret",
+        .dirs = &.{"/tmp/faku/.cursor/skills/to-spec"},
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"trashSkills\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"dirs\":[\"/tmp/faku/.cursor/skills/to-spec\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"enabled\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"loadSkills\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"setSkillsEnabled\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"workspace\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"loadUsageHistory\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"loadTaskState\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ TRASH_SKILLS_REQUEST_ID) != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ SET_SKILLS_ENABLED_REQUEST_ID) == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ LOAD_SKILLS_REQUEST_ID) == null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(outboundWaitsForLoadResponse(stdin));
+    try std.testing.expect(!outboundWaitsForHydrateResponse(stdin));
+    try std.testing.expect(!outboundWaitsForWorkspace(stdin));
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeTrashSkillsStdin(&tiny, .{
+        .dirs = &.{"/tmp/faku/.cursor/skills/to-spec"},
     }));
 }
 

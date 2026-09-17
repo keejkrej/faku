@@ -1,6 +1,8 @@
 //! Settings Skills + composer `$` insert / `/` slash rows: bounded
 //! `SKILL.md` scan plus first-cut enable/disable via daemon
-//! `setSkillsEnabled` (ack) or on-disk rename fallback.
+//! `setSkillsEnabled` (ack) or on-disk rename fallback, and first-cut
+//! Delete via daemon `trashSkills` (ack) or a Faku-side permanent
+//! directory-remove fallback.
 //!
 //! Native has no FS watcher. Unix one-shots a packed `find` for
 //! `SKILL.md` and `SKILL.md.disabled` (Waku `DISABLED_SKILL_FILE`)
@@ -51,13 +53,29 @@
 //! own `next_daemon_key` on `daemon_set_skills_enabled_key`). Ok
 //! Ack then `refresh`. Unknown-command / parse / sidecar / Native
 //! 4 KiB overflow / no address keep today's Faku-side `SKILL.md` ↔
-//! `SKILL.md.disabled` rename. In-flight rename or
-//! `setSkillsEnabled` fail closed. Still not `trashSkills`. Empty-state Open a
+//! `SKILL.md.disabled` rename. In-flight rename,
+//! `setSkillsEnabled`, or `trashSkills` fail closed. First-cut Delete
+//! prefers hello + `trashSkills` when a daemon address is set
+//! (`dirs` = `[absSkillParent]`; own `next_daemon_key` on
+//! `daemon_trash_skills_key`). Ok Ack then clear arming and
+//! `refresh`. Unknown-command / parse / sidecar / Native 4 KiB
+//! overflow / no address keep a Faku-side **permanent** one-shot
+//! remove of that absolute skill directory only (not OS Trash /
+//! Recycle Bin — Faku has no trash crate): Unix `/bin/sh -c` chdir
+//! wrapper + `rm -rf --` with the skill dir as an argv slot; Windows
+//! powershell `Remove-Item -LiteralPath … -Recurse -Force` with argv
+//! slots. Guard: only remove when the path is non-empty, absolute,
+//! and looks like the selected skill's parent from cache — fail
+//! closed otherwise. Empty-state Open a
 //! project / No skills found follow `i18n.SkillsEmptyChrome`
 //! (distinct from FilterChrome / RightPanelChrome; composer `$`
 //! insert empty reuses the same hint). Enable / Disable / Disabled
 //! badge follow `i18n.SkillsEnableChrome` (distinct from
-//! ProvidersChrome). Not a Native FS API.
+//! ProvidersChrome). Delete / Confirm delete follow
+//! `i18n.SkillsTrashChrome` (distinct from SkillsEnableChrome /
+//! SkillsEmptyChrome). Daemon `trashSkills` is best-effort; the
+//! fallback is a permanent directory remove, not OS Trash. Not a
+//! Native FS API.
 //! app.zon already includes windows.
 //!
 //! Spawn/line/exit orchestration lives here. Tests do not need a live
@@ -89,6 +107,11 @@ pub const skills_key_first: u64 = 530;
 /// Files Preview issue-link (540+). Band is 580+. Incremented per
 /// toggle so a stale rename exit cannot refresh a later scan.
 pub const skills_rename_key_first: u64 = 580;
+/// One-shot Skills Delete `rm -rf` / Remove-Item fallback
+/// (permanent directory remove, not OS Trash). Distinct from the
+/// scan key (530+), rename (580+), Files Preview issue-link (540+),
+/// and daemon `trashSkills` (`next_daemon_key`). Band is 590+.
+pub const skills_remove_key_first: u64 = 590;
 
 pub const max_skills: usize = 64;
 pub const max_skills_s = std.fmt.comptimePrint("{d}", .{max_skills});
@@ -106,6 +129,12 @@ pub const skill_fallback_name = "SKILL";
 pub const skill_prompt_heading = "### Skill: ";
 pub const mv_bin = "mv";
 pub const mv_end_of_options = "--";
+pub const rm_bin = "rm";
+pub const rm_rf_flag = "-rf";
+pub const rm_end_of_options = "--";
+/// First-cut Delete miss / remove-fail window_status. English this
+/// cut (SkillsTrashChrome is Delete / Confirm delete only).
+pub const could_not_delete_status = "Could not delete skill.";
 
 pub const sh_bin = file_mention.sh_bin;
 pub const find_bin = file_mention.find_bin;
@@ -151,6 +180,13 @@ pub const powershell_skills_walk_script =
 pub const powershell_skills_rename_script =
     "{ $ErrorActionPreference='Stop'; $dir=$args[0]; $from=$args[1]; $to=$args[2]; Move-Item -LiteralPath (Join-Path $dir $from) -Destination (Join-Path $dir $to) }";
 
+/// Scriptblock + `$args[0]`: skill directory stays an argv slot after
+/// `-Args` (never interpolated into `-Command`). Permanent
+/// `Remove-Item -LiteralPath` recurse+force — not OS Recycle Bin.
+/// Six argv slots.
+pub const powershell_skills_remove_script =
+    "{ $ErrorActionPreference='Stop'; Remove-Item -LiteralPath $args[0] -Recurse -Force }";
+
 /// Unix `/bin/sh -c` chdir + `/bin/sh -c` + `find_skills_script` (8).
 /// Windows powershell `-Command` + `-Args` is 6; this is the spawn
 /// buffer (max of the two).
@@ -163,6 +199,12 @@ pub const windows_walk_argv_len: usize = 6;
 pub const rename_argv_len: usize = 9;
 pub const unix_rename_argv_len: usize = 9;
 pub const windows_rename_argv_len: usize = 8;
+/// Unix `/bin/sh -c` chdir + `rm -rf --` skill-dir (9). Windows
+/// powershell `-Command` + `-Args` skill-dir is 6; this is the spawn
+/// buffer (max of the two). Native `max_effect_argv` is 16.
+pub const remove_argv_len: usize = 9;
+pub const unix_remove_argv_len: usize = 9;
+pub const windows_remove_argv_len: usize = 6;
 
 /// Settings sidebar page. Chrome is General | Appearance |
 /// Providers | Skills | Usage | Computer Use. Computer Use is a
@@ -387,6 +429,100 @@ pub fn isSkillsRenameArgv(argv: []const []const u8) bool {
     return isUnixSkillsRenameArgv(argv) or isWindowsSkillsRenameArgv(argv);
 }
 
+/// `rm -rf -- <skill-dir>` after the chdir wrapper. The skill
+/// directory is an argv slot — never interpolated into
+/// `fx_ask_chdir_script`. Permanent remove, not OS Trash.
+pub fn unixRemoveArgvFor(cwd: []const u8, dir: []const u8, buf: *[remove_argv_len][]const u8) []const []const u8 {
+    buf.* = .{
+        sh_bin,
+        "-c",
+        util.fx_ask_chdir_script,
+        "sh",
+        cwd,
+        rm_bin,
+        rm_rf_flag,
+        rm_end_of_options,
+        dir,
+    };
+    return buf[0..unix_remove_argv_len];
+}
+
+/// Windows: `powershell.exe -NoProfile -Command {scriptblock} -Args
+/// <skill-dir>`. Path stays `$args[0]` — not interpolated into the
+/// `-Command` body. Permanent `Remove-Item`, not Recycle Bin.
+pub fn windowsRemoveArgvFor(dir: []const u8, buf: *[remove_argv_len][]const u8) []const []const u8 {
+    buf[0] = powershell_bin;
+    buf[1] = powershell_noprofile;
+    buf[2] = powershell_command;
+    buf[3] = powershell_skills_remove_script;
+    buf[4] = powershell_args_flag;
+    buf[5] = dir;
+    return buf[0..windows_remove_argv_len];
+}
+
+pub fn removeArgvFor(cwd: []const u8, dir: []const u8, buf: *[remove_argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsRemoveArgvFor(dir, buf),
+        else => unixRemoveArgvFor(cwd, dir, buf),
+    };
+}
+
+fn isUnixSkillsRemoveArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_remove_argv_len) return false;
+    if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], "-c")) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[5], rm_bin)) return false;
+    if (!std.mem.eql(u8, argv[6], rm_rf_flag)) return false;
+    if (!std.mem.eql(u8, argv[7], rm_end_of_options)) return false;
+    return argv[8].len > 0;
+}
+
+fn isWindowsSkillsRemoveArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_remove_argv_len) return false;
+    if (!std.mem.eql(u8, argv[0], powershell_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], powershell_noprofile)) return false;
+    if (!std.mem.eql(u8, argv[2], powershell_command)) return false;
+    if (!std.mem.eql(u8, argv[3], powershell_skills_remove_script)) return false;
+    if (!std.mem.eql(u8, argv[4], powershell_args_flag)) return false;
+    if (argv[5].len == 0) return false;
+    if (!scriptHas(argv[3], "$args[0]")) return false;
+    if (!scriptHas(argv[3], "Remove-Item")) return false;
+    if (!scriptHas(argv[3], "-LiteralPath")) return false;
+    if (!scriptHas(argv[3], "-Recurse")) return false;
+    if (!scriptHas(argv[3], "-Force")) return false;
+    return true;
+}
+
+pub fn isSkillsRemoveArgv(argv: []const []const u8) bool {
+    return isUnixSkillsRemoveArgv(argv) or isWindowsSkillsRemoveArgv(argv);
+}
+
+/// Fail-closed guard for the permanent remove fallback. `dir` must be
+/// non-empty, must not be `/` / `.` / `..`, must not contain a `..`
+/// segment, and must contain the selected skill's parent dir from
+/// cache (relative `skillDirKey`) as a path suffix. Absolute paths
+/// preferred; nested relative paths (test zig-cache / unusual
+/// relative `project_path`) are allowed when they still look like
+/// that skill parent.
+pub fn trashDirAllowed(dir: []const u8, parent_from_cache: []const u8) bool {
+    if (dir.len == 0 or parent_from_cache.len == 0) return false;
+    if (std.mem.eql(u8, dir, "/") or std.mem.eql(u8, dir, "\\")) return false;
+    if (std.mem.eql(u8, dir, ".") or std.mem.eql(u8, dir, "..")) return false;
+    if (std.mem.indexOf(u8, dir, "..") != null) return false;
+    if (!pathEndsWithDir(dir, parent_from_cache)) return false;
+    if (isAbsoluteSkillPath(dir) or std.fs.path.isAbsolute(dir)) return true;
+    return std.mem.indexOfAny(u8, dir, "/\\") != null;
+}
+
+fn pathEndsWithDir(path: []const u8, dir: []const u8) bool {
+    if (dir.len == 0 or path.len < dir.len) return false;
+    if (!std.mem.endsWith(u8, path, dir)) return false;
+    if (path.len == dir.len) return false;
+    const sep = path[path.len - dir.len - 1];
+    return sep == '/' or sep == '\\';
+}
+
 /// macOS / Linux / Windows. Other tags stay fail-closed (empty list).
 pub fn scanSupportedOn(tag: std.Target.Os.Tag) bool {
     return switch (tag) {
@@ -441,6 +577,7 @@ pub fn clearCache(model: *Model) void {
     model.skill_count = 0;
     model.skill_selected_id = 0;
     model.skill_body_len = 0;
+    model.skill_delete_arming = false;
 }
 
 fn cancelInFlight(model: *Model, fx: *Effects) void {
@@ -457,6 +594,7 @@ fn cancelDaemon(model: *Model, fx: *Effects) void {
         model.daemon_load_skills_key = 0;
     }
     cancelSetSkillsEnabled(model, fx);
+    cancelTrashSkills(model, fx);
 }
 
 fn cancelSetSkillsEnabled(model: *Model, fx: *Effects) void {
@@ -466,10 +604,34 @@ fn cancelSetSkillsEnabled(model: *Model, fx: *Effects) void {
     model.skill_set_skills_enabled_ok = false;
 }
 
+fn cancelTrashSkills(model: *Model, fx: *Effects) void {
+    if (model.daemon_trash_skills_key == 0) return;
+    fx.cancel(model.daemon_trash_skills_key);
+    model.daemon_trash_skills_key = 0;
+    model.skill_trash_ok = false;
+}
+
 fn cancelRename(model: *Model, fx: *Effects) void {
     if (model.skill_rename_key == 0) return;
     fx.cancel(model.skill_rename_key);
     model.skill_rename_key = 0;
+}
+
+fn cancelRemove(model: *Model, fx: *Effects) void {
+    if (model.skill_remove_key == 0) return;
+    fx.cancel(model.skill_remove_key);
+    model.skill_remove_key = 0;
+}
+
+fn mutationInFlight(model: *const Model) bool {
+    return model.skill_rename_key != 0 or
+        model.daemon_set_skills_enabled_key != 0 or
+        model.daemon_trash_skills_key != 0 or
+        model.skill_remove_key != 0;
+}
+
+pub fn clearDeleteArming(model: *Model) void {
+    model.skill_delete_arming = false;
 }
 
 /// Selected-session directory when it exists, else settings last
@@ -487,11 +649,22 @@ pub fn probePath(model: *const Model) []const u8 {
 pub fn close(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
     cancelRename(model, fx);
+    cancelRemove(model, fx);
     clearCache(model);
     model.skill_probe_path_len = 0;
     model.skill_rename_cwd_len = 0;
+    model.skill_trash_cwd_len = 0;
     model.skill_toggle_enable = false;
     model.skills_filter_buffer.clear();
+}
+
+/// Leaving Settings → Skills: drop Delete arming and cancel in-flight
+/// `trashSkills` / remove (same cancel band refresh uses for
+/// `setSkillsEnabled`). Catalog cache stays for composer `$` / `/`.
+pub fn leavePage(model: *Model, fx: *Effects) void {
+    clearDeleteArming(model);
+    cancelTrashSkills(model, fx);
+    cancelRemove(model, fx);
 }
 
 /// One-shot find when the probe path is empty or changed. No-op when
@@ -513,6 +686,7 @@ pub fn ensureScanned(model: *Model, fx: *Effects) void {
 pub fn refresh(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
     cancelRename(model, fx);
+    cancelRemove(model, fx);
     clearCache(model);
     if (!scanSupported()) {
         model.skill_probe_path_len = 0;
@@ -926,15 +1100,63 @@ pub fn handleSetSkillsEnabledExit(model: *Model, fx: *Effects, exit: native_sdk.
     spawnRename(model, fx, model.skill_toggle_enable);
 }
 
+pub fn applyTrashSkillsLine(model: *Model, line: native_sdk.EffectLine) void {
+    if (line.key != model.daemon_trash_skills_key or model.daemon_trash_skills_key == 0) return;
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const parsed = protocol.parseAck(arena_state.allocator(), line.line);
+    if (!parsed.ok) return;
+    model.skill_trash_ok = true;
+}
+
+/// Ok Ack then clear arming and `refresh`. Unknown-command / parse
+/// miss / sidecar fail fall back to today's permanent directory
+/// remove using the stored skill dir.
+pub fn handleTrashSkillsExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
+    if (exit.key != model.daemon_trash_skills_key or model.daemon_trash_skills_key == 0) return;
+    model.daemon_trash_skills_key = 0;
+    const ok = model.skill_trash_ok;
+    model.skill_trash_ok = false;
+    if (ok) {
+        clearDeleteArming(model);
+        model.skill_selected_id = 0;
+        model.skill_body_len = 0;
+        refresh(model, fx);
+        return;
+    }
+    if (model.skill_trash_cwd_len == 0) {
+        failTrash(model);
+        return;
+    }
+    spawnRemove(model, fx);
+}
+
+pub fn handleRemoveExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
+    if (exit.key != model.skill_remove_key or model.skill_remove_key == 0) return;
+    model.skill_remove_key = 0;
+    const succeeded = exit.reason == .exited and exit.code == 0;
+    if (!succeeded) {
+        failTrash(model);
+        return;
+    }
+    clearDeleteArming(model);
+    model.skill_selected_id = 0;
+    model.skill_body_len = 0;
+    refresh(model, fx);
+}
+
+fn failTrash(model: *Model) void {
+    model.setWindowStatus(could_not_delete_status);
+}
+
 /// Enable when the selected skill is disabled, Disable when enabled.
 /// Prefers one-shot `setSkillsEnabled` when a daemon address is set.
 /// Unknown-command / parse / sidecar / overflow / no address keep
-/// today's rename. Missing file / in-flight rename or
-/// `setSkillsEnabled` fail closed (cache unchanged).
+/// today's rename. Missing file / in-flight rename,
+/// `setSkillsEnabled`, or `trashSkills` fail closed (cache unchanged).
 pub fn toggleSkillEnabled(model: *Model, fx: *Effects) void {
     if (!scanSupported()) return;
-    if (model.skill_rename_key != 0) return;
-    if (model.daemon_set_skills_enabled_key != 0) return;
+    if (mutationInFlight(model)) return;
     const id = model.skill_selected_id;
     if (id == 0 or id > model.skill_count) return;
     const index = id - 1;
@@ -1006,7 +1228,100 @@ fn spawnRename(model: *Model, fx: *Effects, enable: bool) void {
     });
 }
 
+pub fn armSkillDelete(model: *Model) void {
+    if (model.skill_selected_id == 0 or model.skill_selected_id > model.skill_count) return;
+    model.skill_delete_arming = true;
+}
+
+/// First-cut Settings → Skills Delete. Must be armed. Prefers
+/// one-shot `trashSkills` when a daemon address is set.
+/// Unknown-command / parse / sidecar / overflow / no address keep
+/// today's permanent directory remove. In-flight rename,
+/// `setSkillsEnabled`, or `trashSkills` fail closed.
+pub fn confirmSkillDelete(model: *Model, fx: *Effects) void {
+    if (!model.skill_delete_arming) return;
+    trashSkill(model, fx);
+}
+
+fn trashSkill(model: *Model, fx: *Effects) void {
+    if (!scanSupported()) return;
+    if (mutationInFlight(model)) return;
+    const id = model.skill_selected_id;
+    if (id == 0 or id > model.skill_count) return;
+    const index = id - 1;
+    const relpath = model.skill_store[index].path();
+    const parent_rel = skillDirKey(relpath);
+    if (parent_rel.len == 0) {
+        failTrash(model);
+        return;
+    }
+    const root = model.skill_probe_path_storage[0..model.skill_probe_path_len];
+    if (root.len == 0) {
+        failTrash(model);
+        return;
+    }
+    var parent_buf: [model_exports.max_project_path + max_skill_path + 1]u8 = undefined;
+    const parent = absSkillParent(root, relpath, &parent_buf) orelse {
+        failTrash(model);
+        return;
+    };
+    if (!trashDirAllowed(parent, parent_rel)) {
+        failTrash(model);
+        return;
+    }
+    writeFixed(&model.skill_trash_cwd_storage, &model.skill_trash_cwd_len, parent);
+    if (trySpawnTrashSkills(model, fx, parent)) return;
+    spawnRemove(model, fx);
+}
+
+fn trySpawnTrashSkills(model: *Model, fx: *Effects, dir: []const u8) bool {
+    const address = daemonMirrorAddress(model);
+    if (address.len == 0) return false;
+
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeTrashSkillsStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .dirs = &.{dir},
+    }) catch return false;
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.daemon_trash_skills_key = key;
+    model.skill_trash_ok = false;
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = effect_keys.daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
+}
+
+fn spawnRemove(model: *Model, fx: *Effects) void {
+    const dir = model.skill_trash_cwd_storage[0..model.skill_trash_cwd_len];
+    const cwd = model.skill_probe_path_storage[0..model.skill_probe_path_len];
+    if (dir.len == 0 or cwd.len == 0) {
+        failTrash(model);
+        return;
+    }
+    const key = model.next_skill_remove_key;
+    model.next_skill_remove_key = key + 1;
+    model.skill_remove_key = key;
+    var argv_buf: [remove_argv_len][]const u8 = undefined;
+    fx.spawn(.{
+        .key = key,
+        .argv = removeArgvFor(cwd, dir, &argv_buf),
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+}
+
 pub fn selectSkill(model: *Model, id: u32) void {
+    if (id != model.skill_selected_id) {
+        model.skill_delete_arming = false;
+    }
     if (id == 0 or id > model.skill_count) {
         model.skill_selected_id = 0;
         model.skill_body_len = 0;
@@ -1142,6 +1457,12 @@ pub const enable_label = skills_enable_chrome_en.enable;
 pub const disable_label = skills_enable_chrome_en.disable;
 pub const disabled_badge = skills_enable_chrome_en.disabled;
 
+/// English defaults from `i18n.SkillsTrashChrome`. Distinct from
+/// Enable / Disable / empty-state.
+const skills_trash_chrome_en = i18n.skillsTrashChromeFor(.english, "");
+pub const delete_label = skills_trash_chrome_en.delete;
+pub const confirm_delete_label = skills_trash_chrome_en.confirm;
+
 fn skillsEmptyChrome(model: *const Model) i18n.SkillsEmptyChrome {
     return i18n.skillsEmptyChromeFor(model.language_preference, model.systemLocaleId());
 }
@@ -1188,6 +1509,8 @@ test "argv is chdir script plus find SKILL.md skips; not file-mention walk" {
     try std.testing.expect(skills_rename_key_first > skills_key_first);
     try std.testing.expect(skills_rename_key_first > 540);
     try std.testing.expect(skills_rename_key_first < 600);
+    try std.testing.expect(skills_remove_key_first > skills_rename_key_first);
+    try std.testing.expect(skills_remove_key_first < 600);
 }
 
 test "windows walk argv is powershell scriptblock -Args PATH; descends into hidden dirs" {
@@ -1237,18 +1560,31 @@ test "host argvFor and renameArgvFor match the process OS" {
     try std.testing.expect(isSkillsRenameArgv(rename_argv));
     try std.testing.expect(!isSkillsWalkArgv(rename_argv));
     try std.testing.expect(!isSkillsRenameArgv(walk_argv));
+    var remove_buf: [remove_argv_len][]const u8 = undefined;
+    const remove_argv = removeArgvFor("/tmp/faku-skills", "/tmp/faku-skills/.cursor/skills/demo", &remove_buf);
+    try std.testing.expect(isSkillsRemoveArgv(remove_argv));
+    try std.testing.expect(!isSkillsWalkArgv(remove_argv));
+    try std.testing.expect(!isSkillsRenameArgv(remove_argv));
+    try std.testing.expect(!isSkillsRemoveArgv(walk_argv));
+    try std.testing.expect(!isSkillsRemoveArgv(rename_argv));
     switch (builtin.os.tag) {
         .windows => {
             try std.testing.expectEqualStrings(powershell_bin, walk_argv[0]);
             try std.testing.expectEqualStrings(powershell_args_flag, walk_argv[4]);
             try std.testing.expectEqualStrings(powershell_bin, rename_argv[0]);
             try std.testing.expectEqualStrings(powershell_args_flag, rename_argv[4]);
+            try std.testing.expectEqualStrings(powershell_bin, remove_argv[0]);
+            try std.testing.expectEqualStrings(powershell_args_flag, remove_argv[4]);
         },
         else => {
             try std.testing.expectEqualStrings(sh_bin, walk_argv[0]);
             try std.testing.expectEqualStrings(find_skills_script, walk_argv[7]);
             try std.testing.expectEqualStrings(sh_bin, rename_argv[0]);
             try std.testing.expectEqualStrings(mv_bin, rename_argv[5]);
+            try std.testing.expectEqualStrings(sh_bin, remove_argv[0]);
+            try std.testing.expectEqualStrings(rm_bin, remove_argv[5]);
+            try std.testing.expectEqualStrings(rm_rf_flag, remove_argv[6]);
+            try std.testing.expectEqualStrings(rm_end_of_options, remove_argv[7]);
         },
     }
 }
@@ -1587,6 +1923,75 @@ test "windows rename argv enable and disable round-trip; paths stay -Args slots"
     }));
     var walk_buf: [walk_argv_len][]const u8 = undefined;
     try std.testing.expect(!isSkillsRenameArgv(windowsWalkArgvFor(cwd, &walk_buf)));
+}
+
+test "unix remove argv is chdir plus rm -rf -- skill dir; not rename or find" {
+    var buf: [remove_argv_len][]const u8 = undefined;
+    const dir = "/tmp/faku/.cursor/skills/demo";
+    const argv = unixRemoveArgvFor("/tmp/faku", dir, &buf);
+    try std.testing.expect(isSkillsRemoveArgv(argv));
+    try std.testing.expect(!isSkillsWalkArgv(argv));
+    try std.testing.expect(!isSkillsRenameArgv(argv));
+    try std.testing.expectEqual(@as(usize, unix_remove_argv_len), argv.len);
+    try std.testing.expectEqualStrings(sh_bin, argv[0]);
+    try std.testing.expectEqualStrings("-c", argv[1]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings("/tmp/faku", argv[4]);
+    try std.testing.expectEqualStrings(rm_bin, argv[5]);
+    try std.testing.expectEqualStrings(rm_rf_flag, argv[6]);
+    try std.testing.expectEqualStrings(rm_end_of_options, argv[7]);
+    try std.testing.expectEqualStrings(dir, argv[8]);
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], dir) == null);
+    try std.testing.expect(!isSkillsRemoveArgv(&.{ rm_bin, rm_rf_flag, rm_end_of_options, dir }));
+    var rename_buf: [rename_argv_len][]const u8 = undefined;
+    try std.testing.expect(!isSkillsRemoveArgv(unixRenameArgvFor("/tmp/faku-skill-dir", false, &rename_buf)));
+}
+
+test "windows remove argv is powershell Remove-Item -LiteralPath; path stays -Args slot" {
+    var buf: [remove_argv_len][]const u8 = undefined;
+    const dir = "C:\\Users\\me\\proj\\.cursor\\skills\\demo";
+    const argv = windowsRemoveArgvFor(dir, &buf);
+    try std.testing.expectEqual(@as(usize, windows_remove_argv_len), argv.len);
+    try std.testing.expect(argv.len <= 16);
+    try std.testing.expect(isSkillsRemoveArgv(argv));
+    try std.testing.expect(!isSkillsWalkArgv(argv));
+    try std.testing.expect(!isSkillsRenameArgv(argv));
+    try std.testing.expectEqualStrings(powershell_bin, argv[0]);
+    try std.testing.expectEqualStrings(powershell_noprofile, argv[1]);
+    try std.testing.expectEqualStrings(powershell_command, argv[2]);
+    try std.testing.expectEqualStrings(powershell_skills_remove_script, argv[3]);
+    try std.testing.expectEqualStrings(powershell_args_flag, argv[4]);
+    try std.testing.expectEqualStrings(dir, argv[5]);
+    try std.testing.expect(std.mem.indexOf(u8, argv[3], dir) == null);
+    try std.testing.expect(scriptHas(argv[3], "$args[0]"));
+    try std.testing.expect(scriptHas(argv[3], "Remove-Item"));
+    try std.testing.expect(scriptHas(argv[3], "-LiteralPath"));
+    try std.testing.expect(scriptHas(argv[3], "-Recurse"));
+    try std.testing.expect(scriptHas(argv[3], "-Force"));
+    try std.testing.expect(!isSkillsRemoveArgv(&.{
+        powershell_bin,
+        powershell_noprofile,
+        powershell_command,
+        "Remove-Item",
+        powershell_args_flag,
+        dir,
+    }));
+}
+
+test "trashDirAllowed requires absolute dir containing cache parent; fail closed otherwise" {
+    try std.testing.expect(trashDirAllowed("/tmp/faku/.cursor/skills/demo", ".cursor/skills/demo"));
+    try std.testing.expect(trashDirAllowed("/tmp/faku/skills/other", "skills/other"));
+    try std.testing.expect(trashDirAllowed("C:/Users/me/proj/.cursor/skills/demo", ".cursor/skills/demo"));
+    try std.testing.expect(trashDirAllowed(".zig-cache/tmp/x/skills/demo", "skills/demo"));
+    try std.testing.expect(!trashDirAllowed("", ".cursor/skills/demo"));
+    try std.testing.expect(!trashDirAllowed("/tmp/faku/.cursor/skills/demo", ""));
+    try std.testing.expect(!trashDirAllowed(".cursor/skills/demo", ".cursor/skills/demo"));
+    try std.testing.expect(!trashDirAllowed("/tmp/faku", ".cursor/skills/demo"));
+    try std.testing.expect(!trashDirAllowed("/", ".cursor/skills/demo"));
+    try std.testing.expect(trashDirAllowed("/tmp/faku", "faku"));
+    try std.testing.expect(!trashDirAllowed("/tmp/skills-evil", "skills"));
+    try std.testing.expect(!trashDirAllowed("/tmp/faku/../etc/.cursor/skills/demo", ".cursor/skills/demo"));
+    try std.testing.expect(!trashDirAllowed("demo", "demo"));
 }
 
 test "applyStdoutPaths prefers live SKILL.md when both live and disabled share a dir" {
@@ -2265,5 +2670,237 @@ test "writeSetSkillsEnabledStdin overflow keeps rename fallback" {
     try std.testing.expectError(error.NoSpaceLeft, daemon_proxy.writeSetSkillsEnabledStdin(&tiny, .{
         .dirs = &.{"/tmp/faku/.cursor/skills/to-spec"},
         .enabled = false,
+    }));
+}
+
+const trash_skills_ack_line =
+    "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-00000000001b\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"ack\"}}}";
+
+const trash_skills_unknown_line =
+    "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-00000000001b\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"unknown command\"}}}";
+
+test "arming clears on select change; same skill keeps arming" {
+    var model = Model{};
+    applyStdoutPaths(&model, "skills/one/SKILL.md\nskills/two/SKILL.md\n");
+    selectSkill(&model, 1);
+    try std.testing.expectEqual(@as(u32, 1), model.skill_selected_id);
+    try std.testing.expect(!model.skill_delete_arming);
+    armSkillDelete(&model);
+    try std.testing.expect(model.skill_delete_arming);
+    selectSkill(&model, 1);
+    try std.testing.expect(model.skill_delete_arming);
+    selectSkill(&model, 2);
+    try std.testing.expect(!model.skill_delete_arming);
+    try std.testing.expectEqual(@as(u32, 2), model.skill_selected_id);
+    armSkillDelete(&model);
+    try std.testing.expect(model.skill_delete_arming);
+    selectSkill(&model, 0);
+    try std.testing.expect(!model.skill_delete_arming);
+}
+
+test "confirmSkillDelete with a daemon address spawns trashSkills sidecar; no setSkillsEnabled" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-trash-daemon", .{tmp.sub_path[0..]});
+    var skill_dir_buf: [256]u8 = undefined;
+    const skill_dir = try std.fmt.bufPrint(&skill_dir_buf, "{s}/skills/demo", .{root});
+    try std.Io.Dir.cwd().createDirPath(testing.io, skill_dir);
+    var file_buf: [256]u8 = undefined;
+    const file_path = try std.fmt.bufPrint(&file_buf, "{s}/SKILL.md", .{skill_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = file_path,
+        .data =
+        \\---
+        \\name: trash-me
+        \\---
+        \\
+        \\Body
+        \\
+        ,
+    });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, root);
+    applyStdoutPaths(&model, "skills/demo/SKILL.md\n");
+    selectSkill(&model, 1);
+
+    confirmSkillDelete(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.daemon_trash_skills_key);
+    try testing.expectEqual(@as(u64, 0), model.skill_remove_key);
+
+    armSkillDelete(&model);
+    confirmSkillDelete(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.skill_rename_key);
+    try testing.expectEqual(@as(u64, 0), model.daemon_set_skills_enabled_key);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_trash_skills_key) orelse return error.MissingTrashSkills;
+    try testing.expect(daemon_proxy.isSidecarArgv(sidecar.argv));
+    try testing.expectEqualStrings("faku", sidecar.argv[0]);
+    try testing.expectEqualStrings(daemon_proxy.SUBCOMMAND, sidecar.argv[1]);
+    try testing.expectEqualStrings("127.0.0.1:8787", sidecar.argv[2]);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hello\"") != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"trashSkills\"") != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"dirs\":[") != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, skill_dir) != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"enabled\"") == null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"loadSkills\"") == null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"setSkillsEnabled\"") == null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"prompt\"") == null);
+    try testing.expectEqual(sidecar.key, model.daemon_trash_skills_key);
+    try testing.expect(sidecar.key != model.daemon_load_skills_key);
+    try testing.expect(sidecar.key != model.daemon_set_skills_enabled_key);
+    try testing.expect(sidecar.key != model.skill_key);
+    try testing.expect(sidecar.key != model.skill_rename_key);
+    try testing.expect(sidecar.key != model.skill_remove_key);
+    try testing.expect(!model.skill_trash_ok);
+
+    const in_flight = model.daemon_trash_skills_key;
+    const spawn_count = fx.pendingSpawnCount();
+    confirmSkillDelete(&model, &fx);
+    try testing.expectEqual(in_flight, model.daemon_trash_skills_key);
+    try testing.expectEqual(spawn_count, fx.pendingSpawnCount());
+    try testing.expectEqual(@as(u64, 0), model.skill_remove_key);
+    toggleSkillEnabled(&model, &fx);
+    try testing.expectEqual(in_flight, model.daemon_trash_skills_key);
+    try testing.expectEqual(@as(u64, 0), model.daemon_set_skills_enabled_key);
+    try testing.expectEqual(spawn_count, fx.pendingSpawnCount());
+}
+
+test "trashSkills ack refreshes; unknown-command falls back to remove; no setSkillsEnabled" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-trash-ack", .{tmp.sub_path[0..]});
+    var skill_dir_buf: [256]u8 = undefined;
+    const skill_dir = try std.fmt.bufPrint(&skill_dir_buf, "{s}/skills/demo", .{root});
+    try std.Io.Dir.cwd().createDirPath(testing.io, skill_dir);
+    var file_buf: [256]u8 = undefined;
+    const file_path = try std.fmt.bufPrint(&file_buf, "{s}/SKILL.md", .{skill_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = file_path,
+        .data =
+        \\---
+        \\name: trash-me
+        \\---
+        \\
+        \\Body
+        \\
+        ,
+    });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("skills trash ack", .fx);
+    model.selected = id;
+    model.sessionById(id).?.setProjectPath(root);
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, root);
+    applyStdoutPaths(&model, "skills/demo/SKILL.md\n");
+    selectSkill(&model, 1);
+    armSkillDelete(&model);
+
+    confirmSkillDelete(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_trash_skills_key) orelse return error.MissingTrashSkillsAck;
+    const ack_key = sidecar.key;
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"setSkillsEnabled\"") == null);
+    applyTrashSkillsLine(&model, .{ .key = ack_key + 9, .line = trash_skills_ack_line });
+    try testing.expect(!model.skill_trash_ok);
+    applyTrashSkillsLine(&model, .{ .key = ack_key, .line = "{\"type\":\"hello\"}" });
+    try testing.expect(!model.skill_trash_ok);
+    applyTrashSkillsLine(&model, .{ .key = ack_key, .line = trash_skills_ack_line });
+    try testing.expect(model.skill_trash_ok);
+
+    handleTrashSkillsExit(&model, &fx, .{ .key = ack_key + 9, .reason = .exited, .code = 0 });
+    try testing.expectEqual(ack_key, model.daemon_trash_skills_key);
+    try testing.expectEqual(@as(u32, 1), cachedCount(&model));
+
+    handleTrashSkillsExit(&model, &fx, .{ .key = ack_key, .reason = .exited, .code = 0 });
+    try testing.expectEqual(@as(u64, 0), model.daemon_trash_skills_key);
+    try testing.expect(!model.skill_trash_ok);
+    try testing.expect(!model.skill_delete_arming);
+    try testing.expectEqual(@as(u64, 0), model.skill_remove_key);
+    try testing.expectEqual(@as(u32, 0), cachedCount(&model));
+    const reload = pendingSpawnKey(&fx, model.daemon_load_skills_key) orelse return error.MissingLoadSkillsAfterTrashAck;
+    try testing.expect(std.mem.indexOf(u8, reload.stdin, "\"type\":\"loadSkills\"") != null);
+    try testing.expect(std.mem.indexOf(u8, reload.stdin, "\"type\":\"setSkillsEnabled\"") == null);
+    try testing.expect(std.mem.indexOf(u8, reload.stdin, "\"type\":\"trashSkills\"") == null);
+
+    applyStdoutPaths(&model, "skills/demo/SKILL.md\n");
+    selectSkill(&model, 1);
+    armSkillDelete(&model);
+    confirmSkillDelete(&model, &fx);
+    const miss = pendingSpawnKey(&fx, model.daemon_trash_skills_key) orelse return error.MissingTrashSkillsMiss;
+    const miss_key = miss.key;
+    applyTrashSkillsLine(&model, .{ .key = miss_key, .line = trash_skills_unknown_line });
+    try testing.expect(!model.skill_trash_ok);
+    handleTrashSkillsExit(&model, &fx, .{ .key = miss_key, .reason = .exited, .code = 1 });
+    try testing.expectEqual(@as(u64, 0), model.daemon_trash_skills_key);
+    try testing.expect(model.skill_remove_key >= skills_remove_key_first);
+    const remove = pendingSpawnKey(&fx, model.skill_remove_key) orelse return error.MissingRemoveFallback;
+    try testing.expect(isSkillsRemoveArgv(remove.argv));
+    try testing.expectEqualStrings(root, remove.argv[4]);
+    try testing.expectEqualStrings(skill_dir, remove.argv[8]);
+    try testing.expectEqual(@as(u32, 1), cachedCount(&model));
+}
+
+test "confirmSkillDelete without daemon address uses remove fallback" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-trash-local", .{tmp.sub_path[0..]});
+    var skill_dir_buf: [256]u8 = undefined;
+    const skill_dir = try std.fmt.bufPrint(&skill_dir_buf, "{s}/skills/demo", .{root});
+    try std.Io.Dir.cwd().createDirPath(testing.io, skill_dir);
+    var file_buf: [256]u8 = undefined;
+    const file_path = try std.fmt.bufPrint(&file_buf, "{s}/SKILL.md", .{skill_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = file_path,
+        .data =
+        \\---
+        \\name: trash-me
+        \\---
+        \\
+        \\Body
+        \\
+        ,
+    });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, root);
+    applyStdoutPaths(&model, "skills/demo/SKILL.md\n");
+    selectSkill(&model, 1);
+    armSkillDelete(&model);
+    confirmSkillDelete(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.daemon_trash_skills_key);
+    try testing.expect(model.skill_remove_key >= skills_remove_key_first);
+    const remove = pendingSpawnKey(&fx, model.skill_remove_key) orelse return error.MissingLocalRemove;
+    try testing.expect(isSkillsRemoveArgv(remove.argv));
+    try testing.expectEqualStrings(skill_dir, remove.argv[8]);
+}
+
+test "writeTrashSkillsStdin overflow keeps remove fallback" {
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, daemon_proxy.writeTrashSkillsStdin(&tiny, .{
+        .dirs = &.{"/tmp/faku/.cursor/skills/to-spec"},
     }));
 }

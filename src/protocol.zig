@@ -56,7 +56,17 @@
 //! `refreshBackgroundWork`: ok `outcome.payload.type === "ack"`).
 //! Request-frame `sessionId` / `runtimeId` are nil (same as
 //! `loadSkills`). A non-nil `requestId` is required. This cut is
-//! `setSkillsEnabled` → ack only; still not `trashSkills`.
+//! `setSkillsEnabled` → ack.
+//!
+//! `trashSkills` is not a bare command. Verified against egoist/waku
+//! `Command::TrashSkills { dirs: Vec<PathBuf> }` (camelCase wire
+//! `trashSkills`; `dirs` is `PathBuf[]` of absolute skill
+//! **directories**, same as `setSkillsEnabled`) and
+//! `ResponsePayload::Ack` (same bare Ack as `setSkillsEnabled` /
+//! `closeSession`: ok `outcome.payload.type === "ack"`).
+//! Request-frame `sessionId` / `runtimeId` are nil (same as
+//! `loadSkills` / `setSkillsEnabled`). A non-nil `requestId` is
+//! required. This cut is `trashSkills` → ack only.
 //!
 //! `loadUsageHistory` is not a bare command. Verified against egoist/waku
 //! `Command::LoadUsageHistory { window, project_roots }` (camelCase wire
@@ -683,7 +693,8 @@ pub fn defaultStartOptions() StartOptions {
 /// op). `loadSkills` is Settings → Skills / composer `skill_store`
 /// (hello + one-shot; not a workspace op). `setSkillsEnabled` is
 /// Settings → Skills Enable/Disable (hello + one-shot; `dirs` +
-/// `enabled`; ok Ack; not `trashSkills`). `fetchPlanUsage` is the composer usage-meter plan lanes
+/// `enabled`; ok Ack). `trashSkills` is Settings → Skills Delete
+/// (hello + one-shot; `dirs`; ok Ack; no `enabled`). `fetchPlanUsage` is the composer usage-meter plan lanes
 /// (hello + one-shot; not a workspace op). `refreshBackgroundWork` is Environment Summary / right-panel
 /// Background (hello + one-shot; request-frame sessionId / runtimeId).
 /// `stopBackgroundWork` is Background Stop on a daemon-sourced live
@@ -715,6 +726,7 @@ pub const CommandTag = enum {
     load_usage_history,
     load_skills,
     set_skills_enabled,
+    trash_skills,
     fetch_plan_usage,
     refresh_background_work,
     stop_background_work,
@@ -735,6 +747,7 @@ pub const CommandTag = enum {
             .load_usage_history => "loadUsageHistory",
             .load_skills => "loadSkills",
             .set_skills_enabled => "setSkillsEnabled",
+            .trash_skills => "trashSkills",
             .fetch_plan_usage => "fetchPlanUsage",
             .refresh_background_work => "refreshBackgroundWork",
             .stop_background_work => "stopBackgroundWork",
@@ -902,9 +915,10 @@ pub const ParsedSkillsCatalog = struct {
 };
 
 /// Light parse of a bare Ack payload (`closeSession` /
-/// `refreshBackgroundWork` / `setSkillsEnabled`). `ok` only when the
-/// frame is an ok response whose `outcome.payload.type` is `ack`.
-/// Unknown-command / error / rejected / wrong type stay not ok.
+/// `refreshBackgroundWork` / `setSkillsEnabled` / `trashSkills`).
+/// `ok` only when the frame is an ok response whose
+/// `outcome.payload.type` is `ack`. Unknown-command / error /
+/// rejected / wrong type stay not ok.
 pub const ParsedAck = struct {
     ok: bool = false,
 };
@@ -2516,6 +2530,34 @@ pub fn writeSetSkillsEnabled(
     try cur.write("],\"enabled\":");
     try writeBool(&cur, enabled);
     try cur.write("}}");
+    return cur.slice();
+}
+
+/// Request wrapping verified `trashSkills` `{ type, dirs }`. `dirs`
+/// is a JSON array of absolute skill directory paths (not `SKILL.md`
+/// file paths). No `enabled` field. Request-frame `sessionId` /
+/// `runtimeId` are nil (same as `setSkillsEnabled`). Non-nil
+/// `requestId` so the daemon replies with a bare Ack.
+pub fn writeTrashSkills(
+    buf: []u8,
+    request_id: []const u8,
+    dirs: []const []const u8,
+) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    try cur.write("{\"type\":\"request\",\"requestId\":");
+    try writeJsonString(&cur, request_id);
+    try cur.write(",\"sessionId\":");
+    try writeJsonString(&cur, NIL_UUID);
+    try cur.write(",\"runtimeId\":");
+    try writeJsonString(&cur, NIL_UUID);
+    try cur.write(",\"command\":{\"type\":");
+    try writeJsonString(&cur, CommandTag.trash_skills.wireName());
+    try cur.write(",\"dirs\":[");
+    for (dirs, 0..) |dir, i| {
+        if (i != 0) try cur.write(",");
+        try writeJsonString(&cur, dir);
+    }
+    try cur.write("]}}");
     return cur.slice();
 }
 
@@ -5773,6 +5815,7 @@ test "first-cut command tags stay camelCase on the wire" {
     try std.testing.expectEqualStrings("loadUsageHistory", CommandTag.load_usage_history.wireName());
     try std.testing.expectEqualStrings("loadSkills", CommandTag.load_skills.wireName());
     try std.testing.expectEqualStrings("setSkillsEnabled", CommandTag.set_skills_enabled.wireName());
+    try std.testing.expectEqualStrings("trashSkills", CommandTag.trash_skills.wireName());
     try std.testing.expectEqualStrings("fetchPlanUsage", CommandTag.fetch_plan_usage.wireName());
     try std.testing.expectEqualStrings("refreshBackgroundWork", CommandTag.refresh_background_work.wireName());
     try std.testing.expectEqualStrings("stopBackgroundWork", CommandTag.stop_background_work.wireName());
@@ -6162,6 +6205,37 @@ test "setSkillsEnabled request encodes dirs and enabled" {
 
     var tiny: [32]u8 = undefined;
     try std.testing.expectError(error.NoSpaceLeft, writeSetSkillsEnabled(&tiny, NIL_UUID, &.{"/tmp/faku/.cursor/skills/to-spec"}, false));
+}
+
+test "trashSkills request encodes dirs; no enabled / loadSkills / setSkillsEnabled" {
+    var buf: [1024]u8 = undefined;
+    const json = try writeTrashSkills(
+        &buf,
+        "00000000-0000-0000-0000-00000000001b",
+        &.{ "/tmp/faku/.cursor/skills/to-spec", "/tmp/faku/.agents/skills/off" },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-00000000001b\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"trashSkills\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"dirs\":[\"/tmp/faku/.cursor/skills/to-spec\",\"/tmp/faku/.agents/skills/off\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"enabled\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"loadSkills\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"setSkillsEnabled\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"workspace\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+
+    const one = try writeTrashSkills(&buf, NIL_UUID, &.{"/tmp/faku/.cursor/skills/to-spec"});
+    try std.testing.expect(std.mem.indexOf(u8, one, "\"dirs\":[\"/tmp/faku/.cursor/skills/to-spec\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, one, "\"enabled\"") == null);
+
+    const empty = try writeTrashSkills(&buf, NIL_UUID, &.{});
+    try std.testing.expect(std.mem.indexOf(u8, empty, "\"dirs\":[]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, empty, "\"enabled\"") == null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeTrashSkills(&tiny, NIL_UUID, &.{"/tmp/faku/.cursor/skills/to-spec"}));
 }
 
 test "fetchPlanUsage request encodes provider and null binaryOverride/cliVersion" {
