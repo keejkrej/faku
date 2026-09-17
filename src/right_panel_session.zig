@@ -246,7 +246,7 @@ pub fn restore(model: *Model, fx: *Effects) void {
     model.right_panel_session_pending_diff_source = slot.diff_source;
     model.right_panel_session_pending_diff_source_set = slot.diff_source_set;
     right_panel.applyBackgroundRow(model, slot.background_row_id);
-    restoreBrowser(model, slot);
+    restoreBrowser(model, fx, slot);
     restoreTerminal(model, fx, slot);
     right_panel.resetFilePreviewFindForSession(model);
     applyTab(model, fx, slot.tab);
@@ -407,7 +407,7 @@ fn restoreEmpty(model: *Model, fx: *Effects) void {
     applyLiveDiff(model, &.{}, 0);
     clearPending(model);
     right_panel.applyBackgroundRow(model, 0);
-    restoreBrowser(model, null);
+    restoreBrowser(model, fx, null);
     restoreTerminal(model, fx, null);
     right_panel.resetFilePreviewFindForSession(model);
     applyTab(model, fx, .files);
@@ -493,7 +493,8 @@ fn takeBrowser(slot: *State, model: *const Model) void {
     slot.browser_present = true;
 }
 
-fn restoreBrowser(model: *Model, slot: ?*const State) void {
+fn restoreBrowser(model: *Model, fx: *Effects, slot: ?*const State) void {
+    browser_pane.cancelAllTitleFetches(model, fx);
     const stashed = slot orelse {
         browser_pane.restoreFromPersist(model, &.{}, 0);
         return;
@@ -503,6 +504,7 @@ fn restoreBrowser(model: *Model, slot: ?*const State) void {
         return;
     }
     browser_pane.restoreFromPersist(model, &stashed.browser_slots, stashed.browser_active);
+    browser_pane.startTitleFetches(model, fx);
 }
 
 fn ownBrowserPersisted(slot: *State, src: *const [browser_pane.max_sessions]browser_pane.PersistedSlot) void {

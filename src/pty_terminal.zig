@@ -47,7 +47,7 @@ const Effects = main.Effects;
 /// Dedicated pty occupancy band. Outside stream (1), fx_ask (2), probe (3),
 /// daemon 4+, OS sidecars 25–32, attach preview 33–63, overlap 64+,
 /// git / mention / skills / cli_probe 200–608, litellm 650,
-/// Files markdown Preview images 800–815, transcript
+/// Browser page_title curl 660–699, Files markdown Preview images 800–815, transcript
 /// markdown images 816–831.
 pub const pty_shell_key: u64 = 700;
 pub const max_sessions: usize = 4;
@@ -595,6 +595,7 @@ test "pty_shell_key band is 700..703 and outside occupied bands" {
     const litellm_rates = @import("litellm_rates.zig");
     const cli_probe = @import("cli_probe.zig");
     const fx_probe = @import("fx_probe.zig");
+    const browser_pane = @import("browser_pane.zig");
     try std.testing.expectEqual(@as(u64, 700), pty_shell_key);
     try std.testing.expectEqual(@as(usize, 4), max_sessions);
     try std.testing.expectEqual(@as(u64, 703), pty_shell_key_last);
@@ -609,6 +610,7 @@ test "pty_shell_key band is 700..703 and outside occupied bands" {
     try std.testing.expect(pty_shell_key != cli_probe.cli_probe_key_first);
     try std.testing.expect(pty_shell_key != litellm_rates.litellm_rates_key);
     try std.testing.expect(pty_shell_key > litellm_rates.litellm_rates_key);
+    try std.testing.expect(pty_shell_key > browser_pane.page_title_key_last);
     try std.testing.expect(pty_shell_key_last != cli_probe.probeKey(.kimi));
 }
 

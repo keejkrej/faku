@@ -10678,7 +10678,7 @@ test "right panel Browser Open in browser spawns key-25 URL sidecar; empty URL i
     try testing.expect(!open_browser.state.disabled);
     main.update(&model, tree.msgForPointer(open_browser.id, .up).?, &fx);
     if (open_url.hostBin() == null) {
-        try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+        try testing.expect(findOpenUrlSpawn(&fx) == null);
         try testing.expectEqualStrings(open_url.hostMissingStatus(), model.window_status());
         return;
     }

@@ -137,7 +137,8 @@ pub const file_preview_issue_link_key_first = file_preview_issue_link.key_first;
 /// so claude=601 … kimi=608. fx stays on `fx_probe_key` (3).
 pub const cli_probe_key_first = cli_probe.cli_probe_key_first;
 /// One-shot LiteLLM rate-table curl (`-o` into the Faku data dir).
-/// Distinct from cli_probe (600+). Fixed key 650.
+/// Distinct from cli_probe (600+). Fixed key 650. Browser `page_title`
+/// curl is 660–699 (`browser_pane` / `sidecar_keys`).
 pub const litellm_rates_key = litellm_rates.litellm_rates_key;
 
 test "git/review/skills/probe spawn keys match owning modules" {

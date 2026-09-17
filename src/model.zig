@@ -1445,11 +1445,14 @@ pub const Model = struct {
     /// slot's address draft still persists as `browser_url`. Session
     /// switch restores occupancy from `right_panel_session` (missing →
     /// `default_slots`). `reload_token`, Hard Reload's pending blank
-    /// hop, and Stop loading's loading-guess / blank hop stay runtime-only. Slot 0 starts occupied. `browser_active`
+    /// hop, Stop loading's loading-guess / blank hop, and `page_title`
+    /// stay runtime-only. Slot 0 starts occupied. `browser_active`
     /// is the active `web_panes` slot (snapped only when that slot has a
     /// committed page).
     browser_slots: [browser_pane.max_sessions]browser_pane.Slot = browser_pane.default_slots,
     browser_active: u8 = 0,
+    /// Next one-shot Browser `page_title` curl key (band 660–699).
+    next_page_title_key: u64 = browser_pane.page_title_key_first,
     open_terminal_live: bool = false,
     open_terminal_tried_fallback: bool = false,
     open_terminal_wd_storage: [open_terminal.wd_arg_len]u8 = [_]u8{0} ** open_terminal.wd_arg_len,
@@ -2266,6 +2269,7 @@ pub const Model = struct {
         "open_url_len",
         "browser_slots",
         "browser_active",
+        "next_page_title_key",
         "browser_address_active",
         "browser_keyboard_active",
         "applyBrowserUrl",

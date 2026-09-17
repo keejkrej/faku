@@ -62,6 +62,7 @@ const right_panel_session = @import("right_panel_session.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
 const open_url = @import("open_url.zig");
+const browser_pane = @import("browser_pane.zig");
 const open_editor = @import("open_editor.zig");
 const session_fork = @import("fork.zig");
 
@@ -243,6 +244,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
     }
     if (usage_meter.isPendingKey(model, line.key)) {
         usage_meter.applyLine(model, line);
+        return;
+    }
+    if (browser_pane.isPendingTitleKey(model, line.key)) {
+        browser_pane.applyLine(model, line);
         return;
     }
     if (model.daemon_background_work_key != 0 and line.key == model.daemon_background_work_key) {
@@ -1207,6 +1212,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (exit.key == litellm_rates_key) {
         litellm_rates.handleExit(model, exit);
+        return;
+    }
+    if (browser_pane.isPendingTitleKey(model, exit.key)) {
+        browser_pane.handleExit(model, exit);
         return;
     }
     if (model.daemon_load_key != 0 and exit.key == model.daemon_load_key) {
