@@ -164,11 +164,26 @@ pub const LanguagePreference = i18n.LanguagePreference;
 pub const ui_font_sizes = [_]u8{ 11, 12, 13, 14, 15, 16, 18, 20 };
 pub const default_ui_font_size: u8 = 14;
 
+/// Settings → Appearance code font size. Same Waku `FONT_SIZES` ladder
+/// as UI font. Default 14. Native has no separate mono size token, so
+/// `code_font_size` scales documented `body_size` only (messages, code,
+/// diffs, terminal). Missing / unknown / out-of-range persist values
+/// copy sanitized `ui_font_size` (explicit valid `code_font_size` wins).
+pub const code_font_sizes = ui_font_sizes;
+pub const default_code_font_size: u8 = default_ui_font_size;
+
 pub fn sanitizeUiFontSize(size: u32) u8 {
     for (ui_font_sizes) |allowed| {
         if (size == allowed) return allowed;
     }
     return default_ui_font_size;
+}
+
+pub fn sanitizeCodeFontSize(size: u32) u8 {
+    for (code_font_sizes) |allowed| {
+        if (size == allowed) return allowed;
+    }
+    return default_code_font_size;
 }
 
 pub const Turn = struct {
@@ -614,6 +629,14 @@ pub const Msg = union(enum) {
     settings_ui_font_16,
     settings_ui_font_18,
     settings_ui_font_20,
+    settings_code_font_11,
+    settings_code_font_12,
+    settings_code_font_13,
+    settings_code_font_14,
+    settings_code_font_15,
+    settings_code_font_16,
+    settings_code_font_18,
+    settings_code_font_20,
     settings_language_system,
     settings_language_english,
     settings_language_simplified_chinese,
@@ -1343,6 +1366,9 @@ pub const Model = struct {
     theme_preference: ThemePreference = .system,
     /// Persisted chrome UI font size. Default 14 (Waku FONT_SIZES).
     ui_font_size: u8 = default_ui_font_size,
+    /// Persisted code / message body font size. Default 14 (same ladder).
+    /// Native couples messages, code, diffs, and terminal to `body_size`.
+    code_font_size: u8 = default_code_font_size,
     /// Persisted chrome language. Default System (LC_ALL / LC_MESSAGES / LANG).
     language_preference: LanguagePreference = .system,
     /// Process locale id for System language. Copied at boot from LC_ALL /
@@ -2147,10 +2173,13 @@ pub const Model = struct {
         "setThemePreference",
         "ui_font_size",
         "setUiFontSize",
+        "code_font_size",
+        "setCodeFontSize",
         "language_preference",
         "setLanguagePreference",
         "settingsChrome",
         "appearanceFontChrome",
+        "appearanceCodeFontChrome",
         "accessChrome",
         "effortChrome",
         "interactionChrome",
@@ -5178,6 +5207,38 @@ pub const Model = struct {
         return model.ui_font_size == 20;
     }
 
+    pub fn code_font_11(model: *const Model) bool {
+        return model.code_font_size == 11;
+    }
+
+    pub fn code_font_12(model: *const Model) bool {
+        return model.code_font_size == 12;
+    }
+
+    pub fn code_font_13(model: *const Model) bool {
+        return model.code_font_size == 13;
+    }
+
+    pub fn code_font_14(model: *const Model) bool {
+        return model.code_font_size == 14;
+    }
+
+    pub fn code_font_15(model: *const Model) bool {
+        return model.code_font_size == 15;
+    }
+
+    pub fn code_font_16(model: *const Model) bool {
+        return model.code_font_size == 16;
+    }
+
+    pub fn code_font_18(model: *const Model) bool {
+        return model.code_font_size == 18;
+    }
+
+    pub fn code_font_20(model: *const Model) bool {
+        return model.code_font_size == 20;
+    }
+
     pub fn language_system(model: *const Model) bool {
         return model.language_preference == .system;
     }
@@ -5200,6 +5261,10 @@ pub const Model = struct {
 
     fn appearanceFontChrome(model: *const Model) i18n.AppearanceFontChrome {
         return i18n.appearanceFontChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn appearanceCodeFontChrome(model: *const Model) i18n.AppearanceCodeFontChrome {
+        return i18n.appearanceCodeFontChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Same resolve path as Settings Appearance chrome. Sidebar date
@@ -5674,12 +5739,24 @@ pub const Model = struct {
         return model.appearanceFontChrome().description;
     }
 
+    pub fn appearance_code_font_title(model: *const Model) []const u8 {
+        return model.appearanceCodeFontChrome().title;
+    }
+
+    pub fn appearance_code_font_description(model: *const Model) []const u8 {
+        return model.appearanceCodeFontChrome().description;
+    }
+
     pub fn setThemePreference(model: *Model, preference: ThemePreference) void {
         model.theme_preference = preference;
     }
 
     pub fn setUiFontSize(model: *Model, size: u8) void {
         model.ui_font_size = sanitizeUiFontSize(size);
+    }
+
+    pub fn setCodeFontSize(model: *Model, size: u8) void {
+        model.code_font_size = sanitizeCodeFontSize(size);
     }
 
     pub fn setLanguagePreference(model: *Model, preference: LanguagePreference) void {

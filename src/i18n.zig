@@ -765,17 +765,43 @@ pub const AppearanceFontChrome = struct {
 
 const appearance_font_chrome_en: AppearanceFontChrome = .{
     .title = "UI font size",
-    .description = "Text size across the interface and messages",
+    .description = "Text size across chrome and controls",
 };
 
 const appearance_font_chrome_zh_cn: AppearanceFontChrome = .{
     .title = "界面字号",
-    .description = "整个界面与消息的文字大小",
+    .description = "界面与控件的文字大小",
 };
 
 const appearance_font_chrome_ja: AppearanceFontChrome = .{
     .title = "UI のフォントサイズ",
-    .description = "インターフェース全体とメッセージの文字サイズ",
+    .description = "インターフェースとコントロールの文字サイズ",
+};
+
+/// Settings → Appearance code font size title + description for the
+/// resolved locale. Same resolve path as Chrome. Distinct from UI font
+/// (`i18n.AppearanceFontChrome`) so this pack stays independently
+/// evolvable. Chip labels stay Latin digits in every locale. Wire ids /
+/// on-press stay English (`settings_code_font_11` … `settings_code_font_20`).
+/// Native couples messages, code, diffs, and terminal to `body_size`.
+pub const AppearanceCodeFontChrome = struct {
+    title: []const u8,
+    description: []const u8,
+};
+
+const appearance_code_font_chrome_en: AppearanceCodeFontChrome = .{
+    .title = "Code font size",
+    .description = "Text size for messages, code, diffs, and terminal",
+};
+
+const appearance_code_font_chrome_zh_cn: AppearanceCodeFontChrome = .{
+    .title = "代码字号",
+    .description = "消息、代码、差异和终端的文字大小",
+};
+
+const appearance_code_font_chrome_ja: AppearanceCodeFontChrome = .{
+    .title = "コードのフォントサイズ",
+    .description = "メッセージ、コード、差分、ターミナルの文字サイズ",
 };
 
 /// First-cut sidebar date-bucket titles plus the static relative-time
@@ -4256,6 +4282,18 @@ pub fn appearanceFontChromeFor(preference: LanguagePreference, system_locale_id:
     };
 }
 
+/// Settings → Appearance code font size chrome for the resolved locale.
+/// Callers pass Model `language_preference` + `system_locale_id`; this
+/// file does not read process env. Distinct from UI font so this pack
+/// stays independently evolvable. Chip labels stay Latin.
+pub fn appearanceCodeFontChromeFor(preference: LanguagePreference, system_locale_id: []const u8) AppearanceCodeFontChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => appearance_code_font_chrome_zh_cn,
+        .japanese => appearance_code_font_chrome_ja,
+        .system, .english => appearance_code_font_chrome_en,
+    };
+}
+
 /// Sidebar date-bucket titles for the resolved chrome locale. Callers
 /// pass Model `language_preference` + `system_locale_id`; this file
 /// does not read process env.
@@ -5452,16 +5490,31 @@ test "resolve english ignores a japanese locale id" {
 test "appearanceFontChromeFor english default; zh and ja chrome; english ignores ja LANG" {
     const testing = std.testing;
     try testing.expectEqualStrings("UI font size", appearanceFontChromeFor(.english, "ja").title);
-    try testing.expectEqualStrings("Text size across the interface and messages", appearanceFontChromeFor(.english, "").description);
+    try testing.expectEqualStrings("Text size across chrome and controls", appearanceFontChromeFor(.english, "").description);
     try testing.expectEqualStrings("UI font size", appearanceFontChromeFor(.system, "").title);
     try testing.expectEqualStrings("界面字号", appearanceFontChromeFor(.simplified_chinese, "").title);
-    try testing.expectEqualStrings("整个界面与消息的文字大小", appearanceFontChromeFor(.simplified_chinese, "").description);
+    try testing.expectEqualStrings("界面与控件的文字大小", appearanceFontChromeFor(.simplified_chinese, "").description);
     try testing.expectEqualStrings("UI のフォントサイズ", appearanceFontChromeFor(.japanese, "").title);
-    try testing.expectEqualStrings("インターフェース全体とメッセージの文字サイズ", appearanceFontChromeFor(.japanese, "").description);
+    try testing.expectEqualStrings("インターフェースとコントロールの文字サイズ", appearanceFontChromeFor(.japanese, "").description);
     try testing.expectEqualStrings("界面字号", appearanceFontChromeFor(.system, "zh_CN.UTF-8").title);
     try testing.expectEqualStrings("UI のフォントサイズ", appearanceFontChromeFor(.system, "ja_JP.UTF-8").title);
     try testing.expectEqualStrings("UI font size", appearanceFontChromeFor(.english, "ja_JP.UTF-8").title);
     try testing.expectEqualStrings("UI font size", appearanceFontChromeFor(.english, "zh_CN.UTF-8").title);
+}
+
+test "appearanceCodeFontChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Code font size", appearanceCodeFontChromeFor(.english, "ja").title);
+    try testing.expectEqualStrings("Text size for messages, code, diffs, and terminal", appearanceCodeFontChromeFor(.english, "").description);
+    try testing.expectEqualStrings("Code font size", appearanceCodeFontChromeFor(.system, "").title);
+    try testing.expectEqualStrings("代码字号", appearanceCodeFontChromeFor(.simplified_chinese, "").title);
+    try testing.expectEqualStrings("消息、代码、差异和终端的文字大小", appearanceCodeFontChromeFor(.simplified_chinese, "").description);
+    try testing.expectEqualStrings("コードのフォントサイズ", appearanceCodeFontChromeFor(.japanese, "").title);
+    try testing.expectEqualStrings("メッセージ、コード、差分、ターミナルの文字サイズ", appearanceCodeFontChromeFor(.japanese, "").description);
+    try testing.expectEqualStrings("代码字号", appearanceCodeFontChromeFor(.system, "zh_CN.UTF-8").title);
+    try testing.expectEqualStrings("コードのフォントサイズ", appearanceCodeFontChromeFor(.system, "ja_JP.UTF-8").title);
+    try testing.expectEqualStrings("Code font size", appearanceCodeFontChromeFor(.english, "ja_JP.UTF-8").title);
+    try testing.expectEqualStrings("Code font size", appearanceCodeFontChromeFor(.english, "zh_CN.UTF-8").title);
 }
 
 test "datesFor english default; zh and ja bucket titles; System follows locale id" {
