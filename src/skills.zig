@@ -1000,6 +1000,7 @@ test "toggleSkillEnabled one-shots mv; success refreshes find; fail and stale ke
 
     var model = Model{};
     model.store_io = testing.io;
+    model.setLastProjectPath(root);
     writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, root);
     applyStdoutPaths(&model, "skills/demo/SKILL.md\n");
     selectSkill(&model, 1);
