@@ -54,7 +54,9 @@
 //! `last_reasoning_effort` /
 //! `last_project_path` / `last_daemon_address` / `theme_preference` /
 //! `ui_font_size` / `code_font_size` / `language_preference` / `settings_page` /
-//! `usage_meter_open` / `commands_open` / `disabled_providers` /
+//! `usage_meter_open` / `commands_open` /
+//! `file_preview_find_case_sensitive` / `file_preview_find_whole_word` /
+//! `file_preview_find_use_regex` / `disabled_providers` /
 //! `usage_view` / `usage_window` / `usage_metric` / `usage_breakdown` /
 //! `usage_project_filter` so the settings gear and
 //! composer chips can edit persisted defaults, and `folders` /
@@ -305,6 +307,9 @@ pub fn saveSession(model: *const Model, session_id: u32, allocator: std.mem.Allo
     document.settings_page = model.settings_page;
     document.usage_meter_open = model.usage_meter_open;
     document.commands_open = model.commands_open;
+    document.file_preview_find_case_sensitive = model.file_preview_find_case_sensitive;
+    document.file_preview_find_whole_word = model.file_preview_find_whole_word;
+    document.file_preview_find_use_regex = model.file_preview_find_use_regex;
     document.disabled_providers = model.disabled_providers;
     applyUsageExtras(&document, model);
     applySidebarExtras(&document, model);
@@ -354,6 +359,9 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
     document.settings_page = model.settings_page;
     document.usage_meter_open = model.usage_meter_open;
     document.commands_open = model.commands_open;
+    document.file_preview_find_case_sensitive = model.file_preview_find_case_sensitive;
+    document.file_preview_find_whole_word = model.file_preview_find_whole_word;
+    document.file_preview_find_use_regex = model.file_preview_find_use_regex;
     document.disabled_providers = model.disabled_providers;
     applyUsageExtras(&document, model);
     applySidebarExtras(&document, model);
@@ -421,7 +429,8 @@ pub fn persistLayoutIfPossible(model: *const Model) void {
 /// Merge-only write of settings extras (`last_model`, `last_access_mode`,
 /// `last_interaction_mode`, `last_reasoning_effort`, `last_project_path`, `last_daemon_address`,
 /// `theme_preference`, `ui_font_size`, `code_font_size`, `language_preference`, `settings_page`,
-/// `usage_meter_open`, `commands_open`, `disabled_providers`,
+/// `usage_meter_open`, `commands_open`, `file_preview_find_case_sensitive`,
+/// `file_preview_find_whole_word`, `file_preview_find_use_regex`, `disabled_providers`,
 /// `usage_view`, `usage_window`, `usage_metric`, `usage_breakdown`,
 /// `usage_project_filter`) plus remembered `new_task`.
 /// Same first-run rule as sidebar collapse: does not create `sessions.json`
@@ -534,6 +543,9 @@ fn applySettingsExtras(document: *Document, model: *const Model) void {
     document.settings_page = model.settings_page;
     document.usage_meter_open = model.usage_meter_open;
     document.commands_open = model.commands_open;
+    document.file_preview_find_case_sensitive = model.file_preview_find_case_sensitive;
+    document.file_preview_find_whole_word = model.file_preview_find_whole_word;
+    document.file_preview_find_use_regex = model.file_preview_find_use_regex;
     document.disabled_providers = model.disabled_providers;
     applyUsageExtras(document, model);
 }
@@ -1075,6 +1087,9 @@ const Document = struct {
     settings_page: skills.Page = .general,
     usage_meter_open: bool = false,
     commands_open: bool = false,
+    file_preview_find_case_sensitive: bool = false,
+    file_preview_find_whole_word: bool = false,
+    file_preview_find_use_regex: bool = false,
     disabled_providers: [protocol.provider_id_count]bool = [_]bool{false} ** protocol.provider_id_count,
     usage_view: usage_history.View = .daily,
     usage_window: usage_history.WindowChoice = .trailing_30,
@@ -1120,6 +1135,9 @@ const Document = struct {
             .settings_page = model.settings_page,
             .usage_meter_open = model.usage_meter_open,
             .commands_open = model.commands_open,
+            .file_preview_find_case_sensitive = model.file_preview_find_case_sensitive,
+            .file_preview_find_whole_word = model.file_preview_find_whole_word,
+            .file_preview_find_use_regex = model.file_preview_find_use_regex,
             .disabled_providers = model.disabled_providers,
             .usage_view = model.usage_view,
             .usage_window = model.usage_window,
@@ -1222,6 +1240,9 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.settings_page = document.settings_page;
     model.usage_meter_open = document.usage_meter_open;
     model.commands_open = document.commands_open;
+    model.file_preview_find_case_sensitive = document.file_preview_find_case_sensitive;
+    model.file_preview_find_whole_word = document.file_preview_find_whole_word;
+    model.file_preview_find_use_regex = document.file_preview_find_use_regex;
     model.disabled_providers = document.disabled_providers;
     model.usage_view = document.usage_view;
     model.usage_window = document.usage_window;
@@ -1546,6 +1567,9 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .settings_page = skills.Page.fromPersist(jsonString(obj.get("settings_page")) orelse ""),
         .usage_meter_open = jsonBool(obj.get("usage_meter_open")) orelse false,
         .commands_open = jsonBool(obj.get("commands_open")) orelse false,
+        .file_preview_find_case_sensitive = jsonBool(obj.get("file_preview_find_case_sensitive")) orelse false,
+        .file_preview_find_whole_word = jsonBool(obj.get("file_preview_find_whole_word")) orelse false,
+        .file_preview_find_use_regex = jsonBool(obj.get("file_preview_find_use_regex")) orelse false,
         .disabled_providers = parseDisabledProviders(obj.get("disabled_providers")),
         .usage_view = usage_history.View.fromPersist(jsonString(obj.get("usage_view")) orelse ""),
         .usage_window = usage_history.WindowChoice.fromPersist(jsonString(obj.get("usage_window")) orelse ""),
@@ -2104,6 +2128,12 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
     try out.appendSlice(allocator, if (document.usage_meter_open) "true" else "false");
     try out.appendSlice(allocator, ",\"commands_open\":");
     try out.appendSlice(allocator, if (document.commands_open) "true" else "false");
+    try out.appendSlice(allocator, ",\"file_preview_find_case_sensitive\":");
+    try out.appendSlice(allocator, if (document.file_preview_find_case_sensitive) "true" else "false");
+    try out.appendSlice(allocator, ",\"file_preview_find_whole_word\":");
+    try out.appendSlice(allocator, if (document.file_preview_find_whole_word) "true" else "false");
+    try out.appendSlice(allocator, ",\"file_preview_find_use_regex\":");
+    try out.appendSlice(allocator, if (document.file_preview_find_use_regex) "true" else "false");
     try out.appendSlice(allocator, ",\"disabled_providers\":[");
     var disabled_written = false;
     for (std.meta.tags(protocol.ProviderId)) |id| {
@@ -2875,8 +2905,12 @@ test "Background tab persists; selected row and output are not written to sessio
     try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_tab\":\"background\"") != null);
     try testing.expect(std.mem.indexOf(u8, bytes, "\"browser_url\":\"\"") != null);
     try testing.expect(std.mem.indexOf(u8, bytes, "right_panel_background") == null);
-    try testing.expect(std.mem.indexOf(u8, bytes, "file_preview") == null);
-    try testing.expect(std.mem.indexOf(u8, bytes, "file_preview_find") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"file_preview_find_case_sensitive\":false") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"file_preview_find_whole_word\":false") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"file_preview_find_use_regex\":false") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "file_preview_find_active") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "file_preview_find_query") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "right_panel_file_preview") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_file_tree_width\":184") != null);
     try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_diff_file_list_width\":184") != null);
     try testing.expect(std.mem.indexOf(u8, bytes, "background_work") == null);
@@ -4306,6 +4340,105 @@ test "new_task extras persist on sessions.json; missing started or unknown load 
     const cleared_bytes = try std.Io.Dir.cwd().readFileAlloc(io, catalogPath(dir, &path_buf).?, allocator, .limited(64 * 1024));
     defer allocator.free(cleared_bytes);
     try testing.expect(std.mem.indexOf(u8, cleared_bytes, "\"new_task\":0") != null);
+}
+
+test "file_preview_find option extras persist on sessions.json; missing or unknown load false" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var missing_catalog = Model{};
+    missing_catalog.task_state_loaded = true;
+    missing_catalog.setStoreDir(dir);
+    missing_catalog.store_io = io;
+    missing_catalog.file_preview_find_case_sensitive = true;
+    missing_catalog.file_preview_find_whole_word = true;
+    missing_catalog.file_preview_find_use_regex = true;
+    persistSettingsIfPossible(&missing_catalog);
+    var missing_path: [std.fs.max_path_bytes]u8 = undefined;
+    try testing.expectError(error.FileNotFound, std.Io.Dir.cwd().readFileAlloc(io, catalogPath(dir, &missing_path).?, allocator, .limited(64)));
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var missing = Model{};
+    missing.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&missing, allocator, io));
+    try testing.expect(!missing.file_preview_find_case_sensitive);
+    try testing.expect(!missing.file_preview_find_whole_word);
+    try testing.expect(!missing.file_preview_find_use_regex);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"file_preview_find_case_sensitive":null,"file_preview_find_whole_word":null,"file_preview_find_use_regex":null,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var nulls = Model{};
+    nulls.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&nulls, allocator, io));
+    try testing.expect(!nulls.file_preview_find_case_sensitive);
+    try testing.expect(!nulls.file_preview_find_whole_word);
+    try testing.expect(!nulls.file_preview_find_use_regex);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"file_preview_find_case_sensitive":"yes","file_preview_find_whole_word":1,"file_preview_find_use_regex":[],"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var unknown = Model{};
+    unknown.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&unknown, allocator, io));
+    try testing.expect(!unknown.file_preview_find_case_sensitive);
+    try testing.expect(!unknown.file_preview_find_whole_word);
+    try testing.expect(!unknown.file_preview_find_use_regex);
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("find options later", .fx);
+    _ = source.appendTurn(id, .user, "remember find options");
+    try saveSession(&source, id, allocator, io);
+
+    source.file_preview_find_case_sensitive = true;
+    source.file_preview_find_whole_word = true;
+    source.file_preview_find_use_regex = true;
+    persistSettingsIfPossible(&source);
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expect(loaded.file_preview_find_case_sensitive);
+    try testing.expect(loaded.file_preview_find_whole_word);
+    try testing.expect(loaded.file_preview_find_use_regex);
+
+    source.file_preview_find_case_sensitive = true;
+    source.file_preview_find_whole_word = false;
+    source.file_preview_find_use_regex = true;
+    persistSettingsIfPossible(&source);
+    var mixed = Model{};
+    mixed.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&mixed, allocator, io));
+    try testing.expect(mixed.file_preview_find_case_sensitive);
+    try testing.expect(!mixed.file_preview_find_whole_word);
+    try testing.expect(mixed.file_preview_find_use_regex);
+
+    source.file_preview_find_case_sensitive = false;
+    source.file_preview_find_whole_word = false;
+    source.file_preview_find_use_regex = false;
+    persistSettingsIfPossible(&source);
+    var closed = Model{};
+    closed.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&closed, allocator, io));
+    try testing.expect(!closed.file_preview_find_case_sensitive);
+    try testing.expect(!closed.file_preview_find_whole_word);
+    try testing.expect(!closed.file_preview_find_use_regex);
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, catalogPath(dir, &path_buf).?, allocator, .limited(64 * 1024));
+    defer allocator.free(bytes);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"file_preview_find_case_sensitive\":false") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"file_preview_find_whole_word\":false") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"file_preview_find_use_regex\":false") != null);
 }
 
 test "folder extras persist untitled folders; missing catalog is not created" {

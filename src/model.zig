@@ -1281,22 +1281,29 @@ pub const Model = struct {
     /// Last Files-preview disk poll (`now_ms`). Null until the first
     /// poll. Throttles to `file_preview_disk_poll_interval_ms`.
     file_preview_disk_poll_ms: ?i64 = null,
-    /// Runtime-only Files preview find/replace. Not sessions.json.
-    /// Query/toggles survive closing the bar (Waku FileSearch). Session
-    /// restore (Waku `reset_file_search_for_session`) closes the bar,
-    /// clears matches, and clears find + replace buffers (toggles reset
-    /// to defaults). Matches also clear on close and file switch
-    /// (recomputed).
+    /// Files preview find/replace. Query, replace text, active, and
+    /// replace-visible stay runtime-only (not sessions.json). Query
+    /// survives closing the bar (Waku FileSearch). Session restore
+    /// (Waku `reset_file_search_for_session`) closes the bar, clears
+    /// matches, and clears find + replace buffers. Matches also
+    /// clear on close and file switch (recomputed). Aa / Ab / .*
+    /// persist as extras prefs (below); restore keeps them.
     file_preview_find_buffer: canvas.TextBuffer(max_search) = .{},
     file_preview_find_replace_buffer: canvas.TextBuffer(max_search) = .{},
     file_preview_find_active: bool = false,
     file_preview_find_replace_visible: bool = false,
     /// Waku FileSearch default: case-insensitive until toggled.
+    /// Persists as `file_preview_find_case_sensitive` on
+    /// `sessions.json` extras. Missing / unknown / null → false.
     file_preview_find_case_sensitive: bool = false,
     /// Waku FileSearch default: substring until toggled. ASCII word
-    /// chars are `[A-Za-z0-9_]`.
+    /// chars are `[A-Za-z0-9_]`. Persists as
+    /// `file_preview_find_whole_word` on `sessions.json` extras.
+    /// Missing / unknown / null → false.
     file_preview_find_whole_word: bool = false,
     /// Waku FileSearch default: plain substring until toggled.
+    /// Persists as `file_preview_find_use_regex` on `sessions.json`
+    /// extras. Missing / unknown / null → false.
     file_preview_find_use_regex: bool = false,
     file_preview_find_match_starts: [right_panel.file_preview_find_max_matches]u32 = [_]u32{0} ** right_panel.file_preview_find_max_matches,
     file_preview_find_match_ends: [right_panel.file_preview_find_max_matches]u32 = [_]u32{0} ** right_panel.file_preview_find_max_matches,

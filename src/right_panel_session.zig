@@ -45,7 +45,8 @@
 //! reserved until cancelled, then `spawnShell` re-spawns). Every
 //! restore (including missing-key empty) resets Files preview
 //! find/replace (Waku `reset_file_search_for_session`): close the bar,
-//! clear matches, and clear find + replace buffers.
+//! clear matches, and clear find + replace buffers. Aa / Ab / .*
+//! persist as last-live global `sessions.json` extras (not this stash).
 //!
 //! Live Files expand still lives on `right_panel_expanded_store` (heap
 //! last-window; `file_mention.clearCache` frees it). Live Diff expand
@@ -1937,9 +1938,6 @@ fn expectFindReset(model: *const Model) !void {
     try std.testing.expectEqual(@as(usize, 0), model.file_preview_find_query().len);
     try std.testing.expectEqual(@as(usize, 0), model.file_preview_find_replace().len);
     try std.testing.expect(!model.file_preview_find_replace_visible);
-    try std.testing.expect(!model.file_preview_find_case_sensitive);
-    try std.testing.expect(!model.file_preview_find_whole_word);
-    try std.testing.expect(!model.file_preview_find_use_regex);
 }
 
 test "Browser slots and active round-trip across session switch" {
@@ -2098,15 +2096,25 @@ test "Files preview find is inactive and empty after session restore" {
     try std.testing.expectEqualStrings("baz", model.file_preview_find_replace());
     try std.testing.expect(model.file_preview_find_replace_visible);
     try std.testing.expect(model.file_preview_find_case_sensitive);
+    try std.testing.expect(model.file_preview_find_whole_word);
+    try std.testing.expect(!model.file_preview_find_use_regex);
 
     palette_run.applySessionSelection(&model, &fx, session_b);
     try expectFindReset(&model);
+    try std.testing.expect(model.file_preview_find_case_sensitive);
+    try std.testing.expect(model.file_preview_find_whole_word);
+    try std.testing.expect(!model.file_preview_find_use_regex);
     try std.testing.expect(!hasState(&model, session_b));
 
     palette_run.applySessionSelection(&model, &fx, session_a);
     try expectFindReset(&model);
+    try std.testing.expect(model.file_preview_find_case_sensitive);
+    try std.testing.expect(model.file_preview_find_whole_word);
+    try std.testing.expect(!model.file_preview_find_use_regex);
     refillPreviewNote(&model, &fx, project);
     try expectFindReset(&model);
+    try std.testing.expect(model.file_preview_find_case_sensitive);
+    try std.testing.expect(model.file_preview_find_whole_word);
     try std.testing.expectEqualStrings("note.txt", model.file_preview_path());
 }
 
