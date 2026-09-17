@@ -419,6 +419,22 @@
                 </card>
                 <card size="sm" padding="10">
                   <column gap="8">
+                    <text>{appearance_font_title}</text>
+                    <row gap="8">
+                      <button variant="ghost" size="sm" selected="{ui_font_11}" on-press="settings_ui_font_11">11</button>
+                      <button variant="ghost" size="sm" selected="{ui_font_12}" on-press="settings_ui_font_12">12</button>
+                      <button variant="ghost" size="sm" selected="{ui_font_13}" on-press="settings_ui_font_13">13</button>
+                      <button variant="ghost" size="sm" selected="{ui_font_14}" on-press="settings_ui_font_14">14</button>
+                      <button variant="ghost" size="sm" selected="{ui_font_15}" on-press="settings_ui_font_15">15</button>
+                      <button variant="ghost" size="sm" selected="{ui_font_16}" on-press="settings_ui_font_16">16</button>
+                      <button variant="ghost" size="sm" selected="{ui_font_18}" on-press="settings_ui_font_18">18</button>
+                      <button variant="ghost" size="sm" selected="{ui_font_20}" on-press="settings_ui_font_20">20</button>
+                    </row>
+                    <text wrap="true" foreground="text_muted">{appearance_font_description}</text>
+                  </column>
+                </card>
+                <card size="sm" padding="10">
+                  <column gap="8">
                     <text>{appearance_language_title}</text>
                     <row gap="8">
                       <button variant="ghost" size="sm" selected="{language_system}" on-press="settings_language_system">{appearance_language_system}</button>

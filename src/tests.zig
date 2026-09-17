@@ -1497,6 +1497,7 @@ test "idle send is muted and usage chrome stays hidden until ACP reports a windo
     try testing.expect(model.theme_system());
     try testing.expectEqual(model_exports.LanguagePreference.system, model.language_preference);
     try testing.expect(model.language_system());
+    try testing.expectEqual(model_exports.default_ui_font_size, model.ui_font_size);
     try testing.expectEqual(canvas.ColorScheme.dark, boot.resolvedColorScheme(&model));
 
     const tree = try buildTree(arena, &model);
@@ -14230,6 +14231,7 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     try testing.expect(!appearance_tab.state.selected);
     _ = try expectByText(tree.root, .text, "Default model");
     try testing.expect(findByText(tree.root, .text, "Theme") == null);
+    try testing.expect(findByText(tree.root, .text, "UI font size") == null);
     try testing.expect(findByText(tree.root, .text, "Language") == null);
 
     main.update(&model, tree.msgForPointer(appearance_tab.id, .up).?, &fx);
@@ -14249,6 +14251,7 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     try testing.expect(findByText(tree.root, .button, "Refresh") == null);
     try testing.expect(findByText(tree.root, .text, "Context window") == null);
     _ = try expectByText(tree.root, .text, "Theme");
+    _ = try expectByText(tree.root, .text, "UI font size");
     _ = try expectByText(tree.root, .text, "Language");
     const system_chip = try expectButtonMsg(tree, "System", .settings_theme_system);
     try testing.expect(system_chip.state.selected);
@@ -14256,6 +14259,18 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     try testing.expect(!light_chip.state.selected);
     const dark_chip = try expectButtonMsg(tree, "Dark", .settings_theme_dark);
     try testing.expect(!dark_chip.state.selected);
+    const font_11 = try expectButtonMsg(tree, "11", .settings_ui_font_11);
+    try testing.expect(!font_11.state.selected);
+    const font_14 = try expectButtonMsg(tree, "14", .settings_ui_font_14);
+    try testing.expect(font_14.state.selected);
+    _ = try expectButtonMsg(tree, "12", .settings_ui_font_12);
+    _ = try expectButtonMsg(tree, "13", .settings_ui_font_13);
+    _ = try expectButtonMsg(tree, "15", .settings_ui_font_15);
+    _ = try expectButtonMsg(tree, "16", .settings_ui_font_16);
+    _ = try expectButtonMsg(tree, "18", .settings_ui_font_18);
+    const font_20 = try expectButtonMsg(tree, "20", .settings_ui_font_20);
+    try testing.expect(!font_20.state.selected);
+    try testing.expect(findTextContaining(tree.root, "interface and messages") != null);
     const language_system_chip = try expectButtonMsg(tree, "System", .settings_language_system);
     try testing.expect(language_system_chip.state.selected);
     const english_chip = try expectButtonMsg(tree, "English", .settings_language_english);
@@ -14288,6 +14303,64 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
     try testing.expectEqual(model_exports.ThemePreference.dark, loaded.theme_preference);
     try testing.expect(loaded.theme_dark());
+}
+
+test "settings Appearance UI font size chips persist and scale designTokens" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-settings-ui-font", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = boot.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    try store.saveSession(&model, model.selected, testing.allocator, testing.io);
+    try testing.expectEqual(model_exports.default_ui_font_size, model.ui_font_size);
+    try testing.expect(model.ui_font_14());
+    const default_tokens = boot.designTokens(&model);
+    try testing.expect(!default_tokens.pixel_snap.geometry);
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_appearance, &fx);
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "UI font size");
+    try testing.expect((try expectButtonMsg(tree, "14", .settings_ui_font_14)).state.selected);
+    const font_20 = try expectButtonMsg(tree, "20", .settings_ui_font_20);
+    try testing.expect(!font_20.state.selected);
+
+    main.update(&model, tree.msgForPointer(font_20.id, .up).?, &fx);
+    try testing.expectEqual(@as(u8, 20), model.ui_font_size);
+    try testing.expect(model.ui_font_20());
+    try testing.expect(!model.ui_font_14());
+    const large = boot.designTokens(&model);
+    try testing.expect(large.typography.body_size > default_tokens.typography.body_size);
+    try testing.expectApproxEqAbs(default_tokens.typography.body_size * 20.0 / 14.0, large.typography.body_size, 0.001);
+    try testing.expect(!large.pixel_snap.geometry);
+
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "20", .settings_ui_font_20)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "14", .settings_ui_font_14)).state.selected);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqual(@as(u8, 20), loaded.ui_font_size);
+    try testing.expect(loaded.ui_font_20());
+    try testing.expectApproxEqAbs(default_tokens.typography.body_size * 20.0 / 14.0, boot.designTokens(&loaded).typography.body_size, 0.001);
+
+    main.update(&model, .settings_ui_font_11, &fx);
+    try testing.expectEqual(@as(u8, 11), model.ui_font_size);
+    try testing.expect(boot.designTokens(&model).typography.body_size < default_tokens.typography.body_size);
 }
 
 test "settings Appearance language chips persist and re-label Settings chrome" {
@@ -14342,6 +14415,7 @@ test "settings Appearance language chips persist and re-label Settings chrome" {
     try testing.expectEqualStrings("外观", model.settings_nav_appearance());
     try testing.expectEqualStrings("语言", model.appearance_language_title());
     try testing.expectEqualStrings("主题", model.appearance_theme_title());
+    try testing.expectEqualStrings("界面字号", model.appearance_font_title());
     try testing.expectEqualStrings("设置", model.settings_title());
 
     tree = try buildTree(arena, &model);
@@ -14349,6 +14423,7 @@ test "settings Appearance language chips persist and re-label Settings chrome" {
     _ = try expectByText(tree.root, .text, "设置");
     _ = try expectByText(tree.root, .text, "语言");
     _ = try expectByText(tree.root, .text, "主题");
+    _ = try expectByText(tree.root, .text, "界面字号");
     _ = try expectButtonMsg(tree, "通用", .set_settings_page_general);
     try testing.expect((try expectButtonMsg(tree, "简体中文", .settings_language_simplified_chinese)).state.selected);
     _ = try expectButtonMsg(tree, "English", .settings_language_english);
@@ -14368,12 +14443,14 @@ test "settings Appearance language chips persist and re-label Settings chrome" {
     try testing.expectEqualStrings("外観", model.settings_nav_appearance());
     try testing.expectEqualStrings("言語", model.appearance_language_title());
     try testing.expectEqualStrings("テーマ", model.appearance_theme_title());
+    try testing.expectEqualStrings("UI のフォントサイズ", model.appearance_font_title());
 
     tree = try buildTree(arena, &model);
     try testing.expect((try expectButtonMsg(tree, "外観", .set_settings_page_appearance)).state.selected);
     _ = try expectByText(tree.root, .text, "設定");
     _ = try expectByText(tree.root, .text, "言語");
     _ = try expectByText(tree.root, .text, "テーマ");
+    _ = try expectByText(tree.root, .text, "UI のフォントサイズ");
     try testing.expect((try expectButtonMsg(tree, "日本語", .settings_language_japanese)).state.selected);
     _ = try expectButtonMsg(tree, "English", .settings_language_english);
     _ = try expectButtonMsg(tree, "简体中文", .settings_language_simplified_chinese);
@@ -14385,12 +14462,14 @@ test "settings Appearance language chips persist and re-label Settings chrome" {
     try testing.expectEqualStrings("Appearance", model.settings_nav_appearance());
     try testing.expectEqualStrings("Language", model.appearance_language_title());
     try testing.expectEqualStrings("Theme", model.appearance_theme_title());
+    try testing.expectEqualStrings("UI font size", model.appearance_font_title());
     try testing.expectEqualStrings("Settings", model.settings_title());
 
     tree = try buildTree(arena, &model);
     try testing.expect((try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance)).state.selected);
     _ = try expectByText(tree.root, .text, "Language");
     _ = try expectByText(tree.root, .text, "Theme");
+    _ = try expectByText(tree.root, .text, "UI font size");
     try testing.expect((try expectButtonMsg(tree, "English", .settings_language_english)).state.selected);
     _ = try expectButtonMsg(tree, "简体中文", .settings_language_simplified_chinese);
     _ = try expectButtonMsg(tree, "日本語", .settings_language_japanese);
@@ -15431,6 +15510,11 @@ test "theme preference defaults to System; Light/Dark force scheme regardless of
     try testing.expect(model.theme_system());
     try testing.expectEqual(model_exports.LanguagePreference.system, model.language_preference);
     try testing.expect(model.language_system());
+    try testing.expectEqual(model_exports.default_ui_font_size, model.ui_font_size);
+    try testing.expect(model.ui_font_14());
+    try testing.expectEqual(@as(u8, 14), model_exports.sanitizeUiFontSize(0));
+    try testing.expectEqual(@as(u8, 14), model_exports.sanitizeUiFontSize(17));
+    try testing.expectEqual(@as(u8, 20), model_exports.sanitizeUiFontSize(20));
     try testing.expectEqual(model_exports.LanguagePreference.system, model_exports.LanguagePreference.fromPersist(""));
     try testing.expectEqual(model_exports.LanguagePreference.system, model_exports.LanguagePreference.fromPersist("nope"));
     try testing.expectEqual(model_exports.LanguagePreference.english, model_exports.LanguagePreference.fromPersist("english"));

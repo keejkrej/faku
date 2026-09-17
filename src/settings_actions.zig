@@ -399,6 +399,11 @@ pub fn handleSettingsThemeDark(model: *Model) void {
     store.persistSettingsIfPossible(model);
 }
 
+pub fn handleSettingsUiFontSize(model: *Model, size: u8) void {
+    model.setUiFontSize(size);
+    store.persistSettingsIfPossible(model);
+}
+
 pub fn handleSettingsLanguageSystem(model: *Model) void {
     model.setLanguagePreference(.system);
     store.persistSettingsIfPossible(model);
