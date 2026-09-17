@@ -90,6 +90,9 @@ pub const Msg = model.Msg;
 pub const Model = model.Model;
 pub const ThemePreference = model.ThemePreference;
 pub const LanguagePreference = i18n.LanguagePreference;
+pub const ui_font_sizes = model.ui_font_sizes;
+pub const default_ui_font_size = model.default_ui_font_size;
+pub const sanitizeUiFontSize = model.sanitizeUiFontSize;
 
 pub const writeFixed = session.writeFixed;
 
@@ -98,6 +101,7 @@ test "Model/Msg barrel types, caps, and defaults match owning modules" {
     _ = Model;
     _ = ThemePreference;
     _ = LanguagePreference;
+    _ = sanitizeUiFontSize;
     _ = Mode;
     _ = Role;
     _ = Phase;
@@ -110,6 +114,11 @@ test "Model/Msg barrel types, caps, and defaults match owning modules" {
     try std.testing.expect(Model == model.Model);
     try std.testing.expect(Session == session.Session);
     try std.testing.expect(LanguagePreference == i18n.LanguagePreference);
+    try std.testing.expectEqual(@as(u8, 14), default_ui_font_size);
+    try std.testing.expectEqual(@as(usize, 8), ui_font_sizes.len);
+    try std.testing.expectEqual(@as(u8, 14), sanitizeUiFontSize(14));
+    try std.testing.expectEqual(@as(u8, 14), sanitizeUiFontSize(17));
+    try std.testing.expectEqual(@as(u8, 11), sanitizeUiFontSize(11));
     try std.testing.expect(writeFixed == session.writeFixed);
 
     try std.testing.expectEqual(model.max_sessions, max_sessions);

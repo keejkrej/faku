@@ -159,6 +159,18 @@ pub const ThemePreference = enum {
 
 pub const LanguagePreference = i18n.LanguagePreference;
 
+/// Settings → Appearance UI font size. Matches Waku `FONT_SIZES`.
+/// Default 14. Missing / unknown / out-of-range persist values load as 14.
+pub const ui_font_sizes = [_]u8{ 11, 12, 13, 14, 15, 16, 18, 20 };
+pub const default_ui_font_size: u8 = 14;
+
+pub fn sanitizeUiFontSize(size: u32) u8 {
+    for (ui_font_sizes) |allowed| {
+        if (size == allowed) return allowed;
+    }
+    return default_ui_font_size;
+}
+
 pub const Turn = struct {
     id: u32 = 0,
     session_id: u32 = 0,
@@ -594,6 +606,14 @@ pub const Msg = union(enum) {
     settings_theme_system,
     settings_theme_light,
     settings_theme_dark,
+    settings_ui_font_11,
+    settings_ui_font_12,
+    settings_ui_font_13,
+    settings_ui_font_14,
+    settings_ui_font_15,
+    settings_ui_font_16,
+    settings_ui_font_18,
+    settings_ui_font_20,
     settings_language_system,
     settings_language_english,
     settings_language_simplified_chinese,
@@ -1321,6 +1341,8 @@ pub const Model = struct {
     litellm_rates_raw_len: usize = 0,
     /// Persisted chrome theme. Default System (OS-follow).
     theme_preference: ThemePreference = .system,
+    /// Persisted chrome UI font size. Default 14 (Waku FONT_SIZES).
+    ui_font_size: u8 = default_ui_font_size,
     /// Persisted chrome language. Default System (LC_ALL / LC_MESSAGES / LANG).
     language_preference: LanguagePreference = .system,
     /// Process locale id for System language. Copied at boot from LC_ALL /
@@ -2123,9 +2145,12 @@ pub const Model = struct {
         "litellm_rates_raw_len",
         "theme_preference",
         "setThemePreference",
+        "ui_font_size",
+        "setUiFontSize",
         "language_preference",
         "setLanguagePreference",
         "settingsChrome",
+        "appearanceFontChrome",
         "accessChrome",
         "effortChrome",
         "interactionChrome",
@@ -5121,6 +5146,38 @@ pub const Model = struct {
         return model.theme_preference == .dark;
     }
 
+    pub fn ui_font_11(model: *const Model) bool {
+        return model.ui_font_size == 11;
+    }
+
+    pub fn ui_font_12(model: *const Model) bool {
+        return model.ui_font_size == 12;
+    }
+
+    pub fn ui_font_13(model: *const Model) bool {
+        return model.ui_font_size == 13;
+    }
+
+    pub fn ui_font_14(model: *const Model) bool {
+        return model.ui_font_size == 14;
+    }
+
+    pub fn ui_font_15(model: *const Model) bool {
+        return model.ui_font_size == 15;
+    }
+
+    pub fn ui_font_16(model: *const Model) bool {
+        return model.ui_font_size == 16;
+    }
+
+    pub fn ui_font_18(model: *const Model) bool {
+        return model.ui_font_size == 18;
+    }
+
+    pub fn ui_font_20(model: *const Model) bool {
+        return model.ui_font_size == 20;
+    }
+
     pub fn language_system(model: *const Model) bool {
         return model.language_preference == .system;
     }
@@ -5139,6 +5196,10 @@ pub const Model = struct {
 
     fn settingsChrome(model: *const Model) i18n.Chrome {
         return i18n.chromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn appearanceFontChrome(model: *const Model) i18n.AppearanceFontChrome {
+        return i18n.appearanceFontChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     /// Same resolve path as Settings Appearance chrome. Sidebar date
@@ -5605,8 +5666,20 @@ pub const Model = struct {
         return chrome.os_caption_hc_off_rm_off;
     }
 
+    pub fn appearance_font_title(model: *const Model) []const u8 {
+        return model.appearanceFontChrome().title;
+    }
+
+    pub fn appearance_font_description(model: *const Model) []const u8 {
+        return model.appearanceFontChrome().description;
+    }
+
     pub fn setThemePreference(model: *Model, preference: ThemePreference) void {
         model.theme_preference = preference;
+    }
+
+    pub fn setUiFontSize(model: *Model, size: u8) void {
+        model.ui_font_size = sanitizeUiFontSize(size);
     }
 
     pub fn setLanguagePreference(model: *Model, preference: LanguagePreference) void {

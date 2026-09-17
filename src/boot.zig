@@ -2,9 +2,9 @@
 //!
 //! `initialModel` is the first-run demo catalog (port + auth).
 //! `onAppearance` / `resolvedColorScheme` / `designTokens` keep Geist
-//! tokens in lockstep with OS appearance and Settings theme preference.
-//! Callers import this module directly (`boot.initialModel` /
-//! `boot.onAppearance` / `boot.resolvedColorScheme` /
+//! tokens in lockstep with OS appearance, Settings theme preference, and
+//! Settings UI font size. Callers import this module directly
+//! (`boot.initialModel` / `boot.onAppearance` / `boot.resolvedColorScheme` /
 //! `boot.designTokens`). Not re-exported from `main`.
 //! Behavior is unchanged from the former `main` functions.
 
@@ -40,9 +40,31 @@ pub fn resolvedColorScheme(model: *const Model) canvas.ColorScheme {
     };
 }
 
+/// Scale house typography rungs from pack defaults so body tracks the
+/// selected UI font size. Default 14 is identity (current look). Uses
+/// documented `DesignTokenOverrides.typography` size fields only.
+pub fn typographyOverrides(ui_font_size: u8, pack: anytype) canvas.TypographyTokenOverrides {
+    const size = model_mod.sanitizeUiFontSize(ui_font_size);
+    const scale = @as(f32, @floatFromInt(size)) / @as(f32, @floatFromInt(model_mod.default_ui_font_size));
+    return .{
+        .body_size = pack.body_size * scale,
+        .label_size = pack.label_size * scale,
+        .title_size = pack.title_size * scale,
+        .button_size = pack.button_size * scale,
+        .heading_size = pack.heading_size * scale,
+        .display_size = pack.display_size * scale,
+    };
+}
+
 pub fn designTokens(model: *const Model) canvas.DesignTokens {
     const contrast: canvas.ColorContrast = if (model.appearance.high_contrast) .high else .standard;
     const scheme = resolvedColorScheme(model);
+    const pack = canvas.DesignTokens.theme(.{
+        .pack = .house,
+        .color_scheme = scheme,
+        .contrast = contrast,
+        .reduce_motion = model.appearance.reduce_motion,
+    });
     return canvas.DesignTokens.themeWithOverrides(.{
         .pack = .house,
         .color_scheme = scheme,
@@ -50,6 +72,7 @@ pub fn designTokens(model: *const Model) canvas.DesignTokens {
         .reduce_motion = model.appearance.reduce_motion,
     }, .{
         .pixel_snap = .{ .geometry = false },
+        .typography = typographyOverrides(model.ui_font_size, pack.typography),
     });
 }
 
@@ -92,4 +115,45 @@ test "initialModel seeds the two demo sessions" {
     try std.testing.expectEqualStrings("fix auth listener", auth.title());
     try std.testing.expectEqual(.claude, auth.provider);
     try std.testing.expectEqual(@as(u32, 4), model.turnCount(auth.id));
+}
+
+test "designTokens typography tracks ui_font_size; default 14 matches pack" {
+    var model = Model{};
+    try std.testing.expectEqual(model_mod.default_ui_font_size, model.ui_font_size);
+
+    const contrast: canvas.ColorContrast = .standard;
+    const scheme = resolvedColorScheme(&model);
+    const pack = canvas.DesignTokens.theme(.{
+        .pack = .house,
+        .color_scheme = scheme,
+        .contrast = contrast,
+        .reduce_motion = false,
+    });
+    const default_tokens = designTokens(&model);
+    try std.testing.expect(!default_tokens.pixel_snap.geometry);
+    try std.testing.expectEqual(pack.typography.body_size, default_tokens.typography.body_size);
+    try std.testing.expectEqual(pack.typography.label_size, default_tokens.typography.label_size);
+    try std.testing.expectEqual(pack.typography.title_size, default_tokens.typography.title_size);
+    try std.testing.expectEqual(pack.typography.button_size, default_tokens.typography.button_size);
+    try std.testing.expectEqual(pack.typography.heading_size, default_tokens.typography.heading_size);
+    try std.testing.expectEqual(pack.typography.display_size, default_tokens.typography.display_size);
+
+    model.setUiFontSize(20);
+    const large = designTokens(&model);
+    const scale = 20.0 / 14.0;
+    try std.testing.expectApproxEqAbs(pack.typography.body_size * scale, large.typography.body_size, 0.001);
+    try std.testing.expectApproxEqAbs(pack.typography.label_size * scale, large.typography.label_size, 0.001);
+    try std.testing.expect(large.typography.body_size > default_tokens.typography.body_size);
+    try std.testing.expect(!large.pixel_snap.geometry);
+
+    model.setUiFontSize(11);
+    const small = designTokens(&model);
+    try std.testing.expect(small.typography.body_size < default_tokens.typography.body_size);
+
+    model.setUiFontSize(17);
+    try std.testing.expectEqual(model_mod.default_ui_font_size, model.ui_font_size);
+    try std.testing.expectEqual(model_mod.default_ui_font_size, model_mod.sanitizeUiFontSize(0));
+    try std.testing.expectEqual(model_mod.default_ui_font_size, model_mod.sanitizeUiFontSize(9));
+    try std.testing.expectEqual(model_mod.default_ui_font_size, model_mod.sanitizeUiFontSize(24));
+    try std.testing.expectEqual(@as(u8, 16), model_mod.sanitizeUiFontSize(16));
 }
