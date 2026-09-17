@@ -6,7 +6,7 @@
 //! saveTaskState, hello + loadTaskState, hello + hydrateSession,
 //! hello + closeSession, hello + cancel, hello + steer, hello +
 //! hello + `goal`, hello + `loadUsageHistory`, hello +
-//! `loadSkills`, hello +
+//! `loadSkills`, hello + `setSkillsEnabled`, hello +
 //! `fetchPlanUsage`, hello +
 //! `refreshBackgroundWork`, hello + `stopBackgroundWork`, or hello + `workspace`) and,
 //! when run as `faku daemon-proxy <addr>`, forwards those JSON frames over
@@ -15,7 +15,8 @@
 //! (no prompt) exits after server hello / response. A load-only stdin
 //! waits for the `taskState` response (not hello) because a nil
 //! `requestId` is a notify and would never return the catalog. A
-//! `loadUsageHistory` / `loadSkills` / `fetchPlanUsage` stdin waits
+//! `loadUsageHistory` / `loadSkills` / `setSkillsEnabled` /
+//! `fetchPlanUsage` stdin waits
 //! for the `response` frame (not hello) the same way. A
 //! hydrate-only stdin waits for the `session` response the same way. A
 //! close-only, cancel-only, or steer-only stdin exits after server
@@ -93,6 +94,10 @@ pub const USAGE_HISTORY_REQUEST_ID = "00000000-0000-0000-0000-000000000015";
 /// Non-nil: a nil `requestId` is a notify and the daemon sends no
 /// `skillsCatalog`.
 pub const LOAD_SKILLS_REQUEST_ID = "00000000-0000-0000-0000-000000000019";
+/// Non-nil: a nil `requestId` is a notify and the daemon sends no Ack
+/// for `setSkillsEnabled`. Distinct from `loadSkills` so in-flight
+/// catalog fill and Enable/Disable sidecars do not share a request id.
+pub const SET_SKILLS_ENABLED_REQUEST_ID = "00000000-0000-0000-0000-00000000001a";
 /// Non-nil: a nil `requestId` is a notify and the daemon sends no
 /// `planUsage`.
 pub const PLAN_USAGE_REQUEST_ID = "00000000-0000-0000-0000-000000000018";
@@ -132,6 +137,14 @@ pub const LoadSkillsStdin = struct {
     client_id: []const u8 = CLIENT_ID,
     request_id: []const u8 = LOAD_SKILLS_REQUEST_ID,
     projects: []const protocol.LoadSkillsProject = &.{},
+};
+
+pub const SetSkillsEnabledStdin = struct {
+    token: []const u8 = "",
+    client_id: []const u8 = CLIENT_ID,
+    request_id: []const u8 = SET_SKILLS_ENABLED_REQUEST_ID,
+    dirs: []const []const u8 = &.{},
+    enabled: bool = false,
 };
 
 pub const PlanUsageStdin = struct {
@@ -397,6 +410,26 @@ pub fn writeLoadSkillsStdin(buf: []u8, args: LoadSkillsStdin) WriteError![]const
     return cur.slice();
 }
 
+/// NDJSON stdin for Settings → Skills Enable/Disable. Hello +
+/// `setSkillsEnabled`, no prompt. Uses a non-nil requestId so the
+/// daemon replies with a bare Ack. Native stdin is still one 4 KiB
+/// buffer. `dirs` are absolute skill directories.
+pub fn writeSetSkillsEnabledStdin(buf: []u8, args: SetSkillsEnabledStdin) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    const hello = try protocol.writeClientHello(cur.remaining(), args.token, args.client_id, &.{});
+    cur.pos += hello.len;
+    try cur.write("\n");
+    const set_enabled = try protocol.writeSetSkillsEnabled(
+        cur.remaining(),
+        args.request_id,
+        args.dirs,
+        args.enabled,
+    );
+    cur.pos += set_enabled.len;
+    try cur.write("\n");
+    return cur.slice();
+}
+
 /// NDJSON stdin for the composer usage meter. Hello + `fetchPlanUsage`,
 /// no prompt. Uses a non-nil requestId so the daemon replies. Native
 /// stdin is still one 4 KiB buffer. `binaryOverride` / `cliVersion`
@@ -581,6 +614,7 @@ fn outboundWaitsForLoadResponse(outbound: []const u8) bool {
     return (std.mem.indexOf(u8, outbound, "\"type\":\"loadTaskState\"") != null or
         std.mem.indexOf(u8, outbound, "\"type\":\"loadUsageHistory\"") != null or
         std.mem.indexOf(u8, outbound, "\"type\":\"loadSkills\"") != null or
+        std.mem.indexOf(u8, outbound, "\"type\":\"setSkillsEnabled\"") != null or
         std.mem.indexOf(u8, outbound, "\"type\":\"fetchPlanUsage\"") != null) and
         std.mem.indexOf(u8, outbound, "\"type\":\"prompt\"") == null and
         std.mem.indexOf(u8, outbound, "\"type\":\"saveTaskState\"") == null;
@@ -1083,6 +1117,45 @@ test "writeLoadSkillsStdin emits hello and loadSkills with a non-nil requestId" 
     var tiny: [32]u8 = undefined;
     try std.testing.expectError(error.NoSpaceLeft, writeLoadSkillsStdin(&tiny, .{
         .projects = &.{.{ .name = "faku", .path = "/tmp/faku" }},
+    }));
+}
+
+test "writeSetSkillsEnabledStdin emits hello and setSkillsEnabled with a non-nil requestId" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeSetSkillsEnabledStdin(&buf, .{
+        .token = "secret",
+        .dirs = &.{"/tmp/faku/.cursor/skills/to-spec"},
+        .enabled = false,
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"setSkillsEnabled\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"dirs\":[\"/tmp/faku/.cursor/skills/to-spec\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"enabled\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"loadSkills\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"trashSkills\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"workspace\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"loadUsageHistory\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"loadTaskState\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ SET_SKILLS_ENABLED_REQUEST_ID) != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ LOAD_SKILLS_REQUEST_ID) == null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(outboundWaitsForLoadResponse(stdin));
+    try std.testing.expect(!outboundWaitsForHydrateResponse(stdin));
+    try std.testing.expect(!outboundWaitsForWorkspace(stdin));
+
+    const enable = try writeSetSkillsEnabledStdin(&buf, .{
+        .dirs = &.{"/tmp/faku/.cursor/skills/to-spec"},
+        .enabled = true,
+    });
+    try std.testing.expect(std.mem.indexOf(u8, enable, "\"enabled\":true") != null);
+    try std.testing.expect(outboundWaitsForLoadResponse(enable));
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeSetSkillsEnabledStdin(&tiny, .{
+        .dirs = &.{"/tmp/faku/.cursor/skills/to-spec"},
+        .enabled = false,
     }));
 }
 

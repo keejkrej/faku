@@ -1432,6 +1432,17 @@ pub const Model = struct {
     /// In-flight `loadSkills` sidecar. Distinct from find-walk (530+)
     /// and rename (580+) so miss cannot settle a scan or rename.
     daemon_load_skills_key: u64 = 0,
+    /// In-flight `setSkillsEnabled` sidecar. Distinct from find-walk
+    /// (530+), rename (580+), and `loadSkills` so Enable/Disable
+    /// cannot settle a catalog fill or share the rename key.
+    daemon_set_skills_enabled_key: u64 = 0,
+    /// True once an ok Ack landed for the in-flight
+    /// `setSkillsEnabled` sidecar. Exit refreshes; miss falls back
+    /// to rename.
+    skill_set_skills_enabled_ok: bool = false,
+    /// Target `enabled` for the in-flight toggle (daemon sidecar or
+    /// rename fallback).
+    skill_toggle_enable: bool = false,
     skill_rename_cwd_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     skill_rename_cwd_len: usize = 0,
     skill_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
@@ -2277,6 +2288,9 @@ pub const Model = struct {
         "skill_rename_key",
         "next_skill_rename_key",
         "daemon_load_skills_key",
+        "daemon_set_skills_enabled_key",
+        "skill_set_skills_enabled_ok",
+        "skill_toggle_enable",
         "skill_rename_cwd_storage",
         "skill_rename_cwd_len",
         "skill_probe_path_storage",

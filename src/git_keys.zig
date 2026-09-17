@@ -130,8 +130,9 @@ pub const review_diff_hunk_key_first = review_diff.review_diff_hunk_key_first;
 /// 530+. Incremented per scan from `skills_key_first`.
 pub const skills_key_first = skills.skills_key_first;
 /// One-shot Settings Skills enable/disable `mv` rename
-/// (`SKILL.md` ↔ `SKILL.md.disabled`). Distinct from the scan key
-/// (530+) and Files Preview issue-link (540+). Band is 580+.
+/// (`SKILL.md` ↔ `SKILL.md.disabled`) — the no-daemon fallback.
+/// Distinct from the scan key (530+), Files Preview issue-link
+/// (540+), and `setSkillsEnabled` (`next_daemon_key`). Band is 580+.
 /// Incremented per toggle from `skills_rename_key_first`.
 pub const skills_rename_key_first = skills.skills_rename_key_first;
 /// One-shot Files Preview + transcript `git remote` / `git remote get-url`

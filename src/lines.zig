@@ -165,6 +165,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
         skills.applyDaemonLine(model, line);
         return;
     }
+    if (model.daemon_set_skills_enabled_key != 0 and line.key == model.daemon_set_skills_enabled_key) {
+        skills.applySetSkillsEnabledLine(model, line);
+        return;
+    }
     if (model.git_push_key != 0 and line.key == model.git_push_key) {
         git_checkout.applyPushLine(model, line);
         return;
@@ -1192,6 +1196,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (model.daemon_load_skills_key != 0 and exit.key == model.daemon_load_skills_key) {
         skills.handleDaemonExit(model, fx, exit);
+        return;
+    }
+    if (model.daemon_set_skills_enabled_key != 0 and exit.key == model.daemon_set_skills_enabled_key) {
+        skills.handleSetSkillsEnabledExit(model, fx, exit);
         return;
     }
     if (model.skill_rename_key != 0 and exit.key == model.skill_rename_key) {
