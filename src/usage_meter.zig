@@ -290,11 +290,25 @@ pub fn cancel(model: *Model, fx: *Effects) void {
 }
 
 pub fn close(model: *Model) void {
+    if (!model.usage_meter_open) return;
     model.usage_meter_open = false;
+    store.persistSettingsIfPossible(model);
 }
 
 pub fn open(model: *Model, fx: *Effects) void {
+    const already_open = model.usage_meter_open;
     model.usage_meter_open = true;
+    markSelectedStale(model);
+    ensure(model, fx, true);
+    if (!already_open) store.persistSettingsIfPossible(model);
+}
+
+/// Re-kick plan-usage fetch after catalog restore left the panel open.
+/// Settings open still owns the overlay (meter is closed while Settings
+/// is showing); skip so reboot does not fetch behind Settings. Same
+/// stale-then-ensure path as a user open. Does not persist.
+pub fn resumeIfOpen(model: *Model, fx: *Effects) void {
+    if (!model.usage_meter_open or model.settings_open) return;
     markSelectedStale(model);
     ensure(model, fx, true);
 }
@@ -666,6 +680,36 @@ test "fx session does not spawn fetchPlanUsage" {
     try std.testing.expectEqual(@as(u64, 0), pendingKey(&model, .codex));
     try std.testing.expectEqual(@as(u64, 0), pendingKey(&model, .opencode));
     try std.testing.expectEqual(@as(u64, 0), pendingKey(&model, .grok));
+}
+
+test "resumeIfOpen re-kicks plan-usage fetch when restored open and Settings is closed" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("resume meter", .claude);
+    model.selected = id;
+
+    resumeIfOpen(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), selectedPendingKey(&model));
+    try std.testing.expect(!model.usage_meter_open);
+
+    model.usage_meter_open = true;
+    model.settings_open = true;
+    resumeIfOpen(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), selectedPendingKey(&model));
+    try std.testing.expect(!model.plan_usage.claude.stale);
+
+    model.settings_open = false;
+    resumeIfOpen(&model, &fx);
+    try std.testing.expect(model.usage_meter_open);
+    try std.testing.expect(model.plan_usage.claude.stale);
+    const sidecar = pendingSpawnKey(&fx, selectedPendingKey(&model)) orelse return error.MissingResumeFetchPlanUsage;
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"fetchPlanUsage\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"provider\":\"claude\"") != null);
 }
 
 test "FetchPlanUsage sidecar paints lanes; null usage is unconfigured; miss keeps prior" {

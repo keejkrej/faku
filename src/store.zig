@@ -50,7 +50,8 @@
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
 //! `last_reasoning_effort` /
 //! `last_project_path` / `last_daemon_address` / `theme_preference` /
-//! `ui_font_size` / `code_font_size` / `language_preference` / `settings_page` / `disabled_providers` /
+//! `ui_font_size` / `code_font_size` / `language_preference` / `settings_page` /
+//! `usage_meter_open` / `commands_open` / `disabled_providers` /
 //! `usage_view` / `usage_window` / `usage_metric` / `usage_breakdown` /
 //! `usage_project_filter` so the settings gear and
 //! composer chips can edit persisted defaults, and `folders` /
@@ -298,6 +299,8 @@ pub fn saveSession(model: *const Model, session_id: u32, allocator: std.mem.Allo
     document.code_font_size = model.code_font_size;
     document.language_preference = model.language_preference;
     document.settings_page = model.settings_page;
+    document.usage_meter_open = model.usage_meter_open;
+    document.commands_open = model.commands_open;
     document.disabled_providers = model.disabled_providers;
     applyUsageExtras(&document, model);
     applySidebarExtras(&document, model);
@@ -344,6 +347,8 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
     document.code_font_size = model.code_font_size;
     document.language_preference = model.language_preference;
     document.settings_page = model.settings_page;
+    document.usage_meter_open = model.usage_meter_open;
+    document.commands_open = model.commands_open;
     document.disabled_providers = model.disabled_providers;
     applyUsageExtras(&document, model);
     applySidebarExtras(&document, model);
@@ -403,7 +408,8 @@ pub fn persistLayoutIfPossible(model: *const Model) void {
 
 /// Merge-only write of settings extras (`last_model`, `last_access_mode`,
 /// `last_interaction_mode`, `last_reasoning_effort`, `last_project_path`, `last_daemon_address`,
-/// `theme_preference`, `ui_font_size`, `code_font_size`, `language_preference`, `settings_page`, `disabled_providers`,
+/// `theme_preference`, `ui_font_size`, `code_font_size`, `language_preference`, `settings_page`,
+/// `usage_meter_open`, `commands_open`, `disabled_providers`,
 /// `usage_view`, `usage_window`, `usage_metric`, `usage_breakdown`,
 /// `usage_project_filter`).
 /// Same first-run rule as sidebar collapse: does not create `sessions.json`
@@ -511,6 +517,8 @@ fn applySettingsExtras(document: *Document, model: *const Model) void {
     document.code_font_size = model.code_font_size;
     document.language_preference = model.language_preference;
     document.settings_page = model.settings_page;
+    document.usage_meter_open = model.usage_meter_open;
+    document.commands_open = model.commands_open;
     document.disabled_providers = model.disabled_providers;
     applyUsageExtras(document, model);
 }
@@ -1049,6 +1057,8 @@ const Document = struct {
     code_font_size: u8 = model_exports.default_code_font_size,
     language_preference: model_exports.LanguagePreference = .system,
     settings_page: skills.Page = .general,
+    usage_meter_open: bool = false,
+    commands_open: bool = false,
     disabled_providers: [protocol.provider_id_count]bool = [_]bool{false} ** protocol.provider_id_count,
     usage_view: usage_history.View = .daily,
     usage_window: usage_history.WindowChoice = .trailing_30,
@@ -1091,6 +1101,8 @@ const Document = struct {
             .code_font_size = model.code_font_size,
             .language_preference = model.language_preference,
             .settings_page = model.settings_page,
+            .usage_meter_open = model.usage_meter_open,
+            .commands_open = model.commands_open,
             .disabled_providers = model.disabled_providers,
             .usage_view = model.usage_view,
             .usage_window = model.usage_window,
@@ -1168,6 +1180,8 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.code_font_size = document.code_font_size;
     model.language_preference = document.language_preference;
     model.settings_page = document.settings_page;
+    model.usage_meter_open = document.usage_meter_open;
+    model.commands_open = document.commands_open;
     model.disabled_providers = document.disabled_providers;
     model.usage_view = document.usage_view;
     model.usage_window = document.usage_window;
@@ -1488,6 +1502,8 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .code_font_size = parseCodeFontSize(obj.get("code_font_size"), parsed_ui_font_size),
         .language_preference = model_exports.LanguagePreference.fromPersist(jsonString(obj.get("language_preference")) orelse ""),
         .settings_page = skills.Page.fromPersist(jsonString(obj.get("settings_page")) orelse ""),
+        .usage_meter_open = jsonBool(obj.get("usage_meter_open")) orelse false,
+        .commands_open = jsonBool(obj.get("commands_open")) orelse false,
         .disabled_providers = parseDisabledProviders(obj.get("disabled_providers")),
         .usage_view = usage_history.View.fromPersist(jsonString(obj.get("usage_view")) orelse ""),
         .usage_window = usage_history.WindowChoice.fromPersist(jsonString(obj.get("usage_window")) orelse ""),
@@ -2040,6 +2056,10 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
     try appendJsonString(&out, allocator, document.language_preference.persistName());
     try out.appendSlice(allocator, ",\"settings_page\":");
     try appendJsonString(&out, allocator, document.settings_page.persistName());
+    try out.appendSlice(allocator, ",\"usage_meter_open\":");
+    try out.appendSlice(allocator, if (document.usage_meter_open) "true" else "false");
+    try out.appendSlice(allocator, ",\"commands_open\":");
+    try out.appendSlice(allocator, if (document.commands_open) "true" else "false");
     try out.appendSlice(allocator, ",\"disabled_providers\":[");
     var disabled_written = false;
     for (std.meta.tags(protocol.ProviderId)) |id| {
@@ -4055,6 +4075,94 @@ test "settings_page extras persist on sessions.json; missing or unknown load gen
     const bytes = try std.Io.Dir.cwd().readFileAlloc(io, catalogPath(dir, &path_buf).?, allocator, .limited(64 * 1024));
     defer allocator.free(bytes);
     try testing.expect(std.mem.indexOf(u8, bytes, "\"settings_page\":\"computer_use\"") != null);
+}
+
+test "usage_meter_open and commands_open extras persist on sessions.json; missing or unknown load false" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var missing_catalog = Model{};
+    missing_catalog.task_state_loaded = true;
+    missing_catalog.setStoreDir(dir);
+    missing_catalog.store_io = io;
+    missing_catalog.usage_meter_open = true;
+    missing_catalog.commands_open = true;
+    persistSettingsIfPossible(&missing_catalog);
+    var missing_path: [std.fs.max_path_bytes]u8 = undefined;
+    try testing.expectError(error.FileNotFound, std.Io.Dir.cwd().readFileAlloc(io, catalogPath(dir, &missing_path).?, allocator, .limited(64)));
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var missing = Model{};
+    missing.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&missing, allocator, io));
+    try testing.expect(!missing.usage_meter_open);
+    try testing.expect(!missing.commands_open);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"usage_meter_open":null,"commands_open":null,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var nulls = Model{};
+    nulls.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&nulls, allocator, io));
+    try testing.expect(!nulls.usage_meter_open);
+    try testing.expect(!nulls.commands_open);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"usage_meter_open":"yes","commands_open":1,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var unknown = Model{};
+    unknown.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&unknown, allocator, io));
+    try testing.expect(!unknown.usage_meter_open);
+    try testing.expect(!unknown.commands_open);
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("composer chrome later", .fx);
+    _ = source.appendTurn(id, .user, "remember composer chrome");
+    try saveSession(&source, id, allocator, io);
+
+    source.usage_meter_open = true;
+    source.commands_open = true;
+    persistSettingsIfPossible(&source);
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expect(loaded.usage_meter_open);
+    try testing.expect(loaded.commands_open);
+
+    source.usage_meter_open = false;
+    source.commands_open = true;
+    persistSettingsIfPossible(&source);
+    var mixed = Model{};
+    mixed.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&mixed, allocator, io));
+    try testing.expect(!mixed.usage_meter_open);
+    try testing.expect(mixed.commands_open);
+
+    source.usage_meter_open = false;
+    source.commands_open = false;
+    persistSettingsIfPossible(&source);
+    var closed = Model{};
+    closed.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&closed, allocator, io));
+    try testing.expect(!closed.usage_meter_open);
+    try testing.expect(!closed.commands_open);
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, catalogPath(dir, &path_buf).?, allocator, .limited(64 * 1024));
+    defer allocator.free(bytes);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"usage_meter_open\":false") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"commands_open\":false") != null);
 }
 
 test "folder extras persist untitled folders; missing catalog is not created" {

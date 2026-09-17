@@ -454,7 +454,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             store.persistDraftIfPossible(model);
             attach_helpers.refreshAttachPreview(model, fx);
         },
-        .toggle_commands => model.toggleCommands(),
+        .toggle_commands => {
+            model.toggleCommands();
+            store.persistSettingsIfPossible(model);
+        },
         .insert_command => |id| {
             model.insertAvailableCommand(id);
             store.persistDraftIfPossible(model);
@@ -709,4 +712,5 @@ pub fn initFx(model: *Model, fx: *Effects) void {
     transcript_images.refresh(model, fx);
     file_preview_issue_link.refresh(model, fx);
     browser_pane.startTitleFetches(model, fx);
+    usage_meter.resumeIfOpen(model, fx);
 }

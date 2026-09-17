@@ -1329,7 +1329,9 @@ pub const Model = struct {
     /// In-flight `loadUsageHistory` sidecar. Distinct from workspace
     /// keys so miss cannot settle a live turn or toast Settings.
     daemon_usage_history_key: u64 = 0,
-    /// Runtime-only composer usage-meter panel. Not persisted.
+    /// Composer usage-meter panel. Persists as `usage_meter_open` on
+    /// `sessions.json` extras. Missing / unknown / null → false.
+    /// Settings open still closes the meter and persists false.
     usage_meter_open: bool = false,
     /// First-cut daemon plan-usage map (four runtime slots: Claude /
     /// Codex / OpenCode / Grok). Not a HashMap. Each slot holds the
@@ -1854,6 +1856,9 @@ pub const Model = struct {
     attach_preview: canvas.ImageId = 0,
     attach_preview_load_id: u64 = 0,
     next_attach_preview_id: u64 = attach_preview_id_first,
+    /// Composer Commands panel. Persists as `commands_open` on
+    /// `sessions.json` extras. Missing / unknown / null → false.
+    /// Restore is UI-only; no probe.
     commands_open: bool = false,
     editing_folder_id: u32 = 0,
     folder_title_buffer: canvas.TextBuffer(max_title) = .{},
@@ -2868,7 +2873,7 @@ pub const Model = struct {
         model.git_worktree_base_picker_open = false;
         model.workspace_picker_open = false;
         model.environment_summary_open = false;
-        model.usage_meter_open = false;
+        usage_meter.close(model);
     }
 
     pub fn closeModelPicker(model: *Model) void {
@@ -8120,14 +8125,17 @@ pub const Model = struct {
 
     pub fn toggleCommands(model: *Model) void {
         if (!model.has_commands()) {
-            model.commands_open = false;
+            model.closeCommands();
             return;
         }
         model.commands_open = !model.commands_open;
+        store.persistSettingsIfPossible(model);
     }
 
     pub fn closeCommands(model: *Model) void {
+        if (!model.commands_open) return;
         model.commands_open = false;
+        store.persistSettingsIfPossible(model);
     }
 
     pub fn clampedAutocompleteHighlight(model: *const Model, row_count: usize) usize {
@@ -8147,7 +8155,7 @@ pub const Model = struct {
         var buf: [max_command_name + 2]u8 = undefined;
         const text = std.fmt.bufPrint(&buf, "/{s} ", .{cmd.name()}) catch return;
         model.draft_buffer.set(text);
-        model.commands_open = false;
+        model.closeCommands();
         model.autocomplete_dismissed = false;
     }
 
