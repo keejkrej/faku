@@ -3,15 +3,16 @@
 //! `handleNewSession` / `handleSelect` / folder + title edits /
 //! `handleRemoveSession` / `handleEditQueued` live here.
 //! Msg routing stays in `update.zig`. First-cut remembered New Task
-//! (runtime-only Waku SessionNavigation.new_task): selecting an
-//! unstarted session stores its id. Ordinary New Task reopens that
-//! draft when it still exists, has not started, and `projectPath()`
-//! equals the current ordinary project path (Waku
-//! `remembered_new_task` project filter; same select path as
-//! projectless draft reuse). A draft for another path is skipped
-//! without clearing the slot; create does not steal it. Visiting
-//! started sessions does not clear the slot. Started / removed /
-//! missing drafts are ignored.
+//! (Waku SessionNavigation.new_task; persists as `new_task` on
+//! `sessions.json` extras): selecting an unstarted session stores
+//! its id. Ordinary New Task reopens that draft when it still
+//! exists, has not started, and `projectPath()` equals the current
+//! ordinary project path (Waku `remembered_new_task` project
+//! filter; same select path as projectless draft reuse). A draft
+//! for another path is skipped without clearing the slot; create
+//! does not steal it. Visiting started sessions does not clear the
+//! slot. Started / removed / missing drafts are ignored (same on
+//! load).
 //! Projectless New Task does not consult the slot (Waku
 //! `create_projectless_session` never calls `remembered_new_task`).
 //! An existing unstarted non-legacy projectless draft is selected

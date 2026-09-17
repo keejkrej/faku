@@ -922,8 +922,11 @@ pub const Model = struct {
     history_store: [selection_history_cap]u32 = [_]u32{0} ** selection_history_cap,
     history_count: u32 = 0,
     history_index: u32 = 0,
-    /// Runtime-only Waku SessionNavigation.new_task. 0 is none.
-    /// Separate from selection history Back / Forward. Not persisted.
+    /// Waku SessionNavigation.new_task. 0 is none. Persists as
+    /// `new_task` on `sessions.json` extras (JSON number / u32).
+    /// Missing / null / non-number / overflow → 0. Started or missing
+    /// ids clear to 0 on load (same ignore rules as `rememberedNewTask`).
+    /// Separate from selection history Back / Forward.
     /// New Task on an ordinary project reopens this draft only when
     /// `projectPath()` matches that project; a different path leaves
     /// the slot alone. Projectless New Task does not consult it.

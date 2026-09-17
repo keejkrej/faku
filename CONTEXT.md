@@ -82,9 +82,10 @@ Composer drafts are a sibling `drafts.json`. Keys match Waku:
 
 There is no `listSessions` / `createSession`. Catalog is
 `loadTaskState`. New session is a client-built session saved after
-first content. First-cut remembered New Task: runtime-only
-`new_task` id (Waku `SessionNavigation.new_task`; not persisted on
-`sessions.json`; Faku ids are `u32`, not Uuid). Selecting an
+first content. First-cut remembered New Task: `new_task` id (Waku
+`SessionNavigation.new_task`; persists as `new_task` on
+`sessions.json` extras; missing / unknown / null / non-number /
+overflow → 0; Faku ids are `u32`, not Uuid). Selecting an
 unstarted session remembers it. New Task on an ordinary project
 reopens that draft when it still exists, has not started, and
 `projectPath()` equals the current ordinary project path (selected
@@ -97,7 +98,7 @@ create does not steal it. Projectless New Task does not consult
 the slot (Waku `create_projectless_session`) and keeps today's
 reuse / CreateProjectlessWorkspace path. Visiting started
 sessions does not clear the slot. Started, removed, or missing
-drafts are ignored. Selection history Back / Forward stays a
+drafts are ignored (same on load). Selection history Back / Forward stays a
 separate stack. New Task create (ordinary or projectless
 `addSession` for a fresh untitled draft) prefers the currently
 selected session's `access_mode` when that field is non-empty
@@ -1619,19 +1620,19 @@ Honest gaps this cut does not implement:
   does not clear the others). Still not Waku's circular GPUI gauge,
   not LiteLLM on the meter (rate-table fetch ships on Settings Usage),
   not a T3 layered / stacked canvas chart.
-- First-cut remembered New Task ships (runtime-only
-  `SessionNavigation.new_task` id; selecting an unstarted session
-  remembers it; ordinary New Task reopens that draft when it still
-  exists, `!has_started`, and `projectPath()` matches the current
-  ordinary project; a different path skips without clearing; create
-  does not steal the slot; projectless New Task does not consult it
-  and keeps today's reuse / CreateProjectlessWorkspace path;
-  visiting started sessions does not clear it; started, removed, or
-  missing drafts are ignored). New Task create prefers the selected
+- First-cut remembered New Task ships (`SessionNavigation.new_task`
+  id persists as `new_task` on `sessions.json` extras; missing /
+  unknown → 0; selecting an unstarted session remembers it; ordinary
+  New Task reopens that draft when it still exists, `!has_started`,
+  and `projectPath()` matches the current ordinary project; a
+  different path skips without clearing; create does not steal the
+  slot; projectless New Task does not consult it and keeps today's
+  reuse / CreateProjectlessWorkspace path; visiting started
+  sessions does not clear it; started, removed, or missing drafts
+  are ignored on load the same as runtime). New Task create prefers the selected
   session's `access_mode` (Waku `new_task_runtime_mode`), else
   `last_access_mode` / `fullAccess`; reopen / projectless draft
-  reuse do not rewrite that draft's access mode. Not persisted on
-  `sessions.json`. Selection history Back / Forward stays a separate
+  reuse do not rewrite that draft's access mode. Selection history Back / Forward stays a separate
   stack. Not Waku Uuid. First-cut remove
   destination ships (same-path newest remaining, else projectless New
   Task, else ordinary New Task for that `project_path`, else 0;
@@ -2173,7 +2174,9 @@ Honest gaps this cut does not implement:
   spawn migrate. First-cut remembered New Task reopens a
   remembered unstarted draft on ordinary New Task when that id is
   still valid and `projectPath()` matches the current ordinary
-  project (runtime-only `new_task`; a different path skips without
+  project (`new_task` persists on `sessions.json` extras; missing /
+  unknown → 0; started / removed / missing drafts ignored on load
+  the same as runtime; a different path skips without
   clearing; visiting started sessions does not clear it). New Task
   create prefers the selected session's `access_mode` (Waku
   `new_task_runtime_mode`), else `last_access_mode` / `fullAccess`;

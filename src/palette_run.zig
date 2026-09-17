@@ -5,11 +5,12 @@
 //! `goHistory` live here. Palette row building stays in `palette.zig`.
 //! Msg routing lives in `update.zig`. Model fields stay in `main.zig`.
 //! Selecting an unstarted session remembers it as the New Task
-//! target (runtime-only SessionNavigation.new_task). Started
-//! sessions leave that slot alone. Ordinary New Task reopens that
-//! draft only when it belongs to the current ordinary project;
-//! projectless New Task does not consult the slot. Behavior is
-//! otherwise unchanged from the former `main` palette runners.
+//! target (`SessionNavigation.new_task`; persists as `new_task` on
+//! `sessions.json` extras). Started sessions leave that slot alone.
+//! Ordinary New Task reopens that draft only when it belongs to the
+//! current ordinary project; projectless New Task does not consult
+//! the slot. Behavior is otherwise unchanged from the former `main`
+//! palette runners.
 
 const main = @import("main.zig");
 const model_exports = @import("model_exports.zig");
@@ -135,6 +136,7 @@ pub fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     model.closeSessionTitleEdit();
     model.selected = id;
     model.rememberNewTask(id);
+    store.persistSelectedIfPossible(model);
     store.hydrateIfPossible(model, id);
     store.maybeHydrateDaemonSession(model, fx, id);
     store.loadDraftIfPossible(model);
