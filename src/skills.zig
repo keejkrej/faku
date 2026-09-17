@@ -1982,12 +1982,18 @@ test "LoadSkills sidecar fills skill_store; unknown-command falls back to find" 
     refresh(&model, &fx);
     const sidecar = pendingSpawnKey(&fx, model.daemon_load_skills_key) orelse return error.MissingDaemonLoadSkillsFill;
     const fill_key = sidecar.key;
-    var line_buf: [1024]u8 = undefined;
-    const ok_line = try std.fmt.bufPrint(
-        &line_buf,
-        "{{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000019\",\"outcome\":{{\"status\":\"ok\",\"payload\":{{\"type\":\"skillsCatalog\",\"catalog\":{{\"skills\":[{{\"name\":\"to-spec\",\"enabled\":true,\"installs\":[{{\"dir\":\"{s}/.cursor/skills/to-spec\",\"skillFile\":\"{s}/.cursor/skills/to-spec/SKILL.md\",\"enabled\":true}]}},{{\"name\":\"off\",\"enabled\":false,\"installs\":[{{\"dir\":\"{s}/.cursor/skills/off\",\"skillFile\":\"{s}/.cursor/skills/off/SKILL.md.disabled\",\"enabled\":false}}]}]}}}}}}}}",
-        .{ root, root, root, root },
-    );
+    var line_buf: [2048]u8 = undefined;
+    const ok_line = try std.fmt.bufPrint(&line_buf, "{s}{s}{s}{s}{s}{s}{s}{s}{s}", .{
+        "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000019\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"skillsCatalog\",\"catalog\":{\"skills\":[{\"name\":\"to-spec\",\"enabled\":true,\"installs\":[{\"dir\":\"",
+        root,
+        "/.cursor/skills/to-spec\",\"skillFile\":\"",
+        root,
+        "/.cursor/skills/to-spec/SKILL.md\",\"enabled\":true}]},{\"name\":\"off\",\"enabled\":false,\"installs\":[{\"dir\":\"",
+        root,
+        "/.cursor/skills/off\",\"skillFile\":\"",
+        root,
+        "/.cursor/skills/off/SKILL.md.disabled\",\"enabled\":false}]}]}}}}",
+    });
     applyDaemonLine(&model, .{ .key = fill_key, .line = ok_line });
     try testing.expectEqual(@as(u32, 2), cachedCount(&model));
     try testing.expectEqualStrings("to-spec", cachedName(&model, 0));
