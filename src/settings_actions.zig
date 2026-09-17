@@ -193,6 +193,7 @@ pub fn handleToggleSettings(model: *Model, fx: *Effects) void {
     pick_folder.closeDaemonBrowser(model, fx);
     usage_meter.close(model);
     model.openSettings();
+    store.persistSettingsIfPossible(model);
     resumeSettingsPage(model, fx);
 }
 
@@ -376,10 +377,12 @@ pub fn handleToggleUsageMeter(model: *Model, fx: *Effects) void {
         model.environment_summary_open = false;
     }
     usage_meter.toggle(model, fx);
+    store.persistSettingsIfPossible(model);
 }
 
 pub fn handleCloseUsageMeter(model: *Model) void {
     usage_meter.close(model);
+    store.persistSettingsIfPossible(model);
 }
 
 pub fn handleRefreshPlanUsage(model: *Model, fx: *Effects) void {
@@ -530,7 +533,7 @@ pub fn handleToggleModelPicker(model: *Model) void {
         model.settings_effort_picker_open = false;
         model.goal_status_picker_open = false;
         model.closeGitBranchPicker();
-        model.usage_meter_open = false;
+        usage_meter.close(model);
     }
     model.toggleModelPicker();
 }
@@ -549,7 +552,7 @@ pub fn handleToggleAccessPicker(model: *Model) void {
         model.settings_effort_picker_open = false;
         model.goal_status_picker_open = false;
         model.closeGitBranchPicker();
-        model.usage_meter_open = false;
+        usage_meter.close(model);
     }
     model.toggleAccessPicker();
 }
@@ -568,7 +571,7 @@ pub fn handleToggleEffortPicker(model: *Model) void {
         model.settings_effort_picker_open = false;
         model.goal_status_picker_open = false;
         model.closeGitBranchPicker();
-        model.usage_meter_open = false;
+        usage_meter.close(model);
     }
     model.toggleEffortPicker();
 }
