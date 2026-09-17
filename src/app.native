@@ -359,7 +359,15 @@
                   </list-item>
                 </for>
                 <if test="{has_selected_skill}">
-                  <button variant="ghost" size="sm" selected="{skill_enabled}" on-press="toggle_skill_enabled">{skill_enable_label}</button>
+                  <row gap="8" cross="center">
+                    <button variant="ghost" size="sm" selected="{skill_enabled}" on-press="toggle_skill_enabled">{skill_enable_label}</button>
+                    <if test="{skill_delete_arming}">
+                      <button variant="ghost" size="sm" selected="{skill_delete_arming}" on-press="confirm_skill_delete">{skill_confirm_delete_label}</button>
+                    </if>
+                    <if test="{skill_delete_idle}">
+                      <button variant="ghost" size="sm" on-press="arm_skill_delete">{skill_delete_label}</button>
+                    </if>
+                  </row>
                 </if>
                 <if test="{has_skill_body}">
                   <text wrap="true">{skill_body}</text>

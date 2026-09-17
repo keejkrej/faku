@@ -169,6 +169,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
         skills.applySetSkillsEnabledLine(model, line);
         return;
     }
+    if (model.daemon_trash_skills_key != 0 and line.key == model.daemon_trash_skills_key) {
+        skills.applyTrashSkillsLine(model, line);
+        return;
+    }
     if (model.git_push_key != 0 and line.key == model.git_push_key) {
         git_checkout.applyPushLine(model, line);
         return;
@@ -1202,8 +1206,16 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
         skills.handleSetSkillsEnabledExit(model, fx, exit);
         return;
     }
+    if (model.daemon_trash_skills_key != 0 and exit.key == model.daemon_trash_skills_key) {
+        skills.handleTrashSkillsExit(model, fx, exit);
+        return;
+    }
     if (model.skill_rename_key != 0 and exit.key == model.skill_rename_key) {
         skills.handleRenameExit(model, fx, exit);
+        return;
+    }
+    if (model.skill_remove_key != 0 and exit.key == model.skill_remove_key) {
+        skills.handleRemoveExit(model, fx, exit);
         return;
     }
     if (exit.key == maximize_window_key) {

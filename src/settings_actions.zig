@@ -251,20 +251,23 @@ pub fn handlePickSettingsEffort(model: *Model, id: []const u8) void {
     store.persistSettingsIfPossible(model);
 }
 
-pub fn handleSetSettingsPageGeneral(model: *Model) void {
+pub fn handleSetSettingsPageGeneral(model: *Model, fx: *Effects) void {
     leaveUsagePage(model);
+    leaveSkillsPage(model, fx);
     model.settings_page = .general;
     store.persistSettingsIfPossible(model);
 }
 
-pub fn handleSetSettingsPageAppearance(model: *Model) void {
+pub fn handleSetSettingsPageAppearance(model: *Model, fx: *Effects) void {
     leaveUsagePage(model);
+    leaveSkillsPage(model, fx);
     model.settings_page = .appearance;
     store.persistSettingsIfPossible(model);
 }
 
 pub fn handleSetSettingsPageProviders(model: *Model, fx: *Effects) void {
     leaveUsagePage(model);
+    leaveSkillsPage(model, fx);
     model.settings_page = .providers;
     providers.startProbes(model, fx);
     store.persistSettingsIfPossible(model);
@@ -278,6 +281,7 @@ pub fn handleSetSettingsPageSkills(model: *Model, fx: *Effects) void {
 }
 
 pub fn handleSetSettingsPageUsage(model: *Model, fx: *Effects) void {
+    leaveSkillsPage(model, fx);
     model.settings_page = .usage;
     usage_history.refresh(model, fx);
     litellm_rates.ensure(model, fx);
@@ -396,8 +400,9 @@ pub fn handleUsageProjectFilterEdit(model: *Model, edit: canvas.TextInputEvent) 
     store.persistSettingsIfPossible(model);
 }
 
-pub fn handleSetSettingsPageComputerUse(model: *Model) void {
+pub fn handleSetSettingsPageComputerUse(model: *Model, fx: *Effects) void {
     leaveUsagePage(model);
+    leaveSkillsPage(model, fx);
     model.settings_page = .computer_use;
     store.persistSettingsIfPossible(model);
 }
@@ -405,6 +410,11 @@ pub fn handleSetSettingsPageComputerUse(model: *Model) void {
 fn leaveUsagePage(model: *Model) void {
     if (model.settings_page != .usage) return;
     usage_history.leaveUsage(model);
+}
+
+fn leaveSkillsPage(model: *Model, fx: *Effects) void {
+    if (model.settings_page != .skills) return;
+    skills.leavePage(model, fx);
 }
 
 /// Re-kick Providers / Skills / Usage probes when Settings opens onto a
@@ -511,6 +521,14 @@ pub fn handleSelectSkill(model: *Model, id: u32) void {
 
 pub fn handleToggleSkillEnabled(model: *Model, fx: *Effects) void {
     skills.toggleSkillEnabled(model, fx);
+}
+
+pub fn handleArmSkillDelete(model: *Model) void {
+    skills.armSkillDelete(model);
+}
+
+pub fn handleConfirmSkillDelete(model: *Model, fx: *Effects) void {
+    skills.confirmSkillDelete(model, fx);
 }
 
 pub fn handleCycleAccess(model: *Model, fx: *Effects) void {
