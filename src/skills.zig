@@ -1,23 +1,32 @@
-//! Settings Skills + composer `$` insert: bounded `SKILL.md` scan.
+//! Settings Skills + composer `$` insert: bounded `SKILL.md` scan
+//! plus first-cut enable/disable via on-disk rename.
 //!
 //! Native has no FS watcher. Faku one-shots a packed `find` for
-//! `SKILL.md` through the same `/bin/sh -c` chdir workaround `fx ask`
-//! uses (`fx_ask_chdir_script`). Settings → Skills still `refresh`s on
+//! `SKILL.md` and `SKILL.md.disabled` (Waku `DISABLED_SKILL_FILE`)
+//! through the same `/bin/sh -c` chdir workaround `fx ask` uses
+//! (`fx_ask_chdir_script`). Settings → Skills still `refresh`s on
 //! page open. Composer `$` calls `ensureScanned` even when
 //! `settings_page != .skills`. Scan root is the selected session
 //! `project_path` when that directory exists, else settings
 //! `last_project_path`. Skip `node_modules` / `target` / `dist` /
 //! `build` / `out` / `vendor` / `__pycache__`. Cap 64 rows. Name comes
 //! from YAML `name:` frontmatter when present, else the parent folder.
-//! Settings selecting a row shows the body with frontmatter stripped.
-//! Composer `$` inserts `$name ` into the draft; Send still ships that
+//! Body read still uses the actual file on disk (including
+//! `.disabled`). When both live and disabled exist in the same dir,
+//! live wins (one row). Settings selecting a row shows the body with
+//! frontmatter stripped. Enable/Disable is a Faku-side one-shot
+//! `mv --` in that skill directory (`SKILL.md` ↔ `SKILL.md.disabled`);
+//! tools discover skills by exact filename so the rename hides/shows
+//! the skill from fx and peers the same as Waku. Composer `$` inserts
+//! `$name ` for **enabled** skills only; Send still ships that
 //! composer text as-is (fx loads the skill). Runtime-only (not
 //! `sessions.json`). Empty-state Open a project / No skills found
 //! follow `i18n.SkillsEmptyChrome` (distinct from FilterChrome /
 //! RightPanelChrome; composer `$` insert empty reuses the same hint).
-//! Not SKILL.md body stuffing, not enable/disable,
-//! not a daemon SkillsCatalog / WorkspaceOperation, not ACP `/name`
-//! slash rows. Windows stays empty this cut.
+//! Enable / Disable / Disabled badge follow `i18n.SkillsEnableChrome`
+//! (distinct from ProvidersChrome). Not SKILL.md body stuffing, not a
+//! daemon SkillsCatalog / WorkspaceOperation, not ACP `/name` slash
+//! rows. Windows stays empty this cut.
 //!
 //! Spawn/line/exit orchestration lives here. Tests do not need a live
 //! daemon or fx.
@@ -35,10 +44,15 @@ const Model = model_exports.Model;
 const Effects = main.Effects;
 const writeFixed = model_exports.writeFixed;
 
-/// One-shot Skills `find` for `SKILL.md`. Distinct from review hunk
-/// (520+). Band is 530+. Incremented per scan so a cancelled spawn
-/// cannot paint a later Settings open.
+/// One-shot Skills `find` for `SKILL.md` / `SKILL.md.disabled`.
+/// Distinct from review hunk (520+). Band is 530+. Incremented per
+/// scan so a cancelled spawn cannot paint a later Settings open.
 pub const skills_key_first: u64 = 530;
+/// One-shot Skills enable/disable `mv` (`SKILL.md` ↔
+/// `SKILL.md.disabled`). Distinct from the scan key (530+) and
+/// Files Preview issue-link (540+). Band is 580+. Incremented per
+/// toggle so a stale rename exit cannot refresh a later scan.
+pub const skills_rename_key_first: u64 = 580;
 
 pub const max_skills: usize = 64;
 pub const max_skill_path: usize = 255;
@@ -47,7 +61,12 @@ pub const max_skill_body: usize = 4096;
 pub const max_skill_file_read: usize = 8192;
 
 pub const skill_filename = "SKILL.md";
+/// Waku `DISABLED_SKILL_FILE`. Exact filename so tools that match
+/// `SKILL.md` only do not load a disabled skill.
+pub const disabled_skill_filename = "SKILL.md.disabled";
 pub const skill_fallback_name = "SKILL";
+pub const mv_bin = "mv";
+pub const mv_end_of_options = "--";
 
 pub const sh_bin = file_mention.sh_bin;
 pub const find_bin = file_mention.find_bin;
@@ -70,9 +89,10 @@ pub const walk_skip_names = file_mention.walk_skip_names;
 /// `max_effect_argv` (16). Does not prune `.*` — project skills live
 /// under `.cursor/skills` / `.agents/skills`.
 pub const find_skills_script =
-    "find . -maxdepth 8 \\( -name node_modules -o -name target -o -name dist -o -name build -o -name out -o -name vendor -o -name __pycache__ \\) -prune -o -type f -name SKILL.md -print";
+    "find . -maxdepth 8 \\( -name node_modules -o -name target -o -name dist -o -name build -o -name out -o -name vendor -o -name __pycache__ \\) -prune -o -type f \\( -name SKILL.md -o -name SKILL.md.disabled \\) -print";
 
 const walk_argv_len: usize = 8;
+const rename_argv_len: usize = 9;
 
 /// Settings sidebar page. Chrome is General | Appearance |
 /// Providers | Skills | Usage | Computer Use. Computer Use is a
@@ -116,6 +136,8 @@ pub const CachedSkill = struct {
     path_len: usize = 0,
     name_storage: [max_skill_name]u8 = [_]u8{0} ** max_skill_name,
     name_len: usize = 0,
+    /// `SKILL.md` = true; `SKILL.md.disabled` = false.
+    enabled: bool = true,
 
     pub fn path(self: *const CachedSkill) []const u8 {
         return self.path_storage[0..self.path_len];
@@ -166,10 +188,45 @@ pub fn isSkillsWalkArgv(argv: []const []const u8) bool {
     if (!scriptHas(argv[7], find_type_file)) return false;
     if (!scriptHas(argv[7], find_name_flag)) return false;
     if (!scriptHas(argv[7], skill_filename)) return false;
+    if (!scriptHas(argv[7], disabled_skill_filename)) return false;
     inline for (walk_skip_names) |name| {
         if (!scriptHas(argv[7], name)) return false;
     }
     return true;
+}
+
+/// `mv -- SKILL.md SKILL.md.disabled` (disable) or the reverse
+/// (enable) after the chdir wrapper. Filenames are argv slots — never
+/// interpolated into `fx_ask_chdir_script`.
+pub fn renameArgvFor(cwd: []const u8, enable: bool, buf: *[rename_argv_len][]const u8) []const []const u8 {
+    const from = if (enable) disabled_skill_filename else skill_filename;
+    const to = if (enable) skill_filename else disabled_skill_filename;
+    buf.* = .{
+        sh_bin,
+        "-c",
+        util.fx_ask_chdir_script,
+        "sh",
+        cwd,
+        mv_bin,
+        mv_end_of_options,
+        from,
+        to,
+    };
+    return buf;
+}
+
+pub fn isSkillsRenameArgv(argv: []const []const u8) bool {
+    if (argv.len != rename_argv_len) return false;
+    if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], "-c")) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[5], mv_bin)) return false;
+    if (!std.mem.eql(u8, argv[6], mv_end_of_options)) return false;
+    const from = argv[7];
+    const to = argv[8];
+    const disable = std.mem.eql(u8, from, skill_filename) and std.mem.eql(u8, to, disabled_skill_filename);
+    const enable = std.mem.eql(u8, from, disabled_skill_filename) and std.mem.eql(u8, to, skill_filename);
+    return disable or enable;
 }
 
 pub fn scanSupported() bool {
@@ -190,6 +247,11 @@ pub fn cachedName(model: *const Model, index: usize) []const u8 {
     return model.skill_store[index].name();
 }
 
+pub fn cachedEnabled(model: *const Model, index: usize) bool {
+    if (index >= model.skill_count) return false;
+    return model.skill_store[index].enabled;
+}
+
 pub fn skillId(index: usize) u32 {
     return @intCast(index + 1);
 }
@@ -206,6 +268,12 @@ fn cancelInFlight(model: *Model, fx: *Effects) void {
     model.skill_key = 0;
 }
 
+fn cancelRename(model: *Model, fx: *Effects) void {
+    if (model.skill_rename_key == 0) return;
+    fx.cancel(model.skill_rename_key);
+    model.skill_rename_key = 0;
+}
+
 /// Selected-session directory when it exists, else settings last
 /// project path. Empty / missing stays empty so Skills does not
 /// invent a project.
@@ -220,8 +288,10 @@ pub fn probePath(model: *const Model) []const u8 {
 
 pub fn close(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
+    cancelRename(model, fx);
     clearCache(model);
     model.skill_probe_path_len = 0;
+    model.skill_rename_cwd_len = 0;
     model.skills_filter_buffer.clear();
 }
 
@@ -242,6 +312,7 @@ pub fn ensureScanned(model: *Model, fx: *Effects) void {
 /// skips the spawn so the list stays empty.
 pub fn refresh(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
+    cancelRename(model, fx);
     clearCache(model);
     if (!scanSupported()) {
         model.skill_probe_path_len = 0;
@@ -277,13 +348,26 @@ fn probeStillCurrent(model: *const Model) bool {
     return std.mem.eql(u8, path, probed);
 }
 
+pub fn pathBasename(path: []const u8) []const u8 {
+    if (std.mem.lastIndexOfScalar(u8, path, '/')) |slash|
+        return path[slash + 1 ..];
+    return path;
+}
+
+pub fn skillEnabledFromPath(path: []const u8) bool {
+    return std.mem.eql(u8, pathBasename(path), skill_filename);
+}
+
 pub fn isSkillMdPath(path: []const u8) bool {
-    if (path.len < skill_filename.len) return false;
-    const base = if (std.mem.lastIndexOfScalar(u8, path, '/')) |slash|
-        path[slash + 1 ..]
-    else
-        path;
-    return std.mem.eql(u8, base, skill_filename);
+    const base = pathBasename(path);
+    return std.mem.eql(u8, base, skill_filename) or std.mem.eql(u8, base, disabled_skill_filename);
+}
+
+/// Parent directory of the skill file (full relative dir, not the
+/// last folder name). Empty when the file sits at the scan root.
+pub fn skillDirKey(relpath: []const u8) []const u8 {
+    const slash = std.mem.lastIndexOfScalar(u8, relpath, '/') orelse return "";
+    return relpath[0..slash];
 }
 
 /// Parent folder of `SKILL.md`. Empty when the file sits at the scan
@@ -389,21 +473,44 @@ fn hydrateOne(model: *Model, index: usize) void {
     model.skill_store[index].setName(displayName(relpath, name));
 }
 
-/// Append trimmed `SKILL.md` paths until `max_skills`. Later lines are
-/// dropped. Names start as the parent folder and pick up YAML `name:`
-/// when the file can be read.
+/// Append trimmed `SKILL.md` / `SKILL.md.disabled` paths until
+/// `max_skills`. Later new dirs are dropped. When both live and
+/// disabled exist in the same dir, live wins (replace in place).
+/// Names start as the parent folder and pick up YAML `name:` when
+/// the file can be read.
 pub fn applyStdoutPaths(model: *Model, raw: []const u8) void {
     var it = std.mem.splitScalar(u8, raw, '\n');
     while (it.next()) |line| {
-        if (model.skill_count >= max_skills) return;
         const path = file_mention.normalizeStdoutPath(line);
         if (path.len == 0 or !isSkillMdPath(path)) continue;
+        const enabled = skillEnabledFromPath(path);
+        const dir = skillDirKey(path);
+        if (indexOfSkillDir(model, dir)) |index| {
+            if (enabled and !model.skill_store[index].enabled) {
+                storeSkillAt(model, index, path, true);
+            }
+            continue;
+        }
+        if (model.skill_count >= max_skills) continue;
         const index = model.skill_count;
-        model.skill_store[index].setPath(path);
-        model.skill_store[index].setName(displayName(path, ""));
-        hydrateOne(model, index);
+        storeSkillAt(model, index, path, enabled);
         model.skill_count += 1;
     }
+}
+
+fn indexOfSkillDir(model: *const Model, dir: []const u8) ?usize {
+    var i: usize = 0;
+    while (i < model.skill_count) : (i += 1) {
+        if (std.mem.eql(u8, skillDirKey(model.skill_store[i].path()), dir)) return i;
+    }
+    return null;
+}
+
+fn storeSkillAt(model: *Model, index: usize, path: []const u8, enabled: bool) void {
+    model.skill_store[index].setPath(path);
+    model.skill_store[index].enabled = enabled;
+    model.skill_store[index].setName(displayName(path, ""));
+    hydrateOne(model, index);
 }
 
 pub fn applyLine(model: *Model, line: native_sdk.EffectLine) void {
@@ -420,6 +527,61 @@ pub fn handleExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void
     const succeeded = exit.reason == .exited and exit.code == 0;
     if (succeeded and current) return;
     clearCache(model);
+}
+
+pub fn handleRenameExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
+    if (exit.key != model.skill_rename_key or model.skill_rename_key == 0) return;
+    model.skill_rename_key = 0;
+    const succeeded = exit.reason == .exited and exit.code == 0;
+    if (!succeeded) return;
+    refresh(model, fx);
+}
+
+/// Enable when the selected skill is disabled, Disable when enabled.
+/// One-shot `mv` in the skill directory. Missing file / Windows /
+/// in-flight rename fail closed (cache unchanged).
+pub fn toggleSkillEnabled(model: *Model, fx: *Effects) void {
+    if (!scanSupported()) return;
+    if (model.skill_rename_key != 0) return;
+    const id = model.skill_selected_id;
+    if (id == 0 or id > model.skill_count) return;
+    const index = id - 1;
+    const relpath = model.skill_store[index].path();
+    const enable = !model.skill_store[index].enabled;
+    const io = model.store_io orelse return;
+    const root = model.skill_probe_path_storage[0..model.skill_probe_path_len];
+    if (root.len == 0) return;
+    var file_buf: [model_exports.max_project_path + max_skill_path + 1]u8 = undefined;
+    const abs = joinProbeRelpath(root, relpath, &file_buf) orelse return;
+    if (!util.fileExists(io, abs)) return;
+    var parent_buf: [model_exports.max_project_path + max_skill_path + 1]u8 = undefined;
+    const parent = absSkillParent(root, relpath, &parent_buf) orelse return;
+    writeFixed(&model.skill_rename_cwd_storage, &model.skill_rename_cwd_len, parent);
+    spawnRename(model, fx, enable);
+}
+
+fn absSkillParent(root: []const u8, relpath: []const u8, buf: []u8) ?[]const u8 {
+    const dir = skillDirKey(relpath);
+    if (dir.len == 0) {
+        if (root.len == 0 or root.len > buf.len) return null;
+        @memcpy(buf[0..root.len], root);
+        return buf[0..root.len];
+    }
+    return joinProbeRelpath(root, dir, buf);
+}
+
+fn spawnRename(model: *Model, fx: *Effects, enable: bool) void {
+    const key = model.next_skill_rename_key;
+    model.next_skill_rename_key = key + 1;
+    model.skill_rename_key = key;
+    const cwd = model.skill_rename_cwd_storage[0..model.skill_rename_cwd_len];
+    var argv_buf: [rename_argv_len][]const u8 = undefined;
+    fx.spawn(.{
+        .key = key,
+        .argv = renameArgvFor(cwd, enable, &argv_buf),
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
 }
 
 pub fn selectSkill(model: *Model, id: u32) void {
@@ -453,6 +615,13 @@ const skills_empty_chrome_en = i18n.skillsEmptyChromeFor(.english, "");
 pub const open_project = skills_empty_chrome_en.open_project;
 pub const no_skills_found = skills_empty_chrome_en.no_skills_found;
 
+/// English defaults from `i18n.SkillsEnableChrome`. Distinct from
+/// Providers Enable / Disable.
+const skills_enable_chrome_en = i18n.skillsEnableChromeFor(.english, "");
+pub const enable_label = skills_enable_chrome_en.enable;
+pub const disable_label = skills_enable_chrome_en.disable;
+pub const disabled_badge = skills_enable_chrome_en.disabled;
+
 fn skillsEmptyChrome(model: *const Model) i18n.SkillsEmptyChrome {
     return i18n.skillsEmptyChromeFor(model.language_preference, model.systemLocaleId());
 }
@@ -485,6 +654,7 @@ test "argv is chdir script plus find SKILL.md skips; not file-mention walk" {
     try std.testing.expect(scriptHas(argv[7], find_prune));
     try std.testing.expect(scriptHas(argv[7], find_type_file));
     try std.testing.expect(scriptHas(argv[7], skill_filename));
+    try std.testing.expect(scriptHas(argv[7], disabled_skill_filename));
     try std.testing.expect(!scriptHas(argv[7], file_mention.find_dot_star));
     inline for (walk_skip_names) |name| {
         try std.testing.expect(scriptHas(argv[7], name));
@@ -494,6 +664,9 @@ test "argv is chdir script plus find SKILL.md skips; not file-mention walk" {
     try std.testing.expect(!isSkillsWalkArgv(file_mention.walkArgvFor("/tmp/faku-skills", &mention_buf)));
     try std.testing.expect(skills_key_first > file_mention.file_mention_key_first);
     try std.testing.expect(skills_key_first > 520);
+    try std.testing.expect(skills_rename_key_first > skills_key_first);
+    try std.testing.expect(skills_rename_key_first > 540);
+    try std.testing.expect(skills_rename_key_first < 600);
 }
 
 test "parse name from frontmatter; quoted and missing" {
@@ -542,6 +715,7 @@ test "empty scan; list cap; parent folder name" {
     try std.testing.expectEqual(@as(u32, 3), cachedCount(&model));
     try std.testing.expectEqualStrings(".cursor/skills/demo/SKILL.md", cachedPath(&model, 0));
     try std.testing.expectEqualStrings("demo", cachedName(&model, 0));
+    try std.testing.expect(cachedEnabled(&model, 0));
     try std.testing.expectEqualStrings("skills/other/SKILL.md", cachedPath(&model, 1));
     try std.testing.expectEqualStrings("other", cachedName(&model, 1));
     try std.testing.expectEqualStrings("SKILL.md", cachedPath(&model, 2));
@@ -551,12 +725,11 @@ test "empty scan; list cap; parent folder name" {
     try std.testing.expectEqualStrings("demo", displayName(".cursor/skills/demo/SKILL.md", ""));
     try std.testing.expectEqualStrings("from-yaml", displayName(".cursor/skills/demo/SKILL.md", "from-yaml"));
 
-    var overflow: [max_skills * 24 + 16]u8 = undefined;
+    var overflow: [max_skills * 32 + 16]u8 = undefined;
     var n: usize = 0;
     var i: usize = 0;
     while (i < max_skills + 4) : (i += 1) {
-        const piece = "skills/x/SKILL.md\n";
-        @memcpy(overflow[n .. n + piece.len], piece);
+        const piece = try std.fmt.bufPrint(overflow[n..], "skills/x{d}/SKILL.md\n", .{i});
         n += piece.len;
     }
     clearCache(&model);
@@ -727,5 +900,205 @@ test "ensureScanned one-shots find when the probe path is empty; no-op when curr
     ensureScanned(&model, &fx);
     try testing.expectEqual(@as(u64, 0), model.skill_key);
     try testing.expectEqual(after_first, fx.pendingSpawnCount());
+    try testing.expectEqual(@as(u32, 1), cachedCount(&model));
+}
+
+test "path helpers detect enabled from filename; isSkillMdPath accepts both; displayName works for .disabled" {
+    try std.testing.expect(isSkillMdPath("SKILL.md"));
+    try std.testing.expect(isSkillMdPath("skills/demo/SKILL.md"));
+    try std.testing.expect(isSkillMdPath("./.cursor/skills/demo/SKILL.md.disabled"));
+    try std.testing.expect(isSkillMdPath("SKILL.md.disabled"));
+    try std.testing.expect(!isSkillMdPath("skill.md"));
+    try std.testing.expect(!isSkillMdPath("SKILL.md.bak"));
+    try std.testing.expect(!isSkillMdPath("README.md"));
+    try std.testing.expect(skillEnabledFromPath("skills/demo/SKILL.md"));
+    try std.testing.expect(!skillEnabledFromPath("skills/demo/SKILL.md.disabled"));
+    try std.testing.expect(!skillEnabledFromPath("SKILL.md.disabled"));
+    try std.testing.expectEqualStrings("demo", parentDirName("skills/demo/SKILL.md.disabled"));
+    try std.testing.expectEqualStrings("demo", displayName("skills/demo/SKILL.md.disabled", ""));
+    try std.testing.expectEqualStrings("from-yaml", displayName("skills/demo/SKILL.md.disabled", "from-yaml"));
+    try std.testing.expectEqualStrings(skill_fallback_name, displayName("SKILL.md.disabled", ""));
+    try std.testing.expectEqualStrings("skills/demo", skillDirKey("skills/demo/SKILL.md.disabled"));
+    try std.testing.expectEqualStrings("", skillDirKey("SKILL.md"));
+    try std.testing.expectEqualStrings("", skillDirKey("SKILL.md.disabled"));
+}
+
+test "rename argv enable and disable round-trip; not the find walk" {
+    var disable_buf: [rename_argv_len][]const u8 = undefined;
+    const disable = renameArgvFor("/tmp/faku-skill-dir", false, &disable_buf);
+    try std.testing.expect(isSkillsRenameArgv(disable));
+    try std.testing.expect(!isSkillsWalkArgv(disable));
+    try std.testing.expectEqualStrings(sh_bin, disable[0]);
+    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, disable[2]);
+    try std.testing.expectEqualStrings("/tmp/faku-skill-dir", disable[4]);
+    try std.testing.expectEqualStrings(mv_bin, disable[5]);
+    try std.testing.expectEqualStrings(mv_end_of_options, disable[6]);
+    try std.testing.expectEqualStrings(skill_filename, disable[7]);
+    try std.testing.expectEqualStrings(disabled_skill_filename, disable[8]);
+
+    var enable_buf: [rename_argv_len][]const u8 = undefined;
+    const enable = renameArgvFor("/tmp/faku-skill-dir", true, &enable_buf);
+    try std.testing.expect(isSkillsRenameArgv(enable));
+    try std.testing.expect(!isSkillsWalkArgv(enable));
+    try std.testing.expectEqualStrings(disabled_skill_filename, enable[7]);
+    try std.testing.expectEqualStrings(skill_filename, enable[8]);
+    try std.testing.expect(!isSkillsRenameArgv(&.{ mv_bin, skill_filename, disabled_skill_filename }));
+    var walk_buf: [walk_argv_len][]const u8 = undefined;
+    try std.testing.expect(!isSkillsRenameArgv(argvFor("/tmp/faku-skills", &walk_buf)));
+}
+
+test "applyStdoutPaths prefers live SKILL.md when both live and disabled share a dir" {
+    var model = Model{};
+    applyStdoutPaths(&model, "skills/demo/SKILL.md.disabled\nskills/demo/SKILL.md\n");
+    try std.testing.expectEqual(@as(u32, 1), cachedCount(&model));
+    try std.testing.expectEqualStrings("skills/demo/SKILL.md", cachedPath(&model, 0));
+    try std.testing.expect(cachedEnabled(&model, 0));
+
+    clearCache(&model);
+    applyStdoutPaths(&model, "skills/demo/SKILL.md\nskills/demo/SKILL.md.disabled\n");
+    try std.testing.expectEqual(@as(u32, 1), cachedCount(&model));
+    try std.testing.expectEqualStrings("skills/demo/SKILL.md", cachedPath(&model, 0));
+    try std.testing.expect(cachedEnabled(&model, 0));
+
+    clearCache(&model);
+    applyStdoutPaths(&model, "skills/off/SKILL.md.disabled\nskills/on/SKILL.md\nSKILL.md.disabled\n");
+    try std.testing.expectEqual(@as(u32, 3), cachedCount(&model));
+    try std.testing.expectEqualStrings("skills/off/SKILL.md.disabled", cachedPath(&model, 0));
+    try std.testing.expect(!cachedEnabled(&model, 0));
+    try std.testing.expectEqualStrings("off", cachedName(&model, 0));
+    try std.testing.expect(cachedEnabled(&model, 1));
+    try std.testing.expectEqualStrings("SKILL.md.disabled", cachedPath(&model, 2));
+    try std.testing.expect(!cachedEnabled(&model, 2));
+}
+
+test "toggleSkillEnabled one-shots mv; success refreshes find; fail and stale keep cache" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-toggle", .{tmp.sub_path[0..]});
+    var skill_dir_buf: [256]u8 = undefined;
+    const skill_dir = try std.fmt.bufPrint(&skill_dir_buf, "{s}/skills/demo", .{root});
+    try std.Io.Dir.cwd().createDirPath(testing.io, skill_dir);
+    var file_buf: [256]u8 = undefined;
+    const file_path = try std.fmt.bufPrint(&file_buf, "{s}/SKILL.md", .{skill_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = file_path,
+        .data =
+        \\---
+        \\name: toggle-me
+        \\---
+        \\
+        \\Body
+        \\
+        ,
+    });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setLastProjectPath(root);
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, root);
+    applyStdoutPaths(&model, "skills/demo/SKILL.md\n");
+    selectSkill(&model, 1);
+    try testing.expect(cachedEnabled(&model, 0));
+    try testing.expectEqualStrings("Body", model.skill_body_storage[0..model.skill_body_len]);
+
+    toggleSkillEnabled(&model, &fx);
+    try testing.expect(model.skill_rename_key >= skills_rename_key_first);
+    const rename_key = model.skill_rename_key;
+    var i: usize = 0;
+    var spawn = fx.pendingSpawnAt(0);
+    while (spawn) |item| : (i += 1) {
+        if (item.key == rename_key and isSkillsRenameArgv(item.argv)) break;
+        spawn = fx.pendingSpawnAt(i + 1);
+    }
+    try testing.expect(spawn != null);
+    try testing.expectEqualStrings(skill_dir, spawn.?.argv[4]);
+    try testing.expectEqualStrings(skill_filename, spawn.?.argv[7]);
+    try testing.expectEqualStrings(disabled_skill_filename, spawn.?.argv[8]);
+    try testing.expectEqual(@as(u32, 1), cachedCount(&model));
+
+    handleRenameExit(&model, &fx, .{ .key = rename_key + 9, .reason = .exited, .code = 0 });
+    try testing.expectEqual(rename_key, model.skill_rename_key);
+    try testing.expectEqual(@as(u32, 1), cachedCount(&model));
+
+    handleRenameExit(&model, &fx, .{ .key = rename_key, .reason = .exited, .code = 1 });
+    try testing.expectEqual(@as(u64, 0), model.skill_rename_key);
+    try testing.expectEqual(@as(u32, 1), cachedCount(&model));
+    try testing.expect(cachedEnabled(&model, 0));
+
+    toggleSkillEnabled(&model, &fx);
+    const retry_key = model.skill_rename_key;
+    try testing.expect(retry_key > rename_key);
+    handleRenameExit(&model, &fx, .{ .key = retry_key, .reason = .exited, .code = 0 });
+    try testing.expectEqual(@as(u64, 0), model.skill_rename_key);
+    try testing.expectEqual(@as(u32, 0), cachedCount(&model));
+    try testing.expect(model.skill_key >= skills_key_first);
+    i = 0;
+    spawn = fx.pendingSpawnAt(0);
+    while (spawn) |item| : (i += 1) {
+        if (item.key == model.skill_key and isSkillsWalkArgv(item.argv)) break;
+        spawn = fx.pendingSpawnAt(i + 1);
+    }
+    try testing.expect(spawn != null);
+
+    toggleSkillEnabled(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.skill_rename_key);
+}
+
+test "hydrate name from SKILL.md.disabled frontmatter" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-disabled-name", .{tmp.sub_path[0..]});
+    var skill_dir_buf: [256]u8 = undefined;
+    const skill_dir = try std.fmt.bufPrint(&skill_dir_buf, "{s}/skills/named", .{root});
+    try std.Io.Dir.cwd().createDirPath(testing.io, skill_dir);
+    var file_buf: [256]u8 = undefined;
+    const file_path = try std.fmt.bufPrint(&file_buf, "{s}/SKILL.md.disabled", .{skill_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = file_path,
+        .data =
+        \\---
+        \\name: pretty-disabled
+        \\---
+        \\
+        \\Still readable.
+        \\
+        ,
+    });
+
+    var model = Model{};
+    model.store_io = testing.io;
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, root);
+    applyStdoutPaths(&model, "skills/named/SKILL.md.disabled\n");
+    try std.testing.expectEqual(@as(u32, 1), cachedCount(&model));
+    try std.testing.expectEqualStrings("pretty-disabled", cachedName(&model, 0));
+    try std.testing.expect(!cachedEnabled(&model, 0));
+
+    selectSkill(&model, 1);
+    try std.testing.expectEqualStrings("Still readable.", model.skill_body_storage[0..model.skill_body_len]);
+}
+
+test "toggleSkillEnabled missing file keeps cache and does not spawn" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, "/tmp/faku-skills-missing");
+    applyStdoutPaths(&model, "skills/gone/SKILL.md\n");
+    selectSkill(&model, 1);
+    const before = fx.pendingSpawnCount();
+    toggleSkillEnabled(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.skill_rename_key);
+    try testing.expectEqual(before, fx.pendingSpawnCount());
     try testing.expectEqual(@as(u32, 1), cachedCount(&model));
 }

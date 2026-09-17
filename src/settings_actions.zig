@@ -509,6 +509,10 @@ pub fn handleSelectSkill(model: *Model, id: u32) void {
     skills.selectSkill(model, id);
 }
 
+pub fn handleToggleSkillEnabled(model: *Model, fx: *Effects) void {
+    skills.toggleSkillEnabled(model, fx);
+}
+
 pub fn handleCycleAccess(model: *Model, fx: *Effects) void {
     model.cycleSelectedAccess();
     persist.persistComposerChips(model, fx);

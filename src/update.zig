@@ -271,6 +271,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .refresh_providers => settings_actions.handleRefreshProviders(model, fx),
         .skills_filter_edit => |edit| settings_actions.handleSkillsFilterEdit(model, edit),
         .select_skill => |id| settings_actions.handleSelectSkill(model, id),
+        .toggle_skill_enabled => settings_actions.handleToggleSkillEnabled(model, fx),
         .select_provider => |id| settings_actions.handleSelectProvider(model, id),
         .toggle_provider_enabled => |id| settings_actions.handleToggleProviderEnabled(model, id),
         .apply_session_provider => settings_actions.handleApplySessionProvider(model, fx),

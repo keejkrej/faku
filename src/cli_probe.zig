@@ -13,7 +13,7 @@
 //! Spawn key is `cli_probe_key_first + @intFromEnum(id)` so claude=601
 //! … kimi=608. fx (enum 0) is unused on this band. Distinct from
 //! fx_probe_key (3), fx_ask_key (2), daemon (4+), fx_spawn (64+),
-//! skills (530+). Refresh cancels the same fixed key per id.
+//! skills scan (530+) / rename (580+). Refresh cancels the same fixed key per id.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -27,8 +27,8 @@ const Model = model_exports.Model;
 const Effects = main.Effects;
 
 /// Fixed key per ProviderId. Distinct from fx_probe_key (3).
-/// Skills scan is 530+ incrementing; this band is one fixed key per
-/// ProviderId tag (fx's slot unused).
+/// Skills scan is 530+ incrementing; skills rename is 580+; this band
+/// is one fixed key per ProviderId tag (fx's slot unused).
 pub const cli_probe_key_first: u64 = 600;
 
 pub const help_flag = "--help";

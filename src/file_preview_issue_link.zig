@@ -41,7 +41,8 @@ const Effects = main.Effects;
 const writeFixed = model_exports.writeFixed;
 
 /// Files Preview + transcript `git remote` / `git remote get-url`.
-/// Distinct from skills (530+) and git_common_dir (500+). Band is 540+.
+/// Distinct from skills scan (530+), skills rename (580+), and
+/// git_common_dir (500+). Band is 540+.
 /// Incremented per spawn so a cancelled probe cannot paint a later
 /// preview / session.
 pub const key_first: u64 = 540;
@@ -543,6 +544,7 @@ test "argv is chdir script plus git remote get-url as its own slots" {
     try std.testing.expect(key_first >= 540);
     try std.testing.expect(key_first > git_remotes.git_remotes_key_first);
     try std.testing.expect(key_first > @import("skills.zig").skills_key_first);
+    try std.testing.expect(key_first < @import("skills.zig").skills_rename_key_first);
 }
 
 test "windows git argv is git.exe -C PATH remote get-url NAME" {

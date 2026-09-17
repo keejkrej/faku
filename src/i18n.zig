@@ -354,6 +354,11 @@
 //! FilterChrome / RightPanelChrome so Skills empty stays
 //! independently evolvable; composer `$` insert empty reuses the
 //! same hint; wire ids stay English)
+//! plus Settings Skills Enable / Disable chip and Disabled badge
+//! (same `SkillsEnableChrome` strings; distinct from
+//! `ProvidersChrome` Enable / Disable so Skills enable stays
+//! independently evolvable; on-press stays `toggle_skill_enabled`;
+//! wire ids stay English)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -394,6 +399,7 @@
 //! `environment_dismiss_settled_background`. Skills / Usage Projects
 //! filter `on-input` stay `skills_filter_edit` /
 //! `usage_project_filter_edit`; filter text stays English (user-typed).
+//! Skills Enable / Disable `on-press` stays `toggle_skill_enabled`.
 //! File-preview toolbar `on-press` / `on-input` stay English
 //! (`file_preview_save` / `close_right_panel_file_preview` /
 //! `toggle_file_preview_find_replace` / `file_preview_find_edit` /
@@ -4223,6 +4229,35 @@ const skills_empty_chrome_ja: SkillsEmptyChrome = .{
     .no_skills_found = "スキルが見つかりません",
 };
 
+/// Settings Skills Enable / Disable chip and Disabled list badge for
+/// the resolved locale. Same resolve path as SkillsEmptyChrome.
+/// Distinct from ProvidersChrome Enable / Disable so Skills enable
+/// stays independently evolvable. Wire ids / on-press stay English
+/// (`toggle_skill_enabled`).
+pub const SkillsEnableChrome = struct {
+    enable: []const u8,
+    disable: []const u8,
+    disabled: []const u8,
+};
+
+const skills_enable_chrome_en: SkillsEnableChrome = .{
+    .enable = "Enable",
+    .disable = "Disable",
+    .disabled = "Disabled",
+};
+
+const skills_enable_chrome_zh_cn: SkillsEnableChrome = .{
+    .enable = "启用",
+    .disable = "禁用",
+    .disabled = "已禁用",
+};
+
+const skills_enable_chrome_ja: SkillsEnableChrome = .{
+    .enable = "有効",
+    .disable = "無効",
+    .disabled = "無効",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -5433,6 +5468,20 @@ pub fn skillsEmptyChromeFor(preference: LanguagePreference, system_locale_id: []
         .simplified_chinese => skills_empty_chrome_zh_cn,
         .japanese => skills_empty_chrome_ja,
         .system, .english => skills_empty_chrome_en,
+    };
+}
+
+/// Settings Skills Enable / Disable chip and Disabled badge for the
+/// resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from ProvidersChrome so Providers Enable / Disable stay
+/// independently evolvable. Wire ids / on-press stay English
+/// (`toggle_skill_enabled`).
+pub fn skillsEnableChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsEnableChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_enable_chrome_zh_cn,
+        .japanese => skills_enable_chrome_ja,
+        .system, .english => skills_enable_chrome_en,
     };
 }
 
@@ -8809,5 +8858,30 @@ test "skillsEmptyChromeFor english default; zh and ja chrome; english ignores ja
     try testing.expect(!std.mem.eql(u8, skillsEmptyChromeFor(.english, "").open_project, rightPanelChromeFor(.english, "").no_project_open));
     try testing.expect(!std.mem.eql(u8, skillsEmptyChromeFor(.simplified_chinese, "").open_project, rightPanelChromeFor(.simplified_chinese, "").open_project_to_browse_files));
     try testing.expect(!std.mem.eql(u8, skillsEmptyChromeFor(.japanese, "").open_project, rightPanelChromeFor(.japanese, "").open_project_to_browse_files));
+}
+
+test "skillsEnableChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Enable", skillsEnableChromeFor(.english, "ja").enable);
+    try testing.expectEqualStrings("Disable", skillsEnableChromeFor(.english, "").disable);
+    try testing.expectEqualStrings("Disabled", skillsEnableChromeFor(.english, "").disabled);
+    try testing.expectEqualStrings("Enable", skillsEnableChromeFor(.system, "").enable);
+    try testing.expectEqualStrings("Disable", skillsEnableChromeFor(.system, "").disable);
+    try testing.expectEqualStrings("Disabled", skillsEnableChromeFor(.system, "").disabled);
+
+    try testing.expectEqualStrings("启用", skillsEnableChromeFor(.simplified_chinese, "").enable);
+    try testing.expectEqualStrings("禁用", skillsEnableChromeFor(.simplified_chinese, "").disable);
+    try testing.expectEqualStrings("已禁用", skillsEnableChromeFor(.simplified_chinese, "").disabled);
+    try testing.expectEqualStrings("有効", skillsEnableChromeFor(.japanese, "").enable);
+    try testing.expectEqualStrings("無効", skillsEnableChromeFor(.japanese, "").disable);
+    try testing.expectEqualStrings("無効", skillsEnableChromeFor(.japanese, "").disabled);
+
+    try testing.expectEqualStrings("启用", skillsEnableChromeFor(.system, "zh_CN.UTF-8").enable);
+    try testing.expectEqualStrings("已禁用", skillsEnableChromeFor(.system, "zh_CN.UTF-8").disabled);
+    try testing.expectEqualStrings("有効", skillsEnableChromeFor(.system, "ja_JP.UTF-8").enable);
+    try testing.expectEqualStrings("無効", skillsEnableChromeFor(.system, "ja_JP.UTF-8").disabled);
+    try testing.expectEqualStrings("Enable", skillsEnableChromeFor(.english, "ja_JP.UTF-8").enable);
+    try testing.expectEqualStrings("Disabled", skillsEnableChromeFor(.english, "zh_CN.UTF-8").disabled);
+    try testing.expectEqualStrings("Disable", skillsEnableChromeFor(.english, "").disable);
 }
 
