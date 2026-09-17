@@ -48,6 +48,7 @@ const file_preview_details_mod = @import("file_preview_details.zig");
 const file_preview_issue_link_mod = @import("file_preview_issue_link.zig");
 const transcript_images_mod = @import("transcript_images.zig");
 const transcript_details_mod = @import("transcript_details.zig");
+const transcript_user_body = @import("transcript_user_body.zig");
 const i18n = @import("i18n.zig");
 const session_workspace = @import("session_workspace.zig");
 const pick_folder = @import("pick_folder.zig");
@@ -306,6 +307,11 @@ pub const TurnRow = struct {
     is_reasoning: bool,
     /// True for the current Cmd-G match among filtered turns.
     is_find_current: bool = false,
+    /// User turns only: cheap model-facts estimate exceeds Waku
+    /// `USER_MESSAGE_MAX_HEIGHT` 400. Markup wraps markdown in
+    /// Native `<scroll height="384">`. Assistant / tool / reasoning
+    /// stay false. Not a layout measurement.
+    user_body_capped: bool = false,
 };
 
 /// Stored ACP command for the composer Commands list. `id` is a 1-based
@@ -4349,14 +4355,16 @@ pub const Model = struct {
         for (model.turn_store[0..model.turn_count]) |*turn| {
             if (turn.session_id != model.selected) continue;
             if (query.len > 0 and !util.asciiContainsIgnoreCase(turn.text(), query)) continue;
+            const is_user = turn.role == .user;
             out[i] = .{
                 .id = turn.id,
                 .role_label = turn.role_label(),
                 .text = turn.text(),
-                .is_user = turn.role == .user,
+                .is_user = is_user,
                 .is_tool = turn.role == .tool,
                 .is_reasoning = turn.role == .reasoning,
                 .is_find_current = query.len > 0 and i == current,
+                .user_body_capped = is_user and transcript_user_body.capped(turn.text()),
             };
             i += 1;
         }
