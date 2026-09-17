@@ -2905,8 +2905,12 @@ test "Background tab persists; selected row and output are not written to sessio
     try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_tab\":\"background\"") != null);
     try testing.expect(std.mem.indexOf(u8, bytes, "\"browser_url\":\"\"") != null);
     try testing.expect(std.mem.indexOf(u8, bytes, "right_panel_background") == null);
-    try testing.expect(std.mem.indexOf(u8, bytes, "file_preview") == null);
-    try testing.expect(std.mem.indexOf(u8, bytes, "file_preview_find") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"file_preview_find_case_sensitive\":false") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"file_preview_find_whole_word\":false") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"file_preview_find_use_regex\":false") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "file_preview_find_active") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "file_preview_find_query") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "right_panel_file_preview") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_file_tree_width\":184") != null);
     try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_diff_file_list_width\":184") != null);
     try testing.expect(std.mem.indexOf(u8, bytes, "background_work") == null);
