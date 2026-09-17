@@ -8,6 +8,9 @@
 //! `spawn.takeFxAskSessionId` / `spawn.startPrompt`). Not
 //! re-exported from `main`. Stream lifecycle lives in
 //! `stream.zig`. Line handlers live in `lines.zig`.
+//! `startPrompt` prepends stripped enabled-skill bodies for `$name`
+//! tokens (see `skills.prepareSendPrompt`) before spawn; untitled
+//! titles keep the original draft.
 //!
 //! Non-fx live Send this cut: `ProviderId.speaksAcpStdio` (cursor /
 //! opencode / kimi bare `acp`, grok `agent stdio`) when
@@ -61,6 +64,7 @@ const composer = @import("composer.zig");
 const session_fork = @import("fork.zig");
 const providers = @import("providers.zig");
 const environment_summary = @import("environment_summary.zig");
+const skills = @import("skills.zig");
 
 const Model = model_exports.Model;
 const Effects = main.Effects;
@@ -80,15 +84,21 @@ const default_interaction_mode = model_exports.default_interaction_mode;
 const fx_env_bin = util.fx_env_bin;
 const fx_ask_chdir_script = util.fx_ask_chdir_script;
 
+/// Start a turn. Untitled titles use original `text`; `$name` skill
+/// bodies are prepended onto the prompt that is stored and spawned
+/// (`skills.prepareSendPrompt`). Worktree prep stores the original
+/// draft and expands here when Send finally runs.
 pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u8) void {
     const session = model.sessionById(session_id) orelse return;
     session_fork.recordRewindRefIfPossible(model, fx, session.id);
+    var expanded_buf: [model_exports.max_body]u8 = undefined;
+    const prompt = skills.prepareSendPrompt(model, fx, text, &expanded_buf);
     const titled = session.untitled;
     if (session.untitled) {
         writeFixed(&session.title_storage, &session.title_len, text);
         session.untitled = false;
     }
-    _ = model.appendTurn(session.id, .user, text);
+    _ = model.appendTurn(session.id, .user, prompt);
     const assistant_id = model.appendTurn(session.id, .assistant, "");
     if (titled) store.persistIfPossible(model, session.id, fx);
     session.busy = true;
@@ -102,18 +112,18 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
     environment_summary.noteLiveProcess(model);
     if (model.daemonAddress().len > 0) {
         model.reply_path = .daemon;
-        startDaemonProxy(model, fx, session, text);
+        startDaemonProxy(model, fx, session, prompt);
         return;
     }
     if (session.provider == .fx and model.fx_available and model.fxPath().len > 0) {
         model.reply_path = .fx;
         const image_path = model.resolveSpawnImage();
         if (image_path.len > 0) {
-            startFxAsk(model, fx, session, text);
+            startFxAsk(model, fx, session, prompt);
             return;
         }
-        if (!startFxAcp(model, fx, session, text)) {
-            startFxAsk(model, fx, session, text);
+        if (!startFxAcp(model, fx, session, prompt)) {
+            startFxAsk(model, fx, session, prompt);
         }
         return;
     }
@@ -126,7 +136,7 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
         // Reuse fx spawn keys / fx_line / fx_exit / reply_path=.fx
         // so handleAcpLine keeps working. Not a new ReplyPath alias.
         model.reply_path = .fx;
-        if (startAcpProxy(model, fx, session, binary, text)) return;
+        if (startAcpProxy(model, fx, session, binary, prompt)) return;
     }
     if (session.provider == .claude and providers.isAvailable(model, .claude)) {
         // Claude Code is not ACP. Official print-mode streaming is
@@ -143,7 +153,7 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
         // code.claude.com/docs/en/common-workflows). There is no
         // `--image` flag. Join overflow fails closed to demo rather
         // than truncating. Unavailable Claude stays demo.
-        if (startClaudePrint(model, fx, session, text)) {
+        if (startClaudePrint(model, fx, session, prompt)) {
             model.reply_path = .fx;
             return;
         }
@@ -154,7 +164,7 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
         // prompt when a composer image exists (`--image` is clap
         // `num_args = 1..`, so a following prompt would be eaten as
         // another image path). Unavailable Codex stays demo.
-        if (startCodexExec(model, fx, session, text)) {
+        if (startCodexExec(model, fx, session, prompt)) {
             model.reply_path = .fx;
             return;
         }
@@ -165,7 +175,7 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
         // image attach is an `@path` mention inside that single `-x`
         // prompt (`amp -x '@{path}\n{prompt}'`). There is no `--image`
         // flag. Unavailable Amp stays demo.
-        if (startAmpExecute(model, fx, session, text)) {
+        if (startAmpExecute(model, fx, session, prompt)) {
             model.reply_path = .fx;
             return;
         }
@@ -176,7 +186,7 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
         // `--mode json` when a composer image exists
         // (`pi --mode json @screenshot.png "What's in this image?"`).
         // There is no `--image` flag. Unavailable Pi stays demo.
-        if (startPiJson(model, fx, session, text)) {
+        if (startPiJson(model, fx, session, prompt)) {
             model.reply_path = .fx;
             return;
         }
@@ -482,8 +492,8 @@ const claude_image_prompt_prefix = "Analyze this image: ";
 /// prompt (code.claude.com/docs/en/common-workflows "Work with
 /// images"); there is no `--image` / `-i` flag. The join is a stack
 /// buffer sized for the documented prefix + `max_project_path` +
-/// newline + `max_draft` (same caps as the draft image / prompt
-/// stores). Overflow returns false so Send fails closed to demo
+/// newline + `max_body` (Send may prepend skill bodies into the
+/// prompt; turn storage is the same cap). Overflow returns false so Send fails closed to demo
 /// rather than truncating into a wrong command. Empty stdin.
 /// Stream-json stdout is NDJSON; `fx_spawn_claude_json` routes it
 /// through the Claude parser (live `stream_event` /
@@ -513,7 +523,7 @@ pub fn startClaudePrint(model: *Model, fx: *Effects, session: *const Session, pr
     const resume_id = session.fxSessionId();
     const image_path = model.resolveSpawnImage();
 
-    var print_prompt_buf: [claude_image_prompt_prefix.len + model_exports.max_project_path + 1 + model_exports.max_draft]u8 = undefined;
+    var print_prompt_buf: [claude_image_prompt_prefix.len + model_exports.max_project_path + 1 + model_exports.max_body]u8 = undefined;
     const print_prompt = if (image_path.len > 0)
         std.fmt.bufPrint(
             &print_prompt_buf,
@@ -673,7 +683,7 @@ pub fn startAmpExecute(model: *Model, fx: *Effects, session: *const Session, pro
     else
         "";
 
-    var execute_prompt_buf: [1 + model_exports.max_project_path + 1 + model_exports.max_draft]u8 = undefined;
+    var execute_prompt_buf: [1 + model_exports.max_project_path + 1 + model_exports.max_body]u8 = undefined;
     const execute_prompt = if (at_path.len > 0)
         std.fmt.bufPrint(&execute_prompt_buf, "{s}\n{s}", .{ at_path, prompt }) catch prompt
     else
@@ -2207,7 +2217,7 @@ test "claude image attach overflow stays demo" {
     model.selected = id;
     model.setDraftImagePath(image);
 
-    var long_prompt: [model_exports.max_draft + model_exports.max_project_path]u8 = undefined;
+    var long_prompt: [model_exports.max_body + model_exports.max_project_path]u8 = undefined;
     @memset(&long_prompt, 'x');
     startPrompt(&model, &fx, id, &long_prompt);
     try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
@@ -2655,4 +2665,56 @@ test "finishStream and stopStream leave the chrome tick armed" {
     try testing.expect(!model.is_streaming());
     try testing.expect(pendingTimerByKey(&fx, stream_timer_key) == null);
     try testing.expect(pendingTimerByKey(&fx, chrome_tick_key) != null);
+}
+
+test "startPrompt untitled title uses original draft; user turn stores expanded skill bodies" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-send-title", .{tmp.sub_path[0..]});
+    var skill_dir_buf: [256]u8 = undefined;
+    const skill_dir = try std.fmt.bufPrint(&skill_dir_buf, "{s}/skills/alpha", .{root});
+    try std.Io.Dir.cwd().createDirPath(testing.io, skill_dir);
+    var file_buf: [256]u8 = undefined;
+    const file_path = try std.fmt.bufPrint(&file_buf, "{s}/SKILL.md", .{skill_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = file_path,
+        .data =
+            \\---
+            \\name: alpha
+            \\---
+            \\
+            \\Alpha body.
+            \\
+        ,
+    });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("untitled", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| {
+        session.untitled = true;
+        session.setProjectPath(root);
+    }
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, root);
+    skills.applyStdoutPaths(&model, "skills/alpha/SKILL.md\n");
+    try testing.expectEqualStrings("alpha", skills.cachedName(&model, 0));
+
+    const draft = "$alpha ship it";
+    startPrompt(&model, &fx, id, draft);
+    try testing.expect(!model.sessionById(id).?.untitled);
+    try testing.expectEqualStrings(draft, model.sessionById(id).?.title());
+    try testing.expectEqual(model_exports.Role.user, model.turn_store[0].role);
+    try testing.expectEqualStrings(
+        \\### Skill: alpha
+        \\Alpha body.
+        \\
+        \\$alpha ship it
+    , model.turn_store[0].text());
 }

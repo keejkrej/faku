@@ -25,15 +25,18 @@
 //! interpolated into `-Command`). Tools discover skills by exact
 //! filename so the rename hides/shows the skill from fx and peers
 //! the same as Waku. Composer `$` inserts `$name ` for **enabled**
-//! skills only; Send still ships that composer text as-is (fx loads
-//! the skill). Runtime-only (not `sessions.json`). Empty-state Open a
+//! skills only. Send prepends stripped `SKILL.md` bodies for `$name`
+//! tokens (enabled rows only; missing/unreadable omit that block)
+//! onto the prompt that `startPrompt` ships to every provider and
+//! stores as the user turn; untitled titles still use the original
+//! draft. Runtime-only (not `sessions.json`). Empty-state Open a
 //! project / No skills found follow `i18n.SkillsEmptyChrome`
 //! (distinct from FilterChrome / RightPanelChrome; composer `$`
 //! insert empty reuses the same hint). Enable / Disable / Disabled
 //! badge follow `i18n.SkillsEnableChrome` (distinct from
-//! ProvidersChrome). Not SKILL.md body stuffing, not a daemon
-//! SkillsCatalog / WorkspaceOperation, not ACP `/name` slash rows.
-//! Not a Native FS API. app.zon already includes windows.
+//! ProvidersChrome). Not a daemon SkillsCatalog / WorkspaceOperation,
+//! not ACP `/name` slash rows. Not a Native FS API. app.zon already
+//! includes windows.
 //!
 //! Spawn/line/exit orchestration lives here. Tests do not need a live
 //! daemon or fx.
@@ -45,6 +48,7 @@ const main = @import("main.zig");
 const util = @import("util.zig");
 const model_exports = @import("model_exports.zig");
 const file_mention = @import("file_mention.zig");
+const composer = @import("composer.zig");
 const i18n = @import("i18n.zig");
 
 const Model = model_exports.Model;
@@ -73,6 +77,8 @@ pub const skill_filename = "SKILL.md";
 /// `SKILL.md` only do not load a disabled skill.
 pub const disabled_skill_filename = "SKILL.md.disabled";
 pub const skill_fallback_name = "SKILL";
+/// First-cut Send prepend heading. Stable English prompt data, not chrome.
+pub const skill_prompt_heading = "### Skill: ";
 pub const mv_bin = "mv";
 pub const mv_end_of_options = "--";
 
@@ -762,6 +768,103 @@ fn loadBody(model: *Model, index: usize) void {
     writeFixed(&model.skill_body_storage, &model.skill_body_len, stripFrontmatter(source));
 }
 
+fn enabledSkillIndex(model: *const Model, name: []const u8) ?usize {
+    var i: usize = 0;
+    while (i < model.skill_count) : (i += 1) {
+        if (!model.skill_store[i].enabled) continue;
+        if (std.mem.eql(u8, model.skill_store[i].name(), name)) return i;
+    }
+    return null;
+}
+
+fn nameAlreadyQueued(names: []const []const u8, name: []const u8) bool {
+    for (names) |seen| {
+        if (std.mem.eql(u8, seen, name)) return true;
+    }
+    return false;
+}
+
+/// Stripped body for an enabled cache row. Empty when the file is
+/// missing/unreadable. Caps at `max_skill_body`.
+fn readEnabledSkillBody(model: *const Model, index: usize, buf: []u8) []const u8 {
+    if (index >= model.skill_count) return "";
+    if (!model.skill_store[index].enabled) return "";
+    const io = model.store_io orelse return "";
+    const root = model.skill_probe_path_storage[0..model.skill_probe_path_len];
+    if (root.len == 0) return "";
+    var path_buf: [model_exports.max_project_path + max_skill_path + 1]u8 = undefined;
+    const abs = joinProbeRelpath(root, model.skill_store[index].path(), &path_buf) orelse return "";
+    var file_buf: [max_skill_file_read]u8 = undefined;
+    const source = readSkillSource(io, abs, &file_buf);
+    if (source.len == 0) return "";
+    const stripped = stripFrontmatter(source);
+    const take = @min(buf.len, @min(stripped.len, max_skill_body));
+    @memcpy(buf[0..take], stripped[0..take]);
+    return buf[0..take];
+}
+
+fn appendSlice(out: []u8, pos: *usize, slice: []const u8) bool {
+    if (pos.* + slice.len > out.len) return false;
+    @memcpy(out[pos.*..][0..slice.len], slice);
+    pos.* += slice.len;
+    return true;
+}
+
+/// Prepend stripped bodies for `$name` tokens in `text` (enabled
+/// cache rows only, first-occurrence order, missing files omitted).
+/// Returns `text` unchanged when nothing matches. Output is capped
+/// to `out` (callers pass `max_body`) so the stored user turn and
+/// the provider prompt stay the same slice; original draft is always
+/// kept at the end.
+pub fn expandPrompt(model: *const Model, text: []const u8, out: []u8) []const u8 {
+    if (text.len > out.len) return text;
+
+    var names: [max_skills][]const u8 = undefined;
+    var name_count: usize = 0;
+    var search: usize = 0;
+    while (composer.nextSkillToken(text, search)) |tok| {
+        search = tok.after;
+        if (nameAlreadyQueued(names[0..name_count], tok.name)) continue;
+        if (name_count >= names.len) break;
+        names[name_count] = tok.name;
+        name_count += 1;
+    }
+    if (name_count == 0) return text;
+
+    var pos: usize = 0;
+    var wrote = false;
+    for (names[0..name_count]) |name| {
+        const index = enabledSkillIndex(model, name) orelse continue;
+        var body_buf: [max_skill_body]u8 = undefined;
+        const body = readEnabledSkillBody(model, index, &body_buf);
+        if (body.len == 0) continue;
+        const heading_over = skill_prompt_heading.len + name.len + 1 + 2;
+        if (pos + heading_over + text.len > out.len) continue;
+        const room = out.len - pos - text.len;
+        const take = @min(body.len, room - heading_over);
+        if (take == 0) continue;
+        if (!appendSlice(out, &pos, skill_prompt_heading)) continue;
+        if (!appendSlice(out, &pos, name)) continue;
+        if (!appendSlice(out, &pos, "\n")) continue;
+        if (!appendSlice(out, &pos, body[0..take])) continue;
+        if (!appendSlice(out, &pos, "\n\n")) continue;
+        wrote = true;
+    }
+    if (!wrote) return text;
+    if (!appendSlice(out, &pos, text)) return text;
+    return out[0..pos];
+}
+
+/// Kick a project scan when `$name` tokens are present, then expand.
+/// Scan is async (Native has no sync walk); first Send after a paste
+/// may still no-op until the cache fills.
+pub fn prepareSendPrompt(model: *Model, fx: *Effects, text: []const u8, out: []u8) []const u8 {
+    if (composer.draftHasSkillToken(text)) {
+        ensureScanned(model, fx);
+    }
+    return expandPrompt(model, text, out);
+}
+
 /// English defaults from `i18n.SkillsEmptyChrome`. Tests that still
 /// want the former hardcoded copy use these; `emptyHint` resolves
 /// through `skillsEmptyChrome` for the Appearance locale.
@@ -1430,4 +1533,67 @@ test "composer $ insert lists enabled skills only" {
 
     model.draft_buffer.set("$off");
     try testing.expectEqual(@as(usize, 0), model.skill_insert_rows(arena).len);
+}
+
+fn writeTestSkill(io: std.Io, dir: []const u8, name: []const u8, body: []const u8, disabled: bool) !void {
+    try std.Io.Dir.cwd().createDirPath(io, dir);
+    var file_buf: [256]u8 = undefined;
+    const filename = if (disabled) disabled_skill_filename else skill_filename;
+    const file_path = try std.fmt.bufPrint(&file_buf, "{s}/{s}", .{ dir, filename });
+    var data_buf: [512]u8 = undefined;
+    const data = try std.fmt.bufPrint(&data_buf, "---\nname: {s}\n---\n\n{s}\n", .{ name, body });
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = file_path, .data = data });
+}
+
+test "expandPrompt no-op without $ tokens or matching enabled skills" {
+    const testing = std.testing;
+    var model = Model{};
+    var out: [model_exports.max_body]u8 = undefined;
+    try testing.expectEqualStrings("just a prompt", expandPrompt(&model, "just a prompt", &out));
+    try testing.expectEqualStrings("price$", expandPrompt(&model, "price$", &out));
+    try testing.expectEqualStrings("$unknown do it", expandPrompt(&model, "$unknown do it", &out));
+}
+
+test "expandPrompt prepends enabled bodies in first-occurrence order; dedupes; skips disabled and missing" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-expand", .{tmp.sub_path[0..]});
+    var alpha_dir_buf: [256]u8 = undefined;
+    const alpha_dir = try std.fmt.bufPrint(&alpha_dir_buf, "{s}/skills/alpha", .{root});
+    var beta_dir_buf: [256]u8 = undefined;
+    const beta_dir = try std.fmt.bufPrint(&beta_dir_buf, "{s}/skills/beta", .{root});
+    var off_dir_buf: [256]u8 = undefined;
+    const off_dir = try std.fmt.bufPrint(&off_dir_buf, "{s}/skills/off", .{root});
+    try writeTestSkill(testing.io, alpha_dir, "alpha", "Alpha body.", false);
+    try writeTestSkill(testing.io, beta_dir, "beta", "Beta body.", false);
+    try writeTestSkill(testing.io, off_dir, "off", "Hidden body.", true);
+
+    var model = Model{};
+    model.store_io = testing.io;
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, root);
+    applyStdoutPaths(&model, "skills/alpha/SKILL.md\nskills/beta/SKILL.md\nskills/off/SKILL.md.disabled\nskills/gone/SKILL.md\n");
+    try testing.expectEqualStrings("alpha", cachedName(&model, 0));
+    try testing.expectEqualStrings("beta", cachedName(&model, 1));
+    try testing.expectEqualStrings("off", cachedName(&model, 2));
+    try testing.expect(!cachedEnabled(&model, 2));
+
+    var out: [model_exports.max_body]u8 = undefined;
+    const expanded = expandPrompt(&model, "$beta then $alpha and $beta again plus $off and $gone", &out);
+    try testing.expectEqualStrings(
+        \\### Skill: beta
+        \\Beta body.
+        \\
+        \\### Skill: alpha
+        \\Alpha body.
+        \\
+        \\$beta then $alpha and $beta again plus $off and $gone
+    , expanded);
+
+    const missing_only = expandPrompt(&model, "$gone only", &out);
+    try testing.expectEqualStrings("$gone only", missing_only);
+
+    const disabled_only = expandPrompt(&model, "$off please", &out);
+    try testing.expectEqualStrings("$off please", disabled_only);
 }

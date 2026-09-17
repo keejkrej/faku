@@ -164,6 +164,38 @@ fn lastTokenAfter(draft: []const u8, marker: u8) ?[]const u8 {
     return token[1..];
 }
 
+/// One `$name` token in a draft. `name` is the slice after `$` until
+/// whitespace — same shape `replaceSkillToken` writes (`$name `).
+/// `after` is the index to resume a walk. Caret-at-end is picker-only;
+/// Send expansion walks the whole prompt.
+pub const SkillToken = struct {
+    name: []const u8,
+    after: usize,
+};
+
+/// Next `$name` token at or after `start`. `$` must begin a
+/// whitespace-separated token (`price$` is not a name). Empty `$`
+/// is skipped. Does not consult slash-prefix (Send is not the picker).
+pub fn nextSkillToken(text: []const u8, start: usize) ?SkillToken {
+    var i = start;
+    while (i < text.len) {
+        while (i < text.len and std.ascii.isWhitespace(text[i])) i += 1;
+        if (i >= text.len) return null;
+        const tok_start = i;
+        while (i < text.len and !std.ascii.isWhitespace(text[i])) i += 1;
+        const token = text[tok_start..i];
+        if (token.len >= 2 and token[0] == '$') {
+            return .{ .name = token[1..], .after = i };
+        }
+    }
+    return null;
+}
+
+/// True when `text` has at least one `$name` token (non-empty name).
+pub fn draftHasSkillToken(text: []const u8) bool {
+    return nextSkillToken(text, 0) != null;
+}
+
 /// Replace only the last `@query` token with `@relpath` plus a trailing
 /// space. Keeps the rest of the draft. `null` when there is no active
 /// mention, `relpath` is empty, or the result does not fit `out`.
@@ -358,6 +390,25 @@ test "skillQuery is caret-at-end $ token; slash prefix wins" {
     try std.testing.expect(skillQuery("/skills") == null);
     try std.testing.expect(skillQuery("/$to") == null);
     try std.testing.expect(skillQuery("@src") == null);
+}
+
+test "nextSkillToken walks whole draft; price$ and empty $ are skipped" {
+    try std.testing.expectEqualStrings("to-spec", nextSkillToken("$to-spec", 0).?.name);
+    try std.testing.expectEqualStrings("to", nextSkillToken("use $to more", 0).?.name);
+    const first = nextSkillToken("$alpha then $beta and $alpha", 0).?;
+    try std.testing.expectEqualStrings("alpha", first.name);
+    const second = nextSkillToken("$alpha then $beta and $alpha", first.after).?;
+    try std.testing.expectEqualStrings("beta", second.name);
+    const third = nextSkillToken("$alpha then $beta and $alpha", second.after).?;
+    try std.testing.expectEqualStrings("alpha", third.name);
+    try std.testing.expect(nextSkillToken("$alpha then $beta and $alpha", third.after) == null);
+    try std.testing.expect(nextSkillToken("price$", 0) == null);
+    try std.testing.expect(nextSkillToken("$", 0) == null);
+    try std.testing.expect(nextSkillToken("use $ ", 0) == null);
+    try std.testing.expect(nextSkillToken("", 0) == null);
+    try std.testing.expect(draftHasSkillToken("$to-spec do this"));
+    try std.testing.expect(!draftHasSkillToken("no dollars"));
+    try std.testing.expect(!draftHasSkillToken("$"));
 }
 
 test "replaceSkillToken rewrites only the last $query token and appends a space" {

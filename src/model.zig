@@ -8230,8 +8230,8 @@ pub const Model = struct {
 
     /// Replace the last `$query` token with `$name ` from the runtime
     /// SKILL.md cache. Disabled skills are skipped. Writes the composer
-    /// draft only — no spawn, no SKILL.md body stuffing. Focuses the
-    /// composer.
+    /// draft only — picker stays `$name `; Send prepends stripped
+    /// bodies in `startPrompt`. Focuses the composer.
     pub fn insertAvailableSkill(model: *Model, id: u32) void {
         if (id == 0 or id > model.skill_count) return;
         if (!model.skill_store[id - 1].enabled) return;
@@ -8272,11 +8272,12 @@ pub const Model = struct {
         return false;
     }
 
-    /// Scan project SKILL.md when the composer `$` query is active.
-    /// No-op without a `$` token or when `ensureScanned` already holds
-    /// the current probe path.
+    /// Scan project SKILL.md when the composer `$` query is active or
+    /// the draft already contains a `$name` token. No-op without a
+    /// `$` token or when `ensureScanned` already holds the current
+    /// probe path.
     pub fn maybeEnsureSkillsScanned(model: *Model, fx: *main.Effects) void {
-        if (skillQuery(model.draft()) == null) return;
+        if (skillQuery(model.draft()) == null and !composer.draftHasSkillToken(model.draft())) return;
         skills.ensureScanned(model, fx);
     }
 
