@@ -47,7 +47,10 @@
 //! occupancy, and Terminal occupancy are that same stash, not per-session JSON; those nested
 //! widths, Browser extras, and Terminal extras still persist as last-live global extras
 //! for cold start),
-//! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
+//! plus `new_task` (Waku SessionNavigation.new_task; JSON number / u32;
+//! missing / null / non-number / overflow → 0; started / missing ids
+//! clear to 0 after catalog restore, same as runtime ignore),
+//! `last_model` / `last_access_mode` / `last_interaction_mode` /
 //! `last_reasoning_effort` /
 //! `last_project_path` / `last_daemon_address` / `theme_preference` /
 //! `ui_font_size` / `code_font_size` / `language_preference` / `settings_page` /
@@ -285,6 +288,7 @@ pub fn saveSession(model: *const Model, session_id: u32, allocator: std.mem.Allo
     };
     upsertSession(&document, arena, model, session_id) catch return error.OutOfMemory;
     document.selected = model.selected;
+    document.new_task = model.new_task;
     document.next_id = model.next_id;
     document.next_turn_id = model.next_turn_id;
     document.next_queued_id = model.next_queued_id;
@@ -333,6 +337,7 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
     dropStoredSession(&document, session_id);
     model.dropSession(session_id);
     document.selected = model.selected;
+    document.new_task = model.new_task;
     document.next_id = model.next_id;
     document.next_turn_id = model.next_turn_id;
     document.next_queued_id = model.next_queued_id;
@@ -390,6 +395,12 @@ pub fn persistIfPossible(model: *Model, session_id: u32, fx: *main.Effects) void
     }
     if (model.daemonAddress().len > 0) model.setLastDaemonAddress(model.daemonAddress());
     const io = model.store_io orelse return;
+    if (model.sessionByIdConst(session_id)) |session| {
+        if (!session.hasStarted()) {
+            persistSelectedIfPossible(model);
+            return;
+        }
+    }
     saveSession(model, session_id, std.heap.page_allocator, io) catch return;
     mirrorSaveTaskStateIfPossible(model, session_id, fx);
 }
@@ -398,7 +409,8 @@ pub fn persistIfPossible(model: *Model, session_id: u32, fx: *main.Effects) void
 /// `sidebar_width`, `right_panel_open`, `right_panel_width`,
 /// `right_panel_file_tree_width`, `right_panel_diff_file_list_width`,
 /// `right_panel_tab`, `browser_url`, `browser_slots`, `browser_histories`,
-/// `browser_active`, `terminal_slots`, `terminal_active`).
+/// `browser_active`, `terminal_slots`, `terminal_active`) plus
+/// remembered `new_task`.
 /// Does not create `sessions.json` and does not spawn a daemon sidecar.
 /// Missing / corrupt catalogs are a no-op.
 pub fn persistLayoutIfPossible(model: *const Model) void {
@@ -411,7 +423,7 @@ pub fn persistLayoutIfPossible(model: *const Model) void {
 /// `theme_preference`, `ui_font_size`, `code_font_size`, `language_preference`, `settings_page`,
 /// `usage_meter_open`, `commands_open`, `disabled_providers`,
 /// `usage_view`, `usage_window`, `usage_metric`, `usage_breakdown`,
-/// `usage_project_filter`).
+/// `usage_project_filter`) plus remembered `new_task`.
 /// Same first-run rule as sidebar collapse: does not create `sessions.json`
 /// and does not spawn a daemon sidecar. Missing / corrupt catalogs are a no-op.
 pub fn persistSettingsIfPossible(model: *const Model) void {
@@ -427,9 +439,10 @@ pub fn persistFoldersIfPossible(model: *const Model) void {
     saveExtras(model, std.heap.page_allocator, io, .folders) catch {};
 }
 
-/// Merge-only write of catalog `selected` / `next_id` after remove
-/// destination (including an unstarted New Task draft that is not a
-/// session row yet). Missing / corrupt catalogs are a no-op.
+/// Merge-only write of catalog `selected` / `next_id` / `new_task`
+/// after remove destination (including an unstarted New Task draft
+/// that is not a session row yet) and after rememberNewTask on an
+/// unstarted persist. Missing / corrupt catalogs are a no-op.
 pub fn persistSelectedIfPossible(model: *const Model) void {
     const io = model.store_io orelse return;
     saveSelected(model, std.heap.page_allocator, io) catch {};
@@ -455,6 +468,7 @@ fn saveExtras(model: *const Model, allocator: std.mem.Allocator, io: std.Io, kin
         .settings => applySettingsExtras(&document, model),
         .folders => try applyFolderExtras(&document, arena, model),
     }
+    document.new_task = model.new_task;
     try writeDocument(allocator, io, dir, document);
 }
 
@@ -473,6 +487,7 @@ fn saveSelected(model: *const Model, allocator: std.mem.Allocator, io: std.Io) !
     };
     document.selected = model.selected;
     document.next_id = model.next_id;
+    document.new_task = model.new_task;
     try writeDocument(allocator, io, dir, document);
 }
 
@@ -1042,6 +1057,7 @@ const StoredFolder = struct {
 const Document = struct {
     version: u32 = format_version,
     selected: u32 = 0,
+    new_task: u32 = 0,
     next_id: u32 = 1,
     next_turn_id: u32 = 1,
     next_queued_id: u32 = 1,
@@ -1086,6 +1102,7 @@ const Document = struct {
     fn empty(model: *const Model) Document {
         return .{
             .selected = model.selected,
+            .new_task = model.new_task,
             .next_id = model.next_id,
             .next_turn_id = model.next_turn_id,
             .next_queued_id = model.next_queued_id,
@@ -1158,6 +1175,29 @@ fn lastDaemonAddressForSave(model: *const Model) []const u8 {
     return model.daemonAddress();
 }
 
+/// Restore persisted `new_task` after sessions are in the store.
+/// Missing / started ids become 0 (same ignore rules as
+/// `rememberedNewTask`). A different or started *selected* session
+/// does not clear the slot. Valid unstarted drafts are marked
+/// `detail_loaded` so `hasStarted()` matches `has_started` (catalog
+/// skeletons otherwise look started until hydrate).
+fn restoreNewTask(model: *Model, id: u32) void {
+    if (id == 0) {
+        model.new_task = 0;
+        return;
+    }
+    const session = model.sessionById(id) orelse {
+        model.new_task = 0;
+        return;
+    };
+    if (session.has_started) {
+        model.new_task = 0;
+        return;
+    }
+    model.new_task = id;
+    session.detail_loaded = true;
+}
+
 fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) !void {
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
@@ -1216,6 +1256,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     } else if (model.session_count > 0) {
         model.selected = model.session_store[0].id;
     }
+    restoreNewTask(model, document.new_task);
     model.syncGitWorktreeBaseOverride();
 }
 
@@ -1488,6 +1529,7 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
     return .{
         .version = version,
         .selected = jsonUint(obj.get("selected")) orelse 0,
+        .new_task = jsonUint(obj.get("new_task")) orelse 0,
         .next_id = jsonUint(obj.get("next_id")) orelse 1,
         .next_turn_id = jsonUint(obj.get("next_turn_id")) orelse 1,
         .next_queued_id = jsonUint(obj.get("next_queued_id")) orelse 1,
@@ -2028,6 +2070,8 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
     try appendUint(&out, allocator, document.version);
     try out.appendSlice(allocator, ",\"selected\":");
     try appendUint(&out, allocator, document.selected);
+    try out.appendSlice(allocator, ",\"new_task\":");
+    try appendUint(&out, allocator, document.new_task);
     try out.appendSlice(allocator, ",\"next_id\":");
     try appendUint(&out, allocator, document.next_id);
     try out.appendSlice(allocator, ",\"next_turn_id\":");
@@ -4163,6 +4207,105 @@ test "usage_meter_open and commands_open extras persist on sessions.json; missin
     defer allocator.free(bytes);
     try testing.expect(std.mem.indexOf(u8, bytes, "\"usage_meter_open\":false") != null);
     try testing.expect(std.mem.indexOf(u8, bytes, "\"commands_open\":false") != null);
+}
+
+test "new_task extras persist on sessions.json; missing started or unknown load 0" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+    const project = "/tmp/faku-new-task";
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":3,"next_turn_id":2,"next_queued_id":1,"sessions":[{"id":1,"title":"started","provider":"fx","untitled":false,"has_started":true,"project_path":"/tmp/faku-new-task","turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]},{"id":2,"title":"untitled","provider":"fx","untitled":true,"has_started":false,"project_path":"/tmp/faku-new-task","turns":[],"queued_messages":[]}]}
+    );
+    var missing = Model{};
+    missing.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&missing, allocator, io));
+    try testing.expectEqual(@as(u32, 0), missing.new_task);
+    try testing.expectEqual(@as(?u32, null), missing.rememberedNewTask(project));
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":3,"next_turn_id":2,"next_queued_id":1,"new_task":null,"sessions":[{"id":1,"title":"started","provider":"fx","untitled":false,"has_started":true,"project_path":"/tmp/faku-new-task","turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]},{"id":2,"title":"untitled","provider":"fx","untitled":true,"has_started":false,"project_path":"/tmp/faku-new-task","turns":[],"queued_messages":[]}]}
+    );
+    var nulls = Model{};
+    nulls.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&nulls, allocator, io));
+    try testing.expectEqual(@as(u32, 0), nulls.new_task);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":3,"next_turn_id":2,"next_queued_id":1,"new_task":"2","sessions":[{"id":1,"title":"started","provider":"fx","untitled":false,"has_started":true,"project_path":"/tmp/faku-new-task","turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]},{"id":2,"title":"untitled","provider":"fx","untitled":true,"has_started":false,"project_path":"/tmp/faku-new-task","turns":[],"queued_messages":[]}]}
+    );
+    var non_number = Model{};
+    non_number.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&non_number, allocator, io));
+    try testing.expectEqual(@as(u32, 0), non_number.new_task);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":3,"next_turn_id":2,"next_queued_id":1,"new_task":4294967296,"sessions":[{"id":1,"title":"started","provider":"fx","untitled":false,"has_started":true,"project_path":"/tmp/faku-new-task","turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]},{"id":2,"title":"untitled","provider":"fx","untitled":true,"has_started":false,"project_path":"/tmp/faku-new-task","turns":[],"queued_messages":[]}]}
+    );
+    var overflow = Model{};
+    overflow.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&overflow, allocator, io));
+    try testing.expectEqual(@as(u32, 0), overflow.new_task);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"new_task":1,"sessions":[{"id":1,"title":"started","provider":"fx","untitled":false,"has_started":true,"project_path":"/tmp/faku-new-task","turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var started = Model{};
+    started.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&started, allocator, io));
+    try testing.expectEqual(@as(u32, 0), started.new_task);
+    try testing.expectEqual(@as(?u32, null), started.rememberedNewTask(project));
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":3,"next_turn_id":2,"next_queued_id":1,"new_task":99,"sessions":[{"id":1,"title":"started","provider":"fx","untitled":false,"has_started":true,"project_path":"/tmp/faku-new-task","turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]},{"id":2,"title":"untitled","provider":"fx","untitled":true,"has_started":false,"project_path":"/tmp/faku-new-task","turns":[],"queued_messages":[]}]}
+    );
+    var gone = Model{};
+    gone.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&gone, allocator, io));
+    try testing.expectEqual(@as(u32, 0), gone.new_task);
+    try testing.expectEqual(@as(?u32, null), gone.rememberedNewTask(project));
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":3,"next_turn_id":2,"next_queued_id":1,"new_task":2,"sessions":[{"id":1,"title":"started","provider":"fx","untitled":false,"has_started":true,"project_path":"/tmp/faku-new-task","turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]},{"id":2,"title":"untitled","provider":"fx","untitled":true,"has_started":false,"project_path":"/tmp/faku-new-task","turns":[],"queued_messages":[]}]}
+    );
+    var valid = Model{};
+    valid.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&valid, allocator, io));
+    try testing.expectEqual(@as(u32, 1), valid.selected);
+    try testing.expectEqual(@as(u32, 2), valid.new_task);
+    try testing.expect(valid.sessionById(2).?.detail_loaded);
+    try testing.expect(!valid.sessionById(2).?.hasStarted());
+    try testing.expectEqual(@as(?u32, 2), valid.rememberedNewTask(project));
+
+    valid.store_io = io;
+    persistSelectedIfPossible(&valid);
+    persistSettingsIfPossible(&valid);
+    persistLayoutIfPossible(&valid);
+    var round_trip = Model{};
+    round_trip.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&round_trip, allocator, io));
+    try testing.expectEqual(@as(u32, 2), round_trip.new_task);
+    try testing.expectEqual(@as(?u32, 2), round_trip.rememberedNewTask(project));
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, catalogPath(dir, &path_buf).?, allocator, .limited(64 * 1024));
+    defer allocator.free(bytes);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"new_task\":2") != null);
+
+    valid.new_task = 0;
+    persistSelectedIfPossible(&valid);
+    var cleared = Model{};
+    cleared.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&cleared, allocator, io));
+    try testing.expectEqual(@as(u32, 0), cleared.new_task);
+    const cleared_bytes = try std.Io.Dir.cwd().readFileAlloc(io, catalogPath(dir, &path_buf).?, allocator, .limited(64 * 1024));
+    defer allocator.free(cleared_bytes);
+    try testing.expect(std.mem.indexOf(u8, cleared_bytes, "\"new_task\":0") != null);
 }
 
 test "folder extras persist untitled folders; missing catalog is not created" {
