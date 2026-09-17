@@ -1421,14 +1421,17 @@ pub const Model = struct {
     /// Runtime-only Skills list filter. Not persisted.
     skills_filter_buffer: canvas.TextBuffer(max_search) = .{},
     /// Runtime-only `SKILL.md` cache for Settings → Skills, composer
-    /// `$` insert, and composer `/` slash rows. Bounded find; not
-    /// persisted to sessions.json.
+    /// `$` insert, and composer `/` slash rows. Local find or first-cut
+    /// daemon `skillsCatalog`; not persisted to sessions.json.
     skill_store: [skills.max_skills]skills.CachedSkill = [_]skills.CachedSkill{.{}} ** skills.max_skills,
     skill_count: u32 = 0,
     skill_key: u64 = 0,
     next_skill_key: u64 = skills.skills_key_first,
     skill_rename_key: u64 = 0,
     next_skill_rename_key: u64 = skills.skills_rename_key_first,
+    /// In-flight `loadSkills` sidecar. Distinct from find-walk (530+)
+    /// and rename (580+) so miss cannot settle a scan or rename.
+    daemon_load_skills_key: u64 = 0,
     skill_rename_cwd_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     skill_rename_cwd_len: usize = 0,
     skill_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
@@ -2273,6 +2276,7 @@ pub const Model = struct {
         "next_skill_key",
         "skill_rename_key",
         "next_skill_rename_key",
+        "daemon_load_skills_key",
         "skill_rename_cwd_storage",
         "skill_rename_cwd_len",
         "skill_probe_path_storage",
@@ -4578,7 +4582,7 @@ pub const Model = struct {
         if (model.commands_list_open()) return false;
         const query = skillQuery(model.draft()) orelse return false;
         if (hasSkillInsertMatch(model, query)) return true;
-        return model.skill_count == 0 and model.skill_key != 0;
+        return model.skill_count == 0 and skills.scanInFlight(model);
     }
 
     pub fn skill_insert_rows(model: *const Model, arena: std.mem.Allocator) []const SkillRow {

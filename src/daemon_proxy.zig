@@ -6,6 +6,7 @@
 //! saveTaskState, hello + loadTaskState, hello + hydrateSession,
 //! hello + closeSession, hello + cancel, hello + steer, hello +
 //! hello + `goal`, hello + `loadUsageHistory`, hello +
+//! `loadSkills`, hello +
 //! `fetchPlanUsage`, hello +
 //! `refreshBackgroundWork`, hello + `stopBackgroundWork`, or hello + `workspace`) and,
 //! when run as `faku daemon-proxy <addr>`, forwards those JSON frames over
@@ -14,6 +15,8 @@
 //! (no prompt) exits after server hello / response. A load-only stdin
 //! waits for the `taskState` response (not hello) because a nil
 //! `requestId` is a notify and would never return the catalog. A
+//! `loadUsageHistory` / `loadSkills` / `fetchPlanUsage` stdin waits
+//! for the `response` frame (not hello) the same way. A
 //! hydrate-only stdin waits for the `session` response the same way. A
 //! close-only, cancel-only, or steer-only stdin exits after server
 //! hello / response like save. A goal-only stdin waits for a response
@@ -88,6 +91,9 @@ pub const ATTACH_REQUEST_ID = "00000000-0000-0000-0000-000000000012";
 /// `usageHistory`.
 pub const USAGE_HISTORY_REQUEST_ID = "00000000-0000-0000-0000-000000000015";
 /// Non-nil: a nil `requestId` is a notify and the daemon sends no
+/// `skillsCatalog`.
+pub const LOAD_SKILLS_REQUEST_ID = "00000000-0000-0000-0000-000000000019";
+/// Non-nil: a nil `requestId` is a notify and the daemon sends no
 /// `planUsage`.
 pub const PLAN_USAGE_REQUEST_ID = "00000000-0000-0000-0000-000000000018";
 /// Non-nil: a nil `requestId` is a notify and the daemon sends no Ack
@@ -119,6 +125,13 @@ pub const UsageHistoryStdin = struct {
     request_id: []const u8 = USAGE_HISTORY_REQUEST_ID,
     window: protocol.UsageWindow,
     project_roots: []const []const u8 = &.{},
+};
+
+pub const LoadSkillsStdin = struct {
+    token: []const u8 = "",
+    client_id: []const u8 = CLIENT_ID,
+    request_id: []const u8 = LOAD_SKILLS_REQUEST_ID,
+    projects: []const protocol.LoadSkillsProject = &.{},
 };
 
 pub const PlanUsageStdin = struct {
@@ -366,6 +379,24 @@ pub fn writeUsageHistoryStdin(buf: []u8, args: UsageHistoryStdin) WriteError![]c
     return cur.slice();
 }
 
+/// NDJSON stdin for Settings → Skills. Hello + `loadSkills`, no
+/// prompt. Uses a non-nil requestId so the daemon replies. Native
+/// stdin is still one 4 KiB buffer.
+pub fn writeLoadSkillsStdin(buf: []u8, args: LoadSkillsStdin) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    const hello = try protocol.writeClientHello(cur.remaining(), args.token, args.client_id, &.{});
+    cur.pos += hello.len;
+    try cur.write("\n");
+    const load = try protocol.writeLoadSkills(
+        cur.remaining(),
+        args.request_id,
+        args.projects,
+    );
+    cur.pos += load.len;
+    try cur.write("\n");
+    return cur.slice();
+}
+
 /// NDJSON stdin for the composer usage meter. Hello + `fetchPlanUsage`,
 /// no prompt. Uses a non-nil requestId so the daemon replies. Native
 /// stdin is still one 4 KiB buffer. `binaryOverride` / `cliVersion`
@@ -549,6 +580,7 @@ fn outboundWaitsForTurn(outbound: []const u8) bool {
 fn outboundWaitsForLoadResponse(outbound: []const u8) bool {
     return (std.mem.indexOf(u8, outbound, "\"type\":\"loadTaskState\"") != null or
         std.mem.indexOf(u8, outbound, "\"type\":\"loadUsageHistory\"") != null or
+        std.mem.indexOf(u8, outbound, "\"type\":\"loadSkills\"") != null or
         std.mem.indexOf(u8, outbound, "\"type\":\"fetchPlanUsage\"") != null) and
         std.mem.indexOf(u8, outbound, "\"type\":\"prompt\"") == null and
         std.mem.indexOf(u8, outbound, "\"type\":\"saveTaskState\"") == null;
@@ -1025,6 +1057,32 @@ test "writeUsageHistoryStdin emits hello and loadUsageHistory with a non-nil req
     try std.testing.expectError(error.NoSpaceLeft, writeUsageHistoryStdin(&tiny, .{
         .window = .{ .trailing_days = 30 },
         .project_roots = &.{"/tmp/faku"},
+    }));
+}
+
+test "writeLoadSkillsStdin emits hello and loadSkills with a non-nil requestId" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeLoadSkillsStdin(&buf, .{
+        .token = "secret",
+        .projects = &.{.{ .name = "faku", .path = "/tmp/faku" }},
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"loadSkills\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"projects\":[[\"faku\",\"/tmp/faku\"]]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"workspace\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"loadUsageHistory\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"loadTaskState\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ LOAD_SKILLS_REQUEST_ID) != null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(outboundWaitsForLoadResponse(stdin));
+    try std.testing.expect(!outboundWaitsForHydrateResponse(stdin));
+    try std.testing.expect(!outboundWaitsForWorkspace(stdin));
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeLoadSkillsStdin(&tiny, .{
+        .projects = &.{.{ .name = "faku", .path = "/tmp/faku" }},
     }));
 }
 

@@ -34,6 +34,20 @@
 //! parsed when present. Local `sessions.json` stays canonical; a daemon
 //! load is only a first-run fill when that file is missing.
 //!
+//! `loadSkills` is not a bare command. Verified against egoist/waku
+//! `Command::LoadSkills { projects }` (camelCase wire `loadSkills`;
+//! `projects` is `Array<[string, string]>` of `[projectName,
+//! projectPath]`) and `ResponsePayload::SkillsCatalog { catalog }`
+//! (wire type `skillsCatalog`). Request-frame `sessionId` /
+//! `runtimeId` are nil (same as `loadUsageHistory`). A non-nil
+//! `requestId` is required. Ok payload is
+//! `{ type: "skillsCatalog", catalog: { skills: SkillEntry[] } }`.
+//! First-cut parse keeps `name`, `enabled`, and a display/path key
+//! from the primary install (`skillFile` preferred, else `dir`).
+//! Unknown JSON is ignored. Cap extra rows. Hello stays protocol
+//! v4; unknown-command / parse miss fall back quietly to the local
+//! Skills walk. `setSkillsEnabled` / `trashSkills` are not this cut.
+//!
 //! `loadUsageHistory` is not a bare command. Verified against egoist/waku
 //! `Command::LoadUsageHistory { window, project_roots }` (camelCase wire
 //! `loadUsageHistory` / `projectRoots`) and
@@ -656,7 +670,9 @@ pub fn defaultStartOptions() StartOptions {
 /// `goal` is the Codex `/goal` first cut (set/clear/refresh over the
 /// daemon sidecar). It is not an fx / ACP method. `loadUsageHistory`
 /// is Settings → Usage history (hello + one-shot; not a workspace
-/// op). `fetchPlanUsage` is the composer usage-meter plan lanes
+/// op). `loadSkills` is Settings → Skills / composer `skill_store`
+/// (hello + one-shot; not a workspace op; not `setSkillsEnabled` /
+/// `trashSkills`). `fetchPlanUsage` is the composer usage-meter plan lanes
 /// (hello + one-shot; not a workspace op). `refreshBackgroundWork` is Environment Summary / right-panel
 /// Background (hello + one-shot; request-frame sessionId / runtimeId).
 /// `stopBackgroundWork` is Background Stop on a daemon-sourced live
@@ -686,6 +702,7 @@ pub const CommandTag = enum {
     workspace,
     close_session,
     load_usage_history,
+    load_skills,
     fetch_plan_usage,
     refresh_background_work,
     stop_background_work,
@@ -704,6 +721,7 @@ pub const CommandTag = enum {
             .workspace => "workspace",
             .close_session => "closeSession",
             .load_usage_history => "loadUsageHistory",
+            .load_skills => "loadSkills",
             .fetch_plan_usage => "fetchPlanUsage",
             .refresh_background_work => "refreshBackgroundWork",
             .stop_background_work => "stopBackgroundWork",
@@ -733,6 +751,9 @@ pub const max_parsed_usage_months: usize = 12;
 pub const max_parsed_usage_projects: usize = 16;
 pub const max_parsed_usage_errors: usize = 4;
 pub const max_usage_project_roots: usize = 32;
+/// First-cut SkillsCatalog rows. Extra JSON rows are ignored.
+/// Matches Settings `skill_store` cap.
+pub const max_parsed_skills: usize = 64;
 /// First-cut composer plan-usage lanes. Waku windows are a small
 /// account-rate-limit set; extra JSON rows are ignored.
 pub const max_parsed_plan_windows: usize = 8;
@@ -842,6 +863,29 @@ pub const ParsedUsageProject = struct {
     cost_usd: f64 = 0,
     sessions: u64 = 0,
     by_provider: [max_parsed_usage_day_providers]ParsedProviderDay = [_]ParsedProviderDay{.{}} ** max_parsed_usage_day_providers,
+};
+
+/// One `loadSkills` project tuple: `[projectName, projectPath]`.
+pub const LoadSkillsProject = struct {
+    name: []const u8,
+    path: []const u8,
+};
+
+/// Light parse of one `SkillEntry`. Path is primary-install
+/// `skillFile` when non-empty, else `dir`. Unknown JSON ignored.
+pub const ParsedSkillEntry = struct {
+    name: []const u8 = "",
+    path: []const u8 = "",
+    enabled: bool = true,
+};
+
+/// Light parse of ok `skillsCatalog`. Unknown JSON ignored. Empty
+/// `skills` is still ok. Extra rows past `max_parsed_skills` are
+/// dropped.
+pub const ParsedSkillsCatalog = struct {
+    ok: bool = false,
+    skills: [max_parsed_skills]ParsedSkillEntry = [_]ParsedSkillEntry{.{}} ** max_parsed_skills,
+    skill_count: usize = 0,
 };
 
 /// Light parse of ok `usageHistory`. Unknown JSON ignored. Dates stay
@@ -2391,6 +2435,38 @@ pub fn writeLoadUsageHistory(
     return cur.slice();
 }
 
+/// Request wrapping verified `loadSkills`
+/// `{ type, projects }`. `projects` is a JSON array of 2-element
+/// `[projectName, projectPath]` arrays. Request-frame `sessionId` /
+/// `runtimeId` are nil (same as `loadUsageHistory`). Non-nil
+/// `requestId` so the daemon replies.
+pub fn writeLoadSkills(
+    buf: []u8,
+    request_id: []const u8,
+    projects: []const LoadSkillsProject,
+) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    try cur.write("{\"type\":\"request\",\"requestId\":");
+    try writeJsonString(&cur, request_id);
+    try cur.write(",\"sessionId\":");
+    try writeJsonString(&cur, NIL_UUID);
+    try cur.write(",\"runtimeId\":");
+    try writeJsonString(&cur, NIL_UUID);
+    try cur.write(",\"command\":{\"type\":");
+    try writeJsonString(&cur, CommandTag.load_skills.wireName());
+    try cur.write(",\"projects\":[");
+    for (projects, 0..) |project, i| {
+        if (i != 0) try cur.write(",");
+        try cur.write("[");
+        try writeJsonString(&cur, project.name);
+        try cur.write(",");
+        try writeJsonString(&cur, project.path);
+        try cur.write("]");
+    }
+    try cur.write("]}}");
+    return cur.slice();
+}
+
 /// Request wrapping verified `fetchPlanUsage`
 /// `{ type, provider, binaryOverride, cliVersion }`. Request-frame
 /// `sessionId` / `runtimeId` are nil (Waku `daemon.request(Uuid::nil(),
@@ -2614,6 +2690,66 @@ pub fn parseUsageHistory(allocator: std.mem.Allocator, line: []const u8) ParsedU
     parsed.scan_duration_secs = parseScanDurationSecs(history.get("scanDuration"));
     parsed.error_count = parseUsageErrors(history.get("errors"), &parsed.errors);
     return parsed;
+}
+
+/// Extract a first-cut `skillsCatalog` payload. Empty / `ok = false`
+/// on any other frame, a failed outcome, a payload that is not
+/// `skillsCatalog`, or a missing `catalog` object. Unknown fields
+/// and extra array rows are ignored. Empty `skills` is still ok.
+pub fn parseSkillsCatalog(allocator: std.mem.Allocator, line: []const u8) ParsedSkillsCatalog {
+    var parsed = ParsedSkillsCatalog{};
+    const trimmed = std.mem.trim(u8, line, " \t\r\n");
+    if (trimmed.len < 2 or trimmed[0] != '{') return parsed;
+
+    const root = std.json.parseFromSliceLeaky(std.json.Value, allocator, trimmed, .{}) catch return parsed;
+    const obj = jsonObject(root) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(obj.get("type")) orelse "", "response")) return parsed;
+    const outcome = jsonObject(obj.get("outcome") orelse return parsed) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(outcome.get("status")) orelse "", "ok")) return parsed;
+    const payload = jsonObject(outcome.get("payload") orelse return parsed) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(payload.get("type")) orelse "", "skillsCatalog")) return parsed;
+    const catalog = jsonObject(payload.get("catalog") orelse return parsed) orelse return parsed;
+
+    parsed.ok = true;
+    parsed.skill_count = parseSkillEntries(catalog.get("skills"), &parsed.skills);
+    return parsed;
+}
+
+fn parseSkillEntries(value: ?std.json.Value, dest: *[max_parsed_skills]ParsedSkillEntry) usize {
+    const items = jsonArrayItems(value orelse return 0) orelse return 0;
+    var n: usize = 0;
+    for (items) |item| {
+        if (n >= dest.len) break;
+        const obj = jsonObject(item) orelse continue;
+        dest[n] = parseSkillEntry(obj) orelse continue;
+        n += 1;
+    }
+    return n;
+}
+
+fn parseSkillEntry(obj: std.json.ObjectMap) ?ParsedSkillEntry {
+    const name = jsonStringValue(obj.get("name")) orelse "";
+    var skill_file: []const u8 = "";
+    var dir: []const u8 = "";
+    var install_enabled: ?bool = null;
+    if (obj.get("installs")) |installs_val| {
+        if (jsonArrayItems(installs_val)) |installs| {
+            for (installs) |install_item| {
+                const install = jsonObject(install_item) orelse continue;
+                skill_file = jsonStringValue(install.get("skillFile")) orelse "";
+                dir = jsonStringValue(install.get("dir")) orelse "";
+                install_enabled = jsonBoolValue(install.get("enabled"));
+                break;
+            }
+        }
+    }
+    const path = if (skill_file.len > 0) skill_file else dir;
+    if (name.len == 0 and path.len == 0) return null;
+    return .{
+        .name = name,
+        .path = path,
+        .enabled = jsonBoolValue(obj.get("enabled")) orelse install_enabled orelse true,
+    };
 }
 
 /// Extract a first-cut `planUsage` payload. Empty / `ok = false` on
@@ -5563,6 +5699,7 @@ test "first-cut command tags stay camelCase on the wire" {
     try std.testing.expectEqualStrings("goal", CommandTag.goal.wireName());
     try std.testing.expectEqualStrings("workspace", CommandTag.workspace.wireName());
     try std.testing.expectEqualStrings("loadUsageHistory", CommandTag.load_usage_history.wireName());
+    try std.testing.expectEqualStrings("loadSkills", CommandTag.load_skills.wireName());
     try std.testing.expectEqualStrings("fetchPlanUsage", CommandTag.fetch_plan_usage.wireName());
     try std.testing.expectEqualStrings("refreshBackgroundWork", CommandTag.refresh_background_work.wireName());
     try std.testing.expectEqualStrings("stopBackgroundWork", CommandTag.stop_background_work.wireName());
@@ -5894,6 +6031,34 @@ test "loadUsageHistory request encodes window and projectRoots" {
     try std.testing.expectError(error.NoSpaceLeft, writeLoadUsageHistory(&tiny, NIL_UUID, .{ .trailing_days = 30 }, &.{"/tmp/faku"}));
 }
 
+test "loadSkills request encodes projects as two-element arrays" {
+    var buf: [1024]u8 = undefined;
+    const json = try writeLoadSkills(
+        &buf,
+        "00000000-0000-0000-0000-000000000019",
+        &.{
+            .{ .name = "faku", .path = "/tmp/faku" },
+            .{ .name = "other", .path = "/tmp/other" },
+        },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000019\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"loadSkills\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"projects\":[[\"faku\",\"/tmp/faku\"],[\"other\",\"/tmp/other\"]]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"workspace\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"loadUsageHistory\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"loadTaskState\"") == null);
+
+    const empty = try writeLoadSkills(&buf, NIL_UUID, &.{});
+    try std.testing.expect(std.mem.indexOf(u8, empty, "\"projects\":[]") != null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeLoadSkills(&tiny, NIL_UUID, &.{.{ .name = "faku", .path = "/tmp/faku" }}));
+}
+
 test "fetchPlanUsage request encodes provider and null binaryOverride/cliVersion" {
     var buf: [1024]u8 = undefined;
     const json = try writeFetchPlanUsage(
@@ -5967,6 +6132,44 @@ test "parsePlanUsage reads null usage, empty windows, and two lanes with resetsA
     try std.testing.expect(!parsePlanUsage(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{}}}}").ok);
     try std.testing.expect(!parsePlanUsage(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
     try std.testing.expect(!parsePlanUsage(arena, "{\"type\":\"planUsage\",\"usage\":null}").ok);
+}
+
+test "parseSkillsCatalog reads a minimal skillsCatalog fixture and ignores unknown JSON" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const line =
+        \\{"type":"response","requestId":"00000000-0000-0000-0000-000000000019","outcome":{"status":"ok","payload":{"type":"skillsCatalog","catalog":{"skills":[{"name":"to-spec","description":"Do the thing.","scope":"project","project":"faku","enabled":true,"allowedTools":null,"body":"Do the thing.","supportingFiles":[],"totalBytes":12,"modifiedAt":null,"duplicates":[],"rowKey":"project:to-spec","unknownField":true,"installs":[{"source":"shared","dir":"/tmp/faku/.cursor/skills/to-spec","skillFile":"/tmp/faku/.cursor/skills/to-spec/SKILL.md","enabled":true}]},{"name":"off","enabled":false,"installs":[{"source":{"provider":"cursor"},"dir":"/tmp/faku/.cursor/skills/off","skillFile":"/tmp/faku/.cursor/skills/off/SKILL.md.disabled","enabled":false}]},{"name":"dir-only","installs":[{"dir":"/tmp/faku/.agents/skills/dir-only"}]},{"ignored":true}],"unknownCatalogField":true}}}}
+    ;
+    const parsed = parseSkillsCatalog(arena, line);
+    try std.testing.expect(parsed.ok);
+    try std.testing.expectEqual(@as(usize, 3), parsed.skill_count);
+    try std.testing.expectEqualStrings("to-spec", parsed.skills[0].name);
+    try std.testing.expect(parsed.skills[0].enabled);
+    try std.testing.expectEqualStrings("/tmp/faku/.cursor/skills/to-spec/SKILL.md", parsed.skills[0].path);
+    try std.testing.expectEqualStrings("off", parsed.skills[1].name);
+    try std.testing.expect(!parsed.skills[1].enabled);
+    try std.testing.expectEqualStrings("/tmp/faku/.cursor/skills/off/SKILL.md.disabled", parsed.skills[1].path);
+    try std.testing.expectEqualStrings("dir-only", parsed.skills[2].name);
+    try std.testing.expect(parsed.skills[2].enabled);
+    try std.testing.expectEqualStrings("/tmp/faku/.agents/skills/dir-only", parsed.skills[2].path);
+
+    const empty = parseSkillsCatalog(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000019\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"skillsCatalog\",\"catalog\":{}}}}");
+    try std.testing.expect(empty.ok);
+    try std.testing.expectEqual(@as(usize, 0), empty.skill_count);
+
+    const empty_skills = parseSkillsCatalog(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"skillsCatalog\",\"catalog\":{\"skills\":[]}}}}");
+    try std.testing.expect(empty_skills.ok);
+    try std.testing.expectEqual(@as(usize, 0), empty_skills.skill_count);
+
+    try std.testing.expect(!parseSkillsCatalog(arena, "{\"type\":\"skillsCatalog\",\"catalog\":{\"skills\":[]}}").ok);
+    try std.testing.expect(!parseSkillsCatalog(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"ack\"}}}").ok);
+    try std.testing.expect(!parseSkillsCatalog(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"unknown command\"}}}").ok);
+    try std.testing.expect(!parseSkillsCatalog(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{}}}}").ok);
+    try std.testing.expect(!parseSkillsCatalog(arena, "{\"type\":\"rejected\",\"message\":\"unknown command\"}").ok);
+    try std.testing.expect(!parseSkillsCatalog(arena, "not-json").ok);
 }
 
 test "parseUsageHistory reads a minimal usageHistory fixture and ignores unknown JSON" {

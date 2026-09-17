@@ -34,13 +34,24 @@
 //! (enabled rows only; missing/unreadable omit that block) onto the
 //! prompt that `startPrompt` ships to every provider and stores as
 //! the user turn; untitled titles still use the original draft.
-//! Runtime-only (not `sessions.json`). Empty-state Open a
+//! Runtime-only (not `sessions.json`). When
+//! `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set,
+//! refresh / ensure prefer one-shot `faku daemon-proxy` hello +
+//! `loadSkills` (one `[projectName, projectPath]` tuple for the
+//! current probe path). Ok `skillsCatalog` replaces `skill_store`.
+//! Unknown-command / parse / sidecar / empty / Native 4 KiB overflow
+//! / no address keep today's local `find` / powershell walk. Own
+//! daemon spawn key (`next_daemon_key` on `daemon_load_skills_key`)
+//! — not the find-walk band (530+) or rename band (580+).
+//! Enable/disable stays the Faku-side `SKILL.md` ↔
+//! `SKILL.md.disabled` rename (not `setSkillsEnabled` /
+//! `trashSkills`). Empty-state Open a
 //! project / No skills found follow `i18n.SkillsEmptyChrome`
 //! (distinct from FilterChrome / RightPanelChrome; composer `$`
 //! insert empty reuses the same hint). Enable / Disable / Disabled
 //! badge follow `i18n.SkillsEnableChrome` (distinct from
-//! ProvidersChrome). Not a daemon SkillsCatalog / WorkspaceOperation.
-//! Not a Native FS API. app.zon already includes windows.
+//! ProvidersChrome). Not a Native FS API.
+//! app.zon already includes windows.
 //!
 //! Spawn/line/exit orchestration lives here. Tests do not need a live
 //! daemon or fx.
@@ -54,6 +65,9 @@ const model_exports = @import("model_exports.zig");
 const file_mention = @import("file_mention.zig");
 const composer = @import("composer.zig");
 const i18n = @import("i18n.zig");
+const protocol = @import("protocol.zig");
+const daemon_proxy = @import("daemon_proxy.zig");
+const effect_keys = @import("effect_keys.zig");
 
 const Model = model_exports.Model;
 const Effects = main.Effects;
@@ -423,9 +437,17 @@ pub fn clearCache(model: *Model) void {
 }
 
 fn cancelInFlight(model: *Model, fx: *Effects) void {
-    if (model.skill_key == 0) return;
-    fx.cancel(model.skill_key);
-    model.skill_key = 0;
+    if (model.skill_key != 0) {
+        fx.cancel(model.skill_key);
+        model.skill_key = 0;
+    }
+    cancelDaemon(model, fx);
+}
+
+fn cancelDaemon(model: *Model, fx: *Effects) void {
+    if (model.daemon_load_skills_key == 0) return;
+    fx.cancel(model.daemon_load_skills_key);
+    model.daemon_load_skills_key = 0;
 }
 
 fn cancelRename(model: *Model, fx: *Effects) void {
@@ -469,7 +491,8 @@ pub fn ensureScanned(model: *Model, fx: *Effects) void {
 
 /// Cancel any in-flight scan, drop the cache, and spawn find when
 /// Settings has an existing project path. Empty / missing skips the
-/// spawn so the list stays empty.
+/// spawn so the list stays empty. When a daemon address is set,
+/// prefer hello + `loadSkills`; overflow / miss keep the local walk.
 pub fn refresh(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
     cancelRename(model, fx);
@@ -485,7 +508,42 @@ pub fn refresh(model: *Model, fx: *Effects) void {
     }
 
     writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, cwd);
+    if (trySpawnDaemon(model, fx, cwd)) return;
     spawnWalk(model, fx, cwd);
+}
+
+fn daemonMirrorAddress(model: *const Model) []const u8 {
+    if (model.daemonAddress().len > 0) return model.daemonAddress();
+    return model.lastDaemonAddress();
+}
+
+fn projectLabel(path: []const u8) []const u8 {
+    const name = pathBasename(path);
+    return if (name.len > 0) name else "project";
+}
+
+fn trySpawnDaemon(model: *Model, fx: *Effects, cwd: []const u8) bool {
+    const address = daemonMirrorAddress(model);
+    if (address.len == 0) return false;
+
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeLoadSkillsStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .projects = &.{.{ .name = projectLabel(cwd), .path = cwd }},
+    }) catch return false;
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.daemon_load_skills_key = key;
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = effect_keys.daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
 }
 
 fn spawnWalk(model: *Model, fx: *Effects, cwd: []const u8) void {
@@ -501,11 +559,20 @@ fn spawnWalk(model: *Model, fx: *Effects, cwd: []const u8) void {
     });
 }
 
-fn probeStillCurrent(model: *const Model) bool {
-    if (model.skill_key == 0) return false;
+fn probePathCurrent(model: *const Model) bool {
     const path = probePath(model);
     const probed = model.skill_probe_path_storage[0..model.skill_probe_path_len];
-    return std.mem.eql(u8, path, probed);
+    return path.len > 0 and std.mem.eql(u8, path, probed);
+}
+
+fn probeStillCurrent(model: *const Model) bool {
+    if (model.skill_key == 0) return false;
+    return probePathCurrent(model);
+}
+
+/// Find-walk or `loadSkills` sidecar still running.
+pub fn scanInFlight(model: *const Model) bool {
+    return model.skill_key != 0 or model.daemon_load_skills_key != 0;
 }
 
 pub fn pathBasename(path: []const u8) []const u8 {
@@ -611,12 +678,72 @@ fn readSkillSource(io: std.Io, abs: []const u8, buf: []u8) []const u8 {
 }
 
 fn joinProbeRelpath(root: []const u8, relpath: []const u8, buf: []u8) ?[]const u8 {
+    if (isAbsoluteSkillPath(relpath)) {
+        if (relpath.len == 0 or relpath.len > buf.len) return null;
+        @memcpy(buf[0..relpath.len], relpath);
+        slashNormalizeInPlace(buf[0..relpath.len]);
+        return buf[0..relpath.len];
+    }
     const base = std.mem.trimEnd(u8, root, "/\\");
     const rel = std.mem.trimStart(u8, relpath, "/\\");
     if (base.len == 0 or rel.len == 0) return null;
     const printed = std.fmt.bufPrint(buf, "{s}/{s}", .{ base, rel }) catch return null;
     slashNormalizeInPlace(printed);
     return printed;
+}
+
+/// Drive-letter paths and Unix paths that are not `/.hidden…`
+/// (find sometimes emits a leading slash on a relative row).
+pub fn isAbsoluteSkillPath(path: []const u8) bool {
+    if (path.len == 0) return false;
+    if (path.len >= 2 and std.ascii.isAlphabetic(path[0]) and path[1] == ':') return true;
+    return path[0] == '/' and path.len >= 2 and path[1] != '.';
+}
+
+fn copySlashNormalized(src: []const u8, dest: []u8) ?[]u8 {
+    if (src.len == 0 or src.len > dest.len) return null;
+    @memcpy(dest[0..src.len], src);
+    slashNormalizeInPlace(dest[0..src.len]);
+    return dest[0..src.len];
+}
+
+fn pathHasRootPrefix(path: []const u8, root: []const u8) bool {
+    if (root.len == 0 or path.len < root.len) return false;
+    if (!std.mem.eql(u8, path[0..root.len], root)) return false;
+    if (path.len == root.len) return true;
+    return path[root.len] == '/';
+}
+
+/// Project-relative store path for a catalog `skillFile` / `dir`.
+/// Strips `root` when the path sits under it. Directory-only rows
+/// append `SKILL.md` / `SKILL.md.disabled` from `enabled`. Absolute
+/// paths outside the project stay absolute so rename can still chdir.
+pub fn catalogStorePath(root: []const u8, raw: []const u8, enabled: bool, buf: *[max_skill_path]u8) ?[]const u8 {
+    const trimmed = std.mem.trim(u8, raw, " \t\r\n");
+    if (trimmed.len == 0) return null;
+    var path_tmp: [max_skill_path]u8 = undefined;
+    const norm = copySlashNormalized(trimmed, &path_tmp) orelse return null;
+    var root_tmp: [model_exports.max_project_path]u8 = undefined;
+    const root_norm = copySlashNormalized(std.mem.trimEnd(u8, root, "/\\"), &root_tmp) orelse "";
+
+    var rel: []const u8 = norm;
+    if (root_norm.len > 0 and pathHasRootPrefix(norm, root_norm)) {
+        rel = std.mem.trimStart(u8, norm[root_norm.len..], "/");
+        if (rel.len == 0) return null;
+    }
+
+    var with_file = rel;
+    var file_tmp: [max_skill_path]u8 = undefined;
+    if (!isSkillMdPath(rel)) {
+        const filename = if (enabled) skill_filename else disabled_skill_filename;
+        const dir = std.mem.trimEnd(u8, rel, "/");
+        if (dir.len == 0) return null;
+        with_file = std.fmt.bufPrint(&file_tmp, "{s}/{s}", .{ dir, filename }) catch return null;
+    }
+    if (with_file.len == 0 or with_file.len > max_skill_path) return null;
+    @memcpy(buf[0..with_file.len], with_file);
+    slashNormalizeInPlace(buf[0..with_file.len]);
+    return buf[0..with_file.len];
 }
 
 fn lastPathSep(path: []const u8) ?usize {
@@ -696,6 +823,37 @@ pub fn applyLine(model: *Model, line: native_sdk.EffectLine) void {
     applyStdoutPaths(model, line.line);
 }
 
+pub fn applyDaemonLine(model: *Model, line: native_sdk.EffectLine) void {
+    if (line.key != model.daemon_load_skills_key or model.daemon_load_skills_key == 0) return;
+    if (!probePathCurrent(model)) return;
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const parsed = protocol.parseSkillsCatalog(arena_state.allocator(), line.line);
+    if (!parsed.ok or parsed.skill_count == 0) return;
+    applyCatalog(model, parsed);
+}
+
+fn applyCatalog(model: *Model, parsed: protocol.ParsedSkillsCatalog) void {
+    clearCache(model);
+    const root = model.skill_probe_path_storage[0..model.skill_probe_path_len];
+    var i: usize = 0;
+    while (i < parsed.skill_count) : (i += 1) {
+        if (model.skill_count >= max_skills) break;
+        const entry = parsed.skills[i];
+        var path_buf: [max_skill_path]u8 = undefined;
+        const path = catalogStorePath(root, entry.path, entry.enabled, &path_buf) orelse continue;
+        if (path.len == 0 or path.len > max_skill_path) continue;
+        const dir = skillDirKey(path);
+        if (indexOfSkillDir(model, dir) != null) continue;
+        const index = model.skill_count;
+        storeSkillAt(model, index, path, entry.enabled);
+        if (entry.name.len > 0) {
+            model.skill_store[index].setName(displayName(path, entry.name));
+        }
+        model.skill_count += 1;
+    }
+}
+
 pub fn handleExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     _ = fx;
     if (exit.key != model.skill_key or model.skill_key == 0) return;
@@ -704,6 +862,19 @@ pub fn handleExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void
     const succeeded = exit.reason == .exited and exit.code == 0;
     if (succeeded and current) return;
     clearCache(model);
+}
+
+/// Unknown-command / parse / sidecar / empty catalog fall back to
+/// today's local walk. A filled catalog stays even on a later miss.
+pub fn handleDaemonExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
+    if (exit.key != model.daemon_load_skills_key or model.daemon_load_skills_key == 0) return;
+    model.daemon_load_skills_key = 0;
+    if (model.skill_count > 0) return;
+    if (!probePathCurrent(model)) return;
+    if (!scanSupported()) return;
+    const cwd = probePath(model);
+    if (cwd.len == 0) return;
+    spawnWalk(model, fx, cwd);
 }
 
 pub fn handleRenameExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
@@ -908,7 +1079,7 @@ fn skillsEmptyChrome(model: *const Model) i18n.SkillsEmptyChrome {
 pub fn emptyHint(model: *const Model) []const u8 {
     const chrome = skillsEmptyChrome(model);
     if (probePath(model).len == 0) return chrome.open_project;
-    if (model.skill_key != 0 and model.skill_count == 0) return "";
+    if (scanInFlight(model) and model.skill_count == 0) return "";
     return chrome.no_skills_found;
 }
 
@@ -1530,6 +1701,14 @@ test "joinProbeRelpath and absSkillParent tolerate Windows roots and mixed separ
         "C:/Users/me/proj/.cursor/skills/demo",
         absSkillParent("C:\\Users\\me\\proj\\", ".cursor\\skills\\demo\\SKILL.md.disabled", &buf).?,
     );
+    try std.testing.expectEqualStrings(
+        "/home/user/.cursor/skills/foo/SKILL.md",
+        joinProbeRelpath("/tmp/proj", "/home/user/.cursor/skills/foo/SKILL.md", &buf).?,
+    );
+    try std.testing.expectEqualStrings(
+        "/home/user/.cursor/skills/foo",
+        absSkillParent("/tmp/proj", "/home/user/.cursor/skills/foo/SKILL.md", &buf).?,
+    );
 }
 
 test "composer $ insert lists enabled skills only" {
@@ -1655,4 +1834,206 @@ test "slashCommandId sits above ACP max_available_commands" {
     try testing.expect(slashCommandIndex(0) == null);
     try testing.expect(slashCommandIndex(1) == null);
     try testing.expect(slashCommandIndex(@intCast(model_exports.max_available_commands)) == null);
+}
+
+fn pendingSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key) return spawn;
+    }
+    return null;
+}
+
+const skills_catalog_empty_line =
+    "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000019\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"skillsCatalog\",\"catalog\":{\"skills\":[]}}}}";
+
+const skills_catalog_unknown_line =
+    "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000019\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"unknown command\"}}}";
+
+test "catalogStorePath strips project root; dir-only appends SKILL.md; outside stays absolute" {
+    var buf: [max_skill_path]u8 = undefined;
+    try std.testing.expectEqualStrings(
+        ".cursor/skills/to-spec/SKILL.md",
+        catalogStorePath("/tmp/faku", "/tmp/faku/.cursor/skills/to-spec/SKILL.md", true, &buf).?,
+    );
+    try std.testing.expectEqualStrings(
+        ".cursor/skills/off/SKILL.md.disabled",
+        catalogStorePath("/tmp/faku/", "/tmp/faku/.cursor/skills/off", false, &buf).?,
+    );
+    try std.testing.expectEqualStrings(
+        ".cursor/skills/rel/SKILL.md",
+        catalogStorePath("/tmp/faku", ".cursor/skills/rel/SKILL.md", true, &buf).?,
+    );
+    try std.testing.expectEqualStrings(
+        "/home/user/.cursor/skills/user/SKILL.md",
+        catalogStorePath("/tmp/faku", "/home/user/.cursor/skills/user/SKILL.md", true, &buf).?,
+    );
+    try std.testing.expect(isAbsoluteSkillPath("/tmp/faku/.cursor/skills/foo/SKILL.md"));
+    try std.testing.expect(isAbsoluteSkillPath("C:\\Users\\me\\.cursor\\skills\\foo\\SKILL.md"));
+    try std.testing.expect(!isAbsoluteSkillPath("/.cursor/skills/foo/SKILL.md"));
+    try std.testing.expect(!isAbsoluteSkillPath(".cursor/skills/foo/SKILL.md"));
+}
+
+test "refresh with a daemon address spawns loadSkills sidecar" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-daemon", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, root);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("skills daemon", .fx);
+    model.selected = id;
+    model.sessionById(id).?.setProjectPath(root);
+
+    refresh(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.skill_key);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_load_skills_key) orelse return error.MissingDaemonLoadSkills;
+    try testing.expect(daemon_proxy.isSidecarArgv(sidecar.argv));
+    try testing.expectEqualStrings("faku", sidecar.argv[0]);
+    try testing.expectEqualStrings(daemon_proxy.SUBCOMMAND, sidecar.argv[1]);
+    try testing.expectEqualStrings("127.0.0.1:8787", sidecar.argv[2]);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hello\"") != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"loadSkills\"") != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"projects\":[[") != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, root) != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"loadUsageHistory\"") == null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"prompt\"") == null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"workspace\"") == null);
+    try testing.expectEqual(sidecar.key, model.daemon_load_skills_key);
+    try testing.expect(scanInFlight(&model));
+    try testing.expect(sidecar.key != model.skill_key);
+
+    ensureScanned(&model, &fx);
+    try testing.expectEqual(sidecar.key, model.daemon_load_skills_key);
+}
+
+test "refresh without a daemon address keeps local find walk" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-local", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, root);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setSidecarPath("faku");
+    const id = model.addSession("skills local", .fx);
+    model.selected = id;
+    model.sessionById(id).?.setProjectPath(root);
+
+    refresh(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.daemon_load_skills_key);
+    try testing.expect(model.skill_key >= skills_key_first);
+    const walk = pendingSpawnKey(&fx, model.skill_key) orelse return error.MissingSkillsWalk;
+    try testing.expect(isSkillsWalkArgv(walk.argv));
+    try testing.expect(!daemon_proxy.isSidecarArgv(walk.argv));
+}
+
+test "LoadSkills sidecar fills skill_store; unknown-command falls back to find" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-fill", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, root);
+    var on_dir_buf: [256]u8 = undefined;
+    const on_dir = try std.fmt.bufPrint(&on_dir_buf, "{s}/.cursor/skills/to-spec", .{root});
+    try std.Io.Dir.cwd().createDirPath(testing.io, on_dir);
+    var on_file_buf: [256]u8 = undefined;
+    const on_file = try std.fmt.bufPrint(&on_file_buf, "{s}/SKILL.md", .{on_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = on_file,
+        .data =
+        \\---
+        \\name: to-spec
+        \\---
+        \\
+        \\Do the thing.
+        \\
+        ,
+    });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("skills fill", .fx);
+    model.selected = id;
+    model.sessionById(id).?.setProjectPath(root);
+
+    refresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_load_skills_key) orelse return error.MissingDaemonLoadSkillsFill;
+    const fill_key = sidecar.key;
+    var line_buf: [2048]u8 = undefined;
+    const ok_line = try std.fmt.bufPrint(&line_buf, "{s}{s}{s}{s}{s}{s}{s}{s}{s}", .{
+        "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000019\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"skillsCatalog\",\"catalog\":{\"skills\":[{\"name\":\"to-spec\",\"enabled\":true,\"installs\":[{\"dir\":\"",
+        root,
+        "/.cursor/skills/to-spec\",\"skillFile\":\"",
+        root,
+        "/.cursor/skills/to-spec/SKILL.md\",\"enabled\":true}]},{\"name\":\"off\",\"enabled\":false,\"installs\":[{\"dir\":\"",
+        root,
+        "/.cursor/skills/off\",\"skillFile\":\"",
+        root,
+        "/.cursor/skills/off/SKILL.md.disabled\",\"enabled\":false}]}]}}}}",
+    });
+    applyDaemonLine(&model, .{ .key = fill_key, .line = ok_line });
+    try testing.expectEqual(@as(u32, 2), cachedCount(&model));
+    try testing.expectEqualStrings("to-spec", cachedName(&model, 0));
+    try testing.expect(cachedEnabled(&model, 0));
+    try testing.expectEqualStrings(".cursor/skills/to-spec/SKILL.md", cachedPath(&model, 0));
+    try testing.expectEqualStrings("off", cachedName(&model, 1));
+    try testing.expect(!cachedEnabled(&model, 1));
+    try testing.expectEqualStrings(".cursor/skills/off/SKILL.md.disabled", cachedPath(&model, 1));
+    var prompt_buf: [2048]u8 = undefined;
+    const expanded = expandPrompt(&model, "$to-spec hello", &prompt_buf);
+    try testing.expect(std.mem.indexOf(u8, expanded, "Do the thing.") != null);
+    try testing.expect(std.mem.endsWith(u8, expanded, "$to-spec hello"));
+    handleDaemonExit(&model, &fx, .{ .key = fill_key, .reason = .exited, .code = 0 });
+    try testing.expectEqual(@as(u64, 0), model.daemon_load_skills_key);
+    try testing.expectEqual(@as(u64, 0), model.skill_key);
+    try testing.expectEqual(@as(u32, 2), cachedCount(&model));
+
+    refresh(&model, &fx);
+    const miss = pendingSpawnKey(&fx, model.daemon_load_skills_key) orelse return error.MissingDaemonLoadSkillsMiss;
+    const miss_key = miss.key;
+    applyDaemonLine(&model, .{ .key = miss_key, .line = skills_catalog_unknown_line });
+    try testing.expectEqual(@as(u32, 0), cachedCount(&model));
+    handleDaemonExit(&model, &fx, .{ .key = miss_key, .reason = .exited, .code = 1 });
+    try testing.expectEqual(@as(u64, 0), model.daemon_load_skills_key);
+    try testing.expect(model.skill_key >= skills_key_first);
+    const fallback = pendingSpawnKey(&fx, model.skill_key) orelse return error.MissingSkillsWalkFallback;
+    try testing.expect(isSkillsWalkArgv(fallback.argv));
+
+    refresh(&model, &fx);
+    const empty = pendingSpawnKey(&fx, model.daemon_load_skills_key) orelse return error.MissingDaemonLoadSkillsEmpty;
+    applyDaemonLine(&model, .{ .key = empty.key, .line = skills_catalog_empty_line });
+    try testing.expectEqual(@as(u32, 0), cachedCount(&model));
+    handleDaemonExit(&model, &fx, .{ .key = empty.key, .reason = .exited, .code = 0 });
+    try testing.expectEqual(@as(u64, 0), model.daemon_load_skills_key);
+    try testing.expect(isSkillsWalkArgv((pendingSpawnKey(&fx, model.skill_key) orelse return error.MissingEmptyCatalogWalk).argv));
+}
+
+test "writeLoadSkillsStdin overflow keeps local walk" {
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, daemon_proxy.writeLoadSkillsStdin(&tiny, .{
+        .projects = &.{.{ .name = "faku", .path = "/tmp/faku" }},
+    }));
 }
