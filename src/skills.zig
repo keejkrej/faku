@@ -73,9 +73,11 @@
 //! badge follow `i18n.SkillsEnableChrome` (distinct from
 //! ProvidersChrome). Delete / Confirm delete follow
 //! `i18n.SkillsTrashChrome` (distinct from SkillsEnableChrome /
-//! SkillsEmptyChrome). Daemon `trashSkills` is best-effort; the
-//! fallback is a permanent directory remove, not OS Trash. Not a
-//! Native FS API.
+//! SkillsEmptyChrome). Delete miss / remove-fail window_status
+//! Could not delete skill. follows `i18n.SkillsTrashStatusChrome`
+//! (distinct from SkillsTrashChrome Delete / Confirm delete).
+//! Daemon `trashSkills` is best-effort; the fallback is a
+//! permanent directory remove, not OS Trash. Not a Native FS API.
 //! app.zon already includes windows.
 //!
 //! Spawn/line/exit orchestration lives here. Tests do not need a live
@@ -132,9 +134,11 @@ pub const mv_end_of_options = "--";
 pub const rm_bin = "rm";
 pub const rm_rf_flag = "-rf";
 pub const rm_end_of_options = "--";
-/// First-cut Delete miss / remove-fail window_status. English this
-/// cut (SkillsTrashChrome is Delete / Confirm delete only).
-pub const could_not_delete_status = "Could not delete skill.";
+/// English default for Delete miss / remove-fail window_status.
+/// Localized copy lives on `i18n.SkillsTrashStatusChrome.delete_failed`
+/// via Model `skill_delete_failed_status`. Distinct from
+/// SkillsTrashChrome Delete / Confirm delete.
+pub const could_not_delete_status = i18n.skillsTrashStatusChromeFor(.english, "").delete_failed;
 
 pub const sh_bin = file_mention.sh_bin;
 pub const find_bin = file_mention.find_bin;
@@ -1146,7 +1150,7 @@ pub fn handleRemoveExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
 }
 
 fn failTrash(model: *Model) void {
-    model.setWindowStatus(could_not_delete_status);
+    model.setWindowStatus(model.skill_delete_failed_status());
 }
 
 /// Enable when the selected skill is disabled, Disable when enabled.
@@ -2903,4 +2907,63 @@ test "writeTrashSkillsStdin overflow keeps remove fallback" {
     try std.testing.expectError(error.NoSpaceLeft, daemon_proxy.writeTrashSkillsStdin(&tiny, .{
         .dirs = &.{"/tmp/faku/.cursor/skills/to-spec"},
     }));
+}
+
+test "Delete miss / remove-fail window_status follows Appearance language" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Could not delete skill.", could_not_delete_status);
+    try testing.expectEqualStrings(i18n.skillsTrashStatusChromeFor(.english, "").delete_failed, could_not_delete_status);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    try testing.expectEqualStrings(could_not_delete_status, model.skill_delete_failed_status());
+
+    model.skill_remove_key = skills_remove_key_first;
+    handleRemoveExit(&model, &fx, .{ .key = skills_remove_key_first, .reason = .exited, .code = 1 });
+    try testing.expectEqual(@as(u64, 0), model.skill_remove_key);
+    try testing.expectEqualStrings(could_not_delete_status, model.window_status());
+    try testing.expectEqualStrings(model.skill_delete_failed_status(), model.window_status());
+
+    applyStdoutPaths(&model, "SKILL.md\n");
+    selectSkill(&model, 1);
+    armSkillDelete(&model);
+    model.clearWindowStatus();
+    confirmSkillDelete(&model, &fx);
+    try testing.expectEqualStrings(could_not_delete_status, model.window_status());
+    try testing.expectEqual(@as(u64, 0), model.skill_remove_key);
+    try testing.expectEqual(@as(u64, 0), model.daemon_trash_skills_key);
+
+    model.language_preference = .simplified_chinese;
+    model.skill_remove_key = skills_remove_key_first;
+    handleRemoveExit(&model, &fx, .{ .key = skills_remove_key_first, .reason = .exited, .code = 1 });
+    try testing.expectEqualStrings("无法删除技能。", model.window_status());
+    try testing.expectEqualStrings(i18n.skillsTrashStatusChromeFor(.simplified_chinese, "").delete_failed, model.window_status());
+    try testing.expect(!std.mem.eql(u8, could_not_delete_status, model.window_status()));
+
+    model.language_preference = .japanese;
+    model.skill_remove_key = skills_remove_key_first;
+    handleRemoveExit(&model, &fx, .{ .key = skills_remove_key_first, .reason = .exited, .code = 1 });
+    try testing.expectEqualStrings("スキルを削除できませんでした。", model.window_status());
+    try testing.expectEqualStrings(i18n.skillsTrashStatusChromeFor(.japanese, "").delete_failed, model.window_status());
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    model.skill_remove_key = skills_remove_key_first;
+    handleRemoveExit(&model, &fx, .{ .key = skills_remove_key_first, .reason = .exited, .code = 1 });
+    try testing.expectEqualStrings(could_not_delete_status, model.window_status());
+    try testing.expectEqualStrings("Could not delete skill.", model.window_status());
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    model.skill_remove_key = skills_remove_key_first;
+    handleRemoveExit(&model, &fx, .{ .key = skills_remove_key_first, .reason = .exited, .code = 1 });
+    try testing.expectEqualStrings("无法删除技能。", model.window_status());
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    model.skill_remove_key = skills_remove_key_first;
+    handleRemoveExit(&model, &fx, .{ .key = skills_remove_key_first, .reason = .exited, .code = 1 });
+    try testing.expectEqualStrings("スキルを削除できませんでした。", model.window_status());
 }
