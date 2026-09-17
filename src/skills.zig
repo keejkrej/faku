@@ -1,5 +1,6 @@
 //! Settings Skills + composer `$` insert / `/` slash rows: bounded
-//! `SKILL.md` scan plus first-cut enable/disable via on-disk rename.
+//! `SKILL.md` scan plus first-cut enable/disable via daemon
+//! `setSkillsEnabled` (ack) or on-disk rename fallback.
 //!
 //! Native has no FS watcher. Unix one-shots a packed `find` for
 //! `SKILL.md` and `SKILL.md.disabled` (Waku `DISABLED_SKILL_FILE`)
@@ -18,8 +19,10 @@
 //! Body read still uses the actual file on disk (including
 //! `.disabled`). When both live and disabled exist in the same dir,
 //! live wins (one row). Settings selecting a row shows the body with
-//! frontmatter stripped. Enable/Disable is a Faku-side one-shot
-//! rename in that skill directory (`SKILL.md` ↔ `SKILL.md.disabled`):
+//! frontmatter stripped. Enable/Disable prefers daemon
+//! `setSkillsEnabled` when an address is set; fallback is a
+//! Faku-side one-shot rename in that skill directory (`SKILL.md` ↔
+//! `SKILL.md.disabled`):
 //! Unix `mv --` after the chdir wrapper; Windows powershell
 //! Move-Item with argv slots for skill-dir / from / to (never
 //! interpolated into `-Command`). Tools discover skills by exact
@@ -43,9 +46,13 @@
 //! / no address keep today's local `find` / powershell walk. Own
 //! daemon spawn key (`next_daemon_key` on `daemon_load_skills_key`)
 //! — not the find-walk band (530+) or rename band (580+).
-//! Enable/disable stays the Faku-side `SKILL.md` ↔
-//! `SKILL.md.disabled` rename (not `setSkillsEnabled` /
-//! `trashSkills`). Empty-state Open a
+//! Enable/Disable prefers hello + `setSkillsEnabled` when a daemon
+//! address is set (`dirs` = `[absSkillParent]`, `enabled` = !current;
+//! own `next_daemon_key` on `daemon_set_skills_enabled_key`). Ok
+//! Ack then `refresh`. Unknown-command / parse / sidecar / Native
+//! 4 KiB overflow / no address keep today's Faku-side `SKILL.md` ↔
+//! `SKILL.md.disabled` rename. In-flight rename or
+//! `setSkillsEnabled` fail closed. Still not `trashSkills`. Empty-state Open a
 //! project / No skills found follow `i18n.SkillsEmptyChrome`
 //! (distinct from FilterChrome / RightPanelChrome; composer `$`
 //! insert empty reuses the same hint). Enable / Disable / Disabled
@@ -445,9 +452,18 @@ fn cancelInFlight(model: *Model, fx: *Effects) void {
 }
 
 fn cancelDaemon(model: *Model, fx: *Effects) void {
-    if (model.daemon_load_skills_key == 0) return;
-    fx.cancel(model.daemon_load_skills_key);
-    model.daemon_load_skills_key = 0;
+    if (model.daemon_load_skills_key != 0) {
+        fx.cancel(model.daemon_load_skills_key);
+        model.daemon_load_skills_key = 0;
+    }
+    cancelSetSkillsEnabled(model, fx);
+}
+
+fn cancelSetSkillsEnabled(model: *Model, fx: *Effects) void {
+    if (model.daemon_set_skills_enabled_key == 0) return;
+    fx.cancel(model.daemon_set_skills_enabled_key);
+    model.daemon_set_skills_enabled_key = 0;
+    model.skill_set_skills_enabled_ok = false;
 }
 
 fn cancelRename(model: *Model, fx: *Effects) void {
@@ -474,6 +490,7 @@ pub fn close(model: *Model, fx: *Effects) void {
     clearCache(model);
     model.skill_probe_path_len = 0;
     model.skill_rename_cwd_len = 0;
+    model.skill_toggle_enable = false;
     model.skills_filter_buffer.clear();
 }
 
@@ -885,12 +902,39 @@ pub fn handleRenameExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
     refresh(model, fx);
 }
 
+pub fn applySetSkillsEnabledLine(model: *Model, line: native_sdk.EffectLine) void {
+    if (line.key != model.daemon_set_skills_enabled_key or model.daemon_set_skills_enabled_key == 0) return;
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const parsed = protocol.parseAck(arena_state.allocator(), line.line);
+    if (!parsed.ok) return;
+    model.skill_set_skills_enabled_ok = true;
+}
+
+/// Ok Ack then `refresh`. Unknown-command / parse miss / sidecar
+/// fail fall back to today's rename using the stored skill dir.
+pub fn handleSetSkillsEnabledExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
+    if (exit.key != model.daemon_set_skills_enabled_key or model.daemon_set_skills_enabled_key == 0) return;
+    model.daemon_set_skills_enabled_key = 0;
+    const ok = model.skill_set_skills_enabled_ok;
+    model.skill_set_skills_enabled_ok = false;
+    if (ok) {
+        refresh(model, fx);
+        return;
+    }
+    if (model.skill_rename_cwd_len == 0) return;
+    spawnRename(model, fx, model.skill_toggle_enable);
+}
+
 /// Enable when the selected skill is disabled, Disable when enabled.
-/// One-shot rename in the skill directory. Missing file / in-flight
-/// rename fail closed (cache unchanged).
+/// Prefers one-shot `setSkillsEnabled` when a daemon address is set.
+/// Unknown-command / parse / sidecar / overflow / no address keep
+/// today's rename. Missing file / in-flight rename or
+/// `setSkillsEnabled` fail closed (cache unchanged).
 pub fn toggleSkillEnabled(model: *Model, fx: *Effects) void {
     if (!scanSupported()) return;
     if (model.skill_rename_key != 0) return;
+    if (model.daemon_set_skills_enabled_key != 0) return;
     const id = model.skill_selected_id;
     if (id == 0 or id > model.skill_count) return;
     const index = id - 1;
@@ -905,7 +949,35 @@ pub fn toggleSkillEnabled(model: *Model, fx: *Effects) void {
     var parent_buf: [model_exports.max_project_path + max_skill_path + 1]u8 = undefined;
     const parent = absSkillParent(root, relpath, &parent_buf) orelse return;
     writeFixed(&model.skill_rename_cwd_storage, &model.skill_rename_cwd_len, parent);
+    model.skill_toggle_enable = enable;
+    if (trySpawnSetSkillsEnabled(model, fx, parent, enable)) return;
     spawnRename(model, fx, enable);
+}
+
+fn trySpawnSetSkillsEnabled(model: *Model, fx: *Effects, dir: []const u8, enable: bool) bool {
+    const address = daemonMirrorAddress(model);
+    if (address.len == 0) return false;
+
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeSetSkillsEnabledStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .dirs = &.{dir},
+        .enabled = enable,
+    }) catch return false;
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.daemon_set_skills_enabled_key = key;
+    model.skill_set_skills_enabled_ok = false;
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = effect_keys.daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
 }
 
 fn absSkillParent(root: []const u8, relpath: []const u8, buf: []u8) ?[]const u8 {
@@ -1675,6 +1747,7 @@ test "toggleSkillEnabled missing file keeps cache and does not spawn" {
     const before = fx.pendingSpawnCount();
     toggleSkillEnabled(&model, &fx);
     try testing.expectEqual(@as(u64, 0), model.skill_rename_key);
+    try testing.expectEqual(@as(u64, 0), model.daemon_set_skills_enabled_key);
     try testing.expectEqual(before, fx.pendingSpawnCount());
     try testing.expectEqual(@as(u32, 1), cachedCount(&model));
 }
@@ -2035,5 +2108,162 @@ test "writeLoadSkillsStdin overflow keeps local walk" {
     var tiny: [32]u8 = undefined;
     try std.testing.expectError(error.NoSpaceLeft, daemon_proxy.writeLoadSkillsStdin(&tiny, .{
         .projects = &.{.{ .name = "faku", .path = "/tmp/faku" }},
+    }));
+}
+
+const set_skills_enabled_ack_line =
+    "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-00000000001a\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"ack\"}}}";
+
+const set_skills_enabled_unknown_line =
+    "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-00000000001a\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"unknown command\"}}}";
+
+test "toggleSkillEnabled with a daemon address spawns setSkillsEnabled sidecar" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-toggle-daemon", .{tmp.sub_path[0..]});
+    var skill_dir_buf: [256]u8 = undefined;
+    const skill_dir = try std.fmt.bufPrint(&skill_dir_buf, "{s}/skills/demo", .{root});
+    try std.Io.Dir.cwd().createDirPath(testing.io, skill_dir);
+    var file_buf: [256]u8 = undefined;
+    const file_path = try std.fmt.bufPrint(&file_buf, "{s}/SKILL.md", .{skill_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = file_path,
+        .data =
+        \\---
+        \\name: toggle-me
+        \\---
+        \\
+        \\Body
+        \\
+        ,
+    });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, root);
+    applyStdoutPaths(&model, "skills/demo/SKILL.md\n");
+    selectSkill(&model, 1);
+    try testing.expect(cachedEnabled(&model, 0));
+
+    toggleSkillEnabled(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.skill_rename_key);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_set_skills_enabled_key) orelse return error.MissingSetSkillsEnabled;
+    try testing.expect(daemon_proxy.isSidecarArgv(sidecar.argv));
+    try testing.expectEqualStrings("faku", sidecar.argv[0]);
+    try testing.expectEqualStrings(daemon_proxy.SUBCOMMAND, sidecar.argv[1]);
+    try testing.expectEqualStrings("127.0.0.1:8787", sidecar.argv[2]);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hello\"") != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"setSkillsEnabled\"") != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"dirs\":[") != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, skill_dir) != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"enabled\":false") != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"loadSkills\"") == null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"trashSkills\"") == null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"prompt\"") == null);
+    try testing.expectEqual(sidecar.key, model.daemon_set_skills_enabled_key);
+    try testing.expect(sidecar.key != model.daemon_load_skills_key);
+    try testing.expect(sidecar.key != model.skill_key);
+    try testing.expect(sidecar.key != model.skill_rename_key);
+    try testing.expect(!model.skill_set_skills_enabled_ok);
+
+    const in_flight = model.daemon_set_skills_enabled_key;
+    const spawn_count = fx.pendingSpawnCount();
+    toggleSkillEnabled(&model, &fx);
+    try testing.expectEqual(in_flight, model.daemon_set_skills_enabled_key);
+    try testing.expectEqual(spawn_count, fx.pendingSpawnCount());
+    try testing.expectEqual(@as(u64, 0), model.skill_rename_key);
+}
+
+test "setSkillsEnabled ack refreshes; unknown-command falls back to rename" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-toggle-ack", .{tmp.sub_path[0..]});
+    var skill_dir_buf: [256]u8 = undefined;
+    const skill_dir = try std.fmt.bufPrint(&skill_dir_buf, "{s}/skills/demo", .{root});
+    try std.Io.Dir.cwd().createDirPath(testing.io, skill_dir);
+    var file_buf: [256]u8 = undefined;
+    const file_path = try std.fmt.bufPrint(&file_buf, "{s}/SKILL.md", .{skill_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = file_path,
+        .data =
+        \\---
+        \\name: toggle-me
+        \\---
+        \\
+        \\Body
+        \\
+        ,
+    });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("skills toggle ack", .fx);
+    model.selected = id;
+    model.sessionById(id).?.setProjectPath(root);
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, root);
+    applyStdoutPaths(&model, "skills/demo/SKILL.md\n");
+    selectSkill(&model, 1);
+
+    toggleSkillEnabled(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_set_skills_enabled_key) orelse return error.MissingSetSkillsEnabledAck;
+    const ack_key = sidecar.key;
+    applySetSkillsEnabledLine(&model, .{ .key = ack_key + 9, .line = set_skills_enabled_ack_line });
+    try testing.expect(!model.skill_set_skills_enabled_ok);
+    applySetSkillsEnabledLine(&model, .{ .key = ack_key, .line = "{\"type\":\"hello\"}" });
+    try testing.expect(!model.skill_set_skills_enabled_ok);
+    applySetSkillsEnabledLine(&model, .{ .key = ack_key, .line = set_skills_enabled_ack_line });
+    try testing.expect(model.skill_set_skills_enabled_ok);
+
+    handleSetSkillsEnabledExit(&model, &fx, .{ .key = ack_key + 9, .reason = .exited, .code = 0 });
+    try testing.expectEqual(ack_key, model.daemon_set_skills_enabled_key);
+    try testing.expectEqual(@as(u32, 1), cachedCount(&model));
+
+    handleSetSkillsEnabledExit(&model, &fx, .{ .key = ack_key, .reason = .exited, .code = 0 });
+    try testing.expectEqual(@as(u64, 0), model.daemon_set_skills_enabled_key);
+    try testing.expect(!model.skill_set_skills_enabled_ok);
+    try testing.expectEqual(@as(u64, 0), model.skill_rename_key);
+    try testing.expectEqual(@as(u32, 0), cachedCount(&model));
+    const reload = pendingSpawnKey(&fx, model.daemon_load_skills_key) orelse return error.MissingLoadSkillsAfterAck;
+    try testing.expect(std.mem.indexOf(u8, reload.stdin, "\"type\":\"loadSkills\"") != null);
+
+    applyStdoutPaths(&model, "skills/demo/SKILL.md\n");
+    selectSkill(&model, 1);
+    toggleSkillEnabled(&model, &fx);
+    const miss = pendingSpawnKey(&fx, model.daemon_set_skills_enabled_key) orelse return error.MissingSetSkillsEnabledMiss;
+    const miss_key = miss.key;
+    applySetSkillsEnabledLine(&model, .{ .key = miss_key, .line = set_skills_enabled_unknown_line });
+    try testing.expect(!model.skill_set_skills_enabled_ok);
+    handleSetSkillsEnabledExit(&model, &fx, .{ .key = miss_key, .reason = .exited, .code = 1 });
+    try testing.expectEqual(@as(u64, 0), model.daemon_set_skills_enabled_key);
+    try testing.expect(model.skill_rename_key >= skills_rename_key_first);
+    const rename = pendingSpawnKey(&fx, model.skill_rename_key) orelse return error.MissingRenameFallback;
+    try testing.expect(isSkillsRenameArgv(rename.argv));
+    try testing.expectEqualStrings(skill_dir, rename.argv[4]);
+    try testing.expectEqualStrings(skill_filename, rename.argv[7]);
+    try testing.expectEqualStrings(disabled_skill_filename, rename.argv[8]);
+    try testing.expectEqual(@as(u32, 1), cachedCount(&model));
+}
+
+test "writeSetSkillsEnabledStdin overflow keeps rename fallback" {
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, daemon_proxy.writeSetSkillsEnabledStdin(&tiny, .{
+        .dirs = &.{"/tmp/faku/.cursor/skills/to-spec"},
+        .enabled = false,
     }));
 }

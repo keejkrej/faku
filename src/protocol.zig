@@ -46,7 +46,17 @@
 //! from the primary install (`skillFile` preferred, else `dir`).
 //! Unknown JSON is ignored. Cap extra rows. Hello stays protocol
 //! v4; unknown-command / parse miss fall back quietly to the local
-//! Skills walk. `setSkillsEnabled` / `trashSkills` are not this cut.
+//! Skills walk.
+//!
+//! `setSkillsEnabled` is not a bare command. Verified against
+//! egoist/waku `Command::SetSkillsEnabled { dirs, enabled }`
+//! (camelCase wire `setSkillsEnabled`; `dirs` is `PathBuf[]` of
+//! absolute skill **directories**, not `SKILL.md` file paths) and
+//! `ResponsePayload::Ack` (same bare Ack as `closeSession` /
+//! `refreshBackgroundWork`: ok `outcome.payload.type === "ack"`).
+//! Request-frame `sessionId` / `runtimeId` are nil (same as
+//! `loadSkills`). A non-nil `requestId` is required. This cut is
+//! `setSkillsEnabled` → ack only; still not `trashSkills`.
 //!
 //! `loadUsageHistory` is not a bare command. Verified against egoist/waku
 //! `Command::LoadUsageHistory { window, project_roots }` (camelCase wire
@@ -671,8 +681,9 @@ pub fn defaultStartOptions() StartOptions {
 /// daemon sidecar). It is not an fx / ACP method. `loadUsageHistory`
 /// is Settings → Usage history (hello + one-shot; not a workspace
 /// op). `loadSkills` is Settings → Skills / composer `skill_store`
-/// (hello + one-shot; not a workspace op; not `setSkillsEnabled` /
-/// `trashSkills`). `fetchPlanUsage` is the composer usage-meter plan lanes
+/// (hello + one-shot; not a workspace op). `setSkillsEnabled` is
+/// Settings → Skills Enable/Disable (hello + one-shot; `dirs` +
+/// `enabled`; ok Ack; not `trashSkills`). `fetchPlanUsage` is the composer usage-meter plan lanes
 /// (hello + one-shot; not a workspace op). `refreshBackgroundWork` is Environment Summary / right-panel
 /// Background (hello + one-shot; request-frame sessionId / runtimeId).
 /// `stopBackgroundWork` is Background Stop on a daemon-sourced live
@@ -703,6 +714,7 @@ pub const CommandTag = enum {
     close_session,
     load_usage_history,
     load_skills,
+    set_skills_enabled,
     fetch_plan_usage,
     refresh_background_work,
     stop_background_work,
@@ -722,6 +734,7 @@ pub const CommandTag = enum {
             .close_session => "closeSession",
             .load_usage_history => "loadUsageHistory",
             .load_skills => "loadSkills",
+            .set_skills_enabled => "setSkillsEnabled",
             .fetch_plan_usage => "fetchPlanUsage",
             .refresh_background_work => "refreshBackgroundWork",
             .stop_background_work => "stopBackgroundWork",
@@ -886,6 +899,14 @@ pub const ParsedSkillsCatalog = struct {
     ok: bool = false,
     skills: [max_parsed_skills]ParsedSkillEntry = [_]ParsedSkillEntry{.{}} ** max_parsed_skills,
     skill_count: usize = 0,
+};
+
+/// Light parse of a bare Ack payload (`closeSession` /
+/// `refreshBackgroundWork` / `setSkillsEnabled`). `ok` only when the
+/// frame is an ok response whose `outcome.payload.type` is `ack`.
+/// Unknown-command / error / rejected / wrong type stay not ok.
+pub const ParsedAck = struct {
+    ok: bool = false,
 };
 
 /// Light parse of ok `usageHistory`. Unknown JSON ignored. Dates stay
@@ -2467,6 +2488,37 @@ pub fn writeLoadSkills(
     return cur.slice();
 }
 
+/// Request wrapping verified `setSkillsEnabled`
+/// `{ type, dirs, enabled }`. `dirs` is a JSON array of absolute
+/// skill directory paths (not `SKILL.md` file paths). Request-frame
+/// `sessionId` / `runtimeId` are nil (same as `loadSkills`). Non-nil
+/// `requestId` so the daemon replies with a bare Ack.
+pub fn writeSetSkillsEnabled(
+    buf: []u8,
+    request_id: []const u8,
+    dirs: []const []const u8,
+    enabled: bool,
+) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    try cur.write("{\"type\":\"request\",\"requestId\":");
+    try writeJsonString(&cur, request_id);
+    try cur.write(",\"sessionId\":");
+    try writeJsonString(&cur, NIL_UUID);
+    try cur.write(",\"runtimeId\":");
+    try writeJsonString(&cur, NIL_UUID);
+    try cur.write(",\"command\":{\"type\":");
+    try writeJsonString(&cur, CommandTag.set_skills_enabled.wireName());
+    try cur.write(",\"dirs\":[");
+    for (dirs, 0..) |dir, i| {
+        if (i != 0) try cur.write(",");
+        try writeJsonString(&cur, dir);
+    }
+    try cur.write("],\"enabled\":");
+    try writeBool(&cur, enabled);
+    try cur.write("}}");
+    return cur.slice();
+}
+
 /// Request wrapping verified `fetchPlanUsage`
 /// `{ type, provider, binaryOverride, cliVersion }`. Request-frame
 /// `sessionId` / `runtimeId` are nil (Waku `daemon.request(Uuid::nil(),
@@ -2712,6 +2764,26 @@ pub fn parseSkillsCatalog(allocator: std.mem.Allocator, line: []const u8) Parsed
 
     parsed.ok = true;
     parsed.skill_count = parseSkillEntries(catalog.get("skills"), &parsed.skills);
+    return parsed;
+}
+
+/// Extract a first-cut bare Ack payload. Empty / `ok = false` on any
+/// other frame, a failed outcome, a rejected envelope, or a payload
+/// that is not `ack`.
+pub fn parseAck(allocator: std.mem.Allocator, line: []const u8) ParsedAck {
+    var parsed = ParsedAck{};
+    const trimmed = std.mem.trim(u8, line, " \t\r\n");
+    if (trimmed.len < 2 or trimmed[0] != '{') return parsed;
+
+    const root = std.json.parseFromSliceLeaky(std.json.Value, allocator, trimmed, .{}) catch return parsed;
+    const obj = jsonObject(root) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(obj.get("type")) orelse "", "response")) return parsed;
+    const outcome = jsonObject(obj.get("outcome") orelse return parsed) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(outcome.get("status")) orelse "", "ok")) return parsed;
+    const payload = jsonObject(outcome.get("payload") orelse return parsed) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(payload.get("type")) orelse "", "ack")) return parsed;
+
+    parsed.ok = true;
     return parsed;
 }
 
@@ -5700,6 +5772,7 @@ test "first-cut command tags stay camelCase on the wire" {
     try std.testing.expectEqualStrings("workspace", CommandTag.workspace.wireName());
     try std.testing.expectEqualStrings("loadUsageHistory", CommandTag.load_usage_history.wireName());
     try std.testing.expectEqualStrings("loadSkills", CommandTag.load_skills.wireName());
+    try std.testing.expectEqualStrings("setSkillsEnabled", CommandTag.set_skills_enabled.wireName());
     try std.testing.expectEqualStrings("fetchPlanUsage", CommandTag.fetch_plan_usage.wireName());
     try std.testing.expectEqualStrings("refreshBackgroundWork", CommandTag.refresh_background_work.wireName());
     try std.testing.expectEqualStrings("stopBackgroundWork", CommandTag.stop_background_work.wireName());
@@ -6059,6 +6132,38 @@ test "loadSkills request encodes projects as two-element arrays" {
     try std.testing.expectError(error.NoSpaceLeft, writeLoadSkills(&tiny, NIL_UUID, &.{.{ .name = "faku", .path = "/tmp/faku" }}));
 }
 
+test "setSkillsEnabled request encodes dirs and enabled" {
+    var buf: [1024]u8 = undefined;
+    const json = try writeSetSkillsEnabled(
+        &buf,
+        "00000000-0000-0000-0000-00000000001a",
+        &.{ "/tmp/faku/.cursor/skills/to-spec", "/tmp/faku/.agents/skills/off" },
+        false,
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-00000000001a\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"setSkillsEnabled\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"dirs\":[\"/tmp/faku/.cursor/skills/to-spec\",\"/tmp/faku/.agents/skills/off\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"enabled\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"loadSkills\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"workspace\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"trashSkills\"") == null);
+
+    const enable = try writeSetSkillsEnabled(&buf, NIL_UUID, &.{"/tmp/faku/.cursor/skills/to-spec"}, true);
+    try std.testing.expect(std.mem.indexOf(u8, enable, "\"enabled\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, enable, "\"dirs\":[\"/tmp/faku/.cursor/skills/to-spec\"]") != null);
+
+    const empty = try writeSetSkillsEnabled(&buf, NIL_UUID, &.{}, true);
+    try std.testing.expect(std.mem.indexOf(u8, empty, "\"dirs\":[]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, empty, "\"enabled\":true") != null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeSetSkillsEnabled(&tiny, NIL_UUID, &.{"/tmp/faku/.cursor/skills/to-spec"}, false));
+}
+
 test "fetchPlanUsage request encodes provider and null binaryOverride/cliVersion" {
     var buf: [1024]u8 = undefined;
     const json = try writeFetchPlanUsage(
@@ -6170,6 +6275,21 @@ test "parseSkillsCatalog reads a minimal skillsCatalog fixture and ignores unkno
     try std.testing.expect(!parseSkillsCatalog(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{}}}}").ok);
     try std.testing.expect(!parseSkillsCatalog(arena, "{\"type\":\"rejected\",\"message\":\"unknown command\"}").ok);
     try std.testing.expect(!parseSkillsCatalog(arena, "not-json").ok);
+}
+
+test "parseAck accepts a bare ack and rejects unknown-command error rejected and wrong type" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    try std.testing.expect(parseAck(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-00000000001a\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"ack\"}}}").ok);
+    try std.testing.expect(!parseAck(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"skillsCatalog\",\"catalog\":{\"skills\":[]}}}}").ok);
+    try std.testing.expect(!parseAck(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{}}}}").ok);
+    try std.testing.expect(!parseAck(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"unknown command\"}}}").ok);
+    try std.testing.expect(!parseAck(arena, "{\"type\":\"rejected\",\"message\":\"unknown command\"}").ok);
+    try std.testing.expect(!parseAck(arena, "{\"type\":\"ack\"}").ok);
+    try std.testing.expect(!parseAck(arena, "not-json").ok);
 }
 
 test "parseUsageHistory reads a minimal usageHistory fixture and ignores unknown JSON" {
