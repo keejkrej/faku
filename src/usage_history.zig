@@ -4,10 +4,13 @@
 //! `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set,
 //! Faku one-shots hello + `loadUsageHistory` (`window` +
 //! `projectRoots` from unique local session `project_path` values,
-//! cap 32). Daily / Projects share a runtime-only window selector
+//! cap 32). Daily / Projects share a window selector
 //! (Waku `WINDOW_CHOICES`: 7 / 30 / 90 trailing days, this month,
-//! last month; default `{"trailingDays":30}`). Monthly always
-//! requests `{"months":12}` and hides the selector. Ok payload
+//! last month; default `{"trailingDays":30}`) persisted as
+//! `usage_window` on `sessions.json` extras. Monthly always
+//! requests `{"months":12}` and hides the selector; the persisted
+//! window is still the Daily / Projects selector. View chips persist
+//! as `usage_view` (default Daily). Ok payload
 //! `usageHistory` paints a first-cut history section. A same-shape
 //! snapshot (trailing vs months) stays painted while a replacement
 //! scan is in flight; a months snapshot must not masquerade as
@@ -17,9 +20,10 @@
 //! No daemon shows a muted connect hint (sessions unit + hint follow
 //! the resolved locale this cut). Daily first-cut paints
 //! per-provider share bars (`costShare` / `tokenShare`, or computed
-//! from totals) plus a runtime-only Cost | Tokens metric chip
-//! (default Cost), a Daily-only Model | Days breakdown chip (Waku
-//! `breakdown`; default Model), model share bars when Model is
+//! from totals) plus a Cost | Tokens metric chip (default Cost;
+//! persists as `usage_metric`), a Daily-only Model | Days breakdown
+//! chip (Waku `breakdown`; default Model; persists as
+//! `usage_breakdown`), model share bars when Model is
 //! selected (provider label + model name; Cost prefers wire
 //! `costShare`, Tokens always computed from totals), and a first-cut
 //! Native `<chart>` when Days is selected (oldest-first Claude / Codex
@@ -67,17 +71,19 @@
 //! Claude/Codex bars from `projects[].byProvider` follow the same
 //! within-row share rule on **visible** filtered rows only. Empty
 //! visible set / empty `projects[]` hides the chart (no fake
-//! samples). A runtime-only
-//! search filter (empty on boot; not `sessions.json`) case-insensitive
-//! contains-matches project basename **or** full `path` (trim; empty
-//! shows all, cap 16, no virtualization). Chip flip recomputes
+//! samples). A Projects
+//! search filter persists as `usage_project_filter` on `sessions.json`
+//! extras (trim on read; cap 64 like search; missing / overflow →
+//! empty). Case-insensitive contains-matches project basename **or**
+//! full `path` (trim; empty shows all, cap 16, no virtualization).
+//! In-session the filter still clears when leaving Settings Usage or
+//! switching away from Projects. Chip flip recomputes
 //! Daily (including nested byProvider shares), Monthly (including
 //! nested byProvider shares), and Projects
 //! shares from the cached snapshot without re-fetching and respects
 //! that filter (nested bars and chart samples only on visible rows). No-match empty
 //! ("No matching projects") is distinct from no project usage.
-//! Filter clears when leaving Settings Usage or switching away from
-//! Projects. Daily, Monthly, and Projects paint a first-cut
+//! Daily, Monthly, and Projects paint a first-cut
 //! five-tile Native metric strip from `totalTokens` / `totals` /
 //! `quality.cacheSavingsUsd` (zeros still paint; Daily uses
 //! active-day averages from `daily[]`; Monthly prefers active-month
@@ -122,7 +128,26 @@ const Effects = main.Effects;
 const writeFixed = model_exports.writeFixed;
 const max_project_path = session_mod.max_project_path;
 
-pub const View = enum { daily, monthly, projects };
+pub const View = enum {
+    daily,
+    monthly,
+    projects,
+
+    pub fn persistName(self: View) []const u8 {
+        return switch (self) {
+            .daily => "daily",
+            .monthly => "monthly",
+            .projects => "projects",
+        };
+    }
+
+    /// Missing / unknown → Daily.
+    pub fn fromPersist(value: []const u8) View {
+        if (std.mem.eql(u8, value, "monthly")) return .monthly;
+        if (std.mem.eql(u8, value, "projects")) return .projects;
+        return .daily;
+    }
+};
 
 /// Waku `WINDOW_CHOICES` for Daily / Projects. Monthly uses
 /// `monthly_window` instead and does not offer these.
@@ -132,6 +157,25 @@ pub const WindowChoice = enum {
     trailing_90,
     this_month,
     last_month,
+
+    pub fn persistName(self: WindowChoice) []const u8 {
+        return switch (self) {
+            .trailing_7 => "trailing_7",
+            .trailing_30 => "trailing_30",
+            .trailing_90 => "trailing_90",
+            .this_month => "this_month",
+            .last_month => "last_month",
+        };
+    }
+
+    /// Missing / unknown → trailing_30.
+    pub fn fromPersist(value: []const u8) WindowChoice {
+        if (std.mem.eql(u8, value, "trailing_7")) return .trailing_7;
+        if (std.mem.eql(u8, value, "trailing_90")) return .trailing_90;
+        if (std.mem.eql(u8, value, "this_month")) return .this_month;
+        if (std.mem.eql(u8, value, "last_month")) return .last_month;
+        return .trailing_30;
+    }
 
     pub fn toUsageWindow(self: WindowChoice) protocol.UsageWindow {
         return switch (self) {
@@ -155,15 +199,53 @@ pub const window_choices = [_]WindowChoice{
 pub const default_window_choice: WindowChoice = .trailing_30;
 pub const monthly_window: protocol.UsageWindow = .{ .months = 12 };
 
-/// Waku Daily / Monthly / Projects headline metric. Runtime-only; default Cost.
-pub const ShareMetric = enum { cost, tokens };
+/// Waku Daily / Monthly / Projects headline metric. Default Cost.
+/// Persists as `usage_metric` on `sessions.json` extras.
+pub const ShareMetric = enum {
+    cost,
+    tokens,
+
+    pub fn persistName(self: ShareMetric) []const u8 {
+        return switch (self) {
+            .cost => "cost",
+            .tokens => "tokens",
+        };
+    }
+
+    /// Missing / unknown → Cost.
+    pub fn fromPersist(value: []const u8) ShareMetric {
+        if (std.mem.eql(u8, value, "tokens")) return .tokens;
+        return .cost;
+    }
+};
 
 pub const default_share_metric: ShareMetric = .cost;
 
-/// Waku Daily `breakdown`: `model` | `day`. Runtime-only; default Model.
-pub const Breakdown = enum { model, days };
+/// Waku Daily `breakdown`: `model` | `day`. Default Model.
+/// Persists as `usage_breakdown` on `sessions.json` extras.
+pub const Breakdown = enum {
+    model,
+    days,
+
+    pub fn persistName(self: Breakdown) []const u8 {
+        return switch (self) {
+            .model => "model",
+            .days => "days",
+        };
+    }
+
+    /// Missing / unknown → Model.
+    pub fn fromPersist(value: []const u8) Breakdown {
+        if (std.mem.eql(u8, value, "days")) return .days;
+        return .model;
+    }
+};
 
 pub const default_breakdown: Breakdown = .model;
+
+/// Cap matches Model `max_search` / search buffer. Overflow persist
+/// values load as empty rather than truncating mid-query.
+pub const max_project_filter: usize = 64;
 
 pub const max_providers = protocol.max_parsed_usage_providers;
 pub const max_models = protocol.max_parsed_usage_models;
@@ -481,20 +563,22 @@ pub fn setWindow(model: *Model, fx: *Effects, choice: WindowChoice) void {
     ensure(model, fx, false);
 }
 
-/// Runtime-only Daily / Monthly / Projects Cost | Tokens chip. Does
-/// not re-fetch history. Provider, model, daily, monthly, and project
-/// bars (including nested byProvider shares) recompute from the cached
-/// snapshot (Projects respects the filter).
+/// Daily / Monthly / Projects Cost | Tokens chip. Does not re-fetch
+/// history. Provider, model, daily, monthly, and project bars
+/// (including nested byProvider shares) recompute from the cached
+/// snapshot (Projects respects the filter). Persists as `usage_metric`.
 pub fn setShareMetric(model: *Model, metric: ShareMetric) void {
     model.usage_share_metric = metric;
 }
 
-/// Runtime-only Daily Model | Days breakdown. Does not re-fetch.
+/// Daily Model | Days breakdown. Does not re-fetch. Persists as
+/// `usage_breakdown`.
 pub fn setBreakdown(model: *Model, breakdown: Breakdown) void {
     model.usage_breakdown = breakdown;
 }
 
-/// Runtime-only Waku `usage_project_filter`. Not persisted.
+/// Waku `usage_project_filter`. Trimmed text persists on
+/// `sessions.json` extras. Overflow / missing load as empty.
 pub fn projectFilter(model: *const Model) []const u8 {
     return std.mem.trim(u8, model.usage_project_filter_buffer.text(), " \t\r\n");
 }
@@ -507,8 +591,18 @@ pub fn clearProjectFilter(model: *Model) void {
     model.usage_project_filter_buffer.clear();
 }
 
-/// Drop the runtime Projects filter when leaving Settings Usage.
-/// Does not cancel an in-flight sidecar or clear the history cache.
+/// Restore a persisted Projects filter. Trim; empty / overflow stay
+/// empty (same cap as search). Does not re-fetch.
+pub fn restoreProjectFilter(model: *Model, raw: []const u8) void {
+    model.usage_project_filter_buffer.clear();
+    const trimmed = std.mem.trim(u8, raw, " \t\r\n");
+    if (trimmed.len == 0 or trimmed.len > max_project_filter) return;
+    model.usage_project_filter_buffer.apply(.{ .insert_text = trimmed });
+}
+
+/// Drop the in-session Projects filter when leaving Settings Usage.
+/// Persisted extras stay until the next settings save. Does not cancel
+/// an in-flight sidecar or clear the history cache.
 pub fn leaveUsage(model: *Model) void {
     clearProjectFilter(model);
 }
@@ -1961,6 +2055,38 @@ test "LoadUsageHistory sidecar paints cache from usageHistory and miss keeps con
 
 fn expectWindowJson(stdin: []const u8, needle: []const u8) !void {
     try std.testing.expect(std.mem.indexOf(u8, stdin, needle) != null);
+}
+
+test "usage chrome persist names round-trip; missing or unknown load defaults" {
+    try std.testing.expectEqualStrings("daily", View.daily.persistName());
+    try std.testing.expectEqualStrings("monthly", View.monthly.persistName());
+    try std.testing.expectEqualStrings("projects", View.projects.persistName());
+    try std.testing.expectEqual(View.daily, View.fromPersist(""));
+    try std.testing.expectEqual(View.daily, View.fromPersist("nope"));
+    try std.testing.expectEqual(View.daily, View.fromPersist("Daily"));
+    try std.testing.expectEqual(View.monthly, View.fromPersist("monthly"));
+    try std.testing.expectEqual(View.projects, View.fromPersist("projects"));
+
+    try std.testing.expectEqualStrings("trailing_7", WindowChoice.trailing_7.persistName());
+    try std.testing.expectEqualStrings("trailing_30", WindowChoice.trailing_30.persistName());
+    try std.testing.expectEqualStrings("this_month", WindowChoice.this_month.persistName());
+    try std.testing.expectEqual(WindowChoice.trailing_30, WindowChoice.fromPersist(""));
+    try std.testing.expectEqual(WindowChoice.trailing_30, WindowChoice.fromPersist("nope"));
+    try std.testing.expectEqual(WindowChoice.trailing_7, WindowChoice.fromPersist("trailing_7"));
+    try std.testing.expectEqual(WindowChoice.trailing_90, WindowChoice.fromPersist("trailing_90"));
+    try std.testing.expectEqual(WindowChoice.last_month, WindowChoice.fromPersist("last_month"));
+
+    try std.testing.expectEqualStrings("cost", ShareMetric.cost.persistName());
+    try std.testing.expectEqualStrings("tokens", ShareMetric.tokens.persistName());
+    try std.testing.expectEqual(ShareMetric.cost, ShareMetric.fromPersist(""));
+    try std.testing.expectEqual(ShareMetric.cost, ShareMetric.fromPersist("nope"));
+    try std.testing.expectEqual(ShareMetric.tokens, ShareMetric.fromPersist("tokens"));
+
+    try std.testing.expectEqualStrings("model", Breakdown.model.persistName());
+    try std.testing.expectEqualStrings("days", Breakdown.days.persistName());
+    try std.testing.expectEqual(Breakdown.model, Breakdown.fromPersist(""));
+    try std.testing.expectEqual(Breakdown.model, Breakdown.fromPersist("day"));
+    try std.testing.expectEqual(Breakdown.days, Breakdown.fromPersist("days"));
 }
 
 test "Monthly view requests months 12; Daily and Projects share the selected window" {
