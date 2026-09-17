@@ -74,12 +74,42 @@ pub const find_skills_script =
 
 const walk_argv_len: usize = 8;
 
-/// Runtime-only Settings page. Chrome is General | Appearance |
+/// Settings sidebar page. Chrome is General | Appearance |
 /// Providers | Skills | Usage | Computer Use. Computer Use is a
 /// first-cut Unavailable page (no Native Screen Recording /
-/// Accessibility APIs). Language selector is leftover (English-only
-/// this cut).
-pub const Page = enum { general, appearance, providers, skills, usage, computer_use };
+/// Accessibility APIs). Persists as `settings_page` on
+/// `sessions.json` extras (`general` / `appearance` / `providers` /
+/// `skills` / `usage` / `computer_use`). Missing / unknown / empty
+/// loads as General. Skill rows stay runtime-only.
+pub const Page = enum {
+    general,
+    appearance,
+    providers,
+    skills,
+    usage,
+    computer_use,
+
+    pub fn persistName(self: Page) []const u8 {
+        return switch (self) {
+            .general => "general",
+            .appearance => "appearance",
+            .providers => "providers",
+            .skills => "skills",
+            .usage => "usage",
+            .computer_use => "computer_use",
+        };
+    }
+
+    /// Missing / unknown / empty → General.
+    pub fn fromPersist(value: []const u8) Page {
+        if (std.mem.eql(u8, value, "appearance")) return .appearance;
+        if (std.mem.eql(u8, value, "providers")) return .providers;
+        if (std.mem.eql(u8, value, "skills")) return .skills;
+        if (std.mem.eql(u8, value, "usage")) return .usage;
+        if (std.mem.eql(u8, value, "computer_use")) return .computer_use;
+        return .general;
+    }
+};
 
 pub const CachedSkill = struct {
     path_storage: [max_skill_path]u8 = [_]u8{0} ** max_skill_path,
@@ -632,6 +662,24 @@ test "Page includes appearance, usage, and computer_use; default stays general" 
     try std.testing.expectEqual(Page.computer_use, model.settings_page);
     try std.testing.expect(model.settings_page != .usage);
     try std.testing.expect(model.settings_page != .general);
+}
+
+test "Page persistName and fromPersist roundtrip; missing or unknown is general" {
+    try std.testing.expectEqualStrings("general", Page.general.persistName());
+    try std.testing.expectEqualStrings("appearance", Page.appearance.persistName());
+    try std.testing.expectEqualStrings("providers", Page.providers.persistName());
+    try std.testing.expectEqualStrings("skills", Page.skills.persistName());
+    try std.testing.expectEqualStrings("usage", Page.usage.persistName());
+    try std.testing.expectEqualStrings("computer_use", Page.computer_use.persistName());
+    try std.testing.expectEqual(Page.general, Page.fromPersist(""));
+    try std.testing.expectEqual(Page.general, Page.fromPersist("nope"));
+    try std.testing.expectEqual(Page.general, Page.fromPersist("General"));
+    try std.testing.expectEqual(Page.general, Page.fromPersist("computer-use"));
+    try std.testing.expectEqual(Page.appearance, Page.fromPersist("appearance"));
+    try std.testing.expectEqual(Page.providers, Page.fromPersist("providers"));
+    try std.testing.expectEqual(Page.skills, Page.fromPersist("skills"));
+    try std.testing.expectEqual(Page.usage, Page.fromPersist("usage"));
+    try std.testing.expectEqual(Page.computer_use, Page.fromPersist("computer_use"));
 }
 
 test "ensureScanned one-shots find when the probe path is empty; no-op when current" {

@@ -16010,7 +16010,7 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
 
     main.update(&model, .toggle_settings, &fx);
     try testing.expect(!model.settings_open);
-    try testing.expect(model.settings_page_general());
+    try testing.expect(model.settings_page_providers());
     try testing.expectEqual(@as(u32, 0), model.provider_selected_id);
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .list_item, "fx") == null);
