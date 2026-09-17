@@ -99,11 +99,12 @@ Build from source: clone https://github.com/keejkrej/fx, Zig 0.16.0,
 - First-cut embedded Terminal tab (`fx.ptySpawn` + `<terminal>`, up to 4 sessions; occupied slots persist)
 - First-cut embedded Browser tab (Native canvas `web_panes` webview,
   up to 4 sessions; occupied URLs persist; history rings persist; lock/globe from committed https;
-  empty-history Native start page; Browser-tab-gated Cmd/Ctrl-R/L/[/] when that tab is showing;
+  empty-history Native start page; chips prefer runtime `page_title` (Faku-side one-shot HTML fetch);
+  Browser-tab-gated Cmd/Ctrl-R/L/[/] when that tab is showing;
   first-cut Escape restores the address draft when that field is active;
   Cmd/Ctrl-Shift-R Hard Reload is a Faku-side `about:blank` hop + `reload_token`;
   first-cut Stop loading is a Faku-side loading-guess + previous URL / `about:blank`;
-  DevTools / `page_title` stay out;
+  DevTools stay out (Native `web_panes` has no DevTools callback);
   **Open in browser** stays the OS fallback)
 
 Protocol dump: [CONTEXT.md](CONTEXT.md).

@@ -84,6 +84,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .navigate_back => {
             if (model.browser_keyboard_active()) {
                 browser_pane.goBack(model);
+                browser_pane.startTitleFetches(model, fx);
                 store.persistLayoutIfPossible(model);
             } else {
                 palette_run.goHistory(-1, model, fx);
@@ -92,6 +93,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .navigate_forward => {
             if (model.browser_keyboard_active()) {
                 browser_pane.goForward(model);
+                browser_pane.startTitleFetches(model, fx);
                 store.persistLayoutIfPossible(model);
             } else {
                 palette_run.goHistory(1, model, fx);
@@ -396,6 +398,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .browser_navigate => {
             browser_pane.commitNavigation(model);
+            browser_pane.startTitleFetches(model, fx);
             store.persistLayoutIfPossible(model);
         },
         .browser_reload => {
@@ -409,14 +412,17 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .browser_stop_loading => {
             if (!model.browser_keyboard_active()) return;
             browser_pane.stopLoading(model);
+            browser_pane.startTitleFetches(model, fx);
             store.persistLayoutIfPossible(model);
         },
         .browser_back => {
             browser_pane.goBack(model);
+            browser_pane.startTitleFetches(model, fx);
             store.persistLayoutIfPossible(model);
         },
         .browser_forward => {
             browser_pane.goForward(model);
+            browser_pane.startTitleFetches(model, fx);
             store.persistLayoutIfPossible(model);
         },
         .new_browser => {
@@ -424,6 +430,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             store.persistLayoutIfPossible(model);
         },
         .close_browser => {
+            browser_pane.cancelTitleFetchAt(model, fx, browser_pane.activeIndex(model));
             browser_pane.closeActive(model);
             store.persistLayoutIfPossible(model);
         },
@@ -701,4 +708,5 @@ pub fn initFx(model: *Model, fx: *Effects) void {
     pty_terminal.spawnShell(model, fx);
     transcript_images.refresh(model, fx);
     file_preview_issue_link.refresh(model, fx);
+    browser_pane.startTitleFetches(model, fx);
 }

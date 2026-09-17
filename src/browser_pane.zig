@@ -10,11 +10,13 @@
 //!
 //! First-cut multi-session lives **inside** the existing Browser tab:
 //! up to four slots (chips + New + Close; Close keeps at least one).
-//! Occupied chips show host, else truncated Waku `display_url`, from
-//! the committed history URL (Waku `tab_label` without `page_title`;
-//! Native `WebViewPane` has no title callback). Empty history keeps
-//! occupancy-order `1`..`4`. Each occupied slot keeps its own
-//! address-bar draft, committed history ring, history index, and
+//! Occupied chips prefer a runtime-only `page_title` (Faku-side one-shot
+//! HTML `<title>` fetch on committed `http://` / `https://`; Native
+//! `WebViewPane` / `web_panes` still expose only label/anchor/url/
+//! `reload_token` — no document-title callback), else host, else
+//! truncated Waku `display_url`, from the committed history URL. Empty
+//! history keeps occupancy-order `1`..`4`. Each occupied slot keeps its
+//! own address-bar draft, committed history ring, history index, and
 //! `reload_token`. Cmd/Ctrl-Shift-R Hard Reload (chord and toolbar) is
 //! a Faku-side `about:blank` hop plus `reload_token` on the next update
 //! tick (Native `WebViewPane` documents only `url` + `reload_token`;
@@ -42,7 +44,9 @@
 //! occupancy + histories + active from the in-memory
 //! `right_panel_session` stash (`capturePersisted` / `restoreFromPersist`;
 //! missing → `default_slots`). `reload_token`, Hard Reload's
-//! pending blank hop, and Stop loading's loading-guess / blank hop stay runtime-only. Empty
+//! pending blank hop, Stop loading's loading-guess / blank hop, and
+//! `page_title` stay runtime-only (titles re-fetch on restore when a
+//! committed http(s) URL is present; not `sessions.json`). Empty
 //! history still parks on the
 //! scene placeholder `https://example.com` and does not show it.
 //! Enter/Navigate uses Safari/Waku omnibox resolve (explicit schemes,
@@ -60,9 +64,14 @@
 //! (0,0).
 
 const std = @import("std");
+const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
+const main = @import("main.zig");
 const model_mod = @import("model.zig");
 const open_url = @import("open_url.zig");
+const litellm_rates = @import("litellm_rates.zig");
+
+const Effects = main.Effects;
 
 const canvas = native_sdk.canvas;
 const geometry = native_sdk.geometry;
@@ -88,10 +97,24 @@ pub const web_view_labels = [_][]const u8{
 /// URL. Matching Terminal's empty-session chips.
 pub const slot_labels = [_][]const u8{ "1", "2", "3", "4" };
 /// Visible chip prefix before ellipsis. Hosts usually fit; long
-/// `display_url` fallbacks truncate for chrome. Persist still stores
-/// the full committed URL.
+/// `page_title` / `display_url` fallbacks truncate for chrome. Persist
+/// still stores the full committed URL (not the title).
 pub const chip_label_max_chars: usize = 24;
 const chip_label_ellipsis = "…";
+/// Stored `page_title` cap before chip truncate. Runtime-only.
+pub const page_title_max: usize = 256;
+/// Bounded HTML window for the title parse. Overflow keeps whatever
+/// arrived and fail-closes on a parse miss.
+pub const page_title_html_max: usize = 16 * 1024;
+/// One-shot curl title fetch. Distinct from litellm (650) and pty
+/// 700..703. Incremented per spawn from `page_title_key_first`; wraps
+/// before 700 so the band cannot collide with `<terminal>`.
+pub const page_title_key_first: u64 = 660;
+pub const page_title_key_last: u64 = 699;
+pub const page_title_max_time = "8";
+pub const page_title_max_filesize = "65536";
+pub const page_title_accept_header = "Accept: text/html";
+const page_title_argv_len: usize = 9;
 /// Markup semantics label the **active** pane snaps to
 /// (`<column label="browser-pane">`).
 pub const web_pane_anchor = "browser-pane";
@@ -121,8 +144,8 @@ pub const parked_frame = geometry.RectF.init(0, 0, 1, 1);
 /// `browser_histories` / `browser_active`) as last-live cold-start;
 /// session switch restores them from `right_panel_session`. The active
 /// address draft still persists as `browser_url`. `reload_token`,
-/// Hard Reload's pending blank hop, and Stop loading's loading-guess /
-/// blank hop stay runtime-only.
+/// Hard Reload's pending blank hop, Stop loading's loading-guess /
+/// blank hop, and `page_title` stay runtime-only.
 pub const Slot = struct {
     occupied: bool = false,
     url_buffer: canvas.TextBuffer(open_url.max_url) = .{},
@@ -141,6 +164,23 @@ pub const Slot = struct {
     /// this tick; `maybeFinishStopBlank` on the next update tick clears
     /// the page (empty history, occupancy kept).
     stop_blank_pending: bool = false,
+    /// Runtime-only chip `page_title`. Not `sessions.json`.
+    page_title: canvas.TextBuffer(page_title_max) = .{},
+    /// In-flight curl key for this slot. 0 is none. Unique per spawn
+    /// so a stale exit cannot match a newer commit.
+    page_title_pending_key: u64 = 0,
+    /// Bumped on every committed-URL change for this slot.
+    page_title_generation: u64 = 0,
+    /// Generation copied at spawn time. Stale exits ignore a mismatch.
+    page_title_fetch_generation: u64 = 0,
+    /// URL this spawn was keyed to. Stale exits ignore a mismatch.
+    page_title_fetch_url: canvas.TextBuffer(open_url.max_spawn_url) = .{},
+    page_title_html_storage: [page_title_html_max]u8 = [_]u8{0} ** page_title_html_max,
+    page_title_html_len: usize = 0,
+    page_title_binary: bool = false,
+    /// Set when a committed http(s) URL lands; `startTitleFetches`
+    /// drains it. Not an idle-tick poll.
+    page_title_fetch_needed: bool = false,
 };
 
 pub const BrowserSessionRow = struct {
@@ -230,9 +270,10 @@ pub fn can_close_browser(model: *const Model) bool {
     return occupiedCount(model) > 1 and activeSlotConst(model).occupied;
 }
 
-/// Occupied chips with stable 1-based slot ids. Label is host, else
-/// Waku `display_url`, from the committed URL (truncated); empty
-/// history keeps occupancy-order `1`..`n`. Not Waku `page_title`.
+/// Occupied chips with stable 1-based slot ids. Label prefers a
+/// non-empty runtime `page_title`, else host, else Waku `display_url`,
+/// from the committed URL (truncated); empty history keeps
+/// occupancy-order `1`..`n`. Native `WebViewPane` has no title callback.
 pub fn sessionRows(model: *const Model, arena: std.mem.Allocator) []const BrowserSessionRow {
     const count = occupiedCount(model);
     if (count == 0) return &.{};
@@ -243,7 +284,7 @@ pub fn sessionRows(model: *const Model, arena: std.mem.Allocator) []const Browse
         if (!slot.occupied) continue;
         out[n] = .{
             .id = slotId(i),
-            .label = allocChipLabel(arena, committedUrlAt(model, i), n),
+            .label = allocChipLabel(arena, slot.page_title.text(), committedUrlAt(model, i), n),
             .selected = i == active,
         };
         n += 1;
@@ -254,16 +295,17 @@ pub fn sessionRows(model: *const Model, arena: std.mem.Allocator) []const Browse
 /// Host when the committed URL has a usable hostname; otherwise Waku
 /// `display_url`. Empty committed stays empty so chips keep `1`..`n`.
 /// Same source as lock/globe / persist (`committedUrlAt`), never the
-/// live home placeholder and never a page title.
+/// live home placeholder. Chip preference puts non-empty `page_title`
+/// ahead of this fallback.
 pub fn chipLabelSource(url: []const u8) []const u8 {
     if (url.len == 0) return "";
     if (hostOfUrl(url)) |host| return host;
     return displayUrl(url);
 }
 
-fn allocChipLabel(arena: std.mem.Allocator, committed: []const u8, occupancy: usize) []const u8 {
+fn allocChipLabel(arena: std.mem.Allocator, page_title: []const u8, committed: []const u8, occupancy: usize) []const u8 {
     const fallback = slot_labels[occupancy];
-    const source = chipLabelSource(committed);
+    const source = if (page_title.len > 0) page_title else chipLabelSource(committed);
     if (source.len == 0) return fallback;
     return allocTruncatedChipLabel(arena, source) catch fallback;
 }
@@ -279,6 +321,381 @@ fn utf8Prefix(text: []const u8, max_bytes: usize) []const u8 {
     var end = max_bytes;
     while (end > 0 and (text[end] & 0xC0) == 0x80) end -= 1;
     return text[0..end];
+}
+
+pub fn isPageTitleKey(key: u64) bool {
+    return key >= page_title_key_first and key <= page_title_key_last;
+}
+
+pub fn isPendingTitleKey(model: *const Model, key: u64) bool {
+    if (!isPageTitleKey(key)) return false;
+    for (model.browser_slots) |slot| {
+        if (slot.page_title_pending_key == key) return true;
+    }
+    return false;
+}
+
+fn slotForPendingTitleKey(model: *Model, key: u64) ?*Slot {
+    if (!isPageTitleKey(key)) return null;
+    for (&model.browser_slots) |*slot| {
+        if (slot.page_title_pending_key == key) return slot;
+    }
+    return null;
+}
+
+fn titleFetchEligible(url: []const u8) bool {
+    if (url.len == 0) return false;
+    if (std.ascii.eqlIgnoreCase(url, blank_url)) return false;
+    return open_url.isHttpUrl(url);
+}
+
+fn curlBin() []const u8 {
+    return litellm_rates.curlBin();
+}
+
+pub fn argvFor(url: []const u8, buf: *[page_title_argv_len][]const u8) []const []const u8 {
+    return argvForBin(curlBin(), url, buf);
+}
+
+pub fn argvForBin(bin: []const u8, url: []const u8, buf: *[page_title_argv_len][]const u8) []const []const u8 {
+    buf[0] = bin;
+    buf[1] = "-fsSL";
+    buf[2] = "--max-time";
+    buf[3] = page_title_max_time;
+    buf[4] = "--max-filesize";
+    buf[5] = page_title_max_filesize;
+    buf[6] = "-H";
+    buf[7] = page_title_accept_header;
+    buf[8] = url;
+    return buf[0..page_title_argv_len];
+}
+
+pub fn isTitleFetchArgv(argv: []const []const u8) bool {
+    if (argv.len != page_title_argv_len) return false;
+    const bin_ok = std.mem.eql(u8, argv[0], litellm_rates.unix_curl_bin) or
+        std.mem.eql(u8, argv[0], litellm_rates.path_curl_bin) or
+        std.mem.eql(u8, argv[0], litellm_rates.windows_curl_bin);
+    if (!bin_ok) return false;
+    if (!std.mem.eql(u8, argv[1], "-fsSL")) return false;
+    if (!std.mem.eql(u8, argv[2], "--max-time")) return false;
+    if (!std.mem.eql(u8, argv[3], page_title_max_time)) return false;
+    if (!std.mem.eql(u8, argv[4], "--max-filesize")) return false;
+    if (!std.mem.eql(u8, argv[5], page_title_max_filesize)) return false;
+    if (!std.mem.eql(u8, argv[6], "-H")) return false;
+    if (!std.mem.eql(u8, argv[7], page_title_accept_header)) return false;
+    return argv[8].len > 0;
+}
+
+fn clearPageTitle(slot: *Slot) void {
+    slot.page_title.clear();
+}
+
+fn clearTitleFetchBuffer(slot: *Slot) void {
+    slot.page_title_html_len = 0;
+    slot.page_title_binary = false;
+}
+
+fn noteCommittedUrlChanged(slot: *Slot) void {
+    clearPageTitle(slot);
+    clearTitleFetchBuffer(slot);
+    slot.page_title_generation +%= 1;
+    slot.page_title_fetch_needed = true;
+}
+
+fn cancelTitleFetch(slot: *Slot, fx: *Effects) void {
+    if (slot.page_title_pending_key == 0) return;
+    fx.cancel(slot.page_title_pending_key);
+    slot.page_title_pending_key = 0;
+}
+
+pub fn cancelAllTitleFetches(model: *Model, fx: *Effects) void {
+    for (&model.browser_slots) |*slot| {
+        cancelTitleFetch(slot, fx);
+    }
+}
+
+pub fn cancelTitleFetchAt(model: *Model, fx: *Effects, index: usize) void {
+    if (index >= max_sessions) return;
+    cancelTitleFetch(slotPtr(model, index), fx);
+}
+
+fn nextTitleKey(model: *Model) u64 {
+    var key = model.next_page_title_key;
+    var n: u64 = 0;
+    while (n <= page_title_key_last - page_title_key_first) : (n += 1) {
+        if (key < page_title_key_first or key > page_title_key_last) {
+            key = page_title_key_first;
+        }
+        var taken = false;
+        for (model.browser_slots) |slot| {
+            if (slot.page_title_pending_key == key) {
+                taken = true;
+                break;
+            }
+        }
+        const candidate = key;
+        key += 1;
+        if (key > page_title_key_last) key = page_title_key_first;
+        if (!taken) {
+            model.next_page_title_key = key;
+            return candidate;
+        }
+    }
+    model.next_page_title_key = page_title_key_first;
+    return page_title_key_first;
+}
+
+fn startTitleFetchAt(model: *Model, fx: *Effects, index: usize) void {
+    const slot = slotPtr(model, index);
+    if (!slot.occupied) {
+        cancelTitleFetch(slot, fx);
+        slot.page_title_fetch_needed = false;
+        return;
+    }
+    const url = committedUrlAt(model, index);
+    slot.page_title_fetch_needed = false;
+    if (!titleFetchEligible(url)) {
+        cancelTitleFetch(slot, fx);
+        clearPageTitle(slot);
+        clearTitleFetchBuffer(slot);
+        return;
+    }
+    if (slot.page_title_pending_key != 0 and
+        slot.page_title_fetch_generation == slot.page_title_generation and
+        std.mem.eql(u8, slot.page_title_fetch_url.text(), url))
+    {
+        return;
+    }
+    cancelTitleFetch(slot, fx);
+    clearTitleFetchBuffer(slot);
+    slot.page_title_fetch_url.set(url);
+    const key = nextTitleKey(model);
+    slot.page_title_pending_key = key;
+    slot.page_title_fetch_generation = slot.page_title_generation;
+    var argv_buf: [page_title_argv_len][]const u8 = undefined;
+    fx.spawn(.{
+        .key = key,
+        .argv = argvFor(slot.page_title_fetch_url.text(), &argv_buf),
+        .max_line_bytes = page_title_html_max,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+}
+
+/// Drain `page_title_fetch_needed` on occupied slots. Fire on commit /
+/// restore only — not an idle chrome-tick poll.
+pub fn startTitleFetches(model: *Model, fx: *Effects) void {
+    for (0..max_sessions) |i| {
+        if (!model.browser_slots[i].page_title_fetch_needed) continue;
+        startTitleFetchAt(model, fx, i);
+    }
+}
+
+pub fn applyLine(model: *Model, line: native_sdk.EffectLine) void {
+    const slot = slotForPendingTitleKey(model, line.key) orelse return;
+    if (slot.page_title_fetch_generation != slot.page_title_generation) return;
+    if (slot.page_title_binary) return;
+    const chunk = line.line;
+    if (std.mem.indexOfScalar(u8, chunk, 0) != null) {
+        slot.page_title_binary = true;
+        slot.page_title_html_len = 0;
+        return;
+    }
+    if (slot.page_title_html_len >= page_title_html_max) return;
+    if (slot.page_title_html_len > 0) {
+        slot.page_title_html_storage[slot.page_title_html_len] = '\n';
+        slot.page_title_html_len += 1;
+        if (slot.page_title_html_len >= page_title_html_max) return;
+    }
+    const room = page_title_html_max - slot.page_title_html_len;
+    const take = @min(room, chunk.len);
+    @memcpy(slot.page_title_html_storage[slot.page_title_html_len .. slot.page_title_html_len + take], chunk[0..take]);
+    slot.page_title_html_len += take;
+}
+
+pub fn handleExit(model: *Model, exit: native_sdk.EffectExit) void {
+    const slot = slotForPendingTitleKey(model, exit.key) orelse return;
+    const gen = slot.page_title_fetch_generation;
+    const html = slot.page_title_html_storage[0..slot.page_title_html_len];
+    const binary = slot.page_title_binary;
+    const fetch_url = slot.page_title_fetch_url.text();
+    var fetch_buf: [open_url.max_spawn_url]u8 = undefined;
+    const fetch_len = @min(fetch_url.len, fetch_buf.len);
+    @memcpy(fetch_buf[0..fetch_len], fetch_url[0..fetch_len]);
+    const keyed_url = fetch_buf[0..fetch_len];
+
+    slot.page_title_pending_key = 0;
+    clearTitleFetchBuffer(slot);
+
+    if (slot.page_title_generation != gen) return;
+    if (!slot.occupied) return;
+    const committed = committedText(slot);
+    if (!std.mem.eql(u8, committed, keyed_url)) return;
+    if (exit.reason != .exited or exit.code != 0) return;
+    if (binary) return;
+    var decoded: [page_title_max]u8 = undefined;
+    const title = extractTitle(html, &decoded);
+    if (title.len == 0) return;
+    slot.page_title.set(title);
+}
+
+/// First usable `<title>…</title>` (case-insensitive). Decodes trivial
+/// entities, collapses ASCII whitespace, caps to `dest`. Empty on
+/// binary / missing / parse miss.
+pub fn extractTitle(html: []const u8, dest: []u8) []const u8 {
+    if (dest.len == 0 or html.len == 0) return dest[0..0];
+    if (std.mem.indexOfScalar(u8, html, 0) != null) return dest[0..0];
+    const inner = titleInner(html) orelse return dest[0..0];
+    return decodeTitleInner(inner, dest);
+}
+
+fn titleInner(html: []const u8) ?[]const u8 {
+    const open_end = findTitleOpenEnd(html) orelse return null;
+    const rest = html[open_end..];
+    const close = findIgnoreCase(rest, "</title>") orelse return null;
+    return rest[0..close];
+}
+
+fn findTitleOpenEnd(html: []const u8) ?usize {
+    var i: usize = 0;
+    while (i < html.len) : (i += 1) {
+        if (html[i] != '<') continue;
+        const rest = html[i + 1 ..];
+        if (!startsWithIgnoreCase(rest, "title")) continue;
+        if (rest.len < 5) return null;
+        const after_name = rest[5..];
+        if (after_name.len == 0) return null;
+        const next = after_name[0];
+        if (next != '>' and !std.ascii.isWhitespace(next) and next != '/') continue;
+        const gt = std.mem.indexOfScalar(u8, rest, '>') orelse return null;
+        return i + 1 + gt + 1;
+    }
+    return null;
+}
+
+fn findIgnoreCase(hay: []const u8, needle: []const u8) ?usize {
+    if (needle.len == 0 or hay.len < needle.len) return null;
+    var i: usize = 0;
+    while (i + needle.len <= hay.len) : (i += 1) {
+        if (std.ascii.eqlIgnoreCase(hay[i .. i + needle.len], needle)) return i;
+    }
+    return null;
+}
+
+fn startsWithIgnoreCase(text: []const u8, prefix: []const u8) bool {
+    if (text.len < prefix.len) return false;
+    return std.ascii.eqlIgnoreCase(text[0..prefix.len], prefix);
+}
+
+fn decodeTitleInner(inner: []const u8, dest: []u8) []const u8 {
+    var out: usize = 0;
+    var i: usize = 0;
+    var pending_space = false;
+    var emitted = false;
+    while (i < inner.len and out < dest.len) {
+        if (inner[i] == 0) return dest[0..0];
+        if (inner[i] == '&') {
+            var ent_buf: [4]u8 = undefined;
+            if (decodeEntity(inner[i..], &ent_buf)) |ent| {
+                i += ent.consumed;
+                const bytes = ent_buf[0..ent.len];
+                var b: usize = 0;
+                while (b < bytes.len and out < dest.len) : (b += 1) {
+                    if (emitTitleByte(bytes[b], dest, &out, &pending_space, &emitted)) continue;
+                    return dest[0..0];
+                }
+                continue;
+            }
+        }
+        const c = inner[i];
+        i += 1;
+        if (!emitTitleByte(c, dest, &out, &pending_space, &emitted)) return dest[0..0];
+    }
+    return utf8Prefix(dest[0..out], out);
+}
+
+fn emitTitleByte(c: u8, dest: []u8, out: *usize, pending_space: *bool, emitted: *bool) bool {
+    if (c == 0) return false;
+    if (c == ' ' or c == '\t' or c == '\n' or c == '\r' or c == 0x0c) {
+        if (emitted.*) pending_space.* = true;
+        return true;
+    }
+    if (pending_space.* and out.* < dest.len) {
+        dest[out.*] = ' ';
+        out.* += 1;
+        pending_space.* = false;
+        if (out.* >= dest.len) return true;
+    }
+    if (out.* >= dest.len) return true;
+    dest[out.*] = c;
+    out.* += 1;
+    emitted.* = true;
+    pending_space.* = false;
+    return true;
+}
+
+const DecodedEntity = struct {
+    len: usize,
+    consumed: usize,
+};
+
+fn decodeEntity(text: []const u8, dest: *[4]u8) ?DecodedEntity {
+    if (text.len < 3 or text[0] != '&') return null;
+    if (namedEntity(text, dest)) |ent| return ent;
+    if (text[1] != '#') return null;
+    if (text.len >= 4 and (text[2] == 'x' or text[2] == 'X')) {
+        return numericEntity(text, 3, 16, dest);
+    }
+    return numericEntity(text, 2, 10, dest);
+}
+
+fn namedEntity(text: []const u8, dest: *[4]u8) ?DecodedEntity {
+    const pairs = [_]struct { name: []const u8, ch: u8 }{
+        .{ .name = "&amp;", .ch = '&' },
+        .{ .name = "&lt;", .ch = '<' },
+        .{ .name = "&gt;", .ch = '>' },
+        .{ .name = "&quot;", .ch = '"' },
+        .{ .name = "&#39;", .ch = '\'' },
+        .{ .name = "&apos;", .ch = '\'' },
+    };
+    for (pairs) |pair| {
+        if (text.len >= pair.name.len and std.mem.eql(u8, text[0..pair.name.len], pair.name)) {
+            dest[0] = pair.ch;
+            return .{ .len = 1, .consumed = pair.name.len };
+        }
+    }
+    return null;
+}
+
+fn digitValue(c: u8, base: u8) ?u32 {
+    const d: u32 = switch (c) {
+        '0'...'9' => c - '0',
+        'a'...'f' => c - 'a' + 10,
+        'A'...'F' => c - 'A' + 10,
+        else => return null,
+    };
+    if (d >= base) return null;
+    return d;
+}
+
+fn numericEntity(text: []const u8, start: usize, base: u8, dest: *[4]u8) ?DecodedEntity {
+    if (start >= text.len) return null;
+    var i = start;
+    var value: u32 = 0;
+    var digits: usize = 0;
+    while (i < text.len) : (i += 1) {
+        const c = text[i];
+        if (c == ';') break;
+        const digit = digitValue(c, base) orelse return null;
+        value = value *% @as(u32, base) + digit;
+        if (value > 0x10FFFF) return null;
+        digits += 1;
+        if (digits > 8) return null;
+    }
+    if (digits == 0 or i >= text.len or text[i] != ';') return null;
+    if (value == 0) return null;
+    const len = std.unicode.utf8Encode(@intCast(value), dest) catch return null;
+    return .{ .len = len, .consumed = i + 1 };
 }
 
 /// Authority hostname without userinfo or port. Opaque schemes
@@ -392,9 +809,10 @@ pub fn capturePersisted(model: *const Model, out: *[max_sessions]PersistedSlot) 
 
 /// Rebuild occupancy, history rings + index when present, otherwise a
 /// single-entry history from each committed tip. Does not restore
-/// `reload_token`, a pending Hard Reload hop, or Stop loading's
-/// loading-guess / blank hop. Zero occupied slots keep
-/// today's slot-0 session.
+/// `reload_token`, a pending Hard Reload hop, Stop loading's
+/// loading-guess / blank hop, or `page_title`. Occupied http(s) tips
+/// arm a runtime title re-fetch (`page_title_fetch_needed`). Zero
+/// occupied slots keep today's slot-0 session.
 pub fn restoreFromPersist(model: *Model, slots: []const PersistedSlot, active: u8) void {
     model.browser_slots = [_]Slot{.{}} ** max_sessions;
     const n = @min(slots.len, max_sessions);
@@ -434,6 +852,7 @@ fn restoreOccupied(slot: *Slot, persisted: PersistedSlot) void {
     slot.history_count = 1;
     slot.history_index = 0;
     syncDraftFromCommitted(slot);
+    armTitleFetchIfEligible(slot);
 }
 
 fn restoreHistory(slot: *Slot, persisted: PersistedSlot) void {
@@ -450,6 +869,13 @@ fn restoreHistory(slot: *Slot, persisted: PersistedSlot) void {
     slot.history_index = clampedHistoryIndex(n, persisted.history_index);
     if (n == 0) return;
     syncDraftFromCommitted(slot);
+    armTitleFetchIfEligible(slot);
+}
+
+fn armTitleFetchIfEligible(slot: *Slot) void {
+    if (titleFetchEligible(committedText(slot))) {
+        noteCommittedUrlChanged(slot);
+    }
 }
 
 pub fn currentUrl(model: *const Model) []const u8 {
@@ -741,6 +1167,7 @@ pub fn commitNavigation(model: *Model) void {
     live.history_count = live.history_index + 1;
     syncDraftFromCommitted(live);
     markLoadingGuess(model);
+    noteCommittedUrlChanged(live);
 }
 
 pub fn goBack(model: *Model) void {
@@ -748,6 +1175,7 @@ pub fn goBack(model: *Model) void {
     if (slot.history_index == 0) return;
     slot.history_index -= 1;
     syncDraftFromCommitted(slot);
+    noteCommittedUrlChanged(slot);
 }
 
 pub fn goForward(model: *Model) void {
@@ -755,6 +1183,7 @@ pub fn goForward(model: *Model) void {
     if (slot.history_count == 0 or slot.history_index + 1 >= slot.history_count) return;
     slot.history_index += 1;
     syncDraftFromCommitted(slot);
+    noteCommittedUrlChanged(slot);
 }
 
 pub fn reload(model: *Model) void {
@@ -805,6 +1234,10 @@ pub fn maybeFinishStopBlank(model: *Model) bool {
         slot.history_count = 0;
         slot.history_index = 0;
         slot.url_buffer.clear();
+        clearPageTitle(slot);
+        clearTitleFetchBuffer(slot);
+        slot.page_title_fetch_needed = false;
+        slot.page_title_generation +%= 1;
         cleared = true;
     }
     return cleared;
@@ -1633,6 +2066,7 @@ test "restoreFromPersist rebuilds history rings so back and forward work" {
     restored.browser_slots[0].hard_reload_pending = true;
     restored.browser_slots[0].loading_guess_until_ms = 99;
     restored.browser_slots[0].stop_blank_pending = true;
+    restored.browser_slots[0].page_title.set("Stale title");
     restoreFromPersist(&restored, &persisted, 1);
     try std.testing.expectEqual(@as(u8, 1), restored.browser_active);
     try std.testing.expectEqual(@as(u64, 0), restored.browser_slots[0].reload_token);
@@ -1642,6 +2076,9 @@ test "restoreFromPersist rebuilds history rings so back and forward work" {
     try std.testing.expectEqual(@as(i64, 0), restored.browser_slots[0].loading_guess_until_ms);
     try std.testing.expect(!restored.browser_slots[0].stop_blank_pending);
     try std.testing.expect(!restored.browser_slots[1].stop_blank_pending);
+    try std.testing.expectEqualStrings("", restored.browser_slots[0].page_title.text());
+    try std.testing.expect(restored.browser_slots[0].page_title_fetch_needed);
+    try std.testing.expect(restored.browser_slots[1].page_title_fetch_needed);
     try std.testing.expectEqual(@as(usize, 3), restored.browser_slots[0].history_count);
     try std.testing.expectEqual(@as(usize, 1), restored.browser_slots[0].history_index);
     try std.testing.expectEqualStrings("https://a2.example", committedUrlAt(&restored, 0));
@@ -1719,8 +2156,14 @@ test "CONTEXT and README describe first-cut Browser multi-session inside the tab
     try std.testing.expect(std.mem.indexOf(u8, context, "Stop loading") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "is_secure_url") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "lock/globe") != null);
-    try std.testing.expect(std.mem.indexOf(u8, context, "display_url/host first-cut") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "page_title") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "one-shot") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "Faku-side one-shot HTML title") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "runtime-only") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "DevTools / `page_title` stay out") == null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "page_title still out") == null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "not Waku `page_title` / surface UUID tabs / DevTools") == null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "display_url/host first-cut") == null);
     try std.testing.expect(std.mem.indexOf(u8, context, "start page") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "empty history is globe") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "empty history uses home `https://example.com` → lock") == null);
@@ -1729,11 +2172,166 @@ test "CONTEXT and README describe first-cut Browser multi-session inside the tab
     try std.testing.expect(std.mem.indexOf(u8, context, "History ring / back / forward / `reload_token` stay runtime-only") == null);
     try std.testing.expect(std.mem.indexOf(u8, context, "Full history rings / back / forward / `reload_token` stay runtime-only") == null);
     const browser_cut = std.mem.indexOf(u8, readme, "First-cut embedded Browser tab") orelse return error.MissingBrowserReadme;
-    const window = readme[browser_cut..@min(readme.len, browser_cut + 240)];
+    const window = readme[browser_cut..@min(readme.len, browser_cut + 480)];
     try std.testing.expect(std.mem.indexOf(u8, window, "up to 4 sessions") != null);
     try std.testing.expect(std.mem.indexOf(u8, window, "occupied URLs persist") != null);
     try std.testing.expect(std.mem.indexOf(u8, window, "history rings persist") != null);
     try std.testing.expect(std.mem.indexOf(u8, window, "lock/globe") != null);
     try std.testing.expect(std.mem.indexOf(u8, window, "start page") != null);
+    try std.testing.expect(std.mem.indexOf(u8, window, "page_title") != null);
+    try std.testing.expect(std.mem.indexOf(u8, readme, "DevTools / `page_title` stay out") == null);
     try std.testing.expect(std.mem.indexOf(u8, readme, "not … multi-session") == null);
+}
+
+test "extractTitle is case-insensitive and decodes trivial entities" {
+    var buf: [page_title_max]u8 = undefined;
+    try std.testing.expectEqualStrings("Example", extractTitle("<html><title>Example</title></html>", &buf));
+    try std.testing.expectEqualStrings("Docs", extractTitle("<TITLE  class=\"x\">Docs</TITLE>", &buf));
+    try std.testing.expectEqualStrings("A & B <C>", extractTitle("<title>A &amp; B &lt;C&gt;</title>", &buf));
+    try std.testing.expectEqualStrings("A \"B'C", extractTitle("<title>A &quot;B&#39;C</title>", &buf));
+    try std.testing.expectEqualStrings("'", extractTitle("<title>&#x27;</title>", &buf));
+    try std.testing.expectEqualStrings("Spaced name", extractTitle("<title>\n  Spaced   \nname\t</title>", &buf));
+    try std.testing.expectEqualStrings("", extractTitle("<html><head></head></html>", &buf));
+    try std.testing.expectEqualStrings("", extractTitle("<title>open only", &buf));
+    try std.testing.expectEqualStrings("", extractTitle("", &buf));
+    const binary = "\x00<title>Nope</title>";
+    try std.testing.expectEqualStrings("", extractTitle(binary, &buf));
+    const long = "<title>abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ</title>";
+    const got = extractTitle(long, buf[0..24]);
+    try std.testing.expectEqual(@as(usize, 24), got.len);
+}
+
+test "chip labels prefer page_title then host then display_url" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model: Model = .{};
+    setDraft(&model, "https://example.com/docs");
+    commitNavigation(&model);
+    var rows = sessionRows(&model, arena);
+    try std.testing.expectEqualStrings("example.com", rows[0].label);
+
+    model.browser_slots[0].page_title.set("Example Docs");
+    rows = sessionRows(&model, arena);
+    try std.testing.expectEqualStrings("Example Docs", rows[0].label);
+
+    model.browser_slots[0].page_title.set("this is a very long document title for chips");
+    rows = sessionRows(&model, arena);
+    try std.testing.expectEqualStrings("this is a very long docu…", rows[0].label);
+
+    model.browser_slots[0].page_title.clear();
+    setDraft(&model, "about:blank");
+    commitNavigation(&model);
+    rows = sessionRows(&model, arena);
+    try std.testing.expectEqualStrings("about:blank", rows[0].label);
+    try std.testing.expectEqualStrings("", model.browser_slots[0].page_title.text());
+}
+
+test "title fetch argv is curl slots; stale exit does not overwrite a newer URL" {
+    const testing = std.testing;
+    var argv_buf: [page_title_argv_len][]const u8 = undefined;
+    const argv = argvForBin(litellm_rates.unix_curl_bin, "https://example.com/docs", &argv_buf);
+    try testing.expect(isTitleFetchArgv(argv));
+    try testing.expectEqual(@as(usize, 9), argv.len);
+    try testing.expectEqualStrings("-fsSL", argv[1]);
+    try testing.expectEqualStrings("--max-time", argv[2]);
+    try testing.expectEqualStrings(page_title_max_time, argv[3]);
+    try testing.expectEqualStrings("--max-filesize", argv[4]);
+    try testing.expectEqualStrings(page_title_max_filesize, argv[5]);
+    try testing.expectEqualStrings("-H", argv[6]);
+    try testing.expectEqualStrings(page_title_accept_header, argv[7]);
+    try testing.expectEqualStrings("https://example.com/docs", argv[8]);
+    try testing.expect(std.mem.indexOf(u8, argv[1], "https://") == null);
+    try testing.expectEqual(@as(u64, 660), page_title_key_first);
+    try testing.expectEqual(@as(u64, 699), page_title_key_last);
+    try testing.expect(page_title_key_first > litellm_rates.litellm_rates_key);
+    try testing.expect(page_title_key_last < 700);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model: Model = .{};
+    setDraft(&model, "https://first.example");
+    commitNavigation(&model);
+    startTitleFetches(&model, &fx);
+    const first = pendingTitleSpawn(&fx, model.browser_slots[0].page_title_pending_key) orelse return error.MissingFirstTitleFetch;
+    try testing.expect(isTitleFetchArgv(first.argv));
+    try testing.expectEqualStrings("https://first.example", first.argv[8]);
+    const first_key = first.key;
+    try testing.expect(isPendingTitleKey(&model, first_key));
+
+    applyLine(&model, .{ .key = first_key, .line = "<html><title>First Title</title></html>" });
+
+    setDraft(&model, "https://second.example");
+    commitNavigation(&model);
+    startTitleFetches(&model, &fx);
+    const second = pendingTitleSpawn(&fx, model.browser_slots[0].page_title_pending_key) orelse return error.MissingSecondTitleFetch;
+    try testing.expect(second.key != first_key);
+    try testing.expectEqualStrings("https://second.example", second.argv[8]);
+    try testing.expectEqualStrings("", model.browser_slots[0].page_title.text());
+
+    handleExit(&model, .{ .key = first_key, .reason = .exited, .code = 0 });
+    try testing.expectEqualStrings("", model.browser_slots[0].page_title.text());
+    try testing.expect(!isPendingTitleKey(&model, first_key));
+
+    applyLine(&model, .{ .key = second.key, .line = "<title>Second Title</title>" });
+    handleExit(&model, .{ .key = second.key, .reason = .exited, .code = 0 });
+    try testing.expectEqualStrings("Second Title", model.browser_slots[0].page_title.text());
+
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const rows = sessionRows(&model, arena_state.allocator());
+    try testing.expectEqualStrings("Second Title", rows[0].label);
+
+    setDraft(&model, "about:blank");
+    commitNavigation(&model);
+    startTitleFetches(&model, &fx);
+    try testing.expectEqualStrings("", model.browser_slots[0].page_title.text());
+    try testing.expect(!titleFetchEligible(committedUrlAt(&model, 0)));
+}
+
+test "title fetch fail-closed keeps host chip; at most one in-flight per slot" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model: Model = .{};
+    setDraft(&model, "https://fail.example");
+    commitNavigation(&model);
+    startTitleFetches(&model, &fx);
+    const first = pendingTitleSpawn(&fx, model.browser_slots[0].page_title_pending_key) orelse return error.MissingTitleFetch;
+    const first_key = first.key;
+    startTitleFetches(&model, &fx);
+    try testing.expectEqual(first_key, model.browser_slots[0].page_title_pending_key);
+
+    handleExit(&model, .{ .key = first_key, .reason = .exited, .code = 22 });
+    try testing.expectEqualStrings("", model.browser_slots[0].page_title.text());
+
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    var rows = sessionRows(&model, arena_state.allocator());
+    try testing.expectEqualStrings("fail.example", rows[0].label);
+
+    startTitleFetches(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.browser_slots[0].page_title_pending_key);
+
+    model.browser_slots[0].page_title_fetch_needed = true;
+    startTitleFetches(&model, &fx);
+    const retry = pendingTitleSpawn(&fx, model.browser_slots[0].page_title_pending_key) orelse return error.MissingRetryTitleFetch;
+    applyLine(&model, .{ .key = retry.key, .line = "<title></title>" });
+    handleExit(&model, .{ .key = retry.key, .reason = .exited, .code = 0 });
+    try testing.expectEqualStrings("", model.browser_slots[0].page_title.text());
+    rows = sessionRows(&model, arena_state.allocator());
+    try testing.expectEqualStrings("fail.example", rows[0].label);
+}
+
+fn pendingTitleSpawn(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key) return spawn;
+    }
+    return null;
 }

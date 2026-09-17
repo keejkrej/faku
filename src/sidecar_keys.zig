@@ -14,6 +14,7 @@ const attach = @import("attach.zig");
 const pick_folder = @import("pick_folder.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_url = @import("open_url.zig");
+const browser_pane = @import("browser_pane.zig");
 const open_terminal = @import("open_terminal.zig");
 const pty_terminal = @import("pty_terminal.zig");
 const open_editor = @import("open_editor.zig");
@@ -44,6 +45,11 @@ pub const reveal_folder_key = reveal_folder.reveal_folder_key;
 /// (27), reveal_folder (28). OS-host fallback beside the embedded
 /// Browser `web_panes` webviews (up to four scene slots).
 pub const open_url_key = open_url.open_url_key;
+/// One-shot Browser chip `page_title` curl. Distinct from open_url (25)
+/// and litellm (650). Band 660–699, incremented per spawn from
+/// `page_title_key_first`. Native `WebViewPane` has no title callback.
+pub const page_title_key_first = browser_pane.page_title_key_first;
+pub const page_title_key_last = browser_pane.page_title_key_last;
 /// One-shot OS terminal sidecar (`open -a Terminal` / `x-terminal-emulator` /
 /// Windows `wt.exe -d` then `cmd.exe /c start "" /D`). Distinct from
 /// reveal_folder (28), pick_folder (29), maximize (30), pick_image (31),
@@ -52,8 +58,9 @@ pub const open_url_key = open_url.open_url_key;
 /// Effects revision.
 pub const open_terminal_key = open_terminal.open_terminal_key;
 /// Dedicated pty occupancy for the right-panel `<terminal>` binding.
-/// Distinct from Open in Terminal (27) and litellm (650). Fixed band
-/// 700..703 (first-cut multi-session, cap 4).
+/// Distinct from Open in Terminal (27), litellm (650), and Browser
+/// `page_title` curl 660–699. Fixed band 700..703 (first-cut
+/// multi-session, cap 4).
 pub const pty_shell_key = pty_terminal.pty_shell_key;
 /// One-shot OS editor sidecar (`cursor` / `code`, macOS `open -a`, Windows `cursor.cmd` / `code.cmd`).
 /// Distinct from open_terminal (27), reveal_folder (28), pick_folder (29),
@@ -95,6 +102,8 @@ test "OS sidecar and media preview keys match owning modules" {
     try std.testing.expectEqual(pick_folder.pick_folder_key, pick_folder_key);
     try std.testing.expectEqual(reveal_folder.reveal_folder_key, reveal_folder_key);
     try std.testing.expectEqual(open_url.open_url_key, open_url_key);
+    try std.testing.expectEqual(browser_pane.page_title_key_first, page_title_key_first);
+    try std.testing.expectEqual(browser_pane.page_title_key_last, page_title_key_last);
     try std.testing.expectEqual(open_terminal.open_terminal_key, open_terminal_key);
     try std.testing.expectEqual(pty_terminal.pty_shell_key, pty_shell_key);
     try std.testing.expectEqual(open_editor.open_editor_key, open_editor_key);

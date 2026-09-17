@@ -23,14 +23,16 @@
 //! seam) plus **Open in browser** as the OS-host fallback via
 //! `open_url`. First-cut multi-session inside that tab (cap 4, scene
 //! `browser-web-0`..`browser-web-3`, chips + New + Close; occupied
-//! chips show host or truncated `display_url` from the committed URL;
-//! slot URLs and history rings persist; `reload_token` stays runtime-only;
+//! chips show a runtime `page_title` (Faku-side one-shot HTML title
+//! fetch) or host or truncated `display_url` from the committed URL;
+//! slot URLs and history rings persist; `reload_token` and `page_title`
+//! stay runtime-only;
 //! Cmd/Ctrl-Shift-R Hard Reload (chord and toolbar) is a Faku-side
 //! `about:blank` hop plus `reload_token` (Native `web_panes` has no
 //! hard-reload flag); first-cut Stop loading is a Faku-side loading-guess
 //! plus restore previous URL / `about:blank` (Native has no loading/stop
 //! callback);
-//! not Waku `page_title` / surface UUID tabs / DevTools). When the Browser
+//! not Waku surface UUID tabs / DevTools). When the Browser
 //! tab is hidden every pane parks at 1×1 with no anchor so Native does
 //! not keep the last webview frame over Files/Diff/Terminal. Inactive
 //! occupied slots park the same way. Empty history parks the **active**
