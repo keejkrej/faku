@@ -1306,21 +1306,25 @@ pub const Model = struct {
     /// Runtime-only Settings General | Appearance | Providers | Skills |
     /// Usage | Computer Use page. Default General. Not persisted.
     settings_page: skills.Page = .general,
-    /// Runtime-only Settings Usage Daily | Monthly | Projects chip.
-    /// Default Daily. Not persisted.
+    /// Settings Usage Daily | Monthly | Projects chip. Default Daily.
+    /// Persists as `usage_view` on `sessions.json` extras.
     usage_view: usage_history.View = .daily,
-    /// Runtime-only Daily / Projects usage window (Waku WINDOW_CHOICES).
-    /// Default TrailingDays(30). Monthly ignores this and requests
-    /// months:12. Not persisted.
+    /// Daily / Projects usage window (Waku WINDOW_CHOICES). Default
+    /// TrailingDays(30). Monthly ignores this and requests months:12;
+    /// the persisted value is still the Daily / Projects selector.
+    /// Persists as `usage_window` on `sessions.json` extras.
     usage_window: usage_history.WindowChoice = .trailing_30,
-    /// Runtime-only Daily / Monthly / Projects Cost | Tokens metric
-    /// (Waku `UsageMetric`). Default Cost. Not persisted.
+    /// Daily / Monthly / Projects Cost | Tokens metric (Waku
+    /// `UsageMetric`). Default Cost. Persists as `usage_metric`.
     usage_share_metric: usage_history.ShareMetric = .cost,
-    /// Runtime-only Daily Model | Days breakdown (Waku `breakdown`).
-    /// Default Model. Not persisted. Monthly / Projects ignore this.
+    /// Daily Model | Days breakdown (Waku `breakdown`). Default Model.
+    /// Persists as `usage_breakdown`. Monthly / Projects ignore this.
     usage_breakdown: usage_history.Breakdown = .model,
-    /// Runtime-only Settings Usage Projects search filter (Waku
-    /// `usage_project_filter`). Empty on boot. Not persisted.
+    /// Settings Usage Projects search filter (Waku
+    /// `usage_project_filter`). Empty on boot. Persists as
+    /// `usage_project_filter` (trim on read; cap `max_search`;
+    /// missing / overflow → empty). In-session still clears when
+    /// leaving Usage or switching away from Projects.
     usage_project_filter_buffer: canvas.TextBuffer(max_search) = .{},
     /// In-flight `loadUsageHistory` sidecar. Distinct from workspace
     /// keys so miss cannot settle a live turn or toast Settings.

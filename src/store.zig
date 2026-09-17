@@ -50,7 +50,9 @@
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
 //! `last_reasoning_effort` /
 //! `last_project_path` / `last_daemon_address` / `theme_preference` /
-//! `ui_font_size` / `code_font_size` / `language_preference` / `disabled_providers` so the settings gear and
+//! `ui_font_size` / `code_font_size` / `language_preference` / `disabled_providers` /
+//! `usage_view` / `usage_window` / `usage_metric` / `usage_breakdown` /
+//! `usage_project_filter` so the settings gear and
 //! composer chips can edit persisted defaults, and `folders` /
 //! `collapsed_folder_ids` so New folder groups persist. A session
 //! `folder_id` of 0 (or omitted) stays in the ungrouped date buckets
@@ -103,6 +105,7 @@ const right_panel = @import("right_panel.zig");
 const open_url = @import("open_url.zig");
 const browser_pane = @import("browser_pane.zig");
 const pty_terminal = @import("pty_terminal.zig");
+const usage_history = @import("usage_history.zig");
 
 const Model = model_exports.Model;
 const Role = model_exports.Role;
@@ -294,6 +297,7 @@ pub fn saveSession(model: *const Model, session_id: u32, allocator: std.mem.Allo
     document.code_font_size = model.code_font_size;
     document.language_preference = model.language_preference;
     document.disabled_providers = model.disabled_providers;
+    applyUsageExtras(&document, model);
     applySidebarExtras(&document, model);
     try applyFolderExtras(&document, arena, model);
     try writeDocument(allocator, io, dir, document);
@@ -338,6 +342,7 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
     document.code_font_size = model.code_font_size;
     document.language_preference = model.language_preference;
     document.disabled_providers = model.disabled_providers;
+    applyUsageExtras(&document, model);
     applySidebarExtras(&document, model);
     try applyFolderExtras(&document, arena, model);
     try writeDocument(allocator, io, dir, document);
@@ -395,7 +400,9 @@ pub fn persistLayoutIfPossible(model: *const Model) void {
 
 /// Merge-only write of settings extras (`last_model`, `last_access_mode`,
 /// `last_interaction_mode`, `last_reasoning_effort`, `last_project_path`, `last_daemon_address`,
-/// `theme_preference`, `ui_font_size`, `code_font_size`, `language_preference`, `disabled_providers`).
+/// `theme_preference`, `ui_font_size`, `code_font_size`, `language_preference`, `disabled_providers`,
+/// `usage_view`, `usage_window`, `usage_metric`, `usage_breakdown`,
+/// `usage_project_filter`).
 /// Same first-run rule as sidebar collapse: does not create `sessions.json`
 /// and does not spawn a daemon sidecar. Missing / corrupt catalogs are a no-op.
 pub fn persistSettingsIfPossible(model: *const Model) void {
@@ -501,6 +508,15 @@ fn applySettingsExtras(document: *Document, model: *const Model) void {
     document.code_font_size = model.code_font_size;
     document.language_preference = model.language_preference;
     document.disabled_providers = model.disabled_providers;
+    applyUsageExtras(document, model);
+}
+
+fn applyUsageExtras(document: *Document, model: *const Model) void {
+    document.usage_view = model.usage_view;
+    document.usage_window = model.usage_window;
+    document.usage_metric = model.usage_share_metric;
+    document.usage_breakdown = model.usage_breakdown;
+    document.usage_project_filter = usage_history.projectFilter(model);
 }
 
 fn applyFolderExtras(document: *Document, arena: std.mem.Allocator, model: *const Model) !void {
@@ -1029,6 +1045,11 @@ const Document = struct {
     code_font_size: u8 = model_exports.default_code_font_size,
     language_preference: model_exports.LanguagePreference = .system,
     disabled_providers: [protocol.provider_id_count]bool = [_]bool{false} ** protocol.provider_id_count,
+    usage_view: usage_history.View = .daily,
+    usage_window: usage_history.WindowChoice = .trailing_30,
+    usage_metric: usage_history.ShareMetric = .cost,
+    usage_breakdown: usage_history.Breakdown = .model,
+    usage_project_filter: []const u8 = "",
     sidebar_collapsed: bool = false,
     sidebar_width: u32 = 0,
     right_panel_open: bool = false,
@@ -1065,6 +1086,11 @@ const Document = struct {
             .code_font_size = model.code_font_size,
             .language_preference = model.language_preference,
             .disabled_providers = model.disabled_providers,
+            .usage_view = model.usage_view,
+            .usage_window = model.usage_window,
+            .usage_metric = model.usage_share_metric,
+            .usage_breakdown = model.usage_breakdown,
+            .usage_project_filter = usage_history.projectFilter(model),
             .sidebar_collapsed = model.sidebar_collapsed,
             .sidebar_width = model.sidebarWidthPixels(),
             .right_panel_open = model.right_panel_open,
@@ -1136,6 +1162,11 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.code_font_size = document.code_font_size;
     model.language_preference = document.language_preference;
     model.disabled_providers = document.disabled_providers;
+    model.usage_view = document.usage_view;
+    model.usage_window = document.usage_window;
+    model.usage_share_metric = document.usage_metric;
+    model.usage_breakdown = document.usage_breakdown;
+    usage_history.restoreProjectFilter(model, document.usage_project_filter);
     model.sidebar_collapsed = document.sidebar_collapsed;
     model.applySidebarWidth(document.sidebar_width);
     right_panel.applyPersisted(model, document.right_panel_open, document.right_panel_tab, document.right_panel_width);
@@ -1450,6 +1481,11 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .code_font_size = parseCodeFontSize(obj.get("code_font_size"), parsed_ui_font_size),
         .language_preference = model_exports.LanguagePreference.fromPersist(jsonString(obj.get("language_preference")) orelse ""),
         .disabled_providers = parseDisabledProviders(obj.get("disabled_providers")),
+        .usage_view = usage_history.View.fromPersist(jsonString(obj.get("usage_view")) orelse ""),
+        .usage_window = usage_history.WindowChoice.fromPersist(jsonString(obj.get("usage_window")) orelse ""),
+        .usage_metric = usage_history.ShareMetric.fromPersist(jsonString(obj.get("usage_metric")) orelse ""),
+        .usage_breakdown = usage_history.Breakdown.fromPersist(jsonString(obj.get("usage_breakdown")) orelse ""),
+        .usage_project_filter = parseUsageProjectFilter(obj.get("usage_project_filter")),
         .sidebar_collapsed = jsonBool(obj.get("sidebar_collapsed")) orelse false,
         .sidebar_width = jsonUint(obj.get("sidebar_width")) orelse 0,
         .right_panel_open = jsonBool(obj.get("right_panel_open")) orelse false,
@@ -1703,6 +1739,15 @@ fn parseCodeFontSize(value: ?std.json.Value, ui_font_size: u8) u8 {
         if (n == allowed) return allowed;
     }
     return ui_font_size;
+}
+
+/// Trim on read. Missing / empty / overflow (longer than
+/// `usage_history.max_project_filter`, same as search) → empty.
+fn parseUsageProjectFilter(value: ?std.json.Value) []const u8 {
+    const raw = jsonString(value) orelse return "";
+    const trimmed = std.mem.trim(u8, raw, " \t\r\n");
+    if (trimmed.len == 0 or trimmed.len > usage_history.max_project_filter) return "";
+    return trimmed;
 }
 
 fn jsonU64(value: ?std.json.Value) ?u64 {
@@ -1994,7 +2039,17 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
             disabled_written = true;
         }
     }
-    try out.appendSlice(allocator, "],\"sidebar_collapsed\":");
+    try out.appendSlice(allocator, "],\"usage_view\":");
+    try appendJsonString(&out, allocator, document.usage_view.persistName());
+    try out.appendSlice(allocator, ",\"usage_window\":");
+    try appendJsonString(&out, allocator, document.usage_window.persistName());
+    try out.appendSlice(allocator, ",\"usage_metric\":");
+    try appendJsonString(&out, allocator, document.usage_metric.persistName());
+    try out.appendSlice(allocator, ",\"usage_breakdown\":");
+    try appendJsonString(&out, allocator, document.usage_breakdown.persistName());
+    try out.appendSlice(allocator, ",\"usage_project_filter\":");
+    try appendJsonString(&out, allocator, document.usage_project_filter);
+    try out.appendSlice(allocator, ",\"sidebar_collapsed\":");
     try out.appendSlice(allocator, if (document.sidebar_collapsed) "true" else "false");
     try out.appendSlice(allocator, ",\"sidebar_width\":");
     try appendUint(&out, allocator, document.sidebar_width);
@@ -3770,6 +3825,152 @@ test "disabled_providers persist round-trip; enabling clears; missing/unknown st
     const cleared_bytes = try std.Io.Dir.cwd().readFileAlloc(io, catalogPath(dir, &path_buf).?, allocator, .limited(64 * 1024));
     defer allocator.free(cleared_bytes);
     try testing.expect(std.mem.indexOf(u8, cleared_bytes, "\"disabled_providers\":[]") != null);
+}
+
+test "usage chrome extras persist on sessions.json; missing or unknown load defaults" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var missing = Model{};
+    missing.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&missing, allocator, io));
+    try testing.expectEqual(usage_history.View.daily, missing.usage_view);
+    try testing.expectEqual(usage_history.WindowChoice.trailing_30, missing.usage_window);
+    try testing.expectEqual(usage_history.ShareMetric.cost, missing.usage_share_metric);
+    try testing.expectEqual(usage_history.Breakdown.model, missing.usage_breakdown);
+    try testing.expectEqualStrings("", usage_history.projectFilter(&missing));
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"usage_view":"nope","usage_window":"nope","usage_metric":"nope","usage_breakdown":"day","usage_project_filter":"   ","sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var unknown = Model{};
+    unknown.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&unknown, allocator, io));
+    try testing.expectEqual(usage_history.View.daily, unknown.usage_view);
+    try testing.expectEqual(usage_history.WindowChoice.trailing_30, unknown.usage_window);
+    try testing.expectEqual(usage_history.ShareMetric.cost, unknown.usage_share_metric);
+    try testing.expectEqual(usage_history.Breakdown.model, unknown.usage_breakdown);
+    try testing.expectEqualStrings("", usage_history.projectFilter(&unknown));
+
+    const overflow_json =
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"usage_project_filter":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    ;
+    try writeRaw(io, dir, overflow_json);
+    var overflow = Model{};
+    overflow.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&overflow, allocator, io));
+    try testing.expectEqualStrings("", usage_history.projectFilter(&overflow));
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"usage_project_filter":"  faku  ","sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var trimmed = Model{};
+    trimmed.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&trimmed, allocator, io));
+    try testing.expectEqualStrings("faku", usage_history.projectFilter(&trimmed));
+    try testing.expectEqualStrings("faku", trimmed.usage_project_filter_buffer.text());
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("usage later", .fx);
+    _ = source.appendTurn(id, .user, "remember usage chrome");
+    try saveSession(&source, id, allocator, io);
+
+    const views = [_]usage_history.View{ .daily, .monthly, .projects };
+    for (views) |view| {
+        source.usage_view = view;
+        persistSettingsIfPossible(&source);
+        var loaded = Model{};
+        loaded.setStoreDir(dir);
+        try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+        try testing.expectEqual(view, loaded.usage_view);
+    }
+
+    const windows = [_]usage_history.WindowChoice{ .trailing_7, .trailing_30, .trailing_90, .this_month, .last_month };
+    for (windows) |window| {
+        source.usage_window = window;
+        persistSettingsIfPossible(&source);
+        var loaded = Model{};
+        loaded.setStoreDir(dir);
+        try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+        try testing.expectEqual(window, loaded.usage_window);
+    }
+
+    source.usage_share_metric = .tokens;
+    persistSettingsIfPossible(&source);
+    var tokens = Model{};
+    tokens.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&tokens, allocator, io));
+    try testing.expectEqual(usage_history.ShareMetric.tokens, tokens.usage_share_metric);
+
+    source.usage_share_metric = .cost;
+    persistSettingsIfPossible(&source);
+    var cost = Model{};
+    cost.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&cost, allocator, io));
+    try testing.expectEqual(usage_history.ShareMetric.cost, cost.usage_share_metric);
+
+    source.usage_breakdown = .days;
+    persistSettingsIfPossible(&source);
+    var days = Model{};
+    days.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&days, allocator, io));
+    try testing.expectEqual(usage_history.Breakdown.days, days.usage_breakdown);
+
+    source.usage_breakdown = .model;
+    persistSettingsIfPossible(&source);
+    var models = Model{};
+    models.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&models, allocator, io));
+    try testing.expectEqual(usage_history.Breakdown.model, models.usage_breakdown);
+
+    usage_history.restoreProjectFilter(&source, "other");
+    persistSettingsIfPossible(&source);
+    var filtered = Model{};
+    filtered.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&filtered, allocator, io));
+    try testing.expectEqualStrings("other", usage_history.projectFilter(&filtered));
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, catalogPath(dir, &path_buf).?, allocator, .limited(64 * 1024));
+    defer allocator.free(bytes);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"usage_view\":\"monthly\"") != null or std.mem.indexOf(u8, bytes, "\"usage_view\":\"projects\"") != null or std.mem.indexOf(u8, bytes, "\"usage_view\":\"daily\"") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"usage_window\":\"") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"usage_metric\":\"cost\"") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"usage_breakdown\":\"model\"") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"usage_project_filter\":\"other\"") != null);
+
+    usage_history.clearProjectFilter(&source);
+    persistSettingsIfPossible(&source);
+    var empty_filter = Model{};
+    empty_filter.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&empty_filter, allocator, io));
+    try testing.expectEqualStrings("", usage_history.projectFilter(&empty_filter));
+
+    source.usage_view = .monthly;
+    source.usage_window = .trailing_7;
+    source.usage_share_metric = .tokens;
+    source.usage_breakdown = .days;
+    usage_history.restoreProjectFilter(&source, "faku");
+    persistSettingsIfPossible(&source);
+    var combo = Model{};
+    combo.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&combo, allocator, io));
+    try testing.expectEqual(usage_history.View.monthly, combo.usage_view);
+    try testing.expectEqual(usage_history.WindowChoice.trailing_7, combo.usage_window);
+    try testing.expectEqual(usage_history.ShareMetric.tokens, combo.usage_share_metric);
+    try testing.expectEqual(usage_history.Breakdown.days, combo.usage_breakdown);
+    try testing.expectEqualStrings("faku", usage_history.projectFilter(&combo));
 }
 
 test "folder extras persist untitled folders; missing catalog is not created" {

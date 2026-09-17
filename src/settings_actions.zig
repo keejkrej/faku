@@ -280,61 +280,73 @@ pub fn handleSetSettingsPageUsage(model: *Model, fx: *Effects) void {
 pub fn handleSetUsageViewDaily(model: *Model, fx: *Effects) void {
     if (model.settings_page != .usage) return;
     usage_history.setView(model, fx, .daily);
+    store.persistSettingsIfPossible(model);
 }
 
 pub fn handleSetUsageViewMonthly(model: *Model, fx: *Effects) void {
     if (model.settings_page != .usage) return;
     usage_history.setView(model, fx, .monthly);
+    store.persistSettingsIfPossible(model);
 }
 
 pub fn handleSetUsageViewProjects(model: *Model, fx: *Effects) void {
     if (model.settings_page != .usage) return;
     usage_history.setView(model, fx, .projects);
+    store.persistSettingsIfPossible(model);
 }
 
 pub fn handleSetUsageWindow7d(model: *Model, fx: *Effects) void {
     if (model.settings_page != .usage) return;
     usage_history.setWindow(model, fx, .trailing_7);
+    store.persistSettingsIfPossible(model);
 }
 
 pub fn handleSetUsageWindow30d(model: *Model, fx: *Effects) void {
     if (model.settings_page != .usage) return;
     usage_history.setWindow(model, fx, .trailing_30);
+    store.persistSettingsIfPossible(model);
 }
 
 pub fn handleSetUsageWindow90d(model: *Model, fx: *Effects) void {
     if (model.settings_page != .usage) return;
     usage_history.setWindow(model, fx, .trailing_90);
+    store.persistSettingsIfPossible(model);
 }
 
 pub fn handleSetUsageWindowThisMonth(model: *Model, fx: *Effects) void {
     if (model.settings_page != .usage) return;
     usage_history.setWindow(model, fx, .this_month);
+    store.persistSettingsIfPossible(model);
 }
 
 pub fn handleSetUsageWindowLastMonth(model: *Model, fx: *Effects) void {
     if (model.settings_page != .usage) return;
     usage_history.setWindow(model, fx, .last_month);
+    store.persistSettingsIfPossible(model);
 }
 
 pub fn handleSetUsageShareCost(model: *Model) void {
     if (model.settings_page != .usage) return;
     usage_history.setShareMetric(model, .cost);
+    store.persistSettingsIfPossible(model);
 }
 
 pub fn handleSetUsageShareTokens(model: *Model) void {
     if (model.settings_page != .usage) return;
     usage_history.setShareMetric(model, .tokens);
+    store.persistSettingsIfPossible(model);
 }
 
 pub fn handleSetUsageBreakdownModel(model: *Model) void {
     if (model.settings_page != .usage) return;
     usage_history.setBreakdown(model, .model);
+    store.persistSettingsIfPossible(model);
 }
 
 pub fn handleSetUsageBreakdownDays(model: *Model) void {
     if (model.settings_page != .usage) return;
     usage_history.setBreakdown(model, .days);
+    store.persistSettingsIfPossible(model);
 }
 
 pub fn handleRefreshUsageHistory(model: *Model, fx: *Effects) void {
@@ -372,6 +384,7 @@ pub fn handleRefreshPlanUsage(model: *Model, fx: *Effects) void {
 pub fn handleUsageProjectFilterEdit(model: *Model, edit: canvas.TextInputEvent) void {
     if (model.settings_page != .usage or model.usage_view != .projects) return;
     usage_history.applyProjectFilter(model, edit);
+    store.persistSettingsIfPossible(model);
 }
 
 pub fn handleSetSettingsPageComputerUse(model: *Model) void {
