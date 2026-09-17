@@ -4161,7 +4161,7 @@ const providers_detail_chrome_en: ProvidersDetailChrome = .{
     .claude_transport_note = "Live Send is one-shot claude -p --output-format stream-json --forward-subagent-text when Available (later Sends --resume {fx_session_id} when stored; image path in the -p prompt when attached).",
     .codex_transport_note = "Live Send is one-shot codex exec when Available (`--image` when attached).",
     .amp_transport_note = "Live Send is one-shot amp -x / --execute when Available (`@path` when attached).",
-    .pi_transport_note = "Live Send is one-shot pi --mode json when Available (`@path` when attached).",
+    .pi_transport_note = "Live Send is one-shot pi --mode rpc --no-session when Available (RPC images when attached).",
     .fx_login_note = "Faku does not detect auth state from the --help probe. Copy is a convenience, not sign-in UI or OAuth.",
     .fx_login_codex_note = "Optional: fx login grok / fx login codex (no Gateway required).",
     .other_install_hint = "Install that CLI on PATH, then Refresh.",
@@ -4177,7 +4177,7 @@ const providers_detail_chrome_zh_cn: ProvidersDetailChrome = .{
     .claude_transport_note = "可用时，实际 Send 是一次性 claude -p --output-format stream-json --forward-subagent-text（已存储时后续 Send 使用 --resume {fx_session_id}；附加图片时在 -p 提示中放入路径）。",
     .codex_transport_note = "可用时，实际 Send 是一次性 codex exec（附加时使用 `--image`）。",
     .amp_transport_note = "可用时，实际 Send 是一次性 amp -x / --execute（附加时使用 `@path`）。",
-    .pi_transport_note = "可用时，实际 Send 是一次性 pi --mode json（附加时使用 `@path`）。",
+    .pi_transport_note = "可用时，实际 Send 是一次性 pi --mode rpc --no-session（附加时使用 RPC images）。",
     .fx_login_note = "Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。",
     .fx_login_codex_note = "可选：fx login grok / fx login codex（无需 Gateway）。",
     .other_install_hint = "将该 CLI 安装到 PATH，然后刷新。",
@@ -4193,7 +4193,7 @@ const providers_detail_chrome_ja: ProvidersDetailChrome = .{
     .claude_transport_note = "利用可能なとき、実際の Send はワンショット claude -p --output-format stream-json --forward-subagent-text です（保存済みなら後続 Send は --resume {fx_session_id}；添付時は -p プロンプトに画像パス）。",
     .codex_transport_note = "利用可能なとき、実際の Send はワンショット codex exec です（添付時は `--image`）。",
     .amp_transport_note = "利用可能なとき、実際の Send はワンショット amp -x / --execute です（添付時は `@path`）。",
-    .pi_transport_note = "利用可能なとき、実際の Send はワンショット pi --mode json です（添付時は `@path`）。",
+    .pi_transport_note = "利用可能なとき、実際の Send はワンショット pi --mode rpc --no-session です（添付時は RPC images）。",
     .fx_login_note = "Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。",
     .fx_login_codex_note = "任意: fx login grok / fx login codex（Gateway は不要）。",
     .other_install_hint = "その CLI を PATH にインストールしてから更新してください。",
@@ -8761,7 +8761,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
         providersDetailChromeFor(.english, "").amp_transport_note,
     );
     try testing.expectEqualStrings(
-        "Live Send is one-shot pi --mode json when Available (`@path` when attached).",
+        "Live Send is one-shot pi --mode rpc --no-session when Available (RPC images when attached).",
         providersDetailChromeFor(.english, "").pi_transport_note,
     );
     try testing.expectEqualStrings(
@@ -8796,7 +8796,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 claude -p --output-format stream-json --forward-subagent-text（已存储时后续 Send 使用 --resume {fx_session_id}；附加图片时在 -p 提示中放入路径）。", providersDetailChromeFor(.simplified_chinese, "").claude_transport_note);
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 codex exec（附加时使用 `--image`）。", providersDetailChromeFor(.simplified_chinese, "").codex_transport_note);
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 amp -x / --execute（附加时使用 `@path`）。", providersDetailChromeFor(.simplified_chinese, "").amp_transport_note);
-    try testing.expectEqualStrings("可用时，实际 Send 是一次性 pi --mode json（附加时使用 `@path`）。", providersDetailChromeFor(.simplified_chinese, "").pi_transport_note);
+    try testing.expectEqualStrings("可用时，实际 Send 是一次性 pi --mode rpc --no-session（附加时使用 RPC images）。", providersDetailChromeFor(.simplified_chinese, "").pi_transport_note);
     try testing.expectEqualStrings("Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。", providersDetailChromeFor(.simplified_chinese, "").fx_login_note);
     try testing.expectEqualStrings("可选：fx login grok / fx login codex（无需 Gateway）。", providersDetailChromeFor(.simplified_chinese, "").fx_login_codex_note);
     try testing.expectEqualStrings("将该 CLI 安装到 PATH，然后刷新。", providersDetailChromeFor(.simplified_chinese, "").other_install_hint);
@@ -8810,7 +8810,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット claude -p --output-format stream-json --forward-subagent-text です（保存済みなら後続 Send は --resume {fx_session_id}；添付時は -p プロンプトに画像パス）。", providersDetailChromeFor(.japanese, "").claude_transport_note);
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット codex exec です（添付時は `--image`）。", providersDetailChromeFor(.japanese, "").codex_transport_note);
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット amp -x / --execute です（添付時は `@path`）。", providersDetailChromeFor(.japanese, "").amp_transport_note);
-    try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット pi --mode json です（添付時は `@path`）。", providersDetailChromeFor(.japanese, "").pi_transport_note);
+    try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット pi --mode rpc --no-session です（添付時は RPC images）。", providersDetailChromeFor(.japanese, "").pi_transport_note);
     try testing.expectEqualStrings("Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。", providersDetailChromeFor(.japanese, "").fx_login_note);
     try testing.expectEqualStrings("任意: fx login grok / fx login codex（Gateway は不要）。", providersDetailChromeFor(.japanese, "").fx_login_codex_note);
     try testing.expectEqualStrings("その CLI を PATH にインストールしてから更新してください。", providersDetailChromeFor(.japanese, "").other_install_hint);

@@ -39,8 +39,8 @@
 //! one-shot `amp -x {prompt}` (`--execute` is the long form; documented
 //! `@{path}` in the `-x` prompt when a composer image is attached);
 //! Available Pi is
-//! one-shot `pi --mode json {prompt}` (documented
-//! `@{path}` after json when a composer image is attached). fx
+//! one-shot `pi --mode rpc --no-session` (stdin prompt JSONL;
+//! documented RPC `images` when a composer image is attached). fx
 //! Not found copies the verified keejkrej/fx Unix install script
 //! (`releases/latest/download/install` into `~/.fx/bin`; never
 //! auto-runs; not fx.sh). fx Available copies
@@ -53,7 +53,7 @@
 //! need a live daemon or any real CLI install.
 //!
 //! Leftovers: full onboarding / OAuth / auto-install; Pi ACP /
-//! `--mode rpc`; Claude ACP; `--continue`; circular GPUI gauge;
+//! long-lived RPC (steer / follow_up / session resume); Claude ACP; `--continue`; circular GPUI gauge;
 //! LiteLLM rate-table; T3 layered Usage chart; amend/force and
 //! remote `--track` over daemon (local already). Disabling does not
 //! move unstarted drafts / last_provider (Faku new sessions stay fx;
@@ -64,9 +64,10 @@
 //! image path in the `-p` prompt when
 //! attached),
 //! Codex exec (`--image` when attached), Amp
-//! execute-mode (`@path` when attached), and Pi json-mode (`@path`
-//! when attached) ship this cut (not ACP, not `--mode rpc`, not
-//! permissions bypass). Appearance theme,
+//! execute-mode (`@path` when attached), and Pi RPC one-shot
+//! (`--mode rpc --no-session`, stdin prompt JSONL, RPC `images` when
+//! attached) ship this cut (not ACP, not a long-lived RPC loop, not
+//! `--mode json`, not permissions bypass). Appearance theme,
 //! Usage, and Computer Use first-cut pages ship (Computer Use is
 //! Unavailable / Off; no Native helper). Not Waku install/auth.
 

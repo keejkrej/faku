@@ -572,10 +572,10 @@ pub const ProviderId = enum {
     /// exec (that is a separate one-shot `codex exec {prompt}` spawn,
     /// not ACP). Not Amp execute-mode (that is a separate one-shot
     /// `amp -x {prompt}` spawn, documented `@{path}` in the `-x`
-    /// prompt when attached, not ACP). Not Pi json-mode (that is
-    /// a separate one-shot `pi --mode json {prompt}` spawn, documented
-    /// `@{path}` after json when attached, not ACP). Not
-    /// Grok `agent stdio`. First-cut kimi is one-shot `kimi acp` via
+    /// prompt when attached, not ACP). Not Pi RPC (that is
+    /// a separate one-shot `pi --mode rpc --no-session` spawn,
+    /// stdin prompt JSONL, documented RPC `images` when attached, not
+    /// ACP). Not Grok `agent stdio`. First-cut kimi is one-shot `kimi acp` via
     /// acp-proxy (not long-lived; no invented flags).
     pub fn speaksBareAcp(id: ProviderId) bool {
         return switch (id) {

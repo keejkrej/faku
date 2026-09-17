@@ -2,7 +2,7 @@
 //!
 //! `startPrompt` path selection (daemon / fx acp / fx ask / probed
 //! ACP stdio via acp-proxy / Claude print-mode / Codex exec / Amp
-//! execute-mode / Pi json-mode / demo), StartOptions mapping, and
+//! execute-mode / Pi RPC one-shot / demo), StartOptions mapping, and
 //! `takeFxAskSessionId` live here. Callers import this module
 //! directly (`spawn.startOptionsFromSession` /
 //! `spawn.takeFxAskSessionId` / `spawn.startPrompt`). Not
@@ -37,13 +37,19 @@
 //! (empty stdin, not ACP, not acp-proxy; `--execute` is the long
 //! form), with a documented `@{path}` mention inside that single `-x`
 //! prompt when a composer image exists. There is no `--image` flag.
-//! Available Pi is one-shot `{binary} --mode json {prompt}` (empty
-//! stdin, not ACP, not acp-proxy, not `--mode rpc`), with documented
-//! `@{path}` after `--mode json` when a composer image exists
-//! (`pi --mode json @screenshot.png "What's in this image?"`).
-//! `reply_path` stays `.fx` with `fx_spawn_acp = false`. Pi sets
-//! `fx_spawn_pi_json = true` so stdout lines use the Pi JSON parser
-//! in `lines.zig` (live `text_delta`, not prose / raw JSON dump).
+//! Available Pi is one-shot `{binary} --mode rpc --no-session`
+//! (stdin is one LF-terminated prompt JSONL command; Native closes
+//! stdin after that buffer; not ACP, not acp-proxy, not `--mode
+//! json`, not a long-lived RPC loop). Composer image attach uses
+//! documented RPC `images` on that prompt command (`ImageContent`:
+//! `type`/`data` base64/`mimeType`; png/jpeg/gif/webp; ~256KB raw
+//! like ACP). Missing / unreadable / unknown type / overflow fail
+//! closed to demo. There is no `--image` flag. `reply_path` stays
+//! `.fx` with `fx_spawn_acp = false`. Pi sets `fx_spawn_pi_json =
+//! true` so stdout lines use the Pi JSONL parser in `lines.zig`
+//! (RPC `message_update` / `assistantMessageEvent.type ==
+//! text_delta` / `delta`, not json-mode top-level `type:text_delta`,
+//! not prose / raw JSON dump).
 //! Composer image attach on cursor / opencode / kimi / grok uses official
 //! ACP v1 image content blocks (base64 + mimeType) on the one-shot
 //! acp-proxy `session/prompt`. fx still uses `fx ask --image` (no
@@ -181,12 +187,14 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
         }
     }
     if (session.provider == .pi and providers.isAvailable(model, .pi)) {
-        // Pi is not ACP. Official JSON event-stream mode is one-shot
-        // `pi --mode json {prompt}`. Documented `@{path}` after
-        // `--mode json` when a composer image exists
-        // (`pi --mode json @screenshot.png "What's in this image?"`).
+        // Pi is not ACP. Official first-cut live Send is one-shot
+        // `pi --mode rpc --no-session` with one LF-terminated stdin
+        // prompt JSONL command (Native closes stdin after write; keep
+        // reading stdout until settle). Documented RPC `images` on
+        // that command when a composer image exists. Missing /
+        // unreadable / unknown type / overflow fail closed to demo.
         // There is no `--image` flag. Unavailable Pi stays demo.
-        if (startPiJson(model, fx, session, prompt)) {
+        if (startPiRpc(model, fx, session, prompt)) {
             model.reply_path = .fx;
             return;
         }
@@ -721,47 +729,123 @@ pub fn startAmpExecute(model: *Model, fx: *Effects, session: *const Session, pro
     return true;
 }
 
-/// Documented Pi file/image argv slot: `@` + path. Buffer is sized
-/// for `@` + `max_project_path` (same cap as the draft image store).
-/// Overflow returns null so Send fails closed to demo rather than
-/// dropping the `@` or truncating the path.
-fn formatPiAtPath(buf: []u8, image_path: []const u8) ?[]const u8 {
-    if (image_path.len == 0) return null;
-    return std.fmt.bufPrint(buf, "@{s}", .{image_path}) catch null;
+/// One-shot Pi RPC stdin: one LF-terminated prompt JSONL command,
+/// optionally with one `acp.max_image_bytes` standard-base64 image
+/// (same raw cap as ACP). Prompt text is `max_body`; 16 KiB covers
+/// JSON keys plus worst-case JSON escaping.
+pub const pi_rpc_stdin_cap: usize = std.base64.standard.Encoder.calcSize(acp.max_image_bytes) + 16 * 1024;
+
+const PiRpcWriteError = error{NoSpaceLeft};
+
+const PiRpcCursor = struct {
+    buf: []u8,
+    pos: usize = 0,
+
+    fn write(self: *PiRpcCursor, bytes: []const u8) PiRpcWriteError!void {
+        if (self.pos + bytes.len > self.buf.len) return error.NoSpaceLeft;
+        @memcpy(self.buf[self.pos..][0..bytes.len], bytes);
+        self.pos += bytes.len;
+    }
+
+    fn slice(self: *const PiRpcCursor) []const u8 {
+        return self.buf[0..self.pos];
+    }
+};
+
+fn writePiRpcJsonString(cur: *PiRpcCursor, text: []const u8) PiRpcWriteError!void {
+    try cur.write("\"");
+    for (text) |c| {
+        switch (c) {
+            '"' => try cur.write("\\\""),
+            '\\' => try cur.write("\\\\"),
+            '\n' => try cur.write("\\n"),
+            '\r' => try cur.write("\\r"),
+            '\t' => try cur.write("\\t"),
+            else => {
+                if (c < 0x20) {
+                    var hex: [6]u8 = undefined;
+                    const piece = std.fmt.bufPrint(&hex, "\\u{x:0>4}", .{c}) catch return error.NoSpaceLeft;
+                    try cur.write(piece);
+                } else {
+                    try cur.write(&.{c});
+                }
+            },
+        }
+    }
+    try cur.write("\"");
 }
 
-/// One-shot official Pi JSON event-stream mode:
-/// `{binary} --mode json {prompt}`, or
-/// `{binary} --mode json @{image_path} {prompt}` when a composer
-/// image exists. Prompt is an argv slot (documented
-/// `pi --mode json "Your prompt"`). File/image args are documented
-/// `@path` prefixes
-/// (`pi --mode json @screenshot.png "What's in this image?"`); there
-/// is no `--image` flag. The `@` + path slot is a stack buffer sized
-/// for `@` + `max_project_path` (same cap as the draft image store).
-/// Overflow returns false so Send fails closed to demo. Empty stdin.
-/// JSON mode emits session events as JSON lines; `fx_spawn_pi_json`
-/// routes stdout through the Pi parser (live `text_delta`, not a
-/// prose dump of raw JSON). Not ACP, not acp-proxy, not `--mode rpc`,
-/// not `-p` / `--print`, not `-a` / `--approve` / invented
-/// dangerously-* flags. Caller sets `reply_path` to `.fx` on success;
+/// Standard base64 into the JSON string. Alphabet is JSON-safe
+/// (`A-Za-z0-9+/=`); do not run it through `writePiRpcJsonString`.
+fn writePiRpcBase64(cur: *PiRpcCursor, bytes: []const u8) PiRpcWriteError!void {
+    const encoded_len = std.base64.standard.Encoder.calcSize(bytes.len);
+    if (cur.pos + encoded_len > cur.buf.len) return error.NoSpaceLeft;
+    _ = std.base64.standard.Encoder.encode(cur.buf[cur.pos..][0..encoded_len], bytes);
+    cur.pos += encoded_len;
+}
+
+/// Official Pi RPC `prompt` command as one LF-terminated JSONL line
+/// (https://pi.dev/docs/latest/rpc). Native spawn writes this buffer
+/// and closes stdin. `id` is `"1"` for first-cut one-shot correlation.
+/// Optional `images` is one documented `ImageContent` object
+/// (`type`/`data`/`mimeType`). Overflow returns `error.NoSpaceLeft`
+/// so Send fail-closes to demo.
+pub fn writePiRpcPromptStdin(buf: []u8, prompt: []const u8, image: ?acp.ImageContent) PiRpcWriteError![]const u8 {
+    var cur = PiRpcCursor{ .buf = buf };
+    try cur.write("{\"id\":\"1\",\"type\":\"prompt\",\"message\":");
+    try writePiRpcJsonString(&cur, prompt);
+    if (image) |img| {
+        if (img.bytes.len > 0 and img.mime_type.len > 0) {
+            try cur.write(",\"images\":[{\"type\":\"image\",\"data\":\"");
+            try writePiRpcBase64(&cur, img.bytes);
+            try cur.write("\",\"mimeType\":");
+            try writePiRpcJsonString(&cur, img.mime_type);
+            try cur.write("}]");
+        }
+    }
+    try cur.write("}\n");
+    return cur.slice();
+}
+
+/// One-shot official Pi RPC:
+/// `{binary} --mode rpc --no-session` with one LF-terminated stdin
+/// prompt JSONL command (`{"id":"1","type":"prompt","message":…}`).
+/// Native closes stdin after that buffer; stdout is read until
+/// process settle (ACP / daemon-proxy one-shot pattern). Composer
+/// image attach uses documented RPC `images` (`ImageContent` base64
+/// + mimeType; png/jpeg/gif/webp; `acp.max_image_bytes` raw). Missing
+/// / unreadable / unknown type / overflow return false so Send
+/// fail-closes to demo. There is no `--image` flag and no `@path`
+/// argv. `--no-session` is intentional (no session-file resume).
+/// `fx_spawn_pi_json` still means “Pi JSONL stdout parser” (RPC
+/// `message_update` / `text_delta`). Not ACP, not acp-proxy, not
+/// `--mode json`, not `-p` / `--print`, not `-a` / `--approve` /
+/// invented dangerously-* flags, not a long-lived stdin loop /
+/// steer / follow_up. Caller sets `reply_path` to `.fx` on success;
 /// `fx_spawn_acp` stays false. Project cwd reuses
-/// `fx_ask_chdir_script` (Native SpawnOptions has no cwd field).
-/// Empty binary is a no-op (PATH default is `pi`).
-pub fn startPiJson(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) bool {
+/// `fx_ask_chdir_script` (Native SpawnOptions has no cwd field);
+/// cwd / binary / flags stay argv slots — never interpolated into
+/// the chdir `-c` script. Empty binary is a no-op (PATH default
+/// is `pi`).
+pub fn startPiRpc(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) bool {
     const binary = providers.binaryFor(model, .pi);
     if (binary.len == 0) return false;
     const cwd = model.resolveSpawnCwd(session);
-    const image_path = model.resolveSpawnImage();
+    const image_path = model.draftImagePath();
 
-    var at_path_buf: [1 + model_exports.max_project_path]u8 = undefined;
-    const at_path = if (image_path.len > 0)
-        formatPiAtPath(&at_path_buf, image_path) orelse return false
-    else
-        "";
+    var stdin_buf: [pi_rpc_stdin_cap]u8 = undefined;
+    var image_raw: [acp.max_image_bytes]u8 = undefined;
+    var image: ?acp.ImageContent = null;
+    if (image_path.len > 0) {
+        const io = model.store_io orelse return false;
+        const mime = acp.mimeTypeForImagePath(image_path) orelse return false;
+        const bytes = acp.readImageBytes(io, image_path, &image_raw) orelse return false;
+        image = .{ .bytes = bytes, .mime_type = mime };
+    }
+    const stdin = writePiRpcPromptStdin(&stdin_buf, prompt, image) catch return false;
 
     model.setLastSpawnCwd(cwd);
-    model.setLastSpawnImagePath(image_path);
+    model.setLastSpawnImagePath(if (image_path.len > 0) image_path else "");
 
     var argv_buf: [16][]const u8 = undefined;
     var n: usize = 0;
@@ -781,13 +865,9 @@ pub fn startPiJson(model: *Model, fx: *Effects, session: *const Session, prompt:
     n += 1;
     argv_buf[n] = "--mode";
     n += 1;
-    argv_buf[n] = "json";
+    argv_buf[n] = "rpc";
     n += 1;
-    if (at_path.len > 0) {
-        argv_buf[n] = at_path;
-        n += 1;
-    }
-    argv_buf[n] = prompt;
+    argv_buf[n] = "--no-session";
     n += 1;
 
     model.fx_spawn_acp = false;
@@ -795,7 +875,7 @@ pub fn startPiJson(model: *Model, fx: *Effects, session: *const Session, prompt:
     fx.spawn(.{
         .key = allocateFxSpawnKey(model),
         .argv = argv_buf[0..n],
-        .stdin = "",
+        .stdin = stdin,
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
@@ -1738,7 +1818,7 @@ test "amp execute-mode reuses fx_ask_chdir_script when project cwd exists" {
     try testing.expectEqualStrings(project, request.argv[binary_at - 1]);
 }
 
-test "pi + cli_available selects json-mode pi --mode json {prompt}" {
+test "pi + cli_available selects one-shot pi --mode rpc --no-session with stdin prompt" {
     const testing = std.testing;
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
@@ -1761,8 +1841,10 @@ test "pi + cli_available selects json-mode pi --mode json {prompt}" {
     try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(testArgvHas(request.argv, "pi"));
     try testing.expect(testArgvHas(request.argv, "--mode"));
-    try testing.expect(testArgvHas(request.argv, "json"));
-    try testing.expect(testArgvHas(request.argv, "hello pi"));
+    try testing.expect(testArgvHas(request.argv, "rpc"));
+    try testing.expect(testArgvHas(request.argv, "--no-session"));
+    try testing.expect(!testArgvHas(request.argv, "hello pi"));
+    try testing.expect(!testArgvHas(request.argv, "json"));
     try testing.expect(!testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
     try testing.expect(!testArgvHas(request.argv, "acp"));
     try testing.expect(!testArgvHas(request.argv, "agent"));
@@ -1774,7 +1856,6 @@ test "pi + cli_available selects json-mode pi --mode json {prompt}" {
     try testing.expect(!testArgvHas(request.argv, "-p"));
     try testing.expect(!testArgvHas(request.argv, "--print"));
     try testing.expect(!testArgvHas(request.argv, "--output-format"));
-    try testing.expect(!testArgvHas(request.argv, "rpc"));
     try testing.expect(!testArgvHas(request.argv, "-a"));
     try testing.expect(!testArgvHas(request.argv, "--approve"));
     try testing.expect(!testArgvHas(request.argv, "--no-approve"));
@@ -1782,15 +1863,16 @@ test "pi + cli_available selects json-mode pi --mode json {prompt}" {
     try testing.expect(!testArgvHas(request.argv, "--dangerously-allow-all"));
     try testing.expect(!testArgvHas(request.argv, daemon_proxy.SUBCOMMAND));
     try testing.expect(!testArgvHas(request.argv, "--image"));
-    try testing.expectEqualStrings("", request.stdin);
+    try testing.expectEqualStrings("{\"id\":\"1\",\"type\":\"prompt\",\"message\":\"hello pi\"}\n", request.stdin);
     try testing.expectEqualStrings("", model.lastSpawnImagePath());
     const binary_at = testArgvIndex(request.argv, "pi") orelse return error.MissingBinary;
     const mode_at = testArgvIndex(request.argv, "--mode") orelse return error.MissingMode;
-    const json_at = testArgvIndex(request.argv, "json") orelse return error.MissingJson;
-    const prompt_at = testArgvIndex(request.argv, "hello pi") orelse return error.MissingPrompt;
+    const rpc_at = testArgvIndex(request.argv, "rpc") orelse return error.MissingRpc;
+    const no_session_at = testArgvIndex(request.argv, "--no-session") orelse return error.MissingNoSession;
     try testing.expectEqual(binary_at + 1, mode_at);
-    try testing.expectEqual(mode_at + 1, json_at);
-    try testing.expectEqual(json_at + 1, prompt_at);
+    try testing.expectEqual(mode_at + 1, rpc_at);
+    try testing.expectEqual(rpc_at + 1, no_session_at);
+    try testing.expectEqual(no_session_at + 1, request.argv.len);
 }
 
 test "pi unavailable stays demo" {
@@ -1851,15 +1933,13 @@ test "fx session stays demo when fx is missing even if pi is available" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
-test "pi image attach uses json-mode @path" {
+test "pi image attach uses RPC images on the stdin prompt command" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
     var image_buf: [256]u8 = undefined;
     const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/pi-shot.png", .{tmp.sub_path[0..]});
     try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
-    var at_buf: [257]u8 = undefined;
-    const at_image = try std.fmt.bufPrint(&at_buf, "@{s}", .{image});
 
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
@@ -1884,30 +1964,32 @@ test "pi image attach uses json-mode @path" {
     const request = fx.pendingSpawnAt(0).?;
     try testing.expect(testArgvHas(request.argv, "pi"));
     try testing.expect(testArgvHas(request.argv, "--mode"));
-    try testing.expect(testArgvHas(request.argv, "json"));
-    try testing.expect(testArgvHas(request.argv, at_image));
-    try testing.expect(testArgvHas(request.argv, "describe this"));
+    try testing.expect(testArgvHas(request.argv, "rpc"));
+    try testing.expect(testArgvHas(request.argv, "--no-session"));
+    try testing.expect(!testArgvHas(request.argv, "describe this"));
     try testing.expect(!testArgvHas(request.argv, image));
     try testing.expect(!testArgvHas(request.argv, "--image"));
+    try testing.expect(!testArgvHas(request.argv, "json"));
     try testing.expect(!testArgvHas(request.argv, "-p"));
     try testing.expect(!testArgvHas(request.argv, "--print"));
-    try testing.expect(!testArgvHas(request.argv, "rpc"));
     try testing.expect(!testArgvHas(request.argv, "-a"));
     try testing.expect(!testArgvHas(request.argv, "--approve"));
     try testing.expect(!testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
     try testing.expect(!testArgvHas(request.argv, "ask"));
     try testing.expect(!testArgvHas(request.argv, "fx"));
     try testing.expect(!testArgvHas(request.argv, daemon_proxy.SUBCOMMAND));
-    try testing.expectEqualStrings("", request.stdin);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"prompt\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"message\":\"describe this\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"images\":[{\"type\":\"image\",\"data\":\"cG5n\",\"mimeType\":\"image/png\"}]") != null);
+    try testing.expect(std.mem.endsWith(u8, request.stdin, "\n"));
     const binary_at = testArgvIndex(request.argv, "pi") orelse return error.MissingBinary;
     const mode_at = testArgvIndex(request.argv, "--mode") orelse return error.MissingMode;
-    const json_at = testArgvIndex(request.argv, "json") orelse return error.MissingJson;
-    const at_at = testArgvIndex(request.argv, at_image) orelse return error.MissingAtPath;
-    const prompt_at = testArgvIndex(request.argv, "describe this") orelse return error.MissingPrompt;
+    const rpc_at = testArgvIndex(request.argv, "rpc") orelse return error.MissingRpc;
+    const no_session_at = testArgvIndex(request.argv, "--no-session") orelse return error.MissingNoSession;
     try testing.expectEqual(binary_at + 1, mode_at);
-    try testing.expectEqual(mode_at + 1, json_at);
-    try testing.expectEqual(json_at + 1, at_at);
-    try testing.expectEqual(at_at + 1, prompt_at);
+    try testing.expectEqual(mode_at + 1, rpc_at);
+    try testing.expectEqual(rpc_at + 1, no_session_at);
+    try testing.expectEqual(no_session_at + 1, request.argv.len);
 }
 
 test "pi unavailable image attach stays demo" {
@@ -1936,7 +2018,87 @@ test "pi unavailable image attach stays demo" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
-test "pi json-mode reuses fx_ask_chdir_script when project cwd exists" {
+test "pi image attach unknown type stays demo" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/pi.bmp", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "bmp" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.pi)] = true;
+    const id = model.addSession("pi bmp", .pi);
+    model.selected = id;
+    model.setDraftImagePath(image);
+
+    startPrompt(&model, &fx, id, "describe this");
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(!model.fx_spawn_pi_json);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "pi image attach overflow stays demo" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/pi-over.png", .{tmp.sub_path[0..]});
+    var over: [acp.max_image_bytes + 1]u8 = undefined;
+    @memset(&over, 'A');
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = &over });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.pi)] = true;
+    const id = model.addSession("pi overflow", .pi);
+    model.selected = id;
+    model.setDraftImagePath(image);
+
+    startPrompt(&model, &fx, id, "describe this");
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(!model.fx_spawn_pi_json);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "pi image attach missing file stays demo" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.pi)] = true;
+    const id = model.addSession("pi missing file", .pi);
+    model.selected = id;
+    model.setDraftImagePath(".zig-cache/tmp/faku-pi-image-missing.png");
+
+    startPrompt(&model, &fx, id, "describe this");
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(!model.fx_spawn_pi_json);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "pi rpc reuses fx_ask_chdir_script when project cwd exists" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -1964,25 +2126,37 @@ test "pi json-mode reuses fx_ask_chdir_script when project cwd exists" {
     try testing.expect(testArgvHas(request.argv, "-c"));
     try testing.expect(testArgvHas(request.argv, fx_ask_chdir_script));
     try testing.expect(testArgvHas(request.argv, project));
+    try testing.expect(!testArgvHas(request.argv, "in project"));
+    try testing.expectEqualStrings("{\"id\":\"1\",\"type\":\"prompt\",\"message\":\"in project\"}\n", request.stdin);
     const binary_at = testArgvIndex(request.argv, "pi") orelse return error.MissingBinary;
     const mode_at = testArgvIndex(request.argv, "--mode") orelse return error.MissingMode;
-    const json_at = testArgvIndex(request.argv, "json") orelse return error.MissingJson;
-    const prompt_at = testArgvIndex(request.argv, "in project") orelse return error.MissingPrompt;
+    const rpc_at = testArgvIndex(request.argv, "rpc") orelse return error.MissingRpc;
+    const no_session_at = testArgvIndex(request.argv, "--no-session") orelse return error.MissingNoSession;
     try testing.expect(binary_at > 0);
     try testing.expectEqual(binary_at + 1, mode_at);
-    try testing.expectEqual(mode_at + 1, json_at);
-    try testing.expectEqual(json_at + 1, prompt_at);
+    try testing.expectEqual(mode_at + 1, rpc_at);
+    try testing.expectEqual(rpc_at + 1, no_session_at);
+    try testing.expectEqual(no_session_at + 1, request.argv.len);
     try testing.expectEqualStrings(project, request.argv[binary_at - 1]);
 }
 
-test "pi @path join overflow fails closed" {
+test "writePiRpcPromptStdin builds one LF-terminated prompt JSONL line" {
     const testing = std.testing;
-    var tiny: [4]u8 = undefined;
-    try testing.expect(formatPiAtPath(&tiny, "/too/long/image.png") == null);
-    var ok_buf: [32]u8 = undefined;
-    const ok = formatPiAtPath(&ok_buf, "shot.png") orelse return error.JoinFailed;
-    try testing.expectEqualStrings("@shot.png", ok);
-    try testing.expect(formatPiAtPath(&ok_buf, "") == null);
+    var buf: [256]u8 = undefined;
+    const line = try writePiRpcPromptStdin(&buf, "hello", null);
+    try testing.expectEqualStrings("{\"id\":\"1\",\"type\":\"prompt\",\"message\":\"hello\"}\n", line);
+
+    const escaped = try writePiRpcPromptStdin(&buf, "say \"hi\"\nnext", null);
+    try testing.expectEqualStrings("{\"id\":\"1\",\"type\":\"prompt\",\"message\":\"say \\\"hi\\\"\\nnext\"}\n", escaped);
+
+    const with_image = try writePiRpcPromptStdin(&buf, "look", .{ .bytes = "png", .mime_type = "image/png" });
+    try testing.expectEqualStrings(
+        "{\"id\":\"1\",\"type\":\"prompt\",\"message\":\"look\",\"images\":[{\"type\":\"image\",\"data\":\"cG5n\",\"mimeType\":\"image/png\"}]}\n",
+        with_image,
+    );
+
+    var tiny: [8]u8 = undefined;
+    try testing.expectError(error.NoSpaceLeft, writePiRpcPromptStdin(&tiny, "hello", null));
 }
 
 test "fx path stays preferred when provider is fx even if claude is available" {

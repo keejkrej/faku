@@ -2072,9 +2072,11 @@ pub const Model = struct {
     next_fx_key: u64 = fx_spawn_overlap_key_first,
     fx_spawn_live: bool = false,
     fx_spawn_acp: bool = false,
-    /// Pi `--mode json` stdout is JSON event lines, not assistant
-    /// prose. When true, `handleFxLine` routes to the Pi JSON parser
-    /// (live `text_delta`; raw JSON is not dumped into the transcript).
+    /// Pi `--mode rpc` stdout is RPC JSONL events, not assistant
+    /// prose. When true, `handleFxLine` routes to the Pi JSONL parser
+    /// (live `message_update` / `text_delta`; raw JSON is not dumped
+    /// into the transcript). Flag name still means “Pi JSONL stdout
+    /// parser”.
     fx_spawn_pi_json: bool = false,
     /// Claude print-mode `--output-format stream-json` stdout is NDJSON
     /// events, not assistant prose. When true, `handleFxLine` routes to
@@ -8366,10 +8368,12 @@ pub const Model = struct {
 
     /// Composer image path when the draft has a non-empty path that exists.
     /// Used as `fx ask --image`, `codex exec --image`, Amp execute-mode
-    /// `@{path}` in the `-x` prompt, Pi json-mode `@{path}`, Claude
+    /// `@{path}` in the `-x` prompt, Claude
     /// print-mode path-in-prompt, and non-fx ACP stdio image content
-    /// blocks (cursor / opencode / kimi / grok). Missing files omit the attach
-    /// for fx/Claude/Codex/Amp/Pi; ACP stdio fail-closes to demo.
+    /// blocks (cursor / opencode / kimi / grok). Pi RPC does not use
+    /// this omit-missing path: a composer image fail-closes like ACP
+    /// (read into documented RPC `images`). Missing files omit the attach
+    /// for fx/Claude/Codex/Amp; ACP stdio and Pi RPC fail-close to demo.
     /// Native spawn has no attachment/blob API.
     pub fn resolveSpawnImage(model: *const Model) []const u8 {
         const path = model.draftImagePath();
