@@ -8,9 +8,11 @@
 //! `main`. Maximize spawn/exit helpers live in `maximize_window.zig`.
 //! Probe helpers live in `fx_probe.zig`. Stream finish still comes
 //! from `stream.zig`. Behavior is unchanged from the former `main` line
-//! handlers except Pi `--mode json` and Claude `--output-format
+//! handlers except Pi `--mode rpc` JSONL and Claude `--output-format
 //! stream-json` stdout, which are parsed as JSON events instead of
-//! appended as prose. Claude `parent_tool_use_id` is subagent
+//! appended as prose. Pi live assistant text is RPC
+//! `message_update` → `assistantMessageEvent.type == "text_delta"`
+//! → `delta` (not json-mode top-level `type:"text_delta"`). Claude `parent_tool_use_id` is subagent
 //! traffic (not main-turn append; live Subagent Background with a
 //! bounded 512KB last-window from forwarded `parent_tool_use_id`
 //! text). Claude `tool_use` with `name` `Monitor` is live Monitor
@@ -364,13 +366,15 @@ const PiJsonParsed = struct {
     text: []const u8 = "",
 };
 
-/// Official Pi `--mode json` event line. Documented at
-/// earendil-works/pi `packages/coding-agent/docs/json.md`. Unknown
-/// types, malformed JSON, and non-objects are `.ignore` (never
-/// assistant prose). `text_delta` is the live stream.
-/// `message_end` carries the authoritative assistant message for
-/// fallback when no deltas arrived. `session.id` reuses the existing
-/// `fx_session_id` slot.
+/// Official Pi `--mode rpc` JSONL event line. Documented at
+/// https://pi.dev/docs/latest/rpc and earendil-works/pi
+/// `packages/coding-agent/docs/rpc.md`. Unknown types (including
+/// json-mode top-level `type:"text_delta"`), malformed JSON, and
+/// non-objects are `.ignore` (never assistant prose). Live assistant
+/// text is `message_update` → `assistantMessageEvent.type ==
+/// "text_delta"` → `delta`. `message_end` carries the authoritative
+/// assistant message for fallback when no deltas arrived. `session.id`
+/// reuses the existing `fx_session_id` slot when Pi emits it.
 fn parsePiJsonLine(line: []const u8, allocator: std.mem.Allocator) PiJsonParsed {
     const trimmed = std.mem.trim(u8, line, " \t\r\n");
     if (trimmed.len < 2 or trimmed[0] != '{') return .{};
@@ -1331,7 +1335,7 @@ fn piJsonTurnText(model: *Model, turn_id: u32) []const u8 {
     return turn.text();
 }
 
-test "pi json parser: text_delta extracts; unknown and malformed ignored" {
+test "pi rpc parser: message_update text_delta extracts; unknown and malformed ignored" {
     const testing = std.testing;
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
@@ -1363,11 +1367,18 @@ test "pi json parser: text_delta extracts; unknown and malformed ignored" {
     const malformed = parsePiJsonLine("not json {", alloc);
     try testing.expectEqual(PiJsonKind.ignore, malformed.kind);
 
+    const json_mode_delta = parsePiJsonLine("{\"type\":\"text_delta\",\"delta\":\"Hello\"}", alloc);
+    try testing.expectEqual(PiJsonKind.ignore, json_mode_delta.kind);
+    try testing.expectEqualStrings("", json_mode_delta.text);
+
+    const response = parsePiJsonLine("{\"id\":\"1\",\"type\":\"response\",\"command\":\"prompt\",\"success\":true}", alloc);
+    try testing.expectEqual(PiJsonKind.ignore, response.kind);
+
     const raw_object = parsePiJsonLine("{\"type\":\"agent_end\",\"messages\":[]}", alloc);
     try testing.expectEqual(PiJsonKind.ignore, raw_object.kind);
 }
 
-test "pi json parser: session id and message_end assistant text" {
+test "pi rpc parser: session id and message_end assistant text" {
     const testing = std.testing;
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
@@ -1397,7 +1408,7 @@ test "pi json parser: session id and message_end assistant text" {
     try testing.expectEqual(PiJsonKind.ignore, user_end.kind);
 }
 
-test "pi json apply: text_delta appends; raw JSON is not assistant prose" {
+test "pi rpc apply: text_delta appends; raw JSON is not assistant prose" {
     const testing = std.testing;
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
@@ -1415,6 +1426,9 @@ test "pi json apply: text_delta appends; raw JSON is not assistant prose" {
     try testing.expectEqualStrings("", piJsonTurnText(&model, turn_id));
 
     handleFxLine(&model, &fx, .{ .key = fx_ask_key, .line = "not json" });
+    try testing.expectEqualStrings("", piJsonTurnText(&model, turn_id));
+
+    handleFxLine(&model, &fx, .{ .key = fx_ask_key, .line = "{\"type\":\"text_delta\",\"delta\":\"json-mode\"}" });
     try testing.expectEqualStrings("", piJsonTurnText(&model, turn_id));
 
     handleFxLine(&model, &fx, .{
@@ -1442,7 +1456,7 @@ test "pi json apply: text_delta appends; raw JSON is not assistant prose" {
     try testing.expectEqualStrings("pi-sess-1", model.sessionById(sid).?.fxSessionId());
 }
 
-test "pi json apply: message_end fallback only when no text_delta" {
+test "pi rpc apply: message_end fallback only when no text_delta" {
     const testing = std.testing;
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();

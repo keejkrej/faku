@@ -2256,7 +2256,7 @@ test "send with amp unavailable still starts the demo timer" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
-test "send with pi cli_available spawns json-mode and streams text_delta as assistant text" {
+test "send with pi cli_available spawns rpc one-shot and streams message_update text_delta as assistant text" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -2282,11 +2282,12 @@ test "send with pi cli_available spawns json-mode and streams text_delta as assi
     try testing.expectEqual(effect_keys.fx_ask_key, request.key);
     try testing.expect(argvHas(request.argv, "pi"));
     try testing.expect(argvHas(request.argv, "--mode"));
-    try testing.expect(argvHas(request.argv, "json"));
-    try testing.expect(argvHas(request.argv, "what files are here"));
+    try testing.expect(argvHas(request.argv, "rpc"));
+    try testing.expect(argvHas(request.argv, "--no-session"));
+    try testing.expect(!argvHas(request.argv, "what files are here"));
+    try testing.expect(!argvHas(request.argv, "json"));
     try testing.expect(!argvHas(request.argv, "-p"));
     try testing.expect(!argvHas(request.argv, "--print"));
-    try testing.expect(!argvHas(request.argv, "rpc"));
     try testing.expect(!argvHas(request.argv, "-a"));
     try testing.expect(!argvHas(request.argv, "--approve"));
     try testing.expect(!argvHas(request.argv, "--no-approve"));
@@ -2295,14 +2296,14 @@ test "send with pi cli_available spawns json-mode and streams text_delta as assi
     try testing.expect(!argvHas(request.argv, "ask"));
     try testing.expect(!argvHas(request.argv, "fx"));
     try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
-    try testing.expectEqualStrings("", request.stdin);
+    try testing.expectEqualStrings("{\"id\":\"1\",\"type\":\"prompt\",\"message\":\"what files are here\"}\n", request.stdin);
     const binary_at = argvIndex(request.argv, "pi") orelse return error.MissingBinary;
     const mode_at = argvIndex(request.argv, "--mode") orelse return error.MissingMode;
-    const json_at = argvIndex(request.argv, "json") orelse return error.MissingJson;
-    const prompt_at = argvIndex(request.argv, "what files are here") orelse return error.MissingPrompt;
+    const rpc_at = argvIndex(request.argv, "rpc") orelse return error.MissingRpc;
+    const no_session_at = argvIndex(request.argv, "--no-session") orelse return error.MissingNoSession;
     try testing.expectEqual(binary_at + 1, mode_at);
-    try testing.expectEqual(mode_at + 1, json_at);
-    try testing.expectEqual(json_at + 1, prompt_at);
+    try testing.expectEqual(mode_at + 1, rpc_at);
+    try testing.expectEqual(rpc_at + 1, no_session_at);
 
     try fx.feedLine(effect_keys.fx_ask_key, "{\"type\":\"session\",\"id\":\"pi-sess-send\",\"version\":3}");
     drainEffects(&model, &fx);
@@ -2314,10 +2315,10 @@ test "send with pi cli_available spawns json-mode and streams text_delta as assi
     try testing.expectEqualStrings("", lastAssistant(&model));
 
     const before_len = lastAssistant(&model).len;
-    try fx.feedLine(effect_keys.fx_ask_key, "{\"type\":\"message_update\",\"assistantMessageEvent\":{\"type\":\"text_delta\",\"delta\":\"hello from pi json\"}}");
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"type\":\"message_update\",\"assistantMessageEvent\":{\"type\":\"text_delta\",\"delta\":\"hello from pi rpc\"}}");
     drainEffects(&model, &fx);
     try testing.expect(lastAssistant(&model).len > before_len);
-    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from pi json") != null);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from pi rpc") != null);
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "agent_start") == null);
 
     try fx.feedExit(effect_keys.fx_ask_key, 0);
