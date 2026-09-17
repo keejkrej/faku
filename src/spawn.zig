@@ -9,8 +9,8 @@
 //! re-exported from `main`. Stream lifecycle lives in
 //! `stream.zig`. Line handlers live in `lines.zig`.
 //! `startPrompt` prepends stripped enabled-skill bodies for `$name`
-//! tokens (see `skills.prepareSendPrompt`) before spawn; untitled
-//! titles keep the original draft.
+//! and skill-matching `/name` tokens (see `skills.prepareSendPrompt`)
+//! before spawn; untitled titles keep the original draft.
 //!
 //! Non-fx live Send this cut: `ProviderId.speaksAcpStdio` (cursor /
 //! opencode / kimi bare `acp`, grok `agent stdio`) when
@@ -84,10 +84,10 @@ const default_interaction_mode = model_exports.default_interaction_mode;
 const fx_env_bin = util.fx_env_bin;
 const fx_ask_chdir_script = util.fx_ask_chdir_script;
 
-/// Start a turn. Untitled titles use original `text`; `$name` skill
-/// bodies are prepended onto the prompt that is stored and spawned
-/// (`skills.prepareSendPrompt`). Worktree prep stores the original
-/// draft and expands here when Send finally runs.
+/// Start a turn. Untitled titles use original `text`; `$name` /
+/// skill-matching `/name` bodies are prepended onto the prompt that
+/// is stored and spawned (`skills.prepareSendPrompt`). Worktree prep
+/// stores the original draft and expands here when Send finally runs.
 pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u8) void {
     const session = model.sessionById(session_id) orelse return;
     session_fork.recordRewindRefIfPossible(model, fx, session.id);
@@ -2716,5 +2716,57 @@ test "startPrompt untitled title uses original draft; user turn stores expanded 
         \\Alpha body.
         \\
         \\$alpha ship it
+    , model.turn_store[0].text());
+}
+
+test "startPrompt untitled title uses original /name draft; user turn stores expanded skill bodies" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-send-slash-title", .{tmp.sub_path[0..]});
+    var skill_dir_buf: [256]u8 = undefined;
+    const skill_dir = try std.fmt.bufPrint(&skill_dir_buf, "{s}/skills/alpha", .{root});
+    try std.Io.Dir.cwd().createDirPath(testing.io, skill_dir);
+    var file_buf: [256]u8 = undefined;
+    const file_path = try std.fmt.bufPrint(&file_buf, "{s}/SKILL.md", .{skill_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = file_path,
+        .data =
+            \\---
+            \\name: alpha
+            \\---
+            \\
+            \\Alpha body.
+            \\
+        ,
+    });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("untitled slash", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| {
+        session.untitled = true;
+        session.setProjectPath(root);
+    }
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, root);
+    skills.applyStdoutPaths(&model, "skills/alpha/SKILL.md\n");
+    try testing.expectEqualStrings("alpha", skills.cachedName(&model, 0));
+
+    const draft = "/alpha ship it";
+    startPrompt(&model, &fx, id, draft);
+    try testing.expect(!model.sessionById(id).?.untitled);
+    try testing.expectEqualStrings(draft, model.sessionById(id).?.title());
+    try testing.expectEqual(model_exports.Role.user, model.turn_store[0].role);
+    try testing.expectEqualStrings(
+        \\### Skill: alpha
+        \\Alpha body.
+        \\
+        \\/alpha ship it
     , model.turn_store[0].text());
 }

@@ -1,5 +1,5 @@
-//! Settings Skills + composer `$` insert: bounded `SKILL.md` scan
-//! plus first-cut enable/disable via on-disk rename.
+//! Settings Skills + composer `$` insert / `/` slash rows: bounded
+//! `SKILL.md` scan plus first-cut enable/disable via on-disk rename.
 //!
 //! Native has no FS watcher. Unix one-shots a packed `find` for
 //! `SKILL.md` and `SKILL.md.disabled` (Waku `DISABLED_SKILL_FILE`)
@@ -9,7 +9,7 @@
 //! (`$args[0]`; same skip names / depth 8 / cap `max_skills`). Does
 //! **not** prune `.*` — project skills live under `.cursor/skills` /
 //! `.agents/skills`. Settings → Skills still `refresh`s on page open.
-//! Composer `$` calls `ensureScanned` even when
+//! Composer `$` / `/` slash-prefix calls `ensureScanned` even when
 //! `settings_page != .skills`. Scan root is the selected session
 //! `project_path` when that directory exists, else settings
 //! `last_project_path`. Skip `node_modules` / `target` / `dist` /
@@ -25,18 +25,22 @@
 //! interpolated into `-Command`). Tools discover skills by exact
 //! filename so the rename hides/shows the skill from fx and peers
 //! the same as Waku. Composer `$` inserts `$name ` for **enabled**
-//! skills only. Send prepends stripped `SKILL.md` bodies for `$name`
-//! tokens (enabled rows only; missing/unreadable omit that block)
-//! onto the prompt that `startPrompt` ships to every provider and
-//! stores as the user turn; untitled titles still use the original
-//! draft. Runtime-only (not `sessions.json`). Empty-state Open a
+//! skills only. Composer `/` slash card (`command_rows`) lists ACP
+//! `available_commands` first, then enabled `skill_store` rows
+//! whose names do not collide (ACP name wins). Skill-sourced insert
+//! writes `/name ` (ids `skillId + max_available_commands`). Slash
+//! prefix triggers `ensureScanned`. Send prepends stripped
+//! `SKILL.md` bodies for `$name` and skill-matching `/name` tokens
+//! (enabled rows only; missing/unreadable omit that block) onto the
+//! prompt that `startPrompt` ships to every provider and stores as
+//! the user turn; untitled titles still use the original draft.
+//! Runtime-only (not `sessions.json`). Empty-state Open a
 //! project / No skills found follow `i18n.SkillsEmptyChrome`
 //! (distinct from FilterChrome / RightPanelChrome; composer `$`
 //! insert empty reuses the same hint). Enable / Disable / Disabled
 //! badge follow `i18n.SkillsEnableChrome` (distinct from
-//! ProvidersChrome). Not a daemon SkillsCatalog / WorkspaceOperation,
-//! not ACP `/name` slash rows. Not a Native FS API. app.zon already
-//! includes windows.
+//! ProvidersChrome). Not a daemon SkillsCatalog / WorkspaceOperation.
+//! Not a Native FS API. app.zon already includes windows.
 //!
 //! Spawn/line/exit orchestration lives here. Tests do not need a live
 //! daemon or fx.
@@ -397,6 +401,21 @@ pub fn skillId(index: usize) u32 {
     return @intCast(index + 1);
 }
 
+/// Composer `/` slash-card id for a `skill_store` row. Offset by
+/// `max_available_commands` so Native `insert_command:{c.id}` never
+/// collides with ACP 1-based ids.
+pub fn slashCommandId(index: usize) u32 {
+    return skillId(index) + @as(u32, @intCast(model_exports.max_available_commands));
+}
+
+/// Inverse of `slashCommandId`. `null` when `id` is in the ACP band
+/// (`1…max_available_commands`).
+pub fn slashCommandIndex(id: u32) ?usize {
+    const base = @as(u32, @intCast(model_exports.max_available_commands));
+    if (id <= base) return null;
+    return @as(usize, id - base - 1);
+}
+
 pub fn clearCache(model: *Model) void {
     model.skill_count = 0;
     model.skill_selected_id = 0;
@@ -438,7 +457,7 @@ pub fn close(model: *Model, fx: *Effects) void {
 
 /// One-shot find when the probe path is empty or changed. No-op when
 /// that path is already current (in-flight or a finished scan), so a
-/// composer `$to…` keystroke does not spawn again. Works when
+/// composer `$to…` / `/` keystroke does not spawn again. Works when
 /// `settings_page != .skills`. Empty / missing skips.
 pub fn ensureScanned(model: *Model, fx: *Effects) void {
     if (!scanSupported()) return;
@@ -810,8 +829,9 @@ fn appendSlice(out: []u8, pos: *usize, slice: []const u8) bool {
     return true;
 }
 
-/// Prepend stripped bodies for `$name` tokens in `text` (enabled
-/// cache rows only, first-occurrence order, missing files omitted).
+/// Prepend stripped bodies for `$name` / skill-matching `/name`
+/// tokens in `text` (enabled cache rows only, first-occurrence
+/// order, missing files omitted; `$alpha` and `/alpha` dedupe).
 /// Returns `text` unchanged when nothing matches. Output is capped
 /// to `out` (callers pass `max_body`) so the stored user turn and
 /// the provider prompt stay the same slice; original draft is always
@@ -855,9 +875,9 @@ pub fn expandPrompt(model: *const Model, text: []const u8, out: []u8) []const u8
     return out[0..pos];
 }
 
-/// Kick a project scan when `$name` tokens are present, then expand.
-/// Scan is async (Native has no sync walk); first Send after a paste
-/// may still no-op until the cache fills.
+/// Kick a project scan when `$name` / `/name` tokens are present,
+/// then expand. Scan is async (Native has no sync walk); first Send
+/// after a paste may still no-op until the cache fills.
 pub fn prepareSendPrompt(model: *Model, fx: *Effects, text: []const u8, out: []u8) []const u8 {
     if (composer.draftHasSkillToken(text)) {
         ensureScanned(model, fx);
@@ -1552,6 +1572,8 @@ test "expandPrompt no-op without $ tokens or matching enabled skills" {
     try testing.expectEqualStrings("just a prompt", expandPrompt(&model, "just a prompt", &out));
     try testing.expectEqualStrings("price$", expandPrompt(&model, "price$", &out));
     try testing.expectEqualStrings("$unknown do it", expandPrompt(&model, "$unknown do it", &out));
+    try testing.expectEqualStrings("/unknown do it", expandPrompt(&model, "/unknown do it", &out));
+    try testing.expectEqualStrings("/", expandPrompt(&model, "/", &out));
 }
 
 test "expandPrompt prepends enabled bodies in first-occurrence order; dedupes; skips disabled and missing" {
@@ -1596,4 +1618,41 @@ test "expandPrompt prepends enabled bodies in first-occurrence order; dedupes; s
 
     const disabled_only = expandPrompt(&model, "$off please", &out);
     try testing.expectEqualStrings("$off please", disabled_only);
+
+    const slash_expanded = expandPrompt(&model, "/beta then $alpha and /beta again plus /off and /gone", &out);
+    try testing.expectEqualStrings(
+        \\### Skill: beta
+        \\Beta body.
+        \\
+        \\### Skill: alpha
+        \\Alpha body.
+        \\
+        \\/beta then $alpha and /beta again plus /off and /gone
+    , slash_expanded);
+
+    const slash_missing = expandPrompt(&model, "/gone only", &out);
+    try testing.expectEqualStrings("/gone only", slash_missing);
+
+    const slash_disabled = expandPrompt(&model, "/off please", &out);
+    try testing.expectEqualStrings("/off please", slash_disabled);
+
+    const mixed_dedupe = expandPrompt(&model, "$alpha then /alpha", &out);
+    try testing.expectEqualStrings(
+        \\### Skill: alpha
+        \\Alpha body.
+        \\
+        \\$alpha then /alpha
+    , mixed_dedupe);
+}
+
+test "slashCommandId sits above ACP max_available_commands" {
+    const testing = std.testing;
+    try testing.expectEqual(@as(u32, 1), skillId(0));
+    try testing.expectEqual(@as(u32, @intCast(model_exports.max_available_commands + 1)), slashCommandId(0));
+    try testing.expectEqual(@as(u32, @intCast(model_exports.max_available_commands + 2)), slashCommandId(1));
+    try testing.expectEqual(@as(usize, 0), slashCommandIndex(slashCommandId(0)).?);
+    try testing.expectEqual(@as(usize, 3), slashCommandIndex(slashCommandId(3)).?);
+    try testing.expect(slashCommandIndex(0) == null);
+    try testing.expect(slashCommandIndex(1) == null);
+    try testing.expect(slashCommandIndex(@intCast(model_exports.max_available_commands)) == null);
 }
