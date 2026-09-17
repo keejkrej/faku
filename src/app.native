@@ -1511,7 +1511,7 @@
                     <text wrap="true" foreground="text_muted">{review_diff_hunk_status}</text>
                   </if>
                   <if test="{has_review_diff_hunk}">
-                    <scroll grow="1" label="{review_hunks_label}">
+                    <scroll grow="1" label="{review_hunks_label}" overscroll="none">
                       <use template="review-hunk-rows" />
                     </scroll>
                   </if>
@@ -1520,7 +1520,7 @@
                   <row>
                     <search-field grow="1" height="24" placeholder="{review_diff_filter_placeholder}" text="{review_diff_filter}" on-input="review_diff_filter_edit" label="right-panel-diff-filter" />
                   </row>
-                  <scroll grow="1" label="{review_files_label}">
+                  <scroll grow="1" label="{review_files_label}" overscroll="none">
                     <column gap="2">
                       <!-- Diff tree reuses Files `file_icon` (`r.icon`): dirs
                            folder / folder-open, files Material `app:`
@@ -1583,7 +1583,7 @@
                 <row>
                   <search-field grow="1" height="24" placeholder="{review_diff_filter_placeholder}" text="{review_diff_filter}" on-input="review_diff_filter_edit" label="right-panel-diff-filter" />
                 </row>
-                <scroll grow="1" label="{review_files_label}">
+                <scroll grow="1" label="{review_files_label}" overscroll="none">
                   <column gap="2">
                     <for each="review_diff_rows" key="id" as="r">
                       <if test="{r.is_directory}">
@@ -1650,7 +1650,7 @@
                 <text wrap="true" foreground="text_muted">{review_diff_hunk_status}</text>
               </if>
               <if test="{has_review_diff_hunk}">
-                <scroll grow="1" label="{review_hunks_label}">
+                <scroll grow="1" label="{review_hunks_label}" overscroll="none">
                   <use template="review-hunk-rows" />
                 </scroll>
               </if>
@@ -1758,7 +1758,7 @@
                 <button variant="ghost" size="sm" on-press="environment_stop_background:{background_work_row_id}">{background_work_stop_label}</button>
               </if>
               <if test="{background_work_has_output}">
-                <scroll grow="1" label="{background_output_label}">
+                <scroll grow="1" label="{background_output_label}" overscroll="none">
                   <text wrap="true" foreground="text_muted">{background_work_output}</text>
                 </scroll>
               </if>
@@ -1865,7 +1865,7 @@
                     </if>
                     <else>
                     <if test="{file_preview_has_body}">
-                      <scroll grow="1" label="{file_preview_body_label}">
+                      <scroll grow="1" label="{file_preview_body_label}" overscroll="none">
                         <column grow="1">
                           <if test="{file_preview_language == 'zig'}">
                             <code source="{file_preview_body}" language="zig" line-numbers wrap="false" grow="1" label="{file_preview_source_region_label}" />
@@ -1932,7 +1932,7 @@
               </column>
               <column grow="1" min-width="140">
                 <use template="files-tree-header" />
-                <scroll grow="1">
+                <scroll grow="1" overscroll="none">
                   <use template="files-tree-rows" />
                 </scroll>
               </column>
@@ -1940,7 +1940,7 @@
             </if>
             <else>
               <use template="files-tree-header" />
-              <scroll grow="1">
+              <scroll grow="1" overscroll="none">
                 <use template="files-tree-rows" />
               </scroll>
             </else>
