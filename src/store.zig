@@ -50,7 +50,7 @@
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
 //! `last_reasoning_effort` /
 //! `last_project_path` / `last_daemon_address` / `theme_preference` /
-//! `ui_font_size` / `language_preference` / `disabled_providers` so the settings gear and
+//! `ui_font_size` / `code_font_size` / `language_preference` / `disabled_providers` so the settings gear and
 //! composer chips can edit persisted defaults, and `folders` /
 //! `collapsed_folder_ids` so New folder groups persist. A session
 //! `folder_id` of 0 (or omitted) stays in the ungrouped date buckets
@@ -291,6 +291,7 @@ pub fn saveSession(model: *const Model, session_id: u32, allocator: std.mem.Allo
     document.last_daemon_address = lastDaemonAddressForSave(model);
     document.theme_preference = model.theme_preference;
     document.ui_font_size = model.ui_font_size;
+    document.code_font_size = model.code_font_size;
     document.language_preference = model.language_preference;
     document.disabled_providers = model.disabled_providers;
     applySidebarExtras(&document, model);
@@ -334,6 +335,7 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
     document.last_daemon_address = lastDaemonAddressForSave(model);
     document.theme_preference = model.theme_preference;
     document.ui_font_size = model.ui_font_size;
+    document.code_font_size = model.code_font_size;
     document.language_preference = model.language_preference;
     document.disabled_providers = model.disabled_providers;
     applySidebarExtras(&document, model);
@@ -393,7 +395,7 @@ pub fn persistLayoutIfPossible(model: *const Model) void {
 
 /// Merge-only write of settings extras (`last_model`, `last_access_mode`,
 /// `last_interaction_mode`, `last_reasoning_effort`, `last_project_path`, `last_daemon_address`,
-/// `theme_preference`, `ui_font_size`, `language_preference`, `disabled_providers`).
+/// `theme_preference`, `ui_font_size`, `code_font_size`, `language_preference`, `disabled_providers`).
 /// Same first-run rule as sidebar collapse: does not create `sessions.json`
 /// and does not spawn a daemon sidecar. Missing / corrupt catalogs are a no-op.
 pub fn persistSettingsIfPossible(model: *const Model) void {
@@ -496,6 +498,7 @@ fn applySettingsExtras(document: *Document, model: *const Model) void {
     document.last_daemon_address = model.lastDaemonAddress();
     document.theme_preference = model.theme_preference;
     document.ui_font_size = model.ui_font_size;
+    document.code_font_size = model.code_font_size;
     document.language_preference = model.language_preference;
     document.disabled_providers = model.disabled_providers;
 }
@@ -1023,6 +1026,7 @@ const Document = struct {
     last_daemon_address: []const u8 = "",
     theme_preference: model_exports.ThemePreference = .system,
     ui_font_size: u8 = model_exports.default_ui_font_size,
+    code_font_size: u8 = model_exports.default_code_font_size,
     language_preference: model_exports.LanguagePreference = .system,
     disabled_providers: [protocol.provider_id_count]bool = [_]bool{false} ** protocol.provider_id_count,
     sidebar_collapsed: bool = false,
@@ -1058,6 +1062,7 @@ const Document = struct {
             .last_daemon_address = lastDaemonAddressForSave(model),
             .theme_preference = model.theme_preference,
             .ui_font_size = model.ui_font_size,
+            .code_font_size = model.code_font_size,
             .language_preference = model.language_preference,
             .disabled_providers = model.disabled_providers,
             .sidebar_collapsed = model.sidebar_collapsed,
@@ -1128,6 +1133,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.setLastDaemonAddress(document.last_daemon_address);
     model.theme_preference = document.theme_preference;
     model.ui_font_size = document.ui_font_size;
+    model.code_font_size = document.code_font_size;
     model.language_preference = document.language_preference;
     model.disabled_providers = document.disabled_providers;
     model.sidebar_collapsed = document.sidebar_collapsed;
@@ -1426,6 +1432,7 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
     const parsed_term_slots = parseTerminalSlots(obj.get("terminal_slots"));
     const parsed_term_active = persistedTerminalActive(jsonUint(obj.get("terminal_active")));
 
+    const parsed_ui_font_size = parseUiFontSize(obj.get("ui_font_size"));
     return .{
         .version = version,
         .selected = jsonUint(obj.get("selected")) orelse 0,
@@ -1439,7 +1446,8 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .last_reasoning_effort = jsonString(obj.get("last_reasoning_effort")) orelse "",
         .last_daemon_address = jsonString(obj.get("last_daemon_address")) orelse "",
         .theme_preference = model_exports.ThemePreference.fromPersist(jsonString(obj.get("theme_preference")) orelse ""),
-        .ui_font_size = parseUiFontSize(obj.get("ui_font_size")),
+        .ui_font_size = parsed_ui_font_size,
+        .code_font_size = parseCodeFontSize(obj.get("code_font_size"), parsed_ui_font_size),
         .language_preference = model_exports.LanguagePreference.fromPersist(jsonString(obj.get("language_preference")) orelse ""),
         .disabled_providers = parseDisabledProviders(obj.get("disabled_providers")),
         .sidebar_collapsed = jsonBool(obj.get("sidebar_collapsed")) orelse false,
@@ -1684,6 +1692,17 @@ fn jsonUint(value: ?std.json.Value) ?u32 {
 fn parseUiFontSize(value: ?std.json.Value) u8 {
     const n = jsonUint(value) orelse return model_exports.default_ui_font_size;
     return model_exports.sanitizeUiFontSize(n);
+}
+
+/// Missing / unknown / out-of-range `code_font_size` copies sanitized
+/// `ui_font_size` so a #549 UI bump keeps larger message/code body.
+/// Explicit valid ladder value wins.
+fn parseCodeFontSize(value: ?std.json.Value, ui_font_size: u8) u8 {
+    const n = jsonUint(value) orelse return ui_font_size;
+    for (model_exports.code_font_sizes) |allowed| {
+        if (n == allowed) return allowed;
+    }
+    return ui_font_size;
 }
 
 fn jsonU64(value: ?std.json.Value) ?u64 {
@@ -1962,6 +1981,8 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
     try appendJsonString(&out, allocator, document.theme_preference.persistName());
     try out.appendSlice(allocator, ",\"ui_font_size\":");
     try appendUint(&out, allocator, @as(u32, document.ui_font_size));
+    try out.appendSlice(allocator, ",\"code_font_size\":");
+    try appendUint(&out, allocator, @as(u32, document.code_font_size));
     try out.appendSlice(allocator, ",\"language_preference\":");
     try appendJsonString(&out, allocator, document.language_preference.persistName());
     try out.appendSlice(allocator, ",\"disabled_providers\":[");
@@ -3393,6 +3414,7 @@ test "settings extras persist last_model access path and daemon; missing catalog
     source.setLastDaemonAddress("127.0.0.1:8787");
     source.theme_preference = .light;
     source.ui_font_size = 16;
+    source.code_font_size = 18;
     source.language_preference = .japanese;
     persistSettingsIfPossible(&source);
 
@@ -3408,6 +3430,7 @@ test "settings extras persist last_model access path and daemon; missing catalog
     try testing.expectEqualStrings("127.0.0.1:8787", loaded.lastDaemonAddress());
     try testing.expectEqual(model_exports.ThemePreference.light, loaded.theme_preference);
     try testing.expectEqual(@as(u8, 16), loaded.ui_font_size);
+    try testing.expectEqual(@as(u8, 18), loaded.code_font_size);
     try testing.expectEqual(model_exports.LanguagePreference.japanese, loaded.language_preference);
     try testing.expectEqual(@as(usize, 0), loaded.daemonAddress().len);
 
@@ -3432,6 +3455,7 @@ test "settings extras persist last_model access path and daemon; missing catalog
     try testing.expectEqualStrings("high", cleared.lastReasoningEffort());
     try testing.expectEqual(model_exports.ThemePreference.light, cleared.theme_preference);
     try testing.expectEqual(@as(u8, 16), cleared.ui_font_size);
+    try testing.expectEqual(@as(u8, 18), cleared.code_font_size);
     try testing.expectEqual(model_exports.LanguagePreference.japanese, cleared.language_preference);
 }
 
@@ -3540,6 +3564,7 @@ test "ui_font_size missing or unknown or out-of-range loads as 14; extras roundt
     missing.setStoreDir(dir);
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&missing, allocator, io));
     try testing.expectEqual(model_exports.default_ui_font_size, missing.ui_font_size);
+    try testing.expectEqual(model_exports.default_code_font_size, missing.code_font_size);
 
     try writeRaw(io, dir,
         \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"ui_font_size":"nope","sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
@@ -3593,6 +3618,86 @@ test "ui_font_size missing or unknown or out-of-range loads as 14; extras roundt
     sanitized.setStoreDir(dir);
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&sanitized, allocator, io));
     try testing.expectEqual(model_exports.default_ui_font_size, sanitized.ui_font_size);
+}
+
+test "code_font_size missing or unknown or out-of-range copies sanitized ui_font_size; explicit valid wins" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"ui_font_size":20,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var missing = Model{};
+    missing.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&missing, allocator, io));
+    try testing.expectEqual(@as(u8, 20), missing.ui_font_size);
+    try testing.expectEqual(@as(u8, 20), missing.code_font_size);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"ui_font_size":16,"code_font_size":"nope","sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var unknown = Model{};
+    unknown.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&unknown, allocator, io));
+    try testing.expectEqual(@as(u8, 16), unknown.ui_font_size);
+    try testing.expectEqual(@as(u8, 16), unknown.code_font_size);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"ui_font_size":18,"code_font_size":17,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var out_of_range = Model{};
+    out_of_range.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&out_of_range, allocator, io));
+    try testing.expectEqual(@as(u8, 18), out_of_range.ui_font_size);
+    try testing.expectEqual(@as(u8, 18), out_of_range.code_font_size);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var both_missing = Model{};
+    both_missing.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&both_missing, allocator, io));
+    try testing.expectEqual(model_exports.default_ui_font_size, both_missing.ui_font_size);
+    try testing.expectEqual(model_exports.default_code_font_size, both_missing.code_font_size);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"ui_font_size":20,"code_font_size":11,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var explicit = Model{};
+    explicit.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&explicit, allocator, io));
+    try testing.expectEqual(@as(u8, 20), explicit.ui_font_size);
+    try testing.expectEqual(@as(u8, 11), explicit.code_font_size);
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("code font later", .fx);
+    _ = source.appendTurn(id, .user, "remember code font");
+    try saveSession(&source, id, allocator, io);
+
+    source.setUiFontSize(11);
+    source.setCodeFontSize(20);
+    persistSettingsIfPossible(&source);
+    var split = Model{};
+    split.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&split, allocator, io));
+    try testing.expectEqual(@as(u8, 11), split.ui_font_size);
+    try testing.expectEqual(@as(u8, 20), split.code_font_size);
+
+    source.setCodeFontSize(17);
+    persistSettingsIfPossible(&source);
+    var sanitized = Model{};
+    sanitized.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&sanitized, allocator, io));
+    try testing.expectEqual(model_exports.default_code_font_size, sanitized.code_font_size);
+    try testing.expectEqual(@as(u8, 11), sanitized.ui_font_size);
 }
 
 test "disabled_providers persist round-trip; enabling clears; missing/unknown stay enabled" {

@@ -2,8 +2,9 @@
 //!
 //! `initialModel` is the first-run demo catalog (port + auth).
 //! `onAppearance` / `resolvedColorScheme` / `designTokens` keep Geist
-//! tokens in lockstep with OS appearance, Settings theme preference, and
-//! Settings UI font size. Callers import this module directly
+//! tokens in lockstep with OS appearance, Settings theme preference,
+//! Settings UI font size, and Settings code font size. Callers import
+//! this module directly
 //! (`boot.initialModel` / `boot.onAppearance` / `boot.resolvedColorScheme` /
 //! `boot.designTokens`). Not re-exported from `main`.
 //! Behavior is unchanged from the former `main` functions.
@@ -40,19 +41,25 @@ pub fn resolvedColorScheme(model: *const Model) canvas.ColorScheme {
     };
 }
 
-/// Scale house typography rungs from pack defaults so body tracks the
-/// selected UI font size. Default 14 is identity (current look). Uses
-/// documented `DesignTokenOverrides.typography` size fields only.
-pub fn typographyOverrides(ui_font_size: u8, pack: anytype) canvas.TypographyTokenOverrides {
-    const size = model_mod.sanitizeUiFontSize(ui_font_size);
-    const scale = @as(f32, @floatFromInt(size)) / @as(f32, @floatFromInt(model_mod.default_ui_font_size));
+/// Scale house typography rungs from pack defaults. `code_font_size`
+/// scales `body_size` only (messages, code, diffs, terminal — Native
+/// couples these to body_size). `ui_font_size` scales label / title /
+/// button / heading / display only (chrome/controls). Default both 14
+/// is identity (current look). Uses documented
+/// `DesignTokenOverrides.typography` size fields only. No separate mono
+/// size token.
+pub fn typographyOverrides(ui_font_size: u8, code_font_size: u8, pack: anytype) canvas.TypographyTokenOverrides {
+    const ui_size = model_mod.sanitizeUiFontSize(ui_font_size);
+    const code_size = model_mod.sanitizeCodeFontSize(code_font_size);
+    const ui_scale = @as(f32, @floatFromInt(ui_size)) / @as(f32, @floatFromInt(model_mod.default_ui_font_size));
+    const code_scale = @as(f32, @floatFromInt(code_size)) / @as(f32, @floatFromInt(model_mod.default_code_font_size));
     return .{
-        .body_size = pack.body_size * scale,
-        .label_size = pack.label_size * scale,
-        .title_size = pack.title_size * scale,
-        .button_size = pack.button_size * scale,
-        .heading_size = pack.heading_size * scale,
-        .display_size = pack.display_size * scale,
+        .body_size = pack.body_size * code_scale,
+        .label_size = pack.label_size * ui_scale,
+        .title_size = pack.title_size * ui_scale,
+        .button_size = pack.button_size * ui_scale,
+        .heading_size = pack.heading_size * ui_scale,
+        .display_size = pack.display_size * ui_scale,
     };
 }
 
@@ -72,7 +79,7 @@ pub fn designTokens(model: *const Model) canvas.DesignTokens {
         .reduce_motion = model.appearance.reduce_motion,
     }, .{
         .pixel_snap = .{ .geometry = false },
-        .typography = typographyOverrides(model.ui_font_size, pack.typography),
+        .typography = typographyOverrides(model.ui_font_size, model.code_font_size, pack.typography),
     });
 }
 
@@ -117,9 +124,10 @@ test "initialModel seeds the two demo sessions" {
     try std.testing.expectEqual(@as(u32, 4), model.turnCount(auth.id));
 }
 
-test "designTokens typography tracks ui_font_size; default 14 matches pack" {
+test "designTokens typography: body tracks code_font; label tracks ui_font; default 14 matches pack" {
     var model = Model{};
     try std.testing.expectEqual(model_mod.default_ui_font_size, model.ui_font_size);
+    try std.testing.expectEqual(model_mod.default_code_font_size, model.code_font_size);
 
     const contrast: canvas.ColorContrast = .standard;
     const scheme = resolvedColorScheme(&model);
@@ -139,21 +147,48 @@ test "designTokens typography tracks ui_font_size; default 14 matches pack" {
     try std.testing.expectEqual(pack.typography.display_size, default_tokens.typography.display_size);
 
     model.setUiFontSize(20);
-    const large = designTokens(&model);
-    const scale = 20.0 / 14.0;
-    try std.testing.expectApproxEqAbs(pack.typography.body_size * scale, large.typography.body_size, 0.001);
-    try std.testing.expectApproxEqAbs(pack.typography.label_size * scale, large.typography.label_size, 0.001);
-    try std.testing.expect(large.typography.body_size > default_tokens.typography.body_size);
-    try std.testing.expect(!large.pixel_snap.geometry);
+    const large_ui = designTokens(&model);
+    const ui_scale = 20.0 / 14.0;
+    try std.testing.expectEqual(pack.typography.body_size, large_ui.typography.body_size);
+    try std.testing.expectApproxEqAbs(pack.typography.label_size * ui_scale, large_ui.typography.label_size, 0.001);
+    try std.testing.expectApproxEqAbs(pack.typography.title_size * ui_scale, large_ui.typography.title_size, 0.001);
+    try std.testing.expectApproxEqAbs(pack.typography.button_size * ui_scale, large_ui.typography.button_size, 0.001);
+    try std.testing.expectApproxEqAbs(pack.typography.heading_size * ui_scale, large_ui.typography.heading_size, 0.001);
+    try std.testing.expectApproxEqAbs(pack.typography.display_size * ui_scale, large_ui.typography.display_size, 0.001);
+    try std.testing.expect(large_ui.typography.label_size > default_tokens.typography.label_size);
+    try std.testing.expect(!large_ui.pixel_snap.geometry);
+
+    model.setCodeFontSize(20);
+    const large_code = designTokens(&model);
+    const code_scale = 20.0 / 14.0;
+    try std.testing.expectApproxEqAbs(pack.typography.body_size * code_scale, large_code.typography.body_size, 0.001);
+    try std.testing.expectApproxEqAbs(pack.typography.label_size * ui_scale, large_code.typography.label_size, 0.001);
+    try std.testing.expect(large_code.typography.body_size > default_tokens.typography.body_size);
 
     model.setUiFontSize(11);
+    model.setCodeFontSize(16);
+    const split = designTokens(&model);
+    try std.testing.expectApproxEqAbs(pack.typography.body_size * (16.0 / 14.0), split.typography.body_size, 0.001);
+    try std.testing.expectApproxEqAbs(pack.typography.label_size * (11.0 / 14.0), split.typography.label_size, 0.001);
+    try std.testing.expect(split.typography.body_size > default_tokens.typography.body_size);
+    try std.testing.expect(split.typography.label_size < default_tokens.typography.label_size);
+
+    model.setUiFontSize(11);
+    model.setCodeFontSize(11);
     const small = designTokens(&model);
     try std.testing.expect(small.typography.body_size < default_tokens.typography.body_size);
+    try std.testing.expect(small.typography.label_size < default_tokens.typography.label_size);
 
     model.setUiFontSize(17);
+    model.setCodeFontSize(24);
     try std.testing.expectEqual(model_mod.default_ui_font_size, model.ui_font_size);
+    try std.testing.expectEqual(model_mod.default_code_font_size, model.code_font_size);
     try std.testing.expectEqual(model_mod.default_ui_font_size, model_mod.sanitizeUiFontSize(0));
     try std.testing.expectEqual(model_mod.default_ui_font_size, model_mod.sanitizeUiFontSize(9));
     try std.testing.expectEqual(model_mod.default_ui_font_size, model_mod.sanitizeUiFontSize(24));
     try std.testing.expectEqual(@as(u8, 16), model_mod.sanitizeUiFontSize(16));
+    try std.testing.expectEqual(model_mod.default_code_font_size, model_mod.sanitizeCodeFontSize(0));
+    try std.testing.expectEqual(model_mod.default_code_font_size, model_mod.sanitizeCodeFontSize(9));
+    try std.testing.expectEqual(model_mod.default_code_font_size, model_mod.sanitizeCodeFontSize(24));
+    try std.testing.expectEqual(@as(u8, 16), model_mod.sanitizeCodeFontSize(16));
 }
