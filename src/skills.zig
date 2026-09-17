@@ -1,11 +1,15 @@
 //! Settings Skills + composer `$` insert: bounded `SKILL.md` scan
 //! plus first-cut enable/disable via on-disk rename.
 //!
-//! Native has no FS watcher. Faku one-shots a packed `find` for
+//! Native has no FS watcher. Unix one-shots a packed `find` for
 //! `SKILL.md` and `SKILL.md.disabled` (Waku `DISABLED_SKILL_FILE`)
 //! through the same `/bin/sh -c` chdir workaround `fx ask` uses
-//! (`fx_ask_chdir_script`). Settings → Skills still `refresh`s on
-//! page open. Composer `$` calls `ensureScanned` even when
+//! (`fx_ask_chdir_script`). Windows cannot use `/bin/sh` or `find`:
+//! `powershell.exe -NoProfile -Command {…} -Args <project_path>`
+//! (`$args[0]`; same skip names / depth 8 / cap `max_skills`). Does
+//! **not** prune `.*` — project skills live under `.cursor/skills` /
+//! `.agents/skills`. Settings → Skills still `refresh`s on page open.
+//! Composer `$` calls `ensureScanned` even when
 //! `settings_page != .skills`. Scan root is the selected session
 //! `project_path` when that directory exists, else settings
 //! `last_project_path`. Skip `node_modules` / `target` / `dist` /
@@ -15,18 +19,21 @@
 //! `.disabled`). When both live and disabled exist in the same dir,
 //! live wins (one row). Settings selecting a row shows the body with
 //! frontmatter stripped. Enable/Disable is a Faku-side one-shot
-//! `mv --` in that skill directory (`SKILL.md` ↔ `SKILL.md.disabled`);
-//! tools discover skills by exact filename so the rename hides/shows
-//! the skill from fx and peers the same as Waku. Composer `$` inserts
-//! `$name ` for **enabled** skills only; Send still ships that
-//! composer text as-is (fx loads the skill). Runtime-only (not
-//! `sessions.json`). Empty-state Open a project / No skills found
-//! follow `i18n.SkillsEmptyChrome` (distinct from FilterChrome /
-//! RightPanelChrome; composer `$` insert empty reuses the same hint).
-//! Enable / Disable / Disabled badge follow `i18n.SkillsEnableChrome`
-//! (distinct from ProvidersChrome). Not SKILL.md body stuffing, not a
-//! daemon SkillsCatalog / WorkspaceOperation, not ACP `/name` slash
-//! rows. Windows stays empty this cut.
+//! rename in that skill directory (`SKILL.md` ↔ `SKILL.md.disabled`):
+//! Unix `mv --` after the chdir wrapper; Windows powershell
+//! Move-Item with argv slots for skill-dir / from / to (never
+//! interpolated into `-Command`). Tools discover skills by exact
+//! filename so the rename hides/shows the skill from fx and peers
+//! the same as Waku. Composer `$` inserts `$name ` for **enabled**
+//! skills only; Send still ships that composer text as-is (fx loads
+//! the skill). Runtime-only (not `sessions.json`). Empty-state Open a
+//! project / No skills found follow `i18n.SkillsEmptyChrome`
+//! (distinct from FilterChrome / RightPanelChrome; composer `$`
+//! insert empty reuses the same hint). Enable / Disable / Disabled
+//! badge follow `i18n.SkillsEnableChrome` (distinct from
+//! ProvidersChrome). Not SKILL.md body stuffing, not a daemon
+//! SkillsCatalog / WorkspaceOperation, not ACP `/name` slash rows.
+//! Not a Native FS API. app.zon already includes windows.
 //!
 //! Spawn/line/exit orchestration lives here. Tests do not need a live
 //! daemon or fx.
@@ -55,6 +62,7 @@ pub const skills_key_first: u64 = 530;
 pub const skills_rename_key_first: u64 = 580;
 
 pub const max_skills: usize = 64;
+pub const max_skills_s = std.fmt.comptimePrint("{d}", .{max_skills});
 pub const max_skill_path: usize = 255;
 pub const max_skill_name: usize = 64;
 pub const max_skill_body: usize = 4096;
@@ -75,6 +83,10 @@ pub const find_maxdepth = file_mention.find_maxdepth;
 pub const find_prune = file_mention.find_prune;
 pub const find_type_file = file_mention.find_type_file;
 pub const find_name_flag = "-name";
+pub const powershell_bin = file_mention.powershell_bin;
+pub const powershell_noprofile = file_mention.powershell_noprofile;
+pub const powershell_command = file_mention.powershell_command;
+pub const powershell_args_flag = file_mention.powershell_args_flag;
 
 pub const walk_skip_node_modules = file_mention.walk_skip_node_modules;
 pub const walk_skip_target = file_mention.walk_skip_target;
@@ -91,8 +103,35 @@ pub const walk_skip_names = file_mention.walk_skip_names;
 pub const find_skills_script =
     "find . -maxdepth 8 \\( -name node_modules -o -name target -o -name dist -o -name build -o -name out -o -name vendor -o -name __pycache__ \\) -prune -o -type f \\( -name SKILL.md -o -name SKILL.md.disabled \\) -print";
 
-const walk_argv_len: usize = 8;
-const rename_argv_len: usize = 9;
+/// Scriptblock + `$args[0]`: project path is its own argv slot after
+/// `-Args`, not spliced into the `-Command` body. Distinct from
+/// `file_mention.powershell_walk_script`: does **not** skip names
+/// starting with `.` (skills live under `.cursor` / `.agents`). Files
+/// named exactly `SKILL.md` / `SKILL.md.disabled` only, depth 8, same
+/// skip names, relative paths with `/`, cap `max_skills`. Six argv
+/// slots total.
+pub const powershell_skills_walk_script =
+    "{ $ErrorActionPreference='Stop'; $script:root=$args[0].TrimEnd('\\','/'); $script:skip=@('node_modules','target','dist','build','out','vendor','__pycache__'); $script:want=@('SKILL.md','SKILL.md.disabled'); $script:n=0; function Walk($dir,$depth){ if($script:n -ge " ++ max_skills_s ++ "){return}; foreach($item in (Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue)){ if($script:n -ge " ++ max_skills_s ++ "){return}; $d=$depth+1; if($d -gt 8){continue}; $name=$item.Name; if($script:skip -contains $name){continue}; if($item.PSIsContainer){ if($d -lt 8){ Walk $item.FullName $d } } else { if($script:want -cnotcontains $name){continue}; $rel=$item.FullName.Substring($script:root.Length).TrimStart('\\','/'); Write-Output ($rel -replace '\\\\','/'); $script:n++ } } }; Walk $script:root 0 }";
+
+/// Scriptblock + `$args[0]` / `$args[1]` / `$args[2]`: skill-dir,
+/// from-name, and to-name stay argv slots after `-Args` (never
+/// interpolated into `-Command`). `Move-Item -LiteralPath`. Eight
+/// argv slots.
+pub const powershell_skills_rename_script =
+    "{ $ErrorActionPreference='Stop'; $dir=$args[0]; $from=$args[1]; $to=$args[2]; Move-Item -LiteralPath (Join-Path $dir $from) -Destination (Join-Path $dir $to) }";
+
+/// Unix `/bin/sh -c` chdir + `/bin/sh -c` + `find_skills_script` (8).
+/// Windows powershell `-Command` + `-Args` is 6; this is the spawn
+/// buffer (max of the two).
+pub const walk_argv_len: usize = 8;
+pub const unix_walk_argv_len: usize = 8;
+pub const windows_walk_argv_len: usize = 6;
+/// Unix `/bin/sh -c` chdir + `mv --` from to (9). Windows powershell
+/// `-Command` + `-Args` skill-dir / from / to is 8; this is the spawn
+/// buffer (max of the two). Native `max_effect_argv` is 16.
+pub const rename_argv_len: usize = 9;
+pub const unix_rename_argv_len: usize = 9;
+pub const windows_rename_argv_len: usize = 8;
 
 /// Settings sidebar page. Chrome is General | Appearance |
 /// Providers | Skills | Usage | Computer Use. Computer Use is a
@@ -149,6 +188,7 @@ pub const CachedSkill = struct {
 
     pub fn setPath(self: *CachedSkill, value: []const u8) void {
         writeFixed(&self.path_storage, &self.path_len, value);
+        slashNormalizeInPlace(self.path_storage[0..self.path_len]);
     }
 
     pub fn setName(self: *CachedSkill, value: []const u8) void {
@@ -156,7 +196,7 @@ pub const CachedSkill = struct {
     }
 };
 
-pub fn argvFor(cwd: []const u8, buf: *[walk_argv_len][]const u8) []const []const u8 {
+pub fn unixWalkArgvFor(cwd: []const u8, buf: *[walk_argv_len][]const u8) []const []const u8 {
     buf.* = .{
         sh_bin,
         "-c",
@@ -167,15 +207,35 @@ pub fn argvFor(cwd: []const u8, buf: *[walk_argv_len][]const u8) []const []const
         "-c",
         find_skills_script,
     };
-    return buf;
+    return buf[0..unix_walk_argv_len];
+}
+
+/// Windows: `powershell.exe -NoProfile -Command {scriptblock} -Args
+/// <project_path>`. Path stays `$args[0]` — not interpolated into
+/// the `-Command` body.
+pub fn windowsWalkArgvFor(cwd: []const u8, buf: *[walk_argv_len][]const u8) []const []const u8 {
+    buf[0] = powershell_bin;
+    buf[1] = powershell_noprofile;
+    buf[2] = powershell_command;
+    buf[3] = powershell_skills_walk_script;
+    buf[4] = powershell_args_flag;
+    buf[5] = cwd;
+    return buf[0..windows_walk_argv_len];
+}
+
+pub fn argvFor(cwd: []const u8, buf: *[walk_argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsWalkArgvFor(cwd, buf),
+        else => unixWalkArgvFor(cwd, buf),
+    };
 }
 
 fn scriptHas(script: []const u8, needle: []const u8) bool {
     return std.mem.indexOf(u8, script, needle) != null;
 }
 
-pub fn isSkillsWalkArgv(argv: []const []const u8) bool {
-    if (argv.len != walk_argv_len) return false;
+fn isUnixSkillsWalkArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_walk_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
@@ -195,10 +255,33 @@ pub fn isSkillsWalkArgv(argv: []const []const u8) bool {
     return true;
 }
 
+fn isWindowsSkillsWalkArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_walk_argv_len) return false;
+    if (!std.mem.eql(u8, argv[0], powershell_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], powershell_noprofile)) return false;
+    if (!std.mem.eql(u8, argv[2], powershell_command)) return false;
+    if (!std.mem.eql(u8, argv[3], powershell_skills_walk_script)) return false;
+    if (!std.mem.eql(u8, argv[4], powershell_args_flag)) return false;
+    if (argv[5].len == 0) return false;
+    if (!scriptHas(argv[3], "$args[0]")) return false;
+    if (!scriptHas(argv[3], find_maxdepth)) return false;
+    if (!scriptHas(argv[3], max_skills_s)) return false;
+    if (!scriptHas(argv[3], skill_filename)) return false;
+    if (!scriptHas(argv[3], disabled_skill_filename)) return false;
+    inline for (walk_skip_names) |name| {
+        if (!scriptHas(argv[3], name)) return false;
+    }
+    return true;
+}
+
+pub fn isSkillsWalkArgv(argv: []const []const u8) bool {
+    return isUnixSkillsWalkArgv(argv) or isWindowsSkillsWalkArgv(argv);
+}
+
 /// `mv -- SKILL.md SKILL.md.disabled` (disable) or the reverse
 /// (enable) after the chdir wrapper. Filenames are argv slots — never
 /// interpolated into `fx_ask_chdir_script`.
-pub fn renameArgvFor(cwd: []const u8, enable: bool, buf: *[rename_argv_len][]const u8) []const []const u8 {
+pub fn unixRenameArgvFor(cwd: []const u8, enable: bool, buf: *[rename_argv_len][]const u8) []const []const u8 {
     const from = if (enable) disabled_skill_filename else skill_filename;
     const to = if (enable) skill_filename else disabled_skill_filename;
     buf.* = .{
@@ -212,25 +295,77 @@ pub fn renameArgvFor(cwd: []const u8, enable: bool, buf: *[rename_argv_len][]con
         from,
         to,
     };
-    return buf;
+    return buf[0..unix_rename_argv_len];
 }
 
-pub fn isSkillsRenameArgv(argv: []const []const u8) bool {
-    if (argv.len != rename_argv_len) return false;
-    if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
-    if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
-    if (!std.mem.eql(u8, argv[5], mv_bin)) return false;
-    if (!std.mem.eql(u8, argv[6], mv_end_of_options)) return false;
-    const from = argv[7];
-    const to = argv[8];
+/// Windows: `powershell.exe -NoProfile -Command {scriptblock} -Args
+/// <skill-dir> <from> <to>`. Paths stay `$args[0]` / `$args[1]` /
+/// `$args[2]` — not interpolated into the `-Command` body.
+pub fn windowsRenameArgvFor(cwd: []const u8, enable: bool, buf: *[rename_argv_len][]const u8) []const []const u8 {
+    const from = if (enable) disabled_skill_filename else skill_filename;
+    const to = if (enable) skill_filename else disabled_skill_filename;
+    buf[0] = powershell_bin;
+    buf[1] = powershell_noprofile;
+    buf[2] = powershell_command;
+    buf[3] = powershell_skills_rename_script;
+    buf[4] = powershell_args_flag;
+    buf[5] = cwd;
+    buf[6] = from;
+    buf[7] = to;
+    return buf[0..windows_rename_argv_len];
+}
+
+pub fn renameArgvFor(cwd: []const u8, enable: bool, buf: *[rename_argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsRenameArgvFor(cwd, enable, buf),
+        else => unixRenameArgvFor(cwd, enable, buf),
+    };
+}
+
+fn renameFilenamesOk(from: []const u8, to: []const u8) bool {
     const disable = std.mem.eql(u8, from, skill_filename) and std.mem.eql(u8, to, disabled_skill_filename);
     const enable = std.mem.eql(u8, from, disabled_skill_filename) and std.mem.eql(u8, to, skill_filename);
     return disable or enable;
 }
 
+fn isUnixSkillsRenameArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_rename_argv_len) return false;
+    if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], "-c")) return false;
+    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[5], mv_bin)) return false;
+    if (!std.mem.eql(u8, argv[6], mv_end_of_options)) return false;
+    return renameFilenamesOk(argv[7], argv[8]);
+}
+
+fn isWindowsSkillsRenameArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_rename_argv_len) return false;
+    if (!std.mem.eql(u8, argv[0], powershell_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], powershell_noprofile)) return false;
+    if (!std.mem.eql(u8, argv[2], powershell_command)) return false;
+    if (!std.mem.eql(u8, argv[3], powershell_skills_rename_script)) return false;
+    if (!std.mem.eql(u8, argv[4], powershell_args_flag)) return false;
+    if (argv[5].len == 0) return false;
+    if (!scriptHas(argv[3], "$args[0]")) return false;
+    if (!scriptHas(argv[3], "$args[1]")) return false;
+    if (!scriptHas(argv[3], "$args[2]")) return false;
+    return renameFilenamesOk(argv[6], argv[7]);
+}
+
+pub fn isSkillsRenameArgv(argv: []const []const u8) bool {
+    return isUnixSkillsRenameArgv(argv) or isWindowsSkillsRenameArgv(argv);
+}
+
+/// macOS / Linux / Windows. Other tags stay fail-closed (empty list).
+pub fn scanSupportedOn(tag: std.Target.Os.Tag) bool {
+    return switch (tag) {
+        .linux, .macos, .windows => true,
+        else => false,
+    };
+}
+
 pub fn scanSupported() bool {
-    return builtin.os.tag != .windows;
+    return scanSupportedOn(builtin.os.tag);
 }
 
 pub fn cachedCount(model: *const Model) u32 {
@@ -298,7 +433,7 @@ pub fn close(model: *Model, fx: *Effects) void {
 /// One-shot find when the probe path is empty or changed. No-op when
 /// that path is already current (in-flight or a finished scan), so a
 /// composer `$to…` keystroke does not spawn again. Works when
-/// `settings_page != .skills`. Empty / missing / Windows skips.
+/// `settings_page != .skills`. Empty / missing skips.
 pub fn ensureScanned(model: *Model, fx: *Effects) void {
     if (!scanSupported()) return;
     const cwd = probePath(model);
@@ -308,8 +443,8 @@ pub fn ensureScanned(model: *Model, fx: *Effects) void {
 }
 
 /// Cancel any in-flight scan, drop the cache, and spawn find when
-/// Settings has an existing project path. Empty / missing / Windows
-/// skips the spawn so the list stays empty.
+/// Settings has an existing project path. Empty / missing skips the
+/// spawn so the list stays empty.
 pub fn refresh(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
     cancelRename(model, fx);
@@ -349,7 +484,7 @@ fn probeStillCurrent(model: *const Model) bool {
 }
 
 pub fn pathBasename(path: []const u8) []const u8 {
-    if (std.mem.lastIndexOfScalar(u8, path, '/')) |slash|
+    if (lastPathSep(path)) |slash|
         return path[slash + 1 ..];
     return path;
 }
@@ -366,17 +501,17 @@ pub fn isSkillMdPath(path: []const u8) bool {
 /// Parent directory of the skill file (full relative dir, not the
 /// last folder name). Empty when the file sits at the scan root.
 pub fn skillDirKey(relpath: []const u8) []const u8 {
-    const slash = std.mem.lastIndexOfScalar(u8, relpath, '/') orelse return "";
+    const slash = lastPathSep(relpath) orelse return "";
     return relpath[0..slash];
 }
 
 /// Parent folder of `SKILL.md`. Empty when the file sits at the scan
 /// root (`SKILL.md` / `./SKILL.md`).
 pub fn parentDirName(relpath: []const u8) []const u8 {
-    const slash = std.mem.lastIndexOfScalar(u8, relpath, '/') orelse return "";
+    const slash = lastPathSep(relpath) orelse return "";
     const dir = relpath[0..slash];
     if (dir.len == 0 or std.mem.eql(u8, dir, ".")) return "";
-    if (std.mem.lastIndexOfScalar(u8, dir, '/')) |prev| return dir[prev + 1 ..];
+    if (lastPathSep(dir)) |prev| return dir[prev + 1 ..];
     return dir;
 }
 
@@ -451,10 +586,22 @@ fn readSkillSource(io: std.Io, abs: []const u8, buf: []u8) []const u8 {
 }
 
 fn joinProbeRelpath(root: []const u8, relpath: []const u8, buf: []u8) ?[]const u8 {
-    const base = std.mem.trimEnd(u8, root, "/");
-    const rel = std.mem.trimStart(u8, relpath, "/");
+    const base = std.mem.trimEnd(u8, root, "/\\");
+    const rel = std.mem.trimStart(u8, relpath, "/\\");
     if (base.len == 0 or rel.len == 0) return null;
-    return std.fmt.bufPrint(buf, "{s}/{s}", .{ base, rel }) catch null;
+    const printed = std.fmt.bufPrint(buf, "{s}/{s}", .{ base, rel }) catch return null;
+    slashNormalizeInPlace(printed);
+    return printed;
+}
+
+fn lastPathSep(path: []const u8) ?usize {
+    return std.mem.lastIndexOfAny(u8, path, "/\\");
+}
+
+fn slashNormalizeInPlace(path: []u8) void {
+    for (path) |*ch| {
+        if (ch.* == '\\') ch.* = '/';
+    }
 }
 
 fn hydrateOne(model: *Model, index: usize) void {
@@ -481,8 +628,13 @@ fn hydrateOne(model: *Model, index: usize) void {
 pub fn applyStdoutPaths(model: *Model, raw: []const u8) void {
     var it = std.mem.splitScalar(u8, raw, '\n');
     while (it.next()) |line| {
-        const path = file_mention.normalizeStdoutPath(line);
-        if (path.len == 0 or !isSkillMdPath(path)) continue;
+        const raw_path = file_mention.normalizeStdoutPath(line);
+        if (raw_path.len == 0 or raw_path.len > max_skill_path) continue;
+        var path_buf: [max_skill_path]u8 = undefined;
+        @memcpy(path_buf[0..raw_path.len], raw_path);
+        slashNormalizeInPlace(path_buf[0..raw_path.len]);
+        const path = path_buf[0..raw_path.len];
+        if (!isSkillMdPath(path)) continue;
         const enabled = skillEnabledFromPath(path);
         const dir = skillDirKey(path);
         if (indexOfSkillDir(model, dir)) |index| {
@@ -538,8 +690,8 @@ pub fn handleRenameExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
 }
 
 /// Enable when the selected skill is disabled, Disable when enabled.
-/// One-shot `mv` in the skill directory. Missing file / Windows /
-/// in-flight rename fail closed (cache unchanged).
+/// One-shot rename in the skill directory. Missing file / in-flight
+/// rename fail closed (cache unchanged).
 pub fn toggleSkillEnabled(model: *Model, fx: *Effects) void {
     if (!scanSupported()) return;
     if (model.skill_rename_key != 0) return;
@@ -563,9 +715,11 @@ pub fn toggleSkillEnabled(model: *Model, fx: *Effects) void {
 fn absSkillParent(root: []const u8, relpath: []const u8, buf: []u8) ?[]const u8 {
     const dir = skillDirKey(relpath);
     if (dir.len == 0) {
-        if (root.len == 0 or root.len > buf.len) return null;
-        @memcpy(buf[0..root.len], root);
-        return buf[0..root.len];
+        const base = std.mem.trimEnd(u8, root, "/\\");
+        if (base.len == 0 or base.len > buf.len) return null;
+        @memcpy(buf[0..base.len], base);
+        slashNormalizeInPlace(buf[0..base.len]);
+        return buf[0..base.len];
     }
     return joinProbeRelpath(root, dir, buf);
 }
@@ -637,7 +791,8 @@ pub fn emptyHint(model: *const Model) []const u8 {
 
 test "argv is chdir script plus find SKILL.md skips; not file-mention walk" {
     var buf: [walk_argv_len][]const u8 = undefined;
-    const argv = argvFor("/tmp/faku-skills", &buf);
+    const argv = unixWalkArgvFor("/tmp/faku-skills", &buf);
+    try std.testing.expectEqual(@as(usize, unix_walk_argv_len), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
     try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
@@ -660,13 +815,83 @@ test "argv is chdir script plus find SKILL.md skips; not file-mention walk" {
         try std.testing.expect(scriptHas(argv[7], name));
     }
     try std.testing.expect(!isSkillsWalkArgv(&.{ find_bin, find_skills_script }));
-    var mention_buf: [8][]const u8 = undefined;
-    try std.testing.expect(!isSkillsWalkArgv(file_mention.walkArgvFor("/tmp/faku-skills", &mention_buf)));
+    var mention_buf: [file_mention.walk_argv_len][]const u8 = undefined;
+    try std.testing.expect(!isSkillsWalkArgv(file_mention.unixWalkArgvFor("/tmp/faku-skills", &mention_buf)));
     try std.testing.expect(skills_key_first > file_mention.file_mention_key_first);
     try std.testing.expect(skills_key_first > 520);
     try std.testing.expect(skills_rename_key_first > skills_key_first);
     try std.testing.expect(skills_rename_key_first > 540);
     try std.testing.expect(skills_rename_key_first < 600);
+}
+
+test "windows walk argv is powershell scriptblock -Args PATH; descends into hidden dirs" {
+    var buf: [walk_argv_len][]const u8 = undefined;
+    const cwd = "C:\\Users\\me\\proj";
+    const argv = windowsWalkArgvFor(cwd, &buf);
+    try std.testing.expectEqual(@as(usize, windows_walk_argv_len), argv.len);
+    try std.testing.expect(argv.len <= 16);
+    try std.testing.expectEqualStrings(powershell_bin, argv[0]);
+    try std.testing.expectEqualStrings(powershell_noprofile, argv[1]);
+    try std.testing.expectEqualStrings(powershell_command, argv[2]);
+    try std.testing.expectEqualStrings(powershell_skills_walk_script, argv[3]);
+    try std.testing.expectEqualStrings(powershell_args_flag, argv[4]);
+    try std.testing.expectEqualStrings(cwd, argv[5]);
+    try std.testing.expect(isSkillsWalkArgv(argv));
+    try std.testing.expect(!file_mention.isWalkArgv(argv));
+    try std.testing.expect(!isSkillsRenameArgv(argv));
+    try std.testing.expect(std.mem.indexOf(u8, argv[3], cwd) == null);
+    try std.testing.expect(scriptHas(argv[3], "$args[0]"));
+    try std.testing.expect(scriptHas(argv[3], find_maxdepth));
+    try std.testing.expect(scriptHas(argv[3], max_skills_s));
+    try std.testing.expect(scriptHas(argv[3], skill_filename));
+    try std.testing.expect(scriptHas(argv[3], disabled_skill_filename));
+    try std.testing.expect(!scriptHas(argv[3], "StartsWith('.'"));
+    try std.testing.expect(!std.mem.eql(u8, argv[3], file_mention.powershell_walk_script));
+    inline for (walk_skip_names) |name| {
+        try std.testing.expect(scriptHas(argv[3], name));
+    }
+    try std.testing.expect(!isSkillsWalkArgv(&.{
+        powershell_bin,
+        powershell_noprofile,
+        powershell_command,
+        "Get-Date",
+        powershell_args_flag,
+        cwd,
+    }));
+    var mention_buf: [file_mention.walk_argv_len][]const u8 = undefined;
+    try std.testing.expect(!isSkillsWalkArgv(file_mention.windowsWalkArgvFor(cwd, &mention_buf)));
+}
+
+test "host argvFor and renameArgvFor match the process OS" {
+    var walk_buf: [walk_argv_len][]const u8 = undefined;
+    const walk_argv = argvFor("/tmp/faku-skills", &walk_buf);
+    try std.testing.expect(isSkillsWalkArgv(walk_argv));
+    var rename_buf: [rename_argv_len][]const u8 = undefined;
+    const rename_argv = renameArgvFor("/tmp/faku-skill-dir", false, &rename_buf);
+    try std.testing.expect(isSkillsRenameArgv(rename_argv));
+    try std.testing.expect(!isSkillsWalkArgv(rename_argv));
+    try std.testing.expect(!isSkillsRenameArgv(walk_argv));
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqualStrings(powershell_bin, walk_argv[0]);
+            try std.testing.expectEqualStrings(powershell_args_flag, walk_argv[4]);
+            try std.testing.expectEqualStrings(powershell_bin, rename_argv[0]);
+            try std.testing.expectEqualStrings(powershell_args_flag, rename_argv[4]);
+        },
+        else => {
+            try std.testing.expectEqualStrings(sh_bin, walk_argv[0]);
+            try std.testing.expectEqualStrings(find_skills_script, walk_argv[7]);
+            try std.testing.expectEqualStrings(sh_bin, rename_argv[0]);
+            try std.testing.expectEqualStrings(mv_bin, rename_argv[5]);
+        },
+    }
+}
+
+test "scanSupported is true on macOS Linux Windows" {
+    try std.testing.expect(scanSupportedOn(.linux));
+    try std.testing.expect(scanSupportedOn(.macos));
+    try std.testing.expect(scanSupportedOn(.windows));
+    try std.testing.expect(scanSupported());
 }
 
 test "parse name from frontmatter; quoted and missing" {
@@ -921,13 +1146,20 @@ test "path helpers detect enabled from filename; isSkillMdPath accepts both; dis
     try std.testing.expectEqualStrings("skills/demo", skillDirKey("skills/demo/SKILL.md.disabled"));
     try std.testing.expectEqualStrings("", skillDirKey("SKILL.md"));
     try std.testing.expectEqualStrings("", skillDirKey("SKILL.md.disabled"));
+    try std.testing.expect(isSkillMdPath(".cursor\\skills\\demo\\SKILL.md"));
+    try std.testing.expect(isSkillMdPath(".cursor\\skills\\demo\\SKILL.md.disabled"));
+    try std.testing.expect(skillEnabledFromPath(".cursor\\skills\\demo\\SKILL.md"));
+    try std.testing.expect(!skillEnabledFromPath(".cursor\\skills\\demo\\SKILL.md.disabled"));
+    try std.testing.expectEqualStrings("demo", parentDirName(".cursor\\skills\\demo\\SKILL.md"));
+    try std.testing.expectEqualStrings(".cursor\\skills\\demo", skillDirKey(".cursor\\skills\\demo\\SKILL.md"));
 }
 
 test "rename argv enable and disable round-trip; not the find walk" {
     var disable_buf: [rename_argv_len][]const u8 = undefined;
-    const disable = renameArgvFor("/tmp/faku-skill-dir", false, &disable_buf);
+    const disable = unixRenameArgvFor("/tmp/faku-skill-dir", false, &disable_buf);
     try std.testing.expect(isSkillsRenameArgv(disable));
     try std.testing.expect(!isSkillsWalkArgv(disable));
+    try std.testing.expectEqual(@as(usize, unix_rename_argv_len), disable.len);
     try std.testing.expectEqualStrings(sh_bin, disable[0]);
     try std.testing.expectEqualStrings(util.fx_ask_chdir_script, disable[2]);
     try std.testing.expectEqualStrings("/tmp/faku-skill-dir", disable[4]);
@@ -937,14 +1169,58 @@ test "rename argv enable and disable round-trip; not the find walk" {
     try std.testing.expectEqualStrings(disabled_skill_filename, disable[8]);
 
     var enable_buf: [rename_argv_len][]const u8 = undefined;
-    const enable = renameArgvFor("/tmp/faku-skill-dir", true, &enable_buf);
+    const enable = unixRenameArgvFor("/tmp/faku-skill-dir", true, &enable_buf);
     try std.testing.expect(isSkillsRenameArgv(enable));
     try std.testing.expect(!isSkillsWalkArgv(enable));
     try std.testing.expectEqualStrings(disabled_skill_filename, enable[7]);
     try std.testing.expectEqualStrings(skill_filename, enable[8]);
     try std.testing.expect(!isSkillsRenameArgv(&.{ mv_bin, skill_filename, disabled_skill_filename }));
     var walk_buf: [walk_argv_len][]const u8 = undefined;
-    try std.testing.expect(!isSkillsRenameArgv(argvFor("/tmp/faku-skills", &walk_buf)));
+    try std.testing.expect(!isSkillsRenameArgv(unixWalkArgvFor("/tmp/faku-skills", &walk_buf)));
+}
+
+test "windows rename argv enable and disable round-trip; paths stay -Args slots" {
+    var disable_buf: [rename_argv_len][]const u8 = undefined;
+    const cwd = "C:\\Users\\me\\proj\\.cursor\\skills\\demo";
+    const disable = windowsRenameArgvFor(cwd, false, &disable_buf);
+    try std.testing.expectEqual(@as(usize, windows_rename_argv_len), disable.len);
+    try std.testing.expect(disable.len <= 16);
+    try std.testing.expect(isSkillsRenameArgv(disable));
+    try std.testing.expect(!isSkillsWalkArgv(disable));
+    try std.testing.expectEqualStrings(powershell_bin, disable[0]);
+    try std.testing.expectEqualStrings(powershell_noprofile, disable[1]);
+    try std.testing.expectEqualStrings(powershell_command, disable[2]);
+    try std.testing.expectEqualStrings(powershell_skills_rename_script, disable[3]);
+    try std.testing.expectEqualStrings(powershell_args_flag, disable[4]);
+    try std.testing.expectEqualStrings(cwd, disable[5]);
+    try std.testing.expectEqualStrings(skill_filename, disable[6]);
+    try std.testing.expectEqualStrings(disabled_skill_filename, disable[7]);
+    try std.testing.expect(std.mem.indexOf(u8, disable[3], cwd) == null);
+    try std.testing.expect(scriptHas(disable[3], "$args[0]"));
+    try std.testing.expect(scriptHas(disable[3], "$args[1]"));
+    try std.testing.expect(scriptHas(disable[3], "$args[2]"));
+    try std.testing.expect(scriptHas(disable[3], "Move-Item"));
+    try std.testing.expect(scriptHas(disable[3], "-LiteralPath"));
+
+    var enable_buf: [rename_argv_len][]const u8 = undefined;
+    const enable = windowsRenameArgvFor(cwd, true, &enable_buf);
+    try std.testing.expect(isSkillsRenameArgv(enable));
+    try std.testing.expect(!isSkillsWalkArgv(enable));
+    try std.testing.expectEqualStrings(disabled_skill_filename, enable[6]);
+    try std.testing.expectEqualStrings(skill_filename, enable[7]);
+    try std.testing.expect(std.mem.indexOf(u8, enable[3], cwd) == null);
+    try std.testing.expect(!isSkillsRenameArgv(&.{
+        powershell_bin,
+        powershell_noprofile,
+        powershell_command,
+        "Rename-Item",
+        powershell_args_flag,
+        cwd,
+        skill_filename,
+        disabled_skill_filename,
+    }));
+    var walk_buf: [walk_argv_len][]const u8 = undefined;
+    try std.testing.expect(!isSkillsRenameArgv(windowsWalkArgvFor(cwd, &walk_buf)));
 }
 
 test "applyStdoutPaths prefers live SKILL.md when both live and disabled share a dir" {
@@ -969,6 +1245,12 @@ test "applyStdoutPaths prefers live SKILL.md when both live and disabled share a
     try std.testing.expect(cachedEnabled(&model, 1));
     try std.testing.expectEqualStrings("SKILL.md.disabled", cachedPath(&model, 2));
     try std.testing.expect(!cachedEnabled(&model, 2));
+
+    clearCache(&model);
+    applyStdoutPaths(&model, ".cursor\\skills\\demo\\SKILL.md.disabled\n.cursor\\skills\\demo\\SKILL.md\n");
+    try std.testing.expectEqual(@as(u32, 1), cachedCount(&model));
+    try std.testing.expectEqualStrings(".cursor/skills/demo/SKILL.md", cachedPath(&model, 0));
+    try std.testing.expect(cachedEnabled(&model, 0));
 }
 
 test "toggleSkillEnabled one-shots mv; success refreshes find; fail and stale keep cache" {
@@ -1101,4 +1383,51 @@ test "toggleSkillEnabled missing file keeps cache and does not spawn" {
     try testing.expectEqual(@as(u64, 0), model.skill_rename_key);
     try testing.expectEqual(before, fx.pendingSpawnCount());
     try testing.expectEqual(@as(u32, 1), cachedCount(&model));
+}
+
+test "joinProbeRelpath and absSkillParent tolerate Windows roots and mixed separators" {
+    var buf: [128]u8 = undefined;
+    try std.testing.expectEqualStrings(
+        "C:/Users/me/proj/.cursor/skills/demo/SKILL.md",
+        joinProbeRelpath("C:\\Users\\me\\proj", ".cursor/skills/demo/SKILL.md", &buf).?,
+    );
+    try std.testing.expectEqualStrings(
+        "C:/Users/me/proj/.cursor/skills/demo/SKILL.md",
+        joinProbeRelpath("C:/Users/me/proj/", "/.cursor/skills/demo/SKILL.md", &buf).?,
+    );
+    try std.testing.expectEqualStrings(
+        "C:/Users/me/proj/.cursor/skills/demo",
+        absSkillParent("C:\\Users\\me\\proj", ".cursor/skills/demo/SKILL.md", &buf).?,
+    );
+    try std.testing.expectEqualStrings(
+        "C:/Users/me/proj",
+        absSkillParent("C:\\Users\\me\\proj", "SKILL.md", &buf).?,
+    );
+    try std.testing.expectEqualStrings(
+        "C:/Users/me/proj/.cursor/skills/demo",
+        absSkillParent("C:\\Users\\me\\proj\\", ".cursor\\skills\\demo\\SKILL.md.disabled", &buf).?,
+    );
+}
+
+test "composer $ insert lists enabled skills only" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model = Model{};
+    applyStdoutPaths(&model, "skills/off/SKILL.md.disabled\nskills/on/SKILL.md\n");
+    try testing.expectEqual(@as(u32, 2), cachedCount(&model));
+    try testing.expect(!cachedEnabled(&model, 0));
+    try testing.expect(cachedEnabled(&model, 1));
+
+    model.draft_buffer.set("$");
+    const rows = model.skill_insert_rows(arena);
+    try testing.expectEqual(@as(usize, 1), rows.len);
+    try testing.expectEqualStrings("on", rows[0].name);
+    try testing.expectEqualStrings("skills/on/SKILL.md", rows[0].path);
+    try testing.expectEqual(@as(u32, 2), rows[0].id);
+
+    model.draft_buffer.set("$off");
+    try testing.expectEqual(@as(usize, 0), model.skill_insert_rows(arena).len);
 }
