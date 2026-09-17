@@ -8310,8 +8310,8 @@ pub const Model = struct {
     /// / `/name` token. No-op when `ensureScanned` already holds the
     /// current probe path.
     pub fn maybeEnsureSkillsScanned(model: *Model, fx: *main.Effects) void {
-        const draft = model.draft();
-        if (slashCommandPrefix(draft) == null and skillQuery(draft) == null and !composer.draftHasSkillToken(draft)) return;
+        const text = model.draft();
+        if (slashCommandPrefix(text) == null and skillQuery(text) == null and !composer.draftHasSkillToken(text)) return;
         skills.ensureScanned(model, fx);
     }
 
