@@ -798,7 +798,11 @@ auto-expands ancestor directories. Empty / whitespace-only is
 today's collapsed tree. Leaving Diff (other tab / panel hide)
 clears the filter. First-cut selected-file Diff header chrome ships
 above the hunk pane (same `file_icon` as the tree + path + optional `+N` / `-M`, ~36px, outside
-Native `<scroll>`, nested-split and stacked hunk layouts). Waku's
+Native `<scroll>`, nested-split and stacked hunk layouts). First-cut
+nested panel `<scroll>` pins with documented `overscroll="none"` on
+Review files/hunks, Background output, Files preview body, and Files
+tree (Waku nested scroller boundary-handoff spirit; same Native attr
+as the user-message cap). Waku's
 scroll-driven sticky overlay (`file_headers_around` / item_ix)
 stays Native-blocked (no documented virtualized item index /
 absolute sticky-over-scroll API). Browser is a first-cut Native canvas webview (`UiApp.Options.web_panes`
@@ -2151,7 +2155,11 @@ Honest gaps this cut does not implement:
 - Waku GPUI user-message edge fades and Native element `max-height`
   stay Native-blocked (first-cut user-message height cap ships via
   the estimate + inner Native `<scroll height="384" overscroll="none">`
-  above; short user bubbles stay uncapped)
+  above; short user bubbles stay uncapped). First-cut nested panel
+  `overscroll="none"` ships for Review files/hunks, Background output,
+  Files preview body, and Files tree (Waku nested boundary-handoff
+  spirit; same Native attr). Sticky-over-scroll / chart fill /
+  circular gauge / DevTools stay Native-blocked
 - Long-lived ACP or daemon socket in the update loop
 - fx ACP still rejects image blocks (`fx ask --image`). First-cut
   ACP image content blocks (base64 + mimeType, ~256KB raw, size

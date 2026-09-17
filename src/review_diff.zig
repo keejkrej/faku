@@ -149,7 +149,9 @@
 //! `--track` over daemon, Waku scroll-driven sticky Diff file
 //! header (Native has no virtualized item index / absolute
 //! sticky-over-scroll API; first-cut always-visible selected-file
-//! chrome ships).
+//! chrome ships). Nested Review files/hunks `<scroll>` now share
+//! documented `overscroll="none"` with other right-panel nested
+//! scrollers.
 //! Not transcript checkpoint +/-.
 //! LastTurn uses stored shas, not the refs, and not a
 //! `refs/waku/` Compare operand.

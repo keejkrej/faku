@@ -12,6 +12,8 @@
 //! 20px line height, plus a small markdown chrome pad. Not a layout
 //! measurement. `overscroll="none"` pins the nested region so the
 //! outer transcript scroll still works (no invented contain API).
+//! Nested right-panel Review / Background / Files scrolls share the
+//! same documented `overscroll="none"`.
 
 const std = @import("std");
 

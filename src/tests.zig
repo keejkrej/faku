@@ -1320,6 +1320,23 @@ test "tall user bubbles wrap markdown in a 384 Native scroll; short and assistan
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "max-height") == null);
 }
 
+test "nested right-panel Files Review Background scrolls pin with overscroll none" {
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "<scroll grow=\"1\" label=\"{review_hunks_label}\" overscroll=\"none\">"));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "<scroll grow=\"1\" label=\"{review_files_label}\" overscroll=\"none\">"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<scroll grow=\"1\" label=\"{background_output_label}\" overscroll=\"none\">"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<scroll grow=\"1\" label=\"{file_preview_body_label}\" overscroll=\"none\">"));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "<scroll grow=\"1\" overscroll=\"none\">"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<scroll height=\"384\" overscroll=\"none\">"));
+    try testing.expectEqual(@as(usize, 9), std.mem.count(u8, main.app_markup, "overscroll=\"none\""));
+    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "<scroll grow=\"1\">"));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<scroll grow=\"1\" value=\"{transcript_scroll}\" on-scroll=\"transcript_scrolled\" label=\"{transcript_label}\">") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<scroll grow=\"1\" value=\"{transcript_scroll}\" on-scroll=\"transcript_scrolled\" label=\"{transcript_label}\" overscroll") == null);
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "<scroll grow=\"1\" label=\"{review_hunks_label}\">"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "<scroll grow=\"1\" label=\"{review_files_label}\">"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "<scroll grow=\"1\" label=\"{background_output_label}\">"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "<scroll grow=\"1\" label=\"{file_preview_body_label}\">"));
+}
+
 const NotifySink = struct {
     platform: native_sdk.NullPlatform = undefined,
     host: native_sdk.platform.Platform = undefined,
@@ -10398,6 +10415,7 @@ test "Files tree header shows project basename on a loaded tree" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{right_panel_files_project_name}") != null);
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "template=\"files-tree-header\""));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "template=\"files-tree-rows\""));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "<scroll grow=\"1\" overscroll=\"none\">"));
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "height=\"42\"") != null);
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "<icon name=\"{f.icon}\""));
 }
@@ -26161,6 +26179,7 @@ test "Review Diff hunk a11y chrome follows Appearance language" {
 
     try testing.expectEqual(@as(usize, 16), countNeedle(main.app_markup, "label=\"{review_hunk_label}\""));
     try testing.expectEqual(@as(usize, 2), countNeedle(main.app_markup, "label=\"{review_hunks_label}\""));
+    try testing.expectEqual(@as(usize, 2), countNeedle(main.app_markup, "<scroll grow=\"1\" label=\"{review_hunks_label}\" overscroll=\"none\">"));
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Review hunk\"") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Review hunks\"") == null);
 
@@ -31086,12 +31105,15 @@ test "structural region a11y follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_label}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_editor_label}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{file_preview_body_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<scroll grow=\"1\" label=\"{file_preview_body_label}\" overscroll=\"none\">"));
     try testing.expectEqual(@as(usize, 17), countNeedle(main.app_markup, "label=\"{file_preview_source_region_label}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{transcript_label}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{conversation_history_label}\""));
     try testing.expectEqual(@as(usize, 2), countNeedle(main.app_markup, "label=\"{review_files_label}\""));
+    try testing.expectEqual(@as(usize, 2), countNeedle(main.app_markup, "<scroll grow=\"1\" label=\"{review_files_label}\" overscroll=\"none\">"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{background_work_label}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{background_output_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<scroll grow=\"1\" label=\"{background_output_label}\" overscroll=\"none\">"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{browser_label}\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Toolbar\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Sidebar titlebar\""));
@@ -36299,6 +36321,7 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "template=\"review-hunk-rows\""));
     try testing.expectEqual(@as(usize, 16), countNeedle(main.app_markup, "label=\"{review_hunk_label}\""));
     try testing.expectEqual(@as(usize, 2), countNeedle(main.app_markup, "label=\"{review_hunks_label}\""));
+    try testing.expectEqual(@as(usize, 2), countNeedle(main.app_markup, "<scroll grow=\"1\" label=\"{review_hunks_label}\" overscroll=\"none\">"));
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Review hunk\"") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Review hunks\"") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{review_diff_hunk_language == 'zig'}") != null);
