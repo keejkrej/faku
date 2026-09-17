@@ -4,7 +4,10 @@
 //! set and the selected session has a usable non-empty `project_path`,
 //! Faku prefers hello + `discoverSlashCommands` to seed the composer
 //! `/` slash-prefix card (`session.available_commands`, same list ACP
-//! `available_commands_update` paints). Native 4 KiB stdin overflow /
+//! `available_commands_update` paints). Composer `command_rows` then
+//! appends enabled Faku-side `skill_store` rows (ACP name wins); this
+//! sidecar still only paints `available_commands`. Native 4 KiB stdin
+//! overflow /
 //! sidecar failure / non-ok / unusable parse / empty `commands` fall
 //! back quietly to today's ACP-only catalog — a miss must not clear a
 //! good ACP list. Local `sessions.json` stays canonical. Best-effort

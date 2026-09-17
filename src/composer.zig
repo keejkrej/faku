@@ -1,8 +1,11 @@
 //! Composer chip, access, effort, slash-prefix, file-mention, and attach helpers.
 //!
 //! Access / effort labels, chip option tables, slash command prefix,
-//! caret-at-end `@` mention parse/insert, mention path score / labels,
-//! and image-drop path checks live here. `accessLabel` / `access_chip_options`
+//! Send `$name` / `/name` skill-token walk, caret-at-end `@` mention
+//! parse/insert, mention path score / labels, and image-drop path
+//! checks live here. Composer `/` rows merge ACP then enabled
+//! `skill_store` in `command_rows` (not this module).
+//! `accessLabel` / `access_chip_options`
 //! stay English; composer chip and Settings General chrome use `i18n.Access`.
 //! `effortLabel` / `effort_chip_options` stay English; composer chip and
 //! Settings General effort chrome use `i18n.Effort`. Composer interaction
@@ -164,18 +167,20 @@ fn lastTokenAfter(draft: []const u8, marker: u8) ?[]const u8 {
     return token[1..];
 }
 
-/// One `$name` token in a draft. `name` is the slice after `$` until
-/// whitespace — same shape `replaceSkillToken` writes (`$name `).
-/// `after` is the index to resume a walk. Caret-at-end is picker-only;
-/// Send expansion walks the whole prompt.
+/// One `$name` or `/name` token in a draft. `name` is the slice after
+/// `$` / `/` until whitespace — same shape insert writes (`$name `
+/// / `/name `). `after` is the index to resume a walk. Caret-at-end
+/// is picker-only; Send expansion walks the whole prompt.
 pub const SkillToken = struct {
     name: []const u8,
     after: usize,
 };
 
-/// Next `$name` token at or after `start`. `$` must begin a
-/// whitespace-separated token (`price$` is not a name). Empty `$`
-/// is skipped. Does not consult slash-prefix (Send is not the picker).
+/// Next `$name` or `/name` token at or after `start`. The marker must
+/// begin a whitespace-separated token (`price$` / `src/lib` are not
+/// names). Empty `$` / `/` is skipped. Does not consult slash-prefix
+/// (Send is not the picker). Skill-matching `/name` expands like
+/// `$name`; ACP-only `/name` is a no-op in `expandPrompt`.
 pub fn nextSkillToken(text: []const u8, start: usize) ?SkillToken {
     var i = start;
     while (i < text.len) {
@@ -184,14 +189,15 @@ pub fn nextSkillToken(text: []const u8, start: usize) ?SkillToken {
         const tok_start = i;
         while (i < text.len and !std.ascii.isWhitespace(text[i])) i += 1;
         const token = text[tok_start..i];
-        if (token.len >= 2 and token[0] == '$') {
+        if (token.len >= 2 and (token[0] == '$' or token[0] == '/')) {
             return .{ .name = token[1..], .after = i };
         }
     }
     return null;
 }
 
-/// True when `text` has at least one `$name` token (non-empty name).
+/// True when `text` has at least one `$name` or `/name` token
+/// (non-empty name).
 pub fn draftHasSkillToken(text: []const u8) bool {
     return nextSkillToken(text, 0) != null;
 }
@@ -409,6 +415,25 @@ test "nextSkillToken walks whole draft; price$ and empty $ are skipped" {
     try std.testing.expect(draftHasSkillToken("$to-spec do this"));
     try std.testing.expect(!draftHasSkillToken("no dollars"));
     try std.testing.expect(!draftHasSkillToken("$"));
+}
+
+test "nextSkillToken walks /name like $name; src/lib is not a name" {
+    try std.testing.expectEqualStrings("to-spec", nextSkillToken("/to-spec", 0).?.name);
+    try std.testing.expectEqualStrings("alpha", nextSkillToken("/alpha then $beta", 0).?.name);
+    const first = nextSkillToken("/beta then $alpha and /beta", 0).?;
+    try std.testing.expectEqualStrings("beta", first.name);
+    const second = nextSkillToken("/beta then $alpha and /beta", first.after).?;
+    try std.testing.expectEqualStrings("alpha", second.name);
+    const third = nextSkillToken("/beta then $alpha and /beta", second.after).?;
+    try std.testing.expectEqualStrings("beta", third.name);
+    try std.testing.expect(nextSkillToken("/", 0) == null);
+    try std.testing.expect(nextSkillToken("/ ", 0) == null);
+    try std.testing.expect(nextSkillToken("src/lib", 0) == null);
+    try std.testing.expect(nextSkillToken("price/", 0) == null);
+    try std.testing.expect(draftHasSkillToken("/to-spec do this"));
+    try std.testing.expect(draftHasSkillToken("/alpha and $beta"));
+    try std.testing.expect(!draftHasSkillToken("/"));
+    try std.testing.expect(!draftHasSkillToken("see src/lib"));
 }
 
 test "replaceSkillToken rewrites only the last $query token and appends a space" {

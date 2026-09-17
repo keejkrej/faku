@@ -314,10 +314,12 @@ pub const TurnRow = struct {
     user_body_capped: bool = false,
 };
 
-/// Stored ACP command for the composer Commands list. `id` is a 1-based
-/// index into the session's stored commands (stable across slash
-/// filters) so Native `insert_command:{c.id}` never binds 0 and a
-/// filtered click still inserts that row, not a neighbor.
+/// Composer slash-card row. ACP ids are 1-based indexes into the
+/// session's stored `available_commands` (stable across slash
+/// filters). Skill-sourced rows use `skills.slashCommandId` (`skillId
+/// + max_available_commands`) so Native `insert_command:{c.id}` never
+/// binds 0 or collides with ACP. A filtered click still inserts that
+/// row, not a neighbor.
 pub const CommandRow = struct {
     id: u32,
     slash_name: []const u8,
@@ -1418,8 +1420,9 @@ pub const Model = struct {
     settings_daemon_buffer: canvas.TextBuffer(max_daemon_address) = .{},
     /// Runtime-only Skills list filter. Not persisted.
     skills_filter_buffer: canvas.TextBuffer(max_search) = .{},
-    /// Runtime-only `SKILL.md` cache for Settings → Skills and composer
-    /// `$` insert. Bounded find; not persisted to sessions.json.
+    /// Runtime-only `SKILL.md` cache for Settings → Skills, composer
+    /// `$` insert, and composer `/` slash rows. Bounded find; not
+    /// persisted to sessions.json.
     skill_store: [skills.max_skills]skills.CachedSkill = [_]skills.CachedSkill{.{}} ** skills.max_skills,
     skill_count: u32 = 0,
     skill_key: u64 = 0,
@@ -4166,9 +4169,10 @@ pub const Model = struct {
     pub fn command_rows(model: *const Model, arena: std.mem.Allocator) []const CommandRow {
         const session = model.sessionByIdConst(model.selected) orelse return &.{};
         const commands = session.availableCommands();
-        if (commands.len == 0) return &.{};
         const prefix = slashCommandPrefix(model.draft());
-        const out = arena.alloc(CommandRow, commands.len) catch return &.{};
+        const cap = commands.len + @as(usize, model.skill_count);
+        if (cap == 0) return &.{};
+        const out = arena.alloc(CommandRow, cap) catch return &.{};
         var i: usize = 0;
         for (commands, 0..) |*cmd, index| {
             if (prefix) |filter| {
@@ -4180,6 +4184,25 @@ pub const Model = struct {
                 .slash_name = slash,
                 .description = cmd.description(),
                 .has_description = cmd.description().len > 0,
+                .selected = false,
+            };
+            i += 1;
+        }
+        var skill_i: usize = 0;
+        while (skill_i < model.skill_count) : (skill_i += 1) {
+            if (!model.skill_store[skill_i].enabled) continue;
+            const name = model.skill_store[skill_i].name();
+            if (name.len == 0) continue;
+            if (acpHasCommandName(session, name)) continue;
+            if (prefix) |filter| {
+                if (!commandNameStartsWith(name, filter)) continue;
+            }
+            const slash = std.fmt.allocPrint(arena, "/{s}", .{name}) catch continue;
+            out[i] = .{
+                .id = skills.slashCommandId(skill_i),
+                .slash_name = slash,
+                .description = "",
+                .has_description = false,
                 .selected = false,
             };
             i += 1;
@@ -4517,16 +4540,19 @@ pub const Model = struct {
         return session.available_command_count > 0;
     }
 
-    /// Commands button stays visible when the list is stored. The card
-    /// renders when the button toggled it open or the composer draft is
-    /// an active slash prefix. A slash filter with no name matches hides
-    /// the card so a mistype does not leave an empty box.
+    /// Commands button stays visible when ACP commands are stored
+    /// (`has_commands`). The card renders when the button toggled it
+    /// open or the composer draft is an active slash prefix. Typing
+    /// `/` opens the card when ACP or enabled `skill_store` rows match
+    /// the prefix (ACP name wins). A slash filter with no matches
+    /// hides the card so a mistype does not leave an empty box.
     pub fn commands_list_open(model: *const Model) bool {
-        if (!model.has_commands()) return false;
         const prefix = slashCommandPrefix(model.draft());
         if (!model.commands_open and prefix == null) return false;
         if (prefix) |filter| {
-            if (filter.len > 0 and !hasCommandNamePrefix(model, filter)) return false;
+            if (!hasSlashRowMatch(model, filter)) return false;
+        } else if (!model.has_commands()) {
+            return false;
         }
         // Commands button toggle stays visible after Esc. The
         // typing-triggered slash-prefix card does not.
@@ -8201,11 +8227,18 @@ pub const Model = struct {
     }
 
     /// Official ACP slash insert is `/name` plus a trailing space so the
-    /// user can type input. This cut does not store `input`; space is
-    /// always appended. Writes the composer draft only — no spawn.
+    /// user can type input. Skill-sourced slash-card ids
+    /// (`skills.slashCommandId`) write the same `/name ` (not `$name`).
+    /// This cut does not store `input`; space is always appended.
+    /// Writes the composer draft only — no spawn.
     pub fn insertAvailableCommand(model: *Model, id: u32) void {
+        if (id == 0) return;
+        if (skills.slashCommandIndex(id)) |index| {
+            insertSlashSkillCommand(model, index);
+            return;
+        }
         const session = model.sessionById(model.selected) orelse return;
-        if (id == 0 or id > session.available_command_count) return;
+        if (id > session.available_command_count) return;
         const cmd = session.available_commands[id - 1];
         var buf: [max_command_name + 2]u8 = undefined;
         const text = std.fmt.bufPrint(&buf, "/{s} ", .{cmd.name()}) catch return;
@@ -8272,12 +8305,13 @@ pub const Model = struct {
         return false;
     }
 
-    /// Scan project SKILL.md when the composer `$` query is active or
-    /// the draft already contains a `$name` token. No-op without a
-    /// `$` token or when `ensureScanned` already holds the current
-    /// probe path.
+    /// Scan project SKILL.md when the composer `$` query is active, the
+    /// slash prefix is active, or the draft already contains a `$name`
+    /// / `/name` token. No-op when `ensureScanned` already holds the
+    /// current probe path.
     pub fn maybeEnsureSkillsScanned(model: *Model, fx: *main.Effects) void {
-        if (skillQuery(model.draft()) == null and !composer.draftHasSkillToken(model.draft())) return;
+        const draft = model.draft();
+        if (slashCommandPrefix(draft) == null and skillQuery(draft) == null and !composer.draftHasSkillToken(draft)) return;
         skills.ensureScanned(model, fx);
     }
 
@@ -8772,12 +8806,51 @@ fn commandNameStartsWith(name: []const u8, prefix: []const u8) bool {
     return asciiEqlIgnoreCase(name[0..prefix.len], prefix);
 }
 
+fn acpHasCommandName(session: *const Session, name: []const u8) bool {
+    for (session.availableCommands()) |*cmd| {
+        if (asciiEqlIgnoreCase(cmd.name(), name)) return true;
+    }
+    return false;
+}
+
 fn hasCommandNamePrefix(model: *const Model, prefix: []const u8) bool {
     const session = model.sessionByIdConst(model.selected) orelse return false;
     for (session.availableCommands()) |*cmd| {
         if (commandNameStartsWith(cmd.name(), prefix)) return true;
     }
     return false;
+}
+
+fn hasSkillSlashNamePrefix(model: *const Model, prefix: []const u8) bool {
+    const session = model.sessionByIdConst(model.selected);
+    var i: usize = 0;
+    while (i < model.skill_count) : (i += 1) {
+        if (!model.skill_store[i].enabled) continue;
+        const name = model.skill_store[i].name();
+        if (name.len == 0) continue;
+        if (session) |s| {
+            if (acpHasCommandName(s, name)) continue;
+        }
+        if (commandNameStartsWith(name, prefix)) return true;
+    }
+    return false;
+}
+
+fn hasSlashRowMatch(model: *const Model, prefix: []const u8) bool {
+    if (hasCommandNamePrefix(model, prefix)) return true;
+    return hasSkillSlashNamePrefix(model, prefix);
+}
+
+fn insertSlashSkillCommand(model: *Model, index: usize) void {
+    if (index >= model.skill_count) return;
+    if (!model.skill_store[index].enabled) return;
+    const name = model.skill_store[index].name();
+    if (name.len == 0) return;
+    var buf: [max_command_name + 2]u8 = undefined;
+    const text = std.fmt.bufPrint(&buf, "/{s} ", .{name}) catch return;
+    model.draft_buffer.set(text);
+    model.closeCommands();
+    model.autocomplete_dismissed = false;
 }
 
 fn hasFileMentionMatch(model: *const Model, query: []const u8) bool {
