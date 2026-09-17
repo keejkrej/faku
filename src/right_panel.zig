@@ -229,9 +229,13 @@
 //! substring until `.*` is on; optional ASCII case-sensitivity and whole-word
 //! (`[A-Za-z0-9_]` boundaries). Regex is a self-contained Zig subset (not
 //! the Rust crate). No GPUI match washes. Cap `file_preview_find_max_matches`
-//! (20000; Waku FileSearch is 20k). Runtime-only. Session restore resets
-//! the bar (Waku `reset_file_search_for_session`): close, clear matches,
-//! clear find + replace buffers.
+//! (20000; Waku FileSearch is 20k). Query / replace / active stay
+//! runtime-only. Aa / Ab / .* persist on `sessions.json` extras
+//! (`file_preview_find_case_sensitive` / `file_preview_find_whole_word` /
+//! `file_preview_find_use_regex`; missing / unknown / null → false).
+//! Session restore resets the bar (Waku `reset_file_search_for_session`):
+//! close, clear matches, clear find + replace buffers. Option toggles
+//! stay as global extras prefs (not per-session stash).
 //!
 //! Default closed: Waku `RightPanelSessionState::take_or_closed` uses
 //! `empty(false)` and persistence `default_right_panel_visibility` is
@@ -1633,6 +1637,7 @@ pub fn openFilePreviewFind(model: *Model, with_replace: bool) void {
 }
 
 /// Close the bar. Keeps query/toggles (Waku FileSearch). Clears matches.
+/// Does not clear persisted Aa / Ab / .* extras.
 pub fn closeFilePreviewFind(model: *Model) void {
     model.file_preview_find_active = false;
     model.file_preview_find_match_count = 0;
@@ -1644,16 +1649,14 @@ pub fn closeFilePreviewFind(model: *Model) void {
 /// Waku `reset_file_search_for_session` on `restore_right_panel_state`.
 /// Close the bar, clear matches, and clear find + replace buffers so a
 /// session switch cannot keep matches pointed at another session's
-/// preview. Toggles reset to defaults. Query/toggles still survive a
-/// same-session close of the bar via `closeFilePreviewFind`.
+/// preview. Find-option toggles stay as global extras prefs (not
+/// per-session stash). Query still survives a same-session close of
+/// the bar via `closeFilePreviewFind`.
 pub fn resetFilePreviewFindForSession(model: *Model) void {
     closeFilePreviewFind(model);
     model.file_preview_find_buffer.clear();
     model.file_preview_find_replace_buffer.clear();
     model.file_preview_find_replace_visible = false;
-    model.file_preview_find_case_sensitive = false;
-    model.file_preview_find_whole_word = false;
-    model.file_preview_find_use_regex = false;
 }
 
 pub fn applyFilePreviewFindEdit(model: *Model, edit: canvas.TextInputEvent) void {
@@ -1678,18 +1681,21 @@ pub fn toggleFilePreviewFindReplace(model: *Model) void {
 pub fn toggleFilePreviewFindCase(model: *Model) void {
     if (!model.file_preview_find_active) return;
     model.file_preview_find_case_sensitive = !model.file_preview_find_case_sensitive;
+    store.persistSettingsIfPossible(model);
     recomputeFilePreviewFind(model, .query);
 }
 
 pub fn toggleFilePreviewFindWholeWord(model: *Model) void {
     if (!model.file_preview_find_active) return;
     model.file_preview_find_whole_word = !model.file_preview_find_whole_word;
+    store.persistSettingsIfPossible(model);
     recomputeFilePreviewFind(model, .query);
 }
 
 pub fn toggleFilePreviewFindRegex(model: *Model) void {
     if (!model.file_preview_find_active) return;
     model.file_preview_find_use_regex = !model.file_preview_find_use_regex;
+    store.persistSettingsIfPossible(model);
     recomputeFilePreviewFind(model, .query);
 }
 
@@ -3507,6 +3513,11 @@ test "Files preview find whole-word toggle filters matches and replaceAll" {
     try std.testing.expect(!model.file_preview_find_active);
     try std.testing.expect(model.file_preview_find_whole_word);
     try std.testing.expectEqualStrings("foo", model.file_preview_find_query());
+
+    resetFilePreviewFindForSession(&model);
+    try std.testing.expect(!model.file_preview_find_active);
+    try std.testing.expectEqual(@as(usize, 0), model.file_preview_find_query().len);
+    try std.testing.expect(model.file_preview_find_whole_word);
 }
 
 test "Files preview find regex toggle matches, invalid, replace expand, keep-on-close" {
@@ -3570,6 +3581,11 @@ test "Files preview find regex toggle matches, invalid, replace expand, keep-on-
     try std.testing.expect(!model.file_preview_find_active);
     try std.testing.expect(model.file_preview_find_use_regex);
     try std.testing.expectEqualStrings("(\\w+) = (\\d+)", model.file_preview_find_query());
+
+    resetFilePreviewFindForSession(&model);
+    try std.testing.expect(!model.file_preview_find_active);
+    try std.testing.expectEqual(@as(usize, 0), model.file_preview_find_query().len);
+    try std.testing.expect(model.file_preview_find_use_regex);
 }
 
 test "Files preview find match-position follows Appearance language" {
