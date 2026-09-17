@@ -25,6 +25,7 @@ test {
     _ = @import("file_preview_issue_link.zig");
     _ = @import("transcript_images.zig");
     _ = @import("transcript_details.zig");
+    _ = @import("transcript_user_body.zig");
     _ = @import("file_preview_find.zig");
     _ = @import("file_preview_regex.zig");
     _ = @import("maximize_window.zig");

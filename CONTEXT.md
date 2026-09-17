@@ -733,7 +733,7 @@ flags, default collapsed, cap 16; Native `on-details` is a bare
 document-order index so all visible transcript `<markdown>` documents
 share those flags; bare `#N` via documented `issue-link-base` when the
 session project has a usable GitHub/GitLab remote, empty/missing leaves
-`#N` unlinked); first-cut Edit switches a full
+`#N` unlinked); first-cut user-message height cap: `visible_turns.user_body_capped` from a cheap model-facts estimate (newline count and wrap-bytes × conservative 20px line height + markdown chrome pad) vs Waku `USER_MESSAGE_MAX_HEIGHT` 400; when capped the user `<bubble>` wraps the same `<markdown>` in Native `<scroll height="384" overscroll="none">` (Waku viewport; nested transcript scroll pins at the inner edge — no invented contain API); short user bubbles stay today's uncapped `<bubble><markdown>`; assistant / tool / reasoning stay uncapped; Native has no element `max-height` and no GPUI edge-fade widget; first-cut Edit switches a full
 text window to `<textarea>`, Save (or Cmd/Ctrl-S when dirty-editing) prefers hello + daemon
 `WorkspaceOperation::WriteTextFile` when a daemon address is set
 (ok Ack adopts the saved buffer; Native 4 KiB stdin overflow /
@@ -1443,6 +1443,7 @@ enable/disable. Not persisted, not a live watch.
 | Right panel | `src/right_panel.zig`, `src/review_diff.zig`, `src/open_url.zig`, `src/file_icon.zig`, `src/file_type_icons.zig`, `src/file_preview_images.zig`, `src/file_preview_details.zig`, `src/file_preview_issue_link.zig` |
 | Transcript markdown images | `src/transcript_images.zig` |
 | Transcript markdown details | `src/transcript_details.zig` |
+| Transcript user-message height cap | `src/transcript_user_body.zig` |
 | Transcript markdown issue links | `src/file_preview_issue_link.zig` (shared Files Preview probe) |
 | Skills scan | `src/skills.zig` |
 | Providers catalog | `src/providers.zig`, `src/cli_probe.zig` |
@@ -1885,7 +1886,15 @@ Honest gaps this cut does not implement:
   `on-details` is a bare document-order index so all visible transcript
   `<markdown>` documents share those flags; bare `#N` via documented
   `issue-link-base` when the session project has a usable GitHub/GitLab
-  remote, empty/missing leaves `#N` unlinked). First-cut: opening the first Files preview widens the pane
+  remote, empty/missing leaves `#N` unlinked). First-cut user-message
+  height cap ships: `visible_turns.user_body_capped` from a cheap
+  model-facts estimate (newline count and wrap-bytes × conservative
+  20px line height + markdown chrome pad) vs Waku
+  `USER_MESSAGE_MAX_HEIGHT` 400; capped user `<bubble>` wraps the
+  same `<markdown>` in Native `<scroll height="384" overscroll="none">`
+  (Waku viewport); short user bubbles stay uncapped; assistant /
+  tool / reasoning stay uncapped; Native has no element `max-height`
+  and no GPUI edge-fade widget. First-cut: opening the first Files preview widens the pane
   with Waku `FILE_EDITOR_INITIAL_WIDTH` 500 (wide clamp 280–1000 while
   that preview is open). First-cut: opening Diff / Review widens the pane
   with Waku `REVIEW_INITIAL_WIDTH` 820 (wide clamp 280–1000; Browser /
@@ -2139,6 +2148,10 @@ Honest gaps this cut does not implement:
   projectless New Task path, else an ordinary New Task draft for
   that `project_path`, else `selected = 0`. Amend/force and
   remote `--track` stay local (not daemon WorkspaceOperation variants)
+- Waku GPUI user-message edge fades and Native element `max-height`
+  stay Native-blocked (first-cut user-message height cap ships via
+  the estimate + inner Native `<scroll height="384" overscroll="none">`
+  above; short user bubbles stay uncapped)
 - Long-lived ACP or daemon socket in the update loop
 - fx ACP still rejects image blocks (`fx ask --image`). First-cut
   ACP image content blocks (base64 + mimeType, ~256KB raw, size

@@ -994,6 +994,8 @@ test "user tool reasoning and assistant turns render markdown" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "<markdown source=\"{t.text}\" images=\"{transcript_images}\" details-expanded=\"{transcript_details_expanded}\" issue-link-base=\"{file_preview_issue_link_base}\" on-details=\"transcript_toggle_details\" on-link=\"transcript_open_url\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-details=\"transcript_toggle_details\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-link=\"transcript_open_url\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "t.user_body_capped") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<scroll height=\"384\" overscroll=\"none\">") != null);
 }
 
 test "assistant markdown details expand via on-details; default collapsed; no panic" {
@@ -1256,6 +1258,66 @@ test "user turns hug the right in a bubble; assistant turns stay left" {
     const tool_row = try expectByText(transcript, .column, "read src/align.ts");
     try testing.expect(findByKind(tool_row, .bubble) == null);
     _ = try expectByText(tool_row, .text, "Tool");
+}
+
+test "tall user bubbles wrap markdown in a 384 Native scroll; short and assistant stay uncapped" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const user_body = @import("transcript_user_body.zig");
+    const short = "hello there";
+    const tall_user = "user-cap-fixture\n" ++ ("line\n" ** 30);
+    const tall_assistant = "assistant-uncapped-fixture\n" ++ ("line\n" ** 30);
+    try testing.expect(!user_body.capped(short));
+    try testing.expect(user_body.capped(tall_user));
+    try testing.expect(user_body.capped(tall_assistant));
+
+    var model = Model{};
+    const id = model.addSession("user body cap", .fx);
+    model.selected = id;
+    _ = model.appendTurn(id, .user, short);
+    _ = model.appendTurn(id, .user, tall_user);
+    _ = model.appendTurn(id, .assistant, tall_assistant);
+    _ = model.appendTurn(id, .tool, "read src/cap.ts");
+    _ = model.appendTurn(id, .reasoning, tall_assistant);
+
+    const rows = model.visible_turns(arena);
+    try testing.expectEqual(@as(usize, 5), rows.len);
+    try testing.expect(rows[0].is_user);
+    try testing.expect(!rows[0].user_body_capped);
+    try testing.expect(rows[1].is_user);
+    try testing.expect(rows[1].user_body_capped);
+    try testing.expect(!rows[2].is_user);
+    try testing.expect(!rows[2].user_body_capped);
+    try testing.expect(rows[3].is_tool);
+    try testing.expect(!rows[3].user_body_capped);
+    try testing.expect(rows[4].is_reasoning);
+    try testing.expect(!rows[4].user_body_capped);
+
+    const tree = try buildTree(arena, &model);
+    const transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const short_row = try expectByText(transcript, .row, short);
+    const short_bubble = findByKind(short_row, .bubble) orelse return error.WidgetNotFound;
+    try testing.expectEqual(@as(usize, 0), countByKind(short_bubble, .scroll_view));
+
+    const tall_row = try expectByText(transcript, .row, tall_user);
+    const tall_bubble = findByKind(tall_row, .bubble) orelse return error.WidgetNotFound;
+    try testing.expectEqual(@as(usize, 1), countByKind(tall_bubble, .scroll_view));
+    const inner = findByKind(tall_bubble, .scroll_view) orelse return error.WidgetNotFound;
+    if (@hasField(@TypeOf(inner.layout), "height")) {
+        try testing.expectEqual(@as(f32, 384), inner.layout.height);
+    }
+
+    const assistant_row = try expectByText(transcript, .column, tall_assistant);
+    try testing.expect(findByKind(assistant_row, .bubble) == null);
+    try testing.expectEqual(@as(usize, 0), countByKind(assistant_row, .scroll_view));
+    const tool_row = try expectByText(transcript, .column, "read src/cap.ts");
+    try testing.expectEqual(@as(usize, 0), countByKind(tool_row, .scroll_view));
+
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "t.user_body_capped") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<scroll height=\"384\" overscroll=\"none\">") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "max-height") == null);
 }
 
 const NotifySink = struct {
