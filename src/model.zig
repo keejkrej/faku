@@ -2291,6 +2291,7 @@ pub const Model = struct {
         "providersDetailChrome",
         "skillsEnableChrome",
         "skillsTrashChrome",
+        "skillsTrashStatusChrome",
         "palette_action_label",
         "show_right_panel_label",
         "sidebarDates",
@@ -5671,6 +5672,10 @@ pub const Model = struct {
         return i18n.skillsTrashChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn skillsTrashStatusChrome(model: *const Model) i18n.SkillsTrashStatusChrome {
+        return i18n.skillsTrashStatusChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     /// Palette row display label for `action`. New Task / Settings /
     /// Collapse all folders reuse Sidebar / Chrome strings; remaining
     /// names come from `i18n.Palette`. Ids / keywords stay English.
@@ -6045,6 +6050,15 @@ pub const Model = struct {
 
     pub fn skill_confirm_delete_label(model: *const Model) []const u8 {
         return model.skillsTrashChrome().confirm;
+    }
+
+    /// Settings Skills Delete miss / remove-fail window_status.
+    /// Localized via `i18n.SkillsTrashStatusChrome`. Distinct from
+    /// Delete / Confirm delete (`SkillsTrashChrome`) and from
+    /// `BranchOpStatusChrome` Could not delete branch. English
+    /// matches `skills.could_not_delete_status`.
+    pub fn skill_delete_failed_status(model: *const Model) []const u8 {
+        return model.skillsTrashStatusChrome().delete_failed;
     }
 
     pub fn skill_delete_idle(model: *const Model) bool {

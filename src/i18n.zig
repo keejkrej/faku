@@ -364,6 +364,10 @@
 //! `SkillsEmptyChrome` so Delete stays independently evolvable;
 //! on-press stays `arm_skill_delete` / `confirm_skill_delete`;
 //! wire ids stay English)
+//! plus Settings Skills Delete miss / remove-fail window_status
+//! Could not delete skill. (same `SkillsTrashStatusChrome` strings;
+//! distinct from `SkillsTrashChrome` Delete / Confirm delete so fail
+//! status stays independently evolvable)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -4290,6 +4294,28 @@ const skills_trash_chrome_ja: SkillsTrashChrome = .{
     .confirm = "削除を確認",
 };
 
+/// Settings Skills Delete miss / remove-fail window_status Could not
+/// delete skill. for the resolved locale. Same resolve path as
+/// SkillsTrashChrome. English matches the former hardcoded copy.
+/// Distinct from Delete / Confirm delete (`SkillsTrashChrome`) so
+/// fail status stays independently evolvable. Wire ids / on-press /
+/// daemon `trashSkills` stay English.
+pub const SkillsTrashStatusChrome = struct {
+    delete_failed: []const u8,
+};
+
+const skills_trash_status_chrome_en: SkillsTrashStatusChrome = .{
+    .delete_failed = "Could not delete skill.",
+};
+
+const skills_trash_status_chrome_zh_cn: SkillsTrashStatusChrome = .{
+    .delete_failed = "无法删除技能。",
+};
+
+const skills_trash_status_chrome_ja: SkillsTrashStatusChrome = .{
+    .delete_failed = "スキルを削除できませんでした。",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -5527,6 +5553,20 @@ pub fn skillsTrashChromeFor(preference: LanguagePreference, system_locale_id: []
         .simplified_chinese => skills_trash_chrome_zh_cn,
         .japanese => skills_trash_chrome_ja,
         .system, .english => skills_trash_chrome_en,
+    };
+}
+
+/// Settings Skills Delete miss / remove-fail Could not delete skill.
+/// window_status for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does not
+/// read process env. Distinct from SkillsTrashChrome Delete /
+/// Confirm delete. Wire ids / on-press / daemon `trashSkills` stay
+/// English.
+pub fn skillsTrashStatusChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsTrashStatusChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_trash_status_chrome_zh_cn,
+        .japanese => skills_trash_status_chrome_ja,
+        .system, .english => skills_trash_status_chrome_en,
     };
 }
 
@@ -8951,5 +8991,26 @@ test "skillsTrashChromeFor english default; zh and ja chrome; english ignores ja
 
     try testing.expect(!std.mem.eql(u8, skillsTrashChromeFor(.english, "").delete, skillsEnableChromeFor(.english, "").disable));
     try testing.expect(!std.mem.eql(u8, skillsTrashChromeFor(.english, "").confirm, skillsEnableChromeFor(.english, "").disable));
+}
+
+test "skillsTrashStatusChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Could not delete skill.", skillsTrashStatusChromeFor(.english, "ja").delete_failed);
+    try testing.expectEqualStrings("Could not delete skill.", skillsTrashStatusChromeFor(.english, "").delete_failed);
+    try testing.expectEqualStrings("Could not delete skill.", skillsTrashStatusChromeFor(.system, "").delete_failed);
+
+    try testing.expectEqualStrings("无法删除技能。", skillsTrashStatusChromeFor(.simplified_chinese, "").delete_failed);
+    try testing.expectEqualStrings("スキルを削除できませんでした。", skillsTrashStatusChromeFor(.japanese, "").delete_failed);
+
+    try testing.expectEqualStrings("无法删除技能。", skillsTrashStatusChromeFor(.system, "zh_CN.UTF-8").delete_failed);
+    try testing.expectEqualStrings("スキルを削除できませんでした。", skillsTrashStatusChromeFor(.system, "ja_JP.UTF-8").delete_failed);
+    try testing.expectEqualStrings("Could not delete skill.", skillsTrashStatusChromeFor(.english, "ja_JP.UTF-8").delete_failed);
+    try testing.expectEqualStrings("Could not delete skill.", skillsTrashStatusChromeFor(.english, "zh_CN.UTF-8").delete_failed);
+
+    try testing.expect(!std.mem.eql(u8, skillsTrashStatusChromeFor(.english, "").delete_failed, skillsTrashChromeFor(.english, "").delete));
+    try testing.expect(!std.mem.eql(u8, skillsTrashStatusChromeFor(.english, "").delete_failed, skillsTrashChromeFor(.english, "").confirm));
+    try testing.expect(!std.mem.eql(u8, skillsTrashStatusChromeFor(.english, "").delete_failed, branchOpStatusChromeFor(.english, "").delete_failed));
+    try testing.expect(!std.mem.eql(u8, skillsTrashStatusChromeFor(.simplified_chinese, "").delete_failed, branchOpStatusChromeFor(.simplified_chinese, "").delete_failed));
+    try testing.expect(!std.mem.eql(u8, skillsTrashStatusChromeFor(.japanese, "").delete_failed, branchOpStatusChromeFor(.japanese, "").delete_failed));
 }
 
