@@ -589,7 +589,9 @@ fn joinProbeRelpath(root: []const u8, relpath: []const u8, buf: []u8) ?[]const u
     const base = std.mem.trimEnd(u8, root, "/\\");
     const rel = std.mem.trimStart(u8, relpath, "/\\");
     if (base.len == 0 or rel.len == 0) return null;
-    return std.fmt.bufPrint(buf, "{s}/{s}", .{ base, rel }) catch null;
+    const printed = std.fmt.bufPrint(buf, "{s}/{s}", .{ base, rel }) catch return null;
+    slashNormalizeInPlace(printed);
+    return printed;
 }
 
 fn lastPathSep(path: []const u8) ?usize {
@@ -626,8 +628,13 @@ fn hydrateOne(model: *Model, index: usize) void {
 pub fn applyStdoutPaths(model: *Model, raw: []const u8) void {
     var it = std.mem.splitScalar(u8, raw, '\n');
     while (it.next()) |line| {
-        const path = file_mention.normalizeStdoutPath(line);
-        if (path.len == 0 or !isSkillMdPath(path)) continue;
+        const raw_path = file_mention.normalizeStdoutPath(line);
+        if (raw_path.len == 0 or raw_path.len > max_skill_path) continue;
+        var path_buf: [max_skill_path]u8 = undefined;
+        @memcpy(path_buf[0..raw_path.len], raw_path);
+        slashNormalizeInPlace(path_buf[0..raw_path.len]);
+        const path = path_buf[0..raw_path.len];
+        if (!isSkillMdPath(path)) continue;
         const enabled = skillEnabledFromPath(path);
         const dir = skillDirKey(path);
         if (indexOfSkillDir(model, dir)) |index| {
@@ -708,9 +715,11 @@ pub fn toggleSkillEnabled(model: *Model, fx: *Effects) void {
 fn absSkillParent(root: []const u8, relpath: []const u8, buf: []u8) ?[]const u8 {
     const dir = skillDirKey(relpath);
     if (dir.len == 0) {
-        if (root.len == 0 or root.len > buf.len) return null;
-        @memcpy(buf[0..root.len], root);
-        return buf[0..root.len];
+        const base = std.mem.trimEnd(u8, root, "/\\");
+        if (base.len == 0 or base.len > buf.len) return null;
+        @memcpy(buf[0..base.len], base);
+        slashNormalizeInPlace(buf[0..base.len]);
+        return buf[0..base.len];
     }
     return joinProbeRelpath(root, dir, buf);
 }
@@ -1379,7 +1388,7 @@ test "toggleSkillEnabled missing file keeps cache and does not spawn" {
 test "joinProbeRelpath and absSkillParent tolerate Windows roots and mixed separators" {
     var buf: [128]u8 = undefined;
     try std.testing.expectEqualStrings(
-        "C:\\Users\\me\\proj/.cursor/skills/demo/SKILL.md",
+        "C:/Users/me/proj/.cursor/skills/demo/SKILL.md",
         joinProbeRelpath("C:\\Users\\me\\proj", ".cursor/skills/demo/SKILL.md", &buf).?,
     );
     try std.testing.expectEqualStrings(
@@ -1387,15 +1396,15 @@ test "joinProbeRelpath and absSkillParent tolerate Windows roots and mixed separ
         joinProbeRelpath("C:/Users/me/proj/", "/.cursor/skills/demo/SKILL.md", &buf).?,
     );
     try std.testing.expectEqualStrings(
-        "C:\\Users\\me\\proj/.cursor/skills/demo",
+        "C:/Users/me/proj/.cursor/skills/demo",
         absSkillParent("C:\\Users\\me\\proj", ".cursor/skills/demo/SKILL.md", &buf).?,
     );
     try std.testing.expectEqualStrings(
-        "C:\\Users\\me\\proj",
+        "C:/Users/me/proj",
         absSkillParent("C:\\Users\\me\\proj", "SKILL.md", &buf).?,
     );
     try std.testing.expectEqualStrings(
-        "C:\\Users\\me\\proj/.cursor/skills/demo",
+        "C:/Users/me/proj/.cursor/skills/demo",
         absSkillParent("C:\\Users\\me\\proj\\", ".cursor\\skills\\demo\\SKILL.md.disabled", &buf).?,
     );
 }
