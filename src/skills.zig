@@ -124,7 +124,12 @@
 //! SkillsEmptyChrome / SkillsSelectChrome; muted Native text after
 //! the filter field when emptyHint does not own that space;
 //! `disabled` is total cached disabled like Waku library header).
-//! app.zon already includes windows.
+//! Settings Skills library section headers follow
+//! `i18n.SkillsSectionChrome` (`section_user` only; English matches
+//! Waku GPUI `skills.section_user`; project section paints the
+//! project name; distinct from SkillsEmptyChrome / SkillsCountChrome
+//! / SkillsSelectChrome). Composer `$` insert / slash skill rows
+//! stay flat. app.zon already includes windows.
 //!
 //! Spawn/line/exit orchestration lives here. Tests do not need a live
 //! daemon or fx.
@@ -638,6 +643,17 @@ pub fn skillId(index: usize) u32 {
     return @intCast(index + 1);
 }
 
+/// Native `select_skill` ids for Settings Skills section headers.
+/// Sit well above `skillId` (1-based cache, cap `max_skills`) so
+/// `for` keys never collide and `selectSkill` can fail closed.
+pub const skill_header_id_base: u32 = 1000;
+pub const skill_header_id_project: u32 = skill_header_id_base;
+pub const skill_header_id_user: u32 = skill_header_id_base + 1;
+
+pub fn isSkillHeaderId(id: u32) bool {
+    return id >= skill_header_id_base;
+}
+
 /// Composer `/` slash-card id for a `skill_store` row. Offset by
 /// `max_available_commands` so Native `insert_command:{c.id}` never
 /// collides with ACP 1-based ids.
@@ -791,6 +807,29 @@ fn daemonMirrorAddress(model: *const Model) []const u8 {
 fn projectLabel(path: []const u8) []const u8 {
     const name = pathBasename(path);
     return if (name.len > 0) name else "project";
+}
+
+/// Settings Skills project-section label: basename of the open
+/// probe path, else `"project"` (same as daemon `loadSkills`
+/// projectName). Not i18n.
+pub fn sectionProjectLabel(model: *const Model) []const u8 {
+    return projectLabel(probePath(model));
+}
+
+/// ASCII-uppercase copy for Waku section-header paint. Non-ASCII
+/// bytes stay as stored (zh-CN 用户 / ja ユーザー). Native has no
+/// text-transform API.
+pub fn paintedSectionLabel(arena: std.mem.Allocator, label: []const u8) []const u8 {
+    const out = arena.alloc(u8, label.len) catch return label;
+    for (label, out) |c, *d| {
+        d.* = std.ascii.toUpper(c);
+    }
+    return out;
+}
+
+/// Latin digit count for a section header. Cap is `max_skills`.
+pub fn latinCount(arena: std.mem.Allocator, n: usize) []const u8 {
+    return std.fmt.allocPrint(arena, "{d}", .{n}) catch "";
 }
 
 fn trySpawnDaemon(model: *Model, fx: *Effects, cwd: []const u8) bool {
@@ -1427,6 +1466,7 @@ fn spawnRemove(model: *Model, fx: *Effects) void {
 }
 
 pub fn selectSkill(model: *Model, id: u32) void {
+    if (isSkillHeaderId(id)) return;
     if (id != model.skill_selected_id) {
         model.skill_delete_arming = false;
     }
@@ -1632,6 +1672,12 @@ pub const no_matching = skills_empty_chrome_en.no_matching;
 /// No skills match your search.
 const skills_select_chrome_en = i18n.skillsSelectChromeFor(.english, "");
 pub const select_placeholder = skills_select_chrome_en.select_placeholder;
+
+/// English default from `i18n.SkillsSectionChrome`. Distinct from
+/// SkillsEmptyChrome / SkillsCountChrome / SkillsSelectChrome.
+/// Matches Waku GPUI `skills.section_user`.
+const skills_section_chrome_en = i18n.skillsSectionChromeFor(.english, "");
+pub const section_user = skills_section_chrome_en.section_user;
 
 /// English defaults from `i18n.SkillsEnableChrome`. Distinct from
 /// Providers Enable / Disable.
@@ -3161,6 +3207,7 @@ test "composer $ insert lists enabled skills only" {
     try testing.expectEqual(@as(u32, 2), rows[0].id);
     try testing.expect(!rows[0].has_description);
     try testing.expectEqualStrings("", rows[0].description);
+    try testing.expect(!rows[0].is_header);
 
     model.draft_buffer.set("$off");
     try testing.expectEqual(@as(usize, 0), model.skill_insert_rows(arena).len);
@@ -3221,11 +3268,15 @@ test "hydrate description; skill_rows skill_insert_rows command_rows expose it" 
     model.settings_page = .skills;
     {
         const rows = model.skill_rows(arena);
-        try testing.expectEqual(@as(usize, 2), rows.len);
-        try testing.expect(rows[0].has_description);
-        try testing.expectEqualStrings("Does the described thing.", rows[0].description);
-        try testing.expect(!rows[1].has_description);
-        try testing.expectEqualStrings("", rows[1].description);
+        try testing.expectEqual(@as(usize, 3), rows.len);
+        try testing.expect(rows[0].is_header);
+        try testing.expectEqualStrings("2", rows[0].count);
+        try testing.expect(rows[1].has_description);
+        try testing.expectEqualStrings("Does the described thing.", rows[1].description);
+        try testing.expect(!rows[1].is_header);
+        try testing.expect(!rows[2].has_description);
+        try testing.expectEqualStrings("", rows[2].description);
+        try testing.expect(!rows[2].is_header);
     }
 
     model.draft_buffer.set("$");
@@ -3234,7 +3285,9 @@ test "hydrate description; skill_rows skill_insert_rows command_rows expose it" 
         try testing.expectEqual(@as(usize, 2), rows.len);
         try testing.expect(rows[0].has_description);
         try testing.expectEqualStrings("Does the described thing.", rows[0].description);
+        try testing.expect(!rows[0].is_header);
         try testing.expect(!rows[1].has_description);
+        try testing.expect(!rows[1].is_header);
     }
 
     model.draft_buffer.set("$described");
@@ -3257,6 +3310,157 @@ test "hydrate description; skill_rows skill_insert_rows command_rows expose it" 
         try testing.expect(!rows[1].has_description);
         try testing.expectEqualStrings("", rows[1].description);
     }
+}
+
+test "skill_rows groups project then user with section headers; insert stays flat" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-sections", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, root);
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setLastProjectPath(root);
+    model.settings_page = .skills;
+    try testing.expectEqualStrings("User", section_user);
+    try testing.expectEqualStrings("User", i18n.skillsSectionChromeFor(.english, "").section_user);
+    try testing.expectEqualStrings("用户", i18n.skillsSectionChromeFor(.simplified_chinese, "").section_user);
+    try testing.expectEqualStrings("ユーザー", i18n.skillsSectionChromeFor(.japanese, "").section_user);
+    try testing.expectEqualStrings("faku-skills-sections", sectionProjectLabel(&model));
+
+    applyStdoutPaths(&model, ".cursor/skills/alpha/SKILL.md\n.cursor/skills/beta/SKILL.md\n");
+    {
+        const rows = model.skill_rows(arena);
+        try testing.expectEqual(@as(usize, 3), rows.len);
+        try testing.expect(rows[0].is_header);
+        try testing.expectEqual(skill_header_id_project, rows[0].id);
+        try testing.expectEqualStrings("FAKU-SKILLS-SECTIONS", rows[0].name);
+        try testing.expectEqualStrings("2", rows[0].count);
+        try testing.expectEqualStrings("", rows[0].path);
+        try testing.expect(!rows[0].selected);
+        try testing.expect(!rows[0].disabled);
+        try testing.expect(!rows[1].is_header);
+        try testing.expectEqualStrings("alpha", rows[1].name);
+        try testing.expectEqual(skillId(0), rows[1].id);
+        try testing.expectEqualStrings("beta", rows[2].name);
+        try testing.expectEqual(skillId(1), rows[2].id);
+    }
+
+    model.skill_count = 0;
+    applyStdoutPaths(&model, "/home/me/.cursor/skills/user-one/SKILL.md\n/home/me/.cursor/skills/user-two/SKILL.md\n");
+    {
+        const rows = model.skill_rows(arena);
+        try testing.expectEqual(@as(usize, 3), rows.len);
+        try testing.expect(rows[0].is_header);
+        try testing.expectEqual(skill_header_id_user, rows[0].id);
+        try testing.expectEqualStrings("USER", rows[0].name);
+        try testing.expectEqualStrings("2", rows[0].count);
+        try testing.expect(!rows[1].is_header);
+        try testing.expectEqualStrings("user-one", rows[1].name);
+        try testing.expectEqualStrings("/home/me/.cursor/skills/user-one/SKILL.md", rows[1].path);
+        try testing.expectEqualStrings("user-two", rows[2].name);
+    }
+
+    model.language_preference = .simplified_chinese;
+    {
+        const rows = model.skill_rows(arena);
+        try testing.expectEqualStrings("用户", rows[0].name);
+    }
+    model.language_preference = .japanese;
+    {
+        const rows = model.skill_rows(arena);
+        try testing.expectEqualStrings("ユーザー", rows[0].name);
+    }
+    model.language_preference = .english;
+
+    model.skill_count = 0;
+    applyStdoutPaths(&model, "/home/me/.cursor/skills/user-one/SKILL.md\n.cursor/skills/alpha/SKILL.md\n/home/me/.cursor/skills/user-two/SKILL.md\n.cursor/skills/beta/SKILL.md\n");
+    {
+        const rows = model.skill_rows(arena);
+        try testing.expectEqual(@as(usize, 6), rows.len);
+        try testing.expect(rows[0].is_header);
+        try testing.expectEqual(skill_header_id_project, rows[0].id);
+        try testing.expectEqualStrings("FAKU-SKILLS-SECTIONS", rows[0].name);
+        try testing.expectEqualStrings("2", rows[0].count);
+        try testing.expectEqualStrings("alpha", rows[1].name);
+        try testing.expectEqualStrings("beta", rows[2].name);
+        try testing.expect(rows[3].is_header);
+        try testing.expectEqual(skill_header_id_user, rows[3].id);
+        try testing.expectEqualStrings("USER", rows[3].name);
+        try testing.expectEqualStrings("2", rows[3].count);
+        try testing.expectEqualStrings("user-one", rows[4].name);
+        try testing.expectEqualStrings("user-two", rows[5].name);
+    }
+
+    model.skills_filter_buffer.apply(.{ .insert_text = "user-one" });
+    {
+        const rows = model.skill_rows(arena);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expect(rows[0].is_header);
+        try testing.expectEqual(skill_header_id_user, rows[0].id);
+        try testing.expectEqualStrings("USER", rows[0].name);
+        try testing.expectEqualStrings("1", rows[0].count);
+        try testing.expectEqualStrings("user-one", rows[1].name);
+        try testing.expect(!rows[1].is_header);
+    }
+    model.skills_filter_buffer.clear();
+    model.skills_filter_buffer.apply(.{ .insert_text = "alpha" });
+    {
+        const rows = model.skill_rows(arena);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expect(rows[0].is_header);
+        try testing.expectEqual(skill_header_id_project, rows[0].id);
+        try testing.expectEqualStrings("1", rows[0].count);
+        try testing.expectEqualStrings("alpha", rows[1].name);
+    }
+    model.skills_filter_buffer.clear();
+    model.skills_filter_buffer.apply(.{ .insert_text = "zzz" });
+    try testing.expectEqual(@as(usize, 0), model.skill_rows(arena).len);
+    try testing.expectEqualStrings("No skills match your search", emptyHint(&model));
+    try testing.expect(!isNoSkillsEmpty(&model));
+    model.skills_filter_buffer.clear();
+
+    model.skill_count = 0;
+    try testing.expect(isNoSkillsEmpty(&model));
+    try testing.expectEqual(@as(usize, 0), model.skill_rows(arena).len);
+    try testing.expectEqualStrings("No skills found", emptyHint(&model));
+    model.skill_key = 1;
+    try testing.expect(scanInFlight(&model));
+    try testing.expectEqual(@as(usize, 0), model.skill_rows(arena).len);
+    try testing.expectEqualStrings("Scanning skill folders…", emptyHint(&model));
+    model.skill_key = 0;
+
+    applyStdoutPaths(&model, "/home/me/.cursor/skills/user-one/SKILL.md\n.cursor/skills/alpha/SKILL.md\n");
+    model.draft_buffer.set("$");
+    {
+        const rows = model.skill_insert_rows(arena);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expect(!rows[0].is_header);
+        try testing.expect(!rows[1].is_header);
+        try testing.expectEqualStrings("", rows[0].count);
+        try testing.expectEqualStrings("user-one", rows[0].name);
+        try testing.expectEqualStrings("alpha", rows[1].name);
+    }
+
+    selectSkill(&model, 1);
+    try testing.expectEqual(@as(u32, 1), model.skill_selected_id);
+    armSkillDelete(&model);
+    try testing.expect(model.skill_delete_arming);
+    selectSkill(&model, skill_header_id_project);
+    try testing.expectEqual(@as(u32, 1), model.skill_selected_id);
+    try testing.expect(model.skill_delete_arming);
+    selectSkill(&model, skill_header_id_user);
+    try testing.expectEqual(@as(u32, 1), model.skill_selected_id);
+    try testing.expect(model.skill_delete_arming);
+
+    model.settings_page = .general;
+    try testing.expectEqual(@as(usize, 0), model.skill_rows(arena).len);
 }
 
 fn writeTestSkill(io: std.Io, dir: []const u8, name: []const u8, body: []const u8, disabled: bool) !void {
@@ -3359,6 +3563,12 @@ test "slashCommandId sits above ACP max_available_commands" {
     try testing.expect(slashCommandIndex(0) == null);
     try testing.expect(slashCommandIndex(1) == null);
     try testing.expect(slashCommandIndex(@intCast(model_exports.max_available_commands)) == null);
+    try testing.expect(isSkillHeaderId(skill_header_id_project));
+    try testing.expect(isSkillHeaderId(skill_header_id_user));
+    try testing.expect(!isSkillHeaderId(skillId(0)));
+    try testing.expect(!isSkillHeaderId(skillId(max_skills - 1)));
+    try testing.expect(skill_header_id_project > skillId(max_skills - 1));
+    try testing.expect(skill_header_id_user != skill_header_id_project);
 }
 
 fn pendingSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
