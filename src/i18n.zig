@@ -428,9 +428,18 @@
 //! SkillsEmptyChrome / SkillsSelectChrome / SkillsCountChrome /
 //! SkillsSectionChrome so the selected-detail chrome stays
 //! independently evolvable; description / `/name` / path / body
-//! stay data; no `detail_updated` / file_count / allowed_tools /
-//! duplicate grouping this cut; composer `$` insert unchanged;
-//! wire ids stay English)
+//! stay data; Updated lives in `SkillsUpdatedChrome`; no
+//! file_count / allowed_tools / duplicate grouping this cut;
+//! composer `$` insert unchanged; wire ids stay English)
+//! plus Settings Skills selected-detail Updated (same
+//! `SkillsUpdatedChrome` strings; English matches Waku
+//! `skills.detail_updated` / `updated_just_now` / `updated_minutes`
+//! / `updated_hours` / `updated_days`; relative SKILL.md mtime;
+//! fail closed when mtime cannot be read; distinct from
+//! SkillsDetailChrome so Updated stays independently evolvable;
+//! numbers stay Latin; no file_count / allowed_tools / duplicate
+//! grouping this cut; composer `$` insert unchanged; wire ids stay
+//! English)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -4455,9 +4464,9 @@ const skills_section_chrome_ja: SkillsSectionChrome = .{
 /// (filter caption), and SkillsSectionChrome (library headers) so
 /// the selected-detail chrome stays independently evolvable.
 /// Description / `/name` invoke line / path / `{skill_body}` stay
-/// data. No `detail_updated` / file_count / allowed_tools /
-/// duplicate grouping this cut. Composer `$` insert unchanged.
-/// Wire ids stay English.
+/// data. Updated lives in `SkillsUpdatedChrome`. No file_count /
+/// allowed_tools / duplicate grouping this cut. Composer `$`
+/// insert unchanged. Wire ids stay English.
 pub const SkillsDetailChrome = struct {
     no_description: []const u8,
     detail_invoke: []const u8,
@@ -4485,6 +4494,53 @@ const skills_detail_chrome_ja: SkillsDetailChrome = .{
     .detail_location = "場所",
     .detail_contents = "内容",
 };
+
+/// Settings Skills selected-detail Updated label + relative mtime
+/// values for the resolved locale. Same resolve path as
+/// SkillsDetailChrome. English matches Waku `skills.detail_updated`
+/// / `updated_just_now` / `updated_minutes` / `updated_hours` /
+/// `updated_days`. Distinct from SkillsDetailChrome (Invoke /
+/// Location / Contents) so Updated stays independently evolvable.
+/// Templates keep Waku `%{count}` slots. Numbers stay Latin. Fail
+/// closed when SKILL.md mtime cannot be read. No file_count /
+/// allowed_tools / duplicate grouping this cut. Composer `$`
+/// insert unchanged. Wire ids stay English.
+pub const SkillsUpdatedChrome = struct {
+    detail_updated: []const u8,
+    updated_just_now: []const u8,
+    updated_minutes: []const u8,
+    updated_hours: []const u8,
+    updated_days: []const u8,
+};
+
+const skills_updated_chrome_en: SkillsUpdatedChrome = .{
+    .detail_updated = "Updated",
+    .updated_just_now = "Just now",
+    .updated_minutes = "%{count}m ago",
+    .updated_hours = "%{count}h ago",
+    .updated_days = "%{count}d ago",
+};
+
+const skills_updated_chrome_zh_cn: SkillsUpdatedChrome = .{
+    .detail_updated = "更新",
+    .updated_just_now = "刚刚",
+    .updated_minutes = "%{count} 分钟前",
+    .updated_hours = "%{count} 小时前",
+    .updated_days = "%{count} 天前",
+};
+
+const skills_updated_chrome_ja: SkillsUpdatedChrome = .{
+    .detail_updated = "更新日時",
+    .updated_just_now = "たった今",
+    .updated_minutes = "%{count} 分前",
+    .updated_hours = "%{count} 時間前",
+    .updated_days = "%{count} 日前",
+};
+
+/// Capped scratch for `formatSkillsUpdatedRelative`. Integer
+/// minutes / hours / days stay Latin; templates are short in
+/// every locale.
+pub const skills_updated_label_max: usize = 64;
 
 /// Capped scratch for `formatSkillsCountCaption` /
 /// `formatSkillsFilterCaption`. Max cached skills is 64, so Latin
@@ -5901,6 +5957,47 @@ pub fn skillsDetailChromeFor(preference: LanguagePreference, system_locale_id: [
         .japanese => skills_detail_chrome_ja,
         .system, .english => skills_detail_chrome_en,
     };
+}
+
+/// Settings Skills selected-detail Updated label + relative
+/// templates for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does not
+/// read process env. Distinct from SkillsDetailChrome so Updated
+/// stays independently evolvable. English matches Waku
+/// `skills.detail_updated` / `updated_just_now` / `updated_minutes`
+/// / `updated_hours` / `updated_days`. Wire ids stay English.
+pub fn skillsUpdatedChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsUpdatedChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_updated_chrome_zh_cn,
+        .japanese => skills_updated_chrome_ja,
+        .system, .english => skills_updated_chrome_en,
+    };
+}
+
+/// Waku `updated_label` buckets from SKILL.md mtime unix seconds.
+/// Callers inject `now_unix` so tests pin "now". Floor division
+/// like Waku. Numbers stay Latin. Future / equal mtime → Just now.
+pub fn formatSkillsUpdatedRelative(chrome: SkillsUpdatedChrome, mtime_unix: i64, now_unix: i64, buf: []u8) []const u8 {
+    const elapsed: i64 = if (now_unix > mtime_unix) now_unix - mtime_unix else 0;
+    if (elapsed < 60) {
+        if (chrome.updated_just_now.len > buf.len) return "";
+        @memcpy(buf[0..chrome.updated_just_now.len], chrome.updated_just_now);
+        return buf[0..chrome.updated_just_now.len];
+    }
+    const template = if (elapsed < 3600)
+        chrome.updated_minutes
+    else if (elapsed < 86400)
+        chrome.updated_hours
+    else
+        chrome.updated_days;
+    const unit: i64 = if (elapsed < 3600)
+        60
+    else if (elapsed < 86400)
+        3600
+    else
+        86400;
+    const count: usize = @intCast(@divTrunc(elapsed, unit));
+    return formatSkillsPlaceholders(template, &.{.{ .name = "count", .value = count }}, buf);
 }
 
 /// Settings Skills Copy path success window_status Path copied for
@@ -9602,6 +9699,70 @@ test "skillsDetailChromeFor english default; zh and ja chrome; english ignores j
     try testing.expect(!std.mem.eql(u8, skillsDetailChromeFor(.english, "").detail_contents, skillsCountChromeFor(.english, "").count_one));
     try testing.expect(!std.mem.eql(u8, skillsDetailChromeFor(.simplified_chinese, "").no_description, skillsSelectChromeFor(.simplified_chinese, "").select_placeholder));
     try testing.expect(!std.mem.eql(u8, skillsDetailChromeFor(.japanese, "").no_description, skillsSelectChromeFor(.japanese, "").select_placeholder));
+}
+
+test "skillsUpdatedChromeFor english default; zh and ja chrome; relative buckets; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Updated", skillsUpdatedChromeFor(.english, "ja").detail_updated);
+    try testing.expectEqualStrings("Just now", skillsUpdatedChromeFor(.english, "").updated_just_now);
+    try testing.expectEqualStrings("%{count}m ago", skillsUpdatedChromeFor(.english, "").updated_minutes);
+    try testing.expectEqualStrings("%{count}h ago", skillsUpdatedChromeFor(.english, "").updated_hours);
+    try testing.expectEqualStrings("%{count}d ago", skillsUpdatedChromeFor(.english, "").updated_days);
+    try testing.expectEqualStrings("Updated", skillsUpdatedChromeFor(.system, "").detail_updated);
+    try testing.expectEqualStrings("Just now", skillsUpdatedChromeFor(.system, "").updated_just_now);
+
+    try testing.expectEqualStrings("更新", skillsUpdatedChromeFor(.simplified_chinese, "").detail_updated);
+    try testing.expectEqualStrings("刚刚", skillsUpdatedChromeFor(.simplified_chinese, "").updated_just_now);
+    try testing.expectEqualStrings("%{count} 分钟前", skillsUpdatedChromeFor(.simplified_chinese, "").updated_minutes);
+    try testing.expectEqualStrings("%{count} 小时前", skillsUpdatedChromeFor(.simplified_chinese, "").updated_hours);
+    try testing.expectEqualStrings("%{count} 天前", skillsUpdatedChromeFor(.simplified_chinese, "").updated_days);
+    try testing.expectEqualStrings("更新日時", skillsUpdatedChromeFor(.japanese, "").detail_updated);
+    try testing.expectEqualStrings("たった今", skillsUpdatedChromeFor(.japanese, "").updated_just_now);
+    try testing.expectEqualStrings("%{count} 分前", skillsUpdatedChromeFor(.japanese, "").updated_minutes);
+    try testing.expectEqualStrings("%{count} 時間前", skillsUpdatedChromeFor(.japanese, "").updated_hours);
+    try testing.expectEqualStrings("%{count} 日前", skillsUpdatedChromeFor(.japanese, "").updated_days);
+
+    try testing.expectEqualStrings("更新", skillsUpdatedChromeFor(.system, "zh_CN.UTF-8").detail_updated);
+    try testing.expectEqualStrings("刚刚", skillsUpdatedChromeFor(.system, "zh_CN.UTF-8").updated_just_now);
+    try testing.expectEqualStrings("%{count} 分钟前", skillsUpdatedChromeFor(.system, "zh_CN.UTF-8").updated_minutes);
+    try testing.expectEqualStrings("更新日時", skillsUpdatedChromeFor(.system, "ja_JP.UTF-8").detail_updated);
+    try testing.expectEqualStrings("たった今", skillsUpdatedChromeFor(.system, "ja_JP.UTF-8").updated_just_now);
+    try testing.expectEqualStrings("%{count} 分前", skillsUpdatedChromeFor(.system, "ja_JP.UTF-8").updated_minutes);
+    try testing.expectEqualStrings("Updated", skillsUpdatedChromeFor(.english, "ja_JP.UTF-8").detail_updated);
+    try testing.expectEqualStrings("Just now", skillsUpdatedChromeFor(.english, "zh_CN.UTF-8").updated_just_now);
+    try testing.expectEqualStrings("%{count}m ago", skillsUpdatedChromeFor(.english, "ja_JP.UTF-8").updated_minutes);
+    try testing.expectEqualStrings("%{count}h ago", skillsUpdatedChromeFor(.english, "zh_CN.UTF-8").updated_hours);
+    try testing.expectEqualStrings("%{count}d ago", skillsUpdatedChromeFor(.english, "ja_JP.UTF-8").updated_days);
+
+    try testing.expect(!std.mem.eql(u8, skillsUpdatedChromeFor(.english, "").detail_updated, skillsDetailChromeFor(.english, "").detail_invoke));
+    try testing.expect(!std.mem.eql(u8, skillsUpdatedChromeFor(.english, "").detail_updated, skillsDetailChromeFor(.english, "").detail_location));
+    try testing.expect(!std.mem.eql(u8, skillsUpdatedChromeFor(.english, "").detail_updated, skillsDetailChromeFor(.english, "").detail_contents));
+    try testing.expect(!std.mem.eql(u8, skillsUpdatedChromeFor(.simplified_chinese, "").detail_updated, skillsDetailChromeFor(.simplified_chinese, "").detail_invoke));
+    try testing.expect(!std.mem.eql(u8, skillsUpdatedChromeFor(.japanese, "").detail_updated, skillsDetailChromeFor(.japanese, "").detail_invoke));
+
+    const now: i64 = 1_700_000_000;
+    var buf: [skills_updated_label_max]u8 = undefined;
+    try testing.expectEqualStrings("Just now", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.english, ""), now, now, &buf));
+    try testing.expectEqualStrings("Just now", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.english, ""), now, now + 59, &buf));
+    try testing.expectEqualStrings("Just now", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.english, ""), now + 10, now, &buf));
+    try testing.expectEqualStrings("1m ago", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.english, ""), now, now + 60, &buf));
+    try testing.expectEqualStrings("59m ago", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.english, ""), now, now + 3599, &buf));
+    try testing.expectEqualStrings("1h ago", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.english, ""), now, now + 3600, &buf));
+    try testing.expectEqualStrings("23h ago", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.english, ""), now, now + 86399, &buf));
+    try testing.expectEqualStrings("1d ago", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.english, ""), now, now + 86400, &buf));
+    try testing.expectEqualStrings("2d ago", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.english, ""), now, now + 172800, &buf));
+
+    try testing.expectEqualStrings("刚刚", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.simplified_chinese, ""), now, now + 1, &buf));
+    try testing.expectEqualStrings("5 分钟前", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.simplified_chinese, ""), now, now + 300, &buf));
+    try testing.expectEqualStrings("2 小时前", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.simplified_chinese, ""), now, now + 7200, &buf));
+    try testing.expectEqualStrings("3 天前", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.simplified_chinese, ""), now, now + 259200, &buf));
+    try testing.expectEqualStrings("たった今", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.japanese, ""), now, now, &buf));
+    try testing.expectEqualStrings("5 分前", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.japanese, ""), now, now + 300, &buf));
+    try testing.expectEqualStrings("2 時間前", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.japanese, ""), now, now + 7200, &buf));
+    try testing.expectEqualStrings("3 日前", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.japanese, ""), now, now + 259200, &buf));
+    try testing.expectEqualStrings("刚刚", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.system, "zh_CN.UTF-8"), now, now, &buf));
+    try testing.expectEqualStrings("5 分前", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.system, "ja_JP.UTF-8"), now, now + 300, &buf));
+    try testing.expectEqualStrings("Just now", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.english, "zh_CN.UTF-8"), now, now, &buf));
 }
 
 test "skillsPathCopiedChromeFor english default; zh and ja chrome; english ignores ja LANG" {

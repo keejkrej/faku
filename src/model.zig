@@ -1498,6 +1498,11 @@ pub const Model = struct {
     skill_selected_id: u32 = 0,
     skill_body_storage: [skills.max_skill_body]u8 = [_]u8{0} ** skills.max_skill_body,
     skill_body_len: usize = 0,
+    /// Selected SKILL.md mtime unix seconds. Runtime-only; valid
+    /// when `skill_mtime_valid`. Fail closed (no Updated row) when
+    /// mtime cannot be read.
+    skill_mtime_unix: i64 = 0,
+    skill_mtime_valid: bool = false,
     project_edit_active: bool = false,
     project_edit_buffer: canvas.TextBuffer(max_project_path) = .{},
     git_branch_create_buffer: canvas.TextBuffer(git_branch.max_git_branch) = .{},
@@ -2358,6 +2363,8 @@ pub const Model = struct {
         "skill_selected_id",
         "skill_body_storage",
         "skill_body_len",
+        "skill_mtime_unix",
+        "skill_mtime_valid",
         "applySkillsFilter",
         "project_edit_buffer",
         "git_branch_search_buffer",
@@ -5706,6 +5713,10 @@ pub const Model = struct {
         return i18n.skillsDetailChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn skillsUpdatedChrome(model: *const Model) i18n.SkillsUpdatedChrome {
+        return i18n.skillsUpdatedChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn skillsEmptyRichChrome(model: *const Model) i18n.SkillsEmptyRichChrome {
         return i18n.skillsEmptyRichChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6297,6 +6308,32 @@ pub const Model = struct {
     pub fn skill_detail_contents(model: *const Model) []const u8 {
         if (!model.has_selected_skill()) return "";
         return model.skillsDetailChrome().detail_contents;
+    }
+
+    /// Settings Skills selected-detail Updated row when SKILL.md
+    /// mtime is known. Distinct from Contents `has_skill_body`.
+    pub fn has_skill_updated(model: *const Model) bool {
+        return model.has_selected_skill() and model.skill_mtime_valid;
+    }
+
+    /// Settings Skills selected-detail Updated label. Localized via
+    /// `i18n.SkillsUpdatedChrome`. Distinct from SkillsDetailChrome.
+    /// Empty when unselected or when mtime cannot be read so the
+    /// markup can hide the row.
+    pub fn skill_detail_updated(model: *const Model) []const u8 {
+        if (!model.has_skill_updated()) return "";
+        return model.skillsUpdatedChrome().detail_updated;
+    }
+
+    /// Settings Skills selected-detail relative Updated value
+    /// (Just now / Nm ago / Nh ago / Nd ago). Localized via
+    /// `i18n.SkillsUpdatedChrome`. `now` is Zig `std.Io` clock
+    /// seconds; tests pin buckets through
+    /// `i18n.formatSkillsUpdatedRelative`. Empty when unselected
+    /// or when mtime cannot be read.
+    pub fn skill_updated_label(model: *const Model, arena: std.mem.Allocator) []const u8 {
+        if (!model.has_skill_updated()) return "";
+        return skills.selectedSkillUpdatedLabel(model, arena);
     }
 
     pub fn applySkillsFilter(model: *Model, edit: canvas.TextInputEvent) void {

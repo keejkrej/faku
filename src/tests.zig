@@ -15997,6 +15997,8 @@ test "settings Skills lists SKILL.md name, description, and path; select shows b
     try testing.expect(findByText(tree.root, .text, "Location") == null);
     try testing.expect(findByText(tree.root, .text, "Contents") == null);
     try testing.expect(findByText(tree.root, .text, "No description") == null);
+    try testing.expect(findByText(tree.root, .text, "Updated") == null);
+    try testing.expect(findByText(tree.root, .text, "Just now") == null);
 
     main.update(&model, .{ .select_skill = 1 }, &fx);
     try testing.expectEqual(@as(u32, 1), model.skill_selected_id);
@@ -16016,6 +16018,9 @@ test "settings Skills lists SKILL.md name, description, and path; select shows b
     try testing.expectEqualStrings(skill_dir, model.skill_location(arena));
     try testing.expectEqualStrings("Contents", model.skill_detail_contents());
     try testing.expect(model.has_skill_body());
+    try testing.expect(model.has_skill_updated());
+    try testing.expectEqualStrings("Updated", model.skill_detail_updated());
+    try testing.expectEqualStrings("Just now", model.skill_updated_label(arena));
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Use this skill.");
     _ = try expectByText(tree.root, .text, "Demo description.");
@@ -16023,6 +16028,8 @@ test "settings Skills lists SKILL.md name, description, and path; select shows b
     _ = try expectByText(tree.root, .text, "/demo-skill");
     _ = try expectByText(tree.root, .text, "Location");
     _ = try expectByText(tree.root, .text, skill_dir);
+    _ = try expectByText(tree.root, .text, "Updated");
+    _ = try expectByText(tree.root, .text, "Just now");
     _ = try expectByText(tree.root, .text, "Contents");
     try testing.expect(findByText(tree.root, .text, "Select a skill") == null);
     try testing.expect(findByText(tree.root, .text, "No description") == null);
@@ -28026,6 +28033,9 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_invoke_line}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_detail_location}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_location}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{has_skill_updated}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_detail_updated}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_updated_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_detail_contents}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{has_skill_body}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_body}"));
@@ -28041,6 +28051,8 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Invoke<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Location<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Contents<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Updated<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Just now<"));
 
     var model = boot.initialModel();
     try testing.expectEqualStrings("Open a project", model.skills_empty_hint());
@@ -28300,10 +28312,15 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expect(findByText(tree.root, .text, "/demo") == null);
     try testing.expect(findByText(tree.root, .text, "Location") == null);
     try testing.expect(findByText(tree.root, .text, "Contents") == null);
+    try testing.expect(findByText(tree.root, .text, "Updated") == null);
+    try testing.expect(findByText(tree.root, .text, "Just now") == null);
     try testing.expectEqualStrings("", model.skill_no_description());
     try testing.expectEqualStrings("", model.skill_detail_invoke());
     try testing.expectEqualStrings("", model.skill_invoke_line(arena));
     try testing.expectEqualStrings("", model.skill_detail_contents());
+    try testing.expect(!model.has_skill_updated());
+    try testing.expectEqualStrings("", model.skill_detail_updated());
+    try testing.expectEqualStrings("", model.skill_updated_label(arena));
 
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("选择一个技能", model.skills_select_placeholder());
@@ -28342,11 +28359,15 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expectEqualStrings("Location", model.skill_detail_location());
     try testing.expectEqualStrings("Contents", model.skill_detail_contents());
     try testing.expect(!model.has_skill_body());
+    try testing.expect(!model.has_skill_updated());
+    try testing.expectEqualStrings("", model.skill_detail_updated());
+    try testing.expectEqualStrings("", model.skill_updated_label(arena));
     try testing.expectEqualStrings(
         i18n.skillsDetailChromeFor(.english, "").no_description,
         model.skill_no_description(),
     );
     try testing.expectEqualStrings(skills.no_description, model.skill_no_description());
+    try testing.expectEqualStrings(skills.detail_updated, i18n.skillsUpdatedChromeFor(.english, "").detail_updated);
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "Select a skill") == null);
     _ = try expectByText(tree.root, .text, "No description");
@@ -28354,26 +28375,35 @@ test "Settings Skills empty chrome follows Appearance language" {
     _ = try expectByText(tree.root, .text, "/demo");
     _ = try expectByText(tree.root, .text, "Location");
     _ = try expectByText(tree.root, .text, "Contents");
+    try testing.expect(findByText(tree.root, .text, "Updated") == null);
+    try testing.expect(findByText(tree.root, .text, "Just now") == null);
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("暂无描述", model.skill_no_description());
     try testing.expectEqualStrings("调用", model.skill_detail_invoke());
     try testing.expectEqualStrings("位置", model.skill_detail_location());
     try testing.expectEqualStrings("内容", model.skill_detail_contents());
+    try testing.expectEqualStrings("", model.skill_detail_updated());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "暂无描述");
     _ = try expectByText(tree.root, .text, "调用");
     try testing.expect(findByText(tree.root, .text, "No description") == null);
     try testing.expect(findByText(tree.root, .text, "Invoke") == null);
+    try testing.expect(findByText(tree.root, .text, "更新") == null);
+    try testing.expect(findByText(tree.root, .text, "刚刚") == null);
     model.language_preference = .japanese;
     try testing.expectEqualStrings("説明なし", model.skill_no_description());
     try testing.expectEqualStrings("呼び出し", model.skill_detail_invoke());
     try testing.expectEqualStrings("場所", model.skill_detail_location());
     try testing.expectEqualStrings("内容", model.skill_detail_contents());
+    try testing.expectEqualStrings("", model.skill_detail_updated());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "説明なし");
     _ = try expectByText(tree.root, .text, "呼び出し");
+    try testing.expect(findByText(tree.root, .text, "更新日時") == null);
+    try testing.expect(findByText(tree.root, .text, "たった今") == null);
     model.language_preference = .english;
     try testing.expectEqualStrings("No description", model.skill_no_description());
+    try testing.expect(!model.has_skill_updated());
     model.skill_selected_id = 0;
     try testing.expect(model.skills_needs_select());
     try testing.expectEqualStrings("Select a skill", model.skills_select_placeholder());
