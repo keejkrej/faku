@@ -679,6 +679,9 @@ pub const Msg = union(enum) {
     /// file manager. Same `reveal_folder.startRevealPath` sidecar as
     /// markdown outside-project links. `on-press` stays `reveal_skill`.
     reveal_skill,
+    /// Settings Skills detail Copy path: absolute skill parent dir
+    /// via Native `fx.writeClipboard`. `on-press` stays `copy_skill_path`.
+    copy_skill_path,
     select_provider: u32,
     /// Settings Providers: toggle persisted `disabled_providers` for that row.
     toggle_provider_enabled: u32,
@@ -6097,6 +6100,15 @@ pub const Model = struct {
     /// `reveal_folder_label`. `on-press` stays `reveal_skill`.
     pub fn skill_reveal_label(model: *const Model) []const u8 {
         return model.composerProjectChrome().reveal_folder;
+    }
+
+    /// Settings Skills detail Copy path. Reuses
+    /// `i18n.ComposerProjectChrome.copy_path` (same EN Copy path as
+    /// composer project-row). Distinct from composer
+    /// `copy_path_label` and palette Copy project path. `on-press`
+    /// stays `copy_skill_path`.
+    pub fn skill_copy_path_label(model: *const Model) []const u8 {
+        return model.composerProjectChrome().copy_path;
     }
 
     pub fn skill_body(model: *const Model) []const u8 {
