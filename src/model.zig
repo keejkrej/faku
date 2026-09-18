@@ -674,6 +674,9 @@ pub const Msg = union(enum) {
     refresh_skills,
     refresh_providers,
     skills_filter_edit: canvas.TextInputEvent,
+    toggle_skills_source_picker,
+    close_skills_source_picker,
+    pick_skills_source: []const u8,
     select_skill: u32,
     /// Settings Skills detail: rename `SKILL.md` ↔ `SKILL.md.disabled`
     /// for the selected skill. Enable when disabled, Disable when
@@ -993,6 +996,11 @@ pub const Model = struct {
     effort_picker_open: bool = false,
     /// Runtime-only settings effort picker. Not persisted to sessions.json.
     settings_effort_picker_open: bool = false,
+    /// Runtime-only Settings Skills source filter. `null` = All skills.
+    /// Not persisted.
+    skills_source_filter: ?skills.SkillSourceKind = null,
+    /// Runtime-only Settings Skills source picker. Not persisted.
+    skills_source_picker_open: bool = false,
     /// Runtime-only composer `/goal` status picker. Not persisted.
     goal_status_picker_open: bool = false,
     /// Runtime-only composer project-row branch checkout picker. Not persisted.
@@ -2355,6 +2363,10 @@ pub const Model = struct {
         "disabled_providers",
         "provider_selected_id",
         "skills_filter_buffer",
+        "skills_source_filter",
+        "toggleSkillsSourcePicker",
+        "closeSkillsSourcePicker",
+        "pickSkillsSource",
         "skill_store",
         "skill_count",
         "skill_key",
@@ -3015,6 +3027,7 @@ pub const Model = struct {
         model.workspace_picker_open = false;
         model.environment_summary_open = false;
         usage_meter.close(model);
+        model.closeSkillsSourcePicker();
     }
 
     pub fn closeModelPicker(model: *Model) void {
@@ -3048,8 +3061,25 @@ pub const Model = struct {
     pub fn toggleSettingsEffortPicker(model: *Model) void {
         if (!model.settings_effort_picker_open) {
             model.closeComposerPickers();
+            model.closeSkillsSourcePicker();
         }
         model.settings_effort_picker_open = !model.settings_effort_picker_open;
+    }
+
+    pub fn closeSkillsSourcePicker(model: *Model) void {
+        model.skills_source_picker_open = false;
+    }
+
+    pub fn toggleSkillsSourcePicker(model: *Model) void {
+        if (!model.skills_source_picker_open) {
+            model.closeComposerPickers();
+            model.closeSettingsEffortPicker();
+        }
+        model.skills_source_picker_open = !model.skills_source_picker_open;
+    }
+
+    pub fn pickSkillsSource(model: *Model, id: []const u8) void {
+        skills.pickSourceFilter(model, id);
     }
 
     pub fn closeGoalStatusPicker(model: *Model) void {
@@ -6063,13 +6093,28 @@ pub const Model = struct {
         return model.filterChrome().filter_skills;
     }
 
+    /// Settings Skills source-filter chip. All skills when none, else
+    /// that source's SkillsSourceChrome label. `on-press` stays
+    /// `toggle_skills_source_picker`.
+    pub fn skills_source_filter_label(model: *const Model) []const u8 {
+        return skills.sourceFilterLabel(model);
+    }
+
+    /// Settings Skills source-filter menu: All skills, then Shared /
+    /// Claude / Codex / Cursor / fx / OpenCode / Pi / OMP. Optional
+    /// `Label · {count}` when count > 0. Wire ids stay English.
+    pub fn skills_source_picker_rows(model: *const Model, arena: std.mem.Allocator) []const ChipPickerRow {
+        return skills.sourcePickerRows(model, arena);
+    }
+
     /// Settings Skills library rows: project-relative matches first
     /// under one project-name header, then absolute user-path matches
     /// under User. Same-name installs fold within a scope (primary is
     /// first in Waku user-root order). Header ids are
     /// `skills.skill_header_id_*` (never collide with `skillId`).
     /// Composer `$` insert stays on `skill_insert_rows` (flat,
-    /// ungrouped, no headers).
+    /// ungrouped, no headers, unfiltered by source). Text query and
+    /// source filter both apply here.
     pub fn skill_rows(model: *const Model, arena: std.mem.Allocator) []const SkillRow {
         if (model.settings_page != .skills) return &.{};
         const query = std.mem.trim(u8, model.skills_filter(), " \t\r\n");
@@ -6078,7 +6123,7 @@ pub const Model = struct {
         var i: usize = 0;
         while (i < model.skill_count) : (i += 1) {
             if (!skills.isPrimaryGroupedIndex(model, i)) continue;
-            if (!skills.groupedSkillMatches(model, i, query)) continue;
+            if (!skills.groupedSkillVisible(model, i, query)) continue;
             if (skills.isAbsoluteSkillPath(model.skill_store[i].path())) {
                 user_n += 1;
             } else {
@@ -6096,7 +6141,7 @@ pub const Model = struct {
             i = 0;
             while (i < model.skill_count) : (i += 1) {
                 if (!skills.isPrimaryGroupedIndex(model, i)) continue;
-                if (!skills.groupedSkillMatches(model, i, query)) continue;
+                if (!skills.groupedSkillVisible(model, i, query)) continue;
                 if (skills.isAbsoluteSkillPath(model.skill_store[i].path())) continue;
                 const id = skills.skillId(i);
                 out[n] = skillRowFor(model, i, model.skill_selected_id == id, true);
@@ -6109,7 +6154,7 @@ pub const Model = struct {
             i = 0;
             while (i < model.skill_count) : (i += 1) {
                 if (!skills.isPrimaryGroupedIndex(model, i)) continue;
-                if (!skills.groupedSkillMatches(model, i, query)) continue;
+                if (!skills.groupedSkillVisible(model, i, query)) continue;
                 if (!skills.isAbsoluteSkillPath(model.skill_store[i].path())) continue;
                 const id = skills.skillId(i);
                 out[n] = skillRowFor(model, i, model.skill_selected_id == id, true);
@@ -6187,8 +6232,9 @@ pub const Model = struct {
     /// FilterChrome / SkillsEmptyChrome / SkillsSelectChrome.
     /// Empty when not on the Skills page or when emptyHint owns that
     /// space. `disabled` is total cached disabled (Waku library
-    /// header), not among the filtered shown set. Numbers stay Latin.
-    /// Middle-dot ` · ` stays.
+    /// header), not among the filtered shown set. A trimmed text
+    /// query or a source filter uses `N of M shown`. Numbers stay
+    /// Latin. Middle-dot ` · ` stays.
     pub fn skills_count_caption(model: *const Model, arena: std.mem.Allocator) []const u8 {
         if (model.settings_page != .skills) return "";
         return skills.countCaption(model, arena);
@@ -6478,6 +6524,7 @@ pub const Model = struct {
         model.closeCommands();
         model.closeModelPicker();
         model.closeSettingsEffortPicker();
+        model.closeSkillsSourcePicker();
         model.closeFolderTitleEdit();
         model.closeSessionTitleEdit();
         model.environment_summary_open = false;
@@ -6490,6 +6537,7 @@ pub const Model = struct {
 
     pub fn closeSettings(model: *Model) void {
         model.closeSettingsEffortPicker();
+        model.closeSkillsSourcePicker();
         model.settings_open = false;
         model.provider_selected_id = 0;
         model.usage_view = .daily;

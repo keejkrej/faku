@@ -1574,7 +1574,15 @@ resolved locale this cut (same `i18n.SkillsCountChrome` strings;
 distinct from `i18n.FilterChrome` / `i18n.SkillsEmptyChrome` /
 `i18n.SkillsSelectChrome`; muted Native text after the filter field
 when emptyHint does not own that space; `disabled` is total cached
-disabled like Waku library header; numbers stay Latin; ` · ` stays).
+disabled like Waku library header; numbers stay Latin; ` · ` stays;
+a trimmed text query or a source filter uses `N of M shown`).
+Settings Skills source filter follows the resolved locale this cut
+(same `i18n.SkillsFilterAllChrome` strings; English matches Waku
+`skills.filter_all`; chip defaults to All skills; menu lists Shared /
+Claude / Codex / Cursor / fx / OpenCode / Pi / OMP from
+`SkillSourceKind` skipping `unknown`; a grouped skill stays visible
+when any same-scope install lives under that source; composer `$`
+insert / slash skill rows stay flat and unfiltered by source).
 Settings Skills library list groups project-relative matches under a
 project-name header then absolute user-path matches under User (same
 `i18n.SkillsSectionChrome` strings; English matches Waku GPUI
@@ -1730,6 +1738,7 @@ Honest gaps this cut does not implement:
   This cut ships Settings Skills selected-detail Allowed tools (`i18n.SkillsAllowedToolsChrome`; Waku `skills.allowed_tools`; EN Tools / zh-CN 工具 / ja ツール; YAML `allowed-tools:` plain / quoted scalar copied at loadBody; fail closed when missing/empty/unfenced).
   This cut ships Settings Skills duplicate grouping: list folds same-name installs within a scope (project vs user, case-insensitive name, primary first in Waku user-root order, `enabled` is OR of installs); selected-detail paints one location row per install with `i18n.SkillsSourceChrome` labels (Shared / Claude / Codex / Cursor / OpenCode / fx / Pi / OMP) when grouped, else SkillsDetailChrome Location; cross-scope same name shows `i18n.SkillsDuplicateChrome` (`has_skill_duplicate_badge` fail-closed when duplicates==0); Enable/Disable/Delete/Open/Reveal/Copy path stay on the primary install; daemon `skillsCatalog` keeps every `installs[]` dir (cap `max_skill_installs`, overflow fail-closed); composer `$` insert / slash skill rows stay flat.
   This cut ships Settings Skills selected-detail name + sources · scope caption (`i18n.SkillsScopeChrome`; Waku `skills.scope_user_detail` / `scope_in_project`; unique `i18n.SkillsSourceChrome` labels joined with Latin ` · ` in Waku user-root order; project-relative primary uses `sectionProjectLabel`; absolute/user uses `scope_user_detail`; optional Disabled badge reuses `i18n.SkillsEnableChrome.disabled`; `has_skill_scope_caption` fail-closed; composer `$` insert / slash skill rows / Enable/Disable/Delete/Open/Reveal/Copy unchanged).
+  This cut ships Settings Skills source filter (`i18n.SkillsFilterAllChrome`; Waku `skills.filter_all`; All skills chip default, then Shared / Claude / Codex / Cursor / fx / OpenCode / Pi / OMP from `SkillSourceKind` skipping `unknown`; a grouped skill stays visible when any same-scope install lives under that source; caption uses `N of M shown` when a text query or source filter is set; source-only empty match reuses `no_matching`; composer `$` insert / slash skill rows stay flat and unfiltered by source).
   This cut ships local user skill roots on that User section without a daemon (Waku `user_skill_locations` that exist; `$HOME/.fx/skills` included; not Claude plugin `installed_plugins.json` roots; list rows stay path-labeled; selected-detail source labels ship with duplicate grouping).
   In-flight
   rename / `setSkillsEnabled` / `trashSkills` fail closed.

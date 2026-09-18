@@ -64,6 +64,10 @@ pub fn handleStop(model: *Model, fx: *Effects) void {
         model.closeSettingsEffortPicker();
         return;
     }
+    if (model.skills_source_picker_open) {
+        model.closeSkillsSourcePicker();
+        return;
+    }
     if (model.goal_status_picker_open) {
         model.closeGoalStatusPicker();
         return;
@@ -175,6 +179,7 @@ pub fn handleToggleGoalStatusPicker(model: *Model) void {
         model.access_picker_open = false;
         model.effort_picker_open = false;
         model.settings_effort_picker_open = false;
+        model.closeSkillsSourcePicker();
         model.closeGitBranchPicker();
     }
     model.toggleGoalStatusPicker();
@@ -242,6 +247,7 @@ pub fn handleToggleSettingsEffortPicker(model: *Model) void {
         session_switcher.closeSwitcher(model);
         if (model.palette_open) model.closePalette();
         model.closeComposerPickers();
+        model.closeSkillsSourcePicker();
     }
     model.toggleSettingsEffortPicker();
 }
@@ -249,6 +255,22 @@ pub fn handleToggleSettingsEffortPicker(model: *Model) void {
 pub fn handlePickSettingsEffort(model: *Model, id: []const u8) void {
     model.pickSettingsEffort(id);
     store.persistSettingsIfPossible(model);
+}
+
+pub fn handleToggleSkillsSourcePicker(model: *Model) void {
+    if (model.settings_page != .skills) return;
+    if (!model.skills_source_picker_open) {
+        session_switcher.closeSwitcher(model);
+        if (model.palette_open) model.closePalette();
+        model.closeComposerPickers();
+        model.closeSettingsEffortPicker();
+    }
+    model.toggleSkillsSourcePicker();
+}
+
+pub fn handlePickSkillsSource(model: *Model, id: []const u8) void {
+    if (model.settings_page != .skills) return;
+    model.pickSkillsSource(id);
 }
 
 pub fn handleSetSettingsPageGeneral(model: *Model, fx: *Effects) void {
@@ -375,6 +397,7 @@ pub fn handleToggleUsageMeter(model: *Model, fx: *Effects) void {
         model.access_picker_open = false;
         model.effort_picker_open = false;
         model.settings_effort_picker_open = false;
+        model.closeSkillsSourcePicker();
         model.goal_status_picker_open = false;
         model.closeGitBranchPicker();
         model.workspace_picker_open = false;
@@ -565,6 +588,7 @@ pub fn handleToggleModelPicker(model: *Model) void {
         model.access_picker_open = false;
         model.effort_picker_open = false;
         model.settings_effort_picker_open = false;
+        model.closeSkillsSourcePicker();
         model.goal_status_picker_open = false;
         model.closeGitBranchPicker();
         usage_meter.close(model);
@@ -584,6 +608,7 @@ pub fn handleToggleAccessPicker(model: *Model) void {
         model.model_picker_open = false;
         model.effort_picker_open = false;
         model.settings_effort_picker_open = false;
+        model.closeSkillsSourcePicker();
         model.goal_status_picker_open = false;
         model.closeGitBranchPicker();
         usage_meter.close(model);
@@ -603,6 +628,7 @@ pub fn handleToggleEffortPicker(model: *Model) void {
         model.model_picker_open = false;
         model.access_picker_open = false;
         model.settings_effort_picker_open = false;
+        model.closeSkillsSourcePicker();
         model.goal_status_picker_open = false;
         model.closeGitBranchPicker();
         usage_meter.close(model);
@@ -618,6 +644,7 @@ pub fn handleToggleGitBranchPicker(model: *Model) void {
         model.access_picker_open = false;
         model.effort_picker_open = false;
         model.settings_effort_picker_open = false;
+        model.closeSkillsSourcePicker();
         model.goal_status_picker_open = false;
         model.workspace_picker_open = false;
         git_checkout.closeDelete(model);
@@ -732,6 +759,7 @@ pub fn handleToggleWorkspacePicker(model: *Model) void {
         model.access_picker_open = false;
         model.effort_picker_open = false;
         model.settings_effort_picker_open = false;
+        model.closeSkillsSourcePicker();
         model.goal_status_picker_open = false;
         model.closeGitBranchPicker();
         git_checkout.closeDelete(model);
