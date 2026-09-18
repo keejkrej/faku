@@ -2094,15 +2094,15 @@ test "argv is packed chdir plus find SKILL.md then user-root slots; not file-men
         "/home/me/.omp/agent/skills",
         "/home/me/.config/agents/skills",
     };
-    const packed = unixWalkArgvFor("/tmp/faku-skills", &nine, &buf);
-    try std.testing.expectEqual(@as(usize, unix_walk_argv_base + 9), packed.len);
-    try std.testing.expect(packed.len <= 16);
-    try std.testing.expectEqualStrings("/tmp/faku-skills", packed[4]);
-    try std.testing.expectEqualStrings(nine[0], packed[5]);
-    try std.testing.expectEqualStrings(nine[8], packed[13]);
-    try std.testing.expect(std.mem.indexOf(u8, packed[2], nine[0]) == null);
-    try std.testing.expect(std.mem.indexOf(u8, packed[2], nine[5]) == null);
-    try std.testing.expect(isSkillsWalkArgv(packed));
+    const nine_argv = unixWalkArgvFor("/tmp/faku-skills", &nine, &buf);
+    try std.testing.expectEqual(@as(usize, unix_walk_argv_base + 9), nine_argv.len);
+    try std.testing.expect(nine_argv.len <= 16);
+    try std.testing.expectEqualStrings("/tmp/faku-skills", nine_argv[4]);
+    try std.testing.expectEqualStrings(nine[0], nine_argv[5]);
+    try std.testing.expectEqualStrings(nine[8], nine_argv[13]);
+    try std.testing.expect(std.mem.indexOf(u8, nine_argv[2], nine[0]) == null);
+    try std.testing.expect(std.mem.indexOf(u8, nine_argv[2], nine[5]) == null);
+    try std.testing.expect(isSkillsWalkArgv(nine_argv));
     try std.testing.expect(!isSkillsWalkArgv(&.{ find_bin, find_skills_script }));
     var mention_buf: [file_mention.walk_argv_len][]const u8 = undefined;
     try std.testing.expect(!isSkillsWalkArgv(file_mention.unixWalkArgvFor("/tmp/faku-skills", &mention_buf)));
@@ -2162,15 +2162,15 @@ test "windows walk argv is powershell scriptblock -Args PATH then user roots; de
         "C:\\Users\\me\\.omp\\agent\\skills",
         "C:\\Users\\me\\.config\\agents\\skills",
     };
-    const packed = windowsWalkArgvFor(cwd, &nine, &buf);
-    try std.testing.expectEqual(@as(usize, windows_walk_argv_base + 9), packed.len);
-    try std.testing.expect(packed.len <= 16);
-    try std.testing.expectEqualStrings(cwd, packed[5]);
-    try std.testing.expectEqualStrings(nine[0], packed[6]);
-    try std.testing.expectEqualStrings(nine[8], packed[14]);
-    try std.testing.expect(std.mem.indexOf(u8, packed[3], nine[0]) == null);
-    try std.testing.expect(std.mem.indexOf(u8, packed[3], "$HOME") == null);
-    try std.testing.expect(isSkillsWalkArgv(packed));
+    const nine_argv = windowsWalkArgvFor(cwd, &nine, &buf);
+    try std.testing.expectEqual(@as(usize, windows_walk_argv_base + 9), nine_argv.len);
+    try std.testing.expect(nine_argv.len <= 16);
+    try std.testing.expectEqualStrings(cwd, nine_argv[5]);
+    try std.testing.expectEqualStrings(nine[0], nine_argv[6]);
+    try std.testing.expectEqualStrings(nine[8], nine_argv[14]);
+    try std.testing.expect(std.mem.indexOf(u8, nine_argv[3], nine[0]) == null);
+    try std.testing.expect(std.mem.indexOf(u8, nine_argv[3], "$HOME") == null);
+    try std.testing.expect(isSkillsWalkArgv(nine_argv));
     try std.testing.expect(!isSkillsWalkArgv(&.{
         powershell_bin,
         powershell_noprofile,
