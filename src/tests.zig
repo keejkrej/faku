@@ -16227,8 +16227,10 @@ test "settings Skills Copy path writes the absolute skill parent directory" {
     try testing.expect(findByText(tree.root, .button, "Copy path") == null);
 
     try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    const before = fx.pendingSpawnCount();
     main.update(&model, .copy_skill_path, &fx);
     try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    try testing.expectEqual(before, fx.pendingSpawnCount());
 
     main.update(&model, .{ .select_skill = 1 }, &fx);
     try testing.expect(model.has_selected_skill());
@@ -16243,9 +16245,10 @@ test "settings Skills Copy path writes the absolute skill parent directory" {
     try testing.expectEqualStrings(model.copy_path_label(), model.skill_copy_path_label());
     try testing.expectEqualStrings(i18n.composerProjectChromeFor(.english, "").copy_path, model.skill_copy_path_label());
 
+    const spawn_before = fx.pendingSpawnCount();
     main.update(&model, .copy_skill_path, &fx);
     try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
-    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expectEqual(spawn_before, fx.pendingSpawnCount());
     const written = fx.pendingClipboardAt(0).?;
     try testing.expectEqual(sidecar_keys.copy_turn_key, written.key);
     try testing.expectEqual(native_sdk.EffectClipboardOp.write, written.op);
