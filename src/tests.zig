@@ -16358,6 +16358,7 @@ test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabl
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"open_skill_in_editor\">Open in editor</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"reveal_skill\">Reveal folder</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"copy_skill_path\">Copy path</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Path copied</text>"));
 
     main.update(&model, .toggle_settings, &fx);
     main.update(&model, .set_settings_page_skills, &fx);
@@ -16443,7 +16444,7 @@ test "skills delete fail window_status follows Appearance language" {
     const arena = arena_state.allocator();
 
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Could not delete skill."));
-    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, main.app_markup, "{window_status}"));
+    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "{window_status}"));
 
     var model = Model{};
     try testing.expectEqualStrings("Could not delete skill.", model.skill_delete_failed_status());
@@ -16494,7 +16495,7 @@ test "skills enable fail window_status follows Appearance language" {
     const arena = arena_state.allocator();
 
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Could not update skill."));
-    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, main.app_markup, "{window_status}"));
+    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "{window_status}"));
 
     var model = Model{};
     try testing.expectEqualStrings("Could not update skill.", model.skill_enable_failed_status());

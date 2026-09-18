@@ -384,6 +384,9 @@
                 <if test="{has_skill_body}">
                   <text wrap="true">{skill_body}</text>
                 </if>
+                <if test="{has_window_status}">
+                  <text wrap="true" foreground="text_muted">{window_status}</text>
+                </if>
               </column>
             </row>
           </if>

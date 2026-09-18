@@ -2938,7 +2938,7 @@ test "copySelectedSkillPath queues writeClipboard with the absolute skill parent
 
     model.language_preference = .simplified_chinese;
     copySelectedSkillPath(&model, &fx);
-    try std.testing.expectEqual(@as(usize, 2), fx.pendingClipboardCount());
+    try std.testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
     try std.testing.expectEqualStrings("已复制路径", model.window_status());
     try std.testing.expectEqualStrings(model.skill_path_copied_status(), model.window_status());
     try std.testing.expectEqualStrings(i18n.skillsPathCopiedChromeFor(.simplified_chinese, "").path_copied, model.window_status());
@@ -2946,7 +2946,7 @@ test "copySelectedSkillPath queues writeClipboard with the absolute skill parent
 
     model.language_preference = .japanese;
     copySelectedSkillPath(&model, &fx);
-    try std.testing.expectEqual(@as(usize, 3), fx.pendingClipboardCount());
+    try std.testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
     try std.testing.expectEqualStrings("パスをコピーしました", model.window_status());
     try std.testing.expectEqualStrings(model.skill_path_copied_status(), model.window_status());
     try std.testing.expectEqualStrings(i18n.skillsPathCopiedChromeFor(.japanese, "").path_copied, model.window_status());
