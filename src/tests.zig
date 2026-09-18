@@ -27952,10 +27952,13 @@ test "Settings Skills empty chrome follows Appearance language" {
 
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skills_empty_hint}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skills_insert_hint}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skills_needs_select}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skills_select_placeholder}"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Open a project<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No skills found<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Scanning skill folders…<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No skills match your search<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Select a skill<"));
 
     var model = boot.initialModel();
     try testing.expectEqualStrings("Open a project", model.skills_empty_hint());
@@ -27981,12 +27984,15 @@ test "Settings Skills empty chrome follows Appearance language" {
     main.update(&model, .set_settings_page_skills, &fx);
     try testing.expect(model.settings_page_skills());
     try testing.expect(model.skills_empty());
+    try testing.expect(!model.skills_needs_select());
+    try testing.expectEqualStrings("", model.skills_select_placeholder());
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Open a project");
     try testing.expect(findByText(tree.root, .text, "No skills found") == null);
     try testing.expect(findByText(tree.root, .text, "打开项目") == null);
     try testing.expect(findByText(tree.root, .text, "プロジェクトを開く") == null);
     try testing.expect(findByText(tree.root, .text, "Open a project to browse its files") == null);
+    try testing.expect(findByText(tree.root, .text, "Select a skill") == null);
 
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("打开项目", model.skills_empty_hint());
@@ -28107,19 +28113,61 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expectEqualStrings("", model.skills_empty_hint());
     try testing.expectEqualStrings("", model.skills_insert_hint());
     try testing.expect(!model.skills_empty());
+    try testing.expect(model.skills_needs_select());
+    try testing.expectEqualStrings("Select a skill", model.skills_select_placeholder());
+    try testing.expectEqualStrings(
+        i18n.skillsSelectChromeFor(.english, "").select_placeholder,
+        model.skills_select_placeholder(),
+    );
+    try testing.expectEqualStrings(skills.select_placeholder, model.skills_select_placeholder());
     tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Select a skill");
     try testing.expect(findByText(tree.root, .text, "No skills found") == null);
     try testing.expect(findByText(tree.root, .text, "No skills match your search") == null);
     try testing.expect(findByText(tree.root, .text, "Scanning skill folders…") == null);
+    try testing.expect(findByText(tree.root, .text, "选择一个技能") == null);
+    try testing.expect(findByText(tree.root, .text, "スキルを選択") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("选择一个技能", model.skills_select_placeholder());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "选择一个技能");
+    try testing.expect(findByText(tree.root, .text, "Select a skill") == null);
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("スキルを選択", model.skills_select_placeholder());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "スキルを選択");
+    try testing.expect(findByText(tree.root, .text, "Select a skill") == null);
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Select a skill", model.skills_select_placeholder());
+    model.language_preference = .system;
+    try testing.expectEqualStrings("スキルを選択", model.skills_select_placeholder());
+    model.setSystemLocaleId("");
+    model.language_preference = .english;
+    try testing.expectEqualStrings("Select a skill", model.skills_select_placeholder());
+
+    main.update(&model, .{ .select_skill = 1 }, &fx);
+    try testing.expect(model.has_selected_skill());
+    try testing.expect(!model.skills_needs_select());
+    try testing.expectEqualStrings("", model.skills_select_placeholder());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "Select a skill") == null);
+    model.skill_selected_id = 0;
+    try testing.expect(model.skills_needs_select());
+    try testing.expectEqualStrings("Select a skill", model.skills_select_placeholder());
 
     main.update(&model, .{ .skills_filter_edit = .{ .insert_text = "zzz" } }, &fx);
     try testing.expectEqualStrings("No skills match your search", model.skills_empty_hint());
     try testing.expectEqualStrings("", model.skills_insert_hint());
     try testing.expect(model.skills_empty());
+    try testing.expect(!model.skills_needs_select());
+    try testing.expectEqualStrings("", model.skills_select_placeholder());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "No skills match your search");
     try testing.expect(findByText(tree.root, .text, "No skills found") == null);
     try testing.expect(findByText(tree.root, .text, "Scanning skill folders…") == null);
+    try testing.expect(findByText(tree.root, .text, "Select a skill") == null);
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("没有匹配的技能", model.skills_empty_hint());
     try testing.expectEqualStrings("", model.skills_insert_hint());
@@ -28134,6 +28182,8 @@ test "Settings Skills empty chrome follows Appearance language" {
     main.update(&model, .{ .skills_filter_edit = .clear }, &fx);
     try testing.expectEqualStrings("", model.skills_empty_hint());
     try testing.expect(!model.skills_empty());
+    try testing.expect(model.skills_needs_select());
+    try testing.expectEqualStrings("Select a skill", model.skills_select_placeholder());
     main.update(&model, .{ .skills_filter_edit = .{ .insert_text = "demo" } }, &fx);
     try testing.expectEqualStrings("", model.skills_empty_hint());
     try testing.expect(!model.skills_empty());

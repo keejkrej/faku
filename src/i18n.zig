@@ -387,6 +387,11 @@
 //! `ComposerProjectChrome.copy_path` via a distinct Model getter;
 //! same EN Copy path as composer project-row; on-press stays
 //! `copy_skill_path`; wire ids stay English)
+//! plus Settings Skills Select a skill unselected-detail
+//! placeholder (same `SkillsSelectChrome` strings; distinct from
+//! `SkillsEmptyChrome` so the placeholder stays independently
+//! evolvable; muted Native text when the list has rows and none
+//! is selected; wire ids stay English)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -4284,6 +4289,29 @@ const skills_empty_chrome_ja: SkillsEmptyChrome = .{
     .no_matching = "検索に一致するスキルはありません",
 };
 
+/// Settings Skills unselected-detail Select a skill placeholder for
+/// the resolved locale. Same resolve path as SkillsEmptyChrome.
+/// English matches Waku `skills.select_placeholder`. Distinct from
+/// SkillsEmptyChrome (Open a project / Scanning / No skills found /
+/// No skills match your search) so the placeholder stays
+/// independently evolvable. Painted when the Skills list has rows
+/// and none is selected. Wire ids stay English.
+pub const SkillsSelectChrome = struct {
+    select_placeholder: []const u8,
+};
+
+const skills_select_chrome_en: SkillsSelectChrome = .{
+    .select_placeholder = "Select a skill",
+};
+
+const skills_select_chrome_zh_cn: SkillsSelectChrome = .{
+    .select_placeholder = "选择一个技能",
+};
+
+const skills_select_chrome_ja: SkillsSelectChrome = .{
+    .select_placeholder = "スキルを選択",
+};
+
 /// Settings Skills Enable / Disable chip and Disabled list badge for
 /// the resolved locale. Same resolve path as SkillsEmptyChrome.
 /// Distinct from ProvidersChrome Enable / Disable so Skills enable
@@ -5595,6 +5623,19 @@ pub fn skillsEmptyChromeFor(preference: LanguagePreference, system_locale_id: []
         .simplified_chinese => skills_empty_chrome_zh_cn,
         .japanese => skills_empty_chrome_ja,
         .system, .english => skills_empty_chrome_en,
+    };
+}
+
+/// Settings Skills unselected-detail Select a skill placeholder for
+/// the resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from SkillsEmptyChrome so the empty pane and the unselected
+/// detail stay independently evolvable. Wire ids stay English.
+pub fn skillsSelectChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsSelectChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_select_chrome_zh_cn,
+        .japanese => skills_select_chrome_ja,
+        .system, .english => skills_select_chrome_en,
     };
 }
 
@@ -9040,6 +9081,25 @@ test "skillsEmptyChromeFor english default; zh and ja chrome; english ignores ja
     try testing.expect(!std.mem.eql(u8, skillsEmptyChromeFor(.english, "").open_project, rightPanelChromeFor(.english, "").no_project_open));
     try testing.expect(!std.mem.eql(u8, skillsEmptyChromeFor(.simplified_chinese, "").open_project, rightPanelChromeFor(.simplified_chinese, "").open_project_to_browse_files));
     try testing.expect(!std.mem.eql(u8, skillsEmptyChromeFor(.japanese, "").open_project, rightPanelChromeFor(.japanese, "").open_project_to_browse_files));
+}
+
+test "skillsSelectChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Select a skill", skillsSelectChromeFor(.english, "ja").select_placeholder);
+    try testing.expectEqualStrings("Select a skill", skillsSelectChromeFor(.english, "").select_placeholder);
+    try testing.expectEqualStrings("Select a skill", skillsSelectChromeFor(.system, "").select_placeholder);
+
+    try testing.expectEqualStrings("选择一个技能", skillsSelectChromeFor(.simplified_chinese, "").select_placeholder);
+    try testing.expectEqualStrings("スキルを選択", skillsSelectChromeFor(.japanese, "").select_placeholder);
+
+    try testing.expectEqualStrings("选择一个技能", skillsSelectChromeFor(.system, "zh_CN.UTF-8").select_placeholder);
+    try testing.expectEqualStrings("スキルを選択", skillsSelectChromeFor(.system, "ja_JP.UTF-8").select_placeholder);
+    try testing.expectEqualStrings("Select a skill", skillsSelectChromeFor(.english, "ja_JP.UTF-8").select_placeholder);
+    try testing.expectEqualStrings("Select a skill", skillsSelectChromeFor(.english, "zh_CN.UTF-8").select_placeholder);
+
+    try testing.expect(!std.mem.eql(u8, skillsSelectChromeFor(.english, "").select_placeholder, skillsEmptyChromeFor(.english, "").no_skills_found));
+    try testing.expect(!std.mem.eql(u8, skillsSelectChromeFor(.simplified_chinese, "").select_placeholder, skillsEmptyChromeFor(.simplified_chinese, "").no_skills_found));
+    try testing.expect(!std.mem.eql(u8, skillsSelectChromeFor(.japanese, "").select_placeholder, skillsEmptyChromeFor(.japanese, "").no_skills_found));
 }
 
 test "skillsEnableChromeFor english default; zh and ja chrome; english ignores ja LANG" {

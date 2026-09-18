@@ -5677,6 +5677,10 @@ pub const Model = struct {
         return i18n.providersDetailChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn skillsSelectChrome(model: *const Model) i18n.SkillsSelectChrome {
+        return i18n.skillsSelectChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn skillsEnableChrome(model: *const Model) i18n.SkillsEnableChrome {
         return i18n.skillsEnableChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6028,6 +6032,21 @@ pub const Model = struct {
 
     pub fn has_selected_skill(model: *const Model) bool {
         return model.settings_page == .skills and model.skill_selected_id != 0 and model.skill_selected_id <= model.skill_count;
+    }
+
+    /// Settings Skills unselected-detail placeholder. True only when
+    /// the Skills page has visible rows and none is selected. Empty /
+    /// scanning / no-match hints own the empty pane via `skills_empty`.
+    pub fn skills_needs_select(model: *const Model) bool {
+        return model.settings_page == .skills and !model.has_selected_skill() and !model.skills_empty();
+    }
+
+    /// Settings Skills unselected-detail Select a skill. Localized via
+    /// `i18n.SkillsSelectChrome`. Distinct from SkillsEmptyChrome.
+    /// Empty when `skills_needs_select` is false.
+    pub fn skills_select_placeholder(model: *const Model) []const u8 {
+        if (!model.skills_needs_select()) return "";
+        return model.skillsSelectChrome().select_placeholder;
     }
 
     pub fn skill_enabled(model: *const Model) bool {
