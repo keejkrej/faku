@@ -381,8 +381,8 @@ pub const RightPanelFileRow = struct {
 /// list Disabled badge (`SKILL.md.disabled`); composer `$` insert
 /// rows stay enabled-only so those fields stay false / empty there.
 /// Header `name` is the painted section label (ASCII uppercased);
-/// `count` is the Latin digit count of visible skill rows in that
-/// section. Composer `$` insert / slash skill rows never set
+/// `count` is the Latin digit count of visible **grouped** skill
+/// rows in that section. Composer `$` insert / slash skill rows never set
 /// `is_header`.
 pub const SkillRow = struct {
     id: u32,
@@ -396,6 +396,12 @@ pub const SkillRow = struct {
     is_header: bool = false,
     count: []const u8 = "",
 };
+
+/// Settings Skills selected-detail location row. `id` is a 1-based
+/// Native `for` key. Single-install rows use the Location label;
+/// grouped rows use `SkillsSourceChrome` source labels and a
+/// compact install-dir path.
+pub const SkillLocationRow = skills.SkillLocationRow;
 
 /// Settings Usage history row. `id` is a 1-based Native `for` key.
 /// Daily provider / model / day rows, Monthly rows, and Projects rows also
@@ -4701,7 +4707,7 @@ pub const Model = struct {
         while (i < model.skill_count) : (i += 1) {
             if (!model.skill_store[i].enabled) continue;
             if (!skillRowMatches(&model.skill_store[i], query)) continue;
-            out[n] = skillRowFor(model, i, false);
+            out[n] = skillRowFor(model, i, false, false);
             n += 1;
         }
         const highlight = model.clampedAutocompleteHighlight(n);
@@ -6059,9 +6065,11 @@ pub const Model = struct {
 
     /// Settings Skills library rows: project-relative matches first
     /// under one project-name header, then absolute user-path matches
-    /// under User. Header ids are `skills.skill_header_id_*` (never
-    /// collide with `skillId`). Composer `$` insert stays on
-    /// `skill_insert_rows` (no headers).
+    /// under User. Same-name installs fold within a scope (primary is
+    /// first in Waku user-root order). Header ids are
+    /// `skills.skill_header_id_*` (never collide with `skillId`).
+    /// Composer `$` insert stays on `skill_insert_rows` (flat,
+    /// ungrouped, no headers).
     pub fn skill_rows(model: *const Model, arena: std.mem.Allocator) []const SkillRow {
         if (model.settings_page != .skills) return &.{};
         const query = std.mem.trim(u8, model.skills_filter(), " \t\r\n");
@@ -6069,7 +6077,8 @@ pub const Model = struct {
         var user_n: usize = 0;
         var i: usize = 0;
         while (i < model.skill_count) : (i += 1) {
-            if (!skillRowMatches(&model.skill_store[i], query)) continue;
+            if (!skills.isPrimaryGroupedIndex(model, i)) continue;
+            if (!skills.groupedSkillMatches(model, i, query)) continue;
             if (skills.isAbsoluteSkillPath(model.skill_store[i].path())) {
                 user_n += 1;
             } else {
@@ -6086,10 +6095,11 @@ pub const Model = struct {
             n += 1;
             i = 0;
             while (i < model.skill_count) : (i += 1) {
-                if (!skillRowMatches(&model.skill_store[i], query)) continue;
+                if (!skills.isPrimaryGroupedIndex(model, i)) continue;
+                if (!skills.groupedSkillMatches(model, i, query)) continue;
                 if (skills.isAbsoluteSkillPath(model.skill_store[i].path())) continue;
                 const id = skills.skillId(i);
-                out[n] = skillRowFor(model, i, model.skill_selected_id == id);
+                out[n] = skillRowFor(model, i, model.skill_selected_id == id, true);
                 n += 1;
             }
         }
@@ -6098,10 +6108,11 @@ pub const Model = struct {
             n += 1;
             i = 0;
             while (i < model.skill_count) : (i += 1) {
-                if (!skillRowMatches(&model.skill_store[i], query)) continue;
+                if (!skills.isPrimaryGroupedIndex(model, i)) continue;
+                if (!skills.groupedSkillMatches(model, i, query)) continue;
                 if (!skills.isAbsoluteSkillPath(model.skill_store[i].path())) continue;
                 const id = skills.skillId(i);
-                out[n] = skillRowFor(model, i, model.skill_selected_id == id);
+                out[n] = skillRowFor(model, i, model.skill_selected_id == id, true);
                 n += 1;
             }
         }
@@ -6320,10 +6331,32 @@ pub const Model = struct {
 
     /// Absolute install parent when `selectedSkillAbsParent`
     /// resolves; else the cached store path the list already shows.
-    /// Empty when nothing is selected.
+    /// Empty when nothing is selected. Primary install only.
     pub fn skill_location(model: *const Model, arena: std.mem.Allocator) []const u8 {
         if (!model.has_selected_skill()) return "";
         return skills.selectedSkillLocation(model, arena);
+    }
+
+    /// Settings Skills selected-detail location rows. One row when
+    /// the selected group has a single install (Location label);
+    /// one row per install with source labels when grouped. Empty
+    /// when nothing is selected.
+    pub fn skill_location_rows(model: *const Model, arena: std.mem.Allocator) []const SkillLocationRow {
+        return skills.selectedSkillLocationRows(model, arena);
+    }
+
+    /// Settings Skills selected-detail duplicate badge when the
+    /// selected group has same-name copies in the other scope.
+    /// Fail closed when duplicates==0.
+    pub fn has_skill_duplicate_badge(model: *const Model) bool {
+        return model.has_selected_skill() and skills.selectedSkillDuplicateCount(model) > 0;
+    }
+
+    /// Localized duplicate badge. Empty when unselected or
+    /// duplicates==0.
+    pub fn skill_duplicate_badge(model: *const Model, arena: std.mem.Allocator) []const u8 {
+        if (!model.has_skill_duplicate_badge()) return "";
+        return skills.selectedSkillDuplicateBadge(model, arena);
     }
 
     pub fn skill_detail_contents(model: *const Model) []const u8 {
@@ -9290,10 +9323,11 @@ fn skillRowMatches(skill: *const skills.CachedSkill, query: []const u8) bool {
         util.asciiContainsIgnoreCase(skill.description(), query);
 }
 
-fn skillRowFor(model: *const Model, index: usize, selected: bool) SkillRow {
+fn skillRowFor(model: *const Model, index: usize, selected: bool, grouped: bool) SkillRow {
     const skill = &model.skill_store[index];
     const description = skill.description();
-    const disabled = !skill.enabled;
+    const enabled = if (grouped) skills.groupEnabled(model, index) else skill.enabled;
+    const disabled = !enabled;
     return .{
         .id = skills.skillId(index),
         .name = skill.name(),

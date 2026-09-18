@@ -155,26 +155,17 @@
 //! Contents value is supporting-file count · bytes
 //! (`SkillsFileCountChrome` + Latin B/KB/MB; `{skill_body}` stays
 //! a separate block); Updated lives in `SkillsUpdatedChrome`;
-//! Allowed tools lives in `SkillsAllowedToolsChrome`; no
-//! duplicate grouping this cut). Selected-detail
-//! Updated follows `i18n.SkillsUpdatedChrome` (Waku
-//! `skills.detail_updated` + relative just now / m / h / d from
-//! SKILL.md mtime unix seconds at `loadBody`; fail closed when
-//! mtime cannot be read; distinct from SkillsDetailChrome).
-//! Selected-detail Contents file_count follows
-//! `i18n.SkillsFileCountChrome` (Waku `file_count_one` /
-//! `file_count_many` + Latin format_bytes; 0 supporting files
-//! paints bytes only; measured at `loadBody` from the absolute
-//! skill parent; fail closed when the dir cannot be walked;
-//! distinct from SkillsDetailChrome / SkillsUpdatedChrome).
-//! Selected-detail Allowed tools follows
-//! `i18n.SkillsAllowedToolsChrome` (Waku `skills.allowed_tools`;
-//! YAML `allowed-tools:` plain / quoted scalar copied at
-//! `loadBody`; cap `max_skill_allowed_tools`; fail closed when
-//! missing / empty / unfenced; distinct from SkillsDetailChrome /
-//! SkillsUpdatedChrome / SkillsFileCountChrome). No duplicate
-//! grouping this cut (list fold by name, multi-location lines,
-//! duplicate badge stay later). Composer `$` insert unchanged.
+//! Allowed tools lives in `SkillsAllowedToolsChrome`). Settings
+//! list folds same-name installs within a scope (project vs user;
+//! case-insensitive name; primary is first in Waku user-root order).
+//! Selected-detail multi-location lines follow `i18n.SkillsSourceChrome`
+//! (Shared + provider shorts) when a row has more than one install;
+//! a single install still uses SkillsDetailChrome Location.
+//! Cross-scope same name shows `i18n.SkillsDuplicateChrome`
+//! (`has_skill_duplicate_badge` fail-closed when duplicates==0).
+//! Enable / Disable / Delete / Open / Reveal / Copy path operate on
+//! the primary install this cut. Composer `$` insert / slash skill
+//! rows stay flat (ungrouped).
 //! app.zon already includes windows.
 //!
 //! Spawn/line/exit orchestration lives here. Tests do not need a live
@@ -221,6 +212,9 @@ pub const max_skill_path: usize = 255;
 pub const max_skill_name: usize = 64;
 /// Waku `user_skill_locations` count. Only existing roots are argv slots.
 pub const max_user_skill_roots: usize = 9;
+/// Cap extra install dirs per Settings list row (Waku user-root
+/// count plus one project install). Overflow fail-closed.
+pub const max_skill_installs: usize = max_user_skill_roots + 1;
 /// One-line UI cap for YAML `description:` (larger than name; not the body).
 pub const max_skill_description: usize = 160;
 /// One-line UI cap for YAML `allowed-tools:` on the selected-detail
@@ -1453,22 +1447,33 @@ fn applyCatalog(model: *Model, parsed: protocol.ParsedSkillsCatalog) void {
     const root = model.skill_probe_path_storage[0..model.skill_probe_path_len];
     var i: usize = 0;
     while (i < parsed.skill_count) : (i += 1) {
-        if (model.skill_count >= max_skills) break;
         const entry = parsed.skills[i];
-        var path_buf: [max_skill_path]u8 = undefined;
-        const path = catalogStorePath(root, entry.path, entry.enabled, &path_buf) orelse continue;
-        if (path.len == 0 or path.len > max_skill_path) continue;
-        const dir = skillDirKey(path);
-        if (indexOfSkillDir(model, dir) != null) continue;
-        const index = model.skill_count;
-        storeSkillAt(model, index, path, entry.enabled);
-        if (entry.name.len > 0) {
-            model.skill_store[index].setName(displayName(path, entry.name));
+        const n = if (entry.install_count > 0) entry.install_count else @as(usize, 1);
+        var k: usize = 0;
+        while (k < n) : (k += 1) {
+            if (model.skill_count >= max_skills) break;
+            var raw: []const u8 = entry.path;
+            var enabled = entry.enabled;
+            if (entry.install_count > 0) {
+                const inst = entry.installs[k];
+                raw = if (inst.skill_file.len > 0) inst.skill_file else inst.dir;
+                enabled = inst.enabled;
+            }
+            var path_buf: [max_skill_path]u8 = undefined;
+            const path = catalogStorePath(root, raw, enabled, &path_buf) orelse continue;
+            if (path.len == 0 or path.len > max_skill_path) continue;
+            const dir = skillDirKey(path);
+            if (indexOfSkillDir(model, dir) != null) continue;
+            const index = model.skill_count;
+            storeSkillAt(model, index, path, enabled);
+            if (entry.name.len > 0) {
+                model.skill_store[index].setName(displayName(path, entry.name));
+            }
+            if (entry.description.len > 0) {
+                model.skill_store[index].setDescription(entry.description);
+            }
+            model.skill_count += 1;
         }
-        if (entry.description.len > 0) {
-            model.skill_store[index].setDescription(entry.description);
-        }
-        model.skill_count += 1;
     }
 }
 
@@ -2156,6 +2161,18 @@ pub const file_count_many = skills_file_count_chrome_en.file_count_many;
 const skills_allowed_tools_chrome_en = i18n.skillsAllowedToolsChromeFor(.english, "");
 pub const allowed_tools = skills_allowed_tools_chrome_en.allowed_tools;
 
+/// English default from `i18n.SkillsSourceChrome`. Distinct from
+/// SkillsDetailChrome Location. Matches Waku `skills.source_shared`.
+const skills_source_chrome_en = i18n.skillsSourceChromeFor(.english, "");
+pub const source_shared = skills_source_chrome_en.source_shared;
+
+/// English defaults from `i18n.SkillsDuplicateChrome`. Distinct from
+/// SkillsDetailChrome / SkillsSourceChrome. Matches Waku
+/// `skills.duplicate_one` / `duplicate_many`.
+const skills_duplicate_chrome_en = i18n.skillsDuplicateChromeFor(.english, "");
+pub const duplicate_one = skills_duplicate_chrome_en.duplicate_one;
+pub const duplicate_many = skills_duplicate_chrome_en.duplicate_many;
+
 /// English defaults from `i18n.SkillsEnableChrome`. Distinct from
 /// Providers Enable / Disable.
 const skills_enable_chrome_en = i18n.skillsEnableChromeFor(.english, "");
@@ -2251,18 +2268,21 @@ fn shownSkillCount(model: *const Model, query: []const u8) usize {
     var shown: usize = 0;
     var i: usize = 0;
     while (i < model.skill_count) : (i += 1) {
-        if (skillRowMatches(&model.skill_store[i], query)) shown += 1;
+        if (!isPrimaryGroupedIndex(model, i)) continue;
+        if (groupedSkillMatches(model, i, query)) shown += 1;
     }
     return shown;
 }
 
-/// Total cached disabled entries (not among the filtered shown set).
-/// Matches Waku library header `disabled_count`.
+/// Total cached disabled **groups** (not among the filtered shown
+/// set). Matches Waku library header `disabled_count` after folding
+/// same-name installs within a scope (`enabled` is OR of installs).
 fn disabledSkillCount(model: *const Model) usize {
     var n: usize = 0;
     var i: usize = 0;
     while (i < model.skill_count) : (i += 1) {
-        if (!model.skill_store[i].enabled) n += 1;
+        if (!isPrimaryGroupedIndex(model, i)) continue;
+        if (!groupEnabled(model, i)) n += 1;
     }
     return n;
 }
@@ -2287,6 +2307,215 @@ fn skillRowMatches(skill: *const CachedSkill, query: []const u8) bool {
     return util.asciiContainsIgnoreCase(skill.name(), query) or
         util.asciiContainsIgnoreCase(skill.path(), query) or
         util.asciiContainsIgnoreCase(skill.description(), query);
+}
+
+pub fn namesEqualIgnoreCase(left: []const u8, right: []const u8) bool {
+    if (left.len != right.len) return false;
+    for (left, right) |a, b| {
+        if (std.ascii.toLower(a) != std.ascii.toLower(b)) return false;
+    }
+    return true;
+}
+
+pub fn sameSkillGroup(left: *const CachedSkill, right: *const CachedSkill) bool {
+    return isAbsoluteSkillPath(left.path()) == isAbsoluteSkillPath(right.path()) and
+        namesEqualIgnoreCase(left.name(), right.name());
+}
+
+/// First store index in Waku walk / catalog order is primary.
+pub fn isPrimaryGroupedIndex(model: *const Model, index: usize) bool {
+    if (index >= model.skill_count) return false;
+    const skill = &model.skill_store[index];
+    var i: usize = 0;
+    while (i < index) : (i += 1) {
+        if (sameSkillGroup(&model.skill_store[i], skill)) return false;
+    }
+    return true;
+}
+
+pub fn groupEnabled(model: *const Model, index: usize) bool {
+    if (index >= model.skill_count) return false;
+    const skill = &model.skill_store[index];
+    var i: usize = 0;
+    while (i < model.skill_count) : (i += 1) {
+        if (!sameSkillGroup(&model.skill_store[i], skill)) continue;
+        if (model.skill_store[i].enabled) return true;
+    }
+    return false;
+}
+
+pub fn groupedSkillMatches(model: *const Model, index: usize, query: []const u8) bool {
+    if (index >= model.skill_count) return false;
+    const skill = &model.skill_store[index];
+    var i: usize = 0;
+    while (i < model.skill_count) : (i += 1) {
+        if (!sameSkillGroup(&model.skill_store[i], skill)) continue;
+        if (skillRowMatches(&model.skill_store[i], query)) return true;
+    }
+    return false;
+}
+
+/// Other-scope grouped entries with the same case-insensitive name.
+/// Same-scope copies are folded, so those do not add to `duplicates`.
+pub fn groupedDuplicates(model: *const Model, index: usize) usize {
+    if (index >= model.skill_count) return 0;
+    const skill = &model.skill_store[index];
+    const user = isAbsoluteSkillPath(skill.path());
+    var n: usize = 0;
+    var i: usize = 0;
+    while (i < model.skill_count) : (i += 1) {
+        if (!isPrimaryGroupedIndex(model, i)) continue;
+        if (isAbsoluteSkillPath(model.skill_store[i].path()) == user) continue;
+        if (!namesEqualIgnoreCase(model.skill_store[i].name(), skill.name())) continue;
+        n += 1;
+    }
+    return n;
+}
+
+pub fn collectGroupIndices(model: *const Model, index: usize, dest: *[max_skill_installs]usize) usize {
+    if (index >= model.skill_count) return 0;
+    const skill = &model.skill_store[index];
+    var n: usize = 0;
+    var i: usize = 0;
+    while (i < model.skill_count) : (i += 1) {
+        if (!sameSkillGroup(&model.skill_store[i], skill)) continue;
+        if (n >= dest.len) break;
+        dest[n] = i;
+        n += 1;
+    }
+    return n;
+}
+
+pub const SkillSourceKind = enum {
+    shared,
+    claude,
+    codex,
+    opencode,
+    cursor,
+    fx,
+    pi,
+    omp,
+    unknown,
+};
+
+fn hasSkillRootSegment(path: []const u8, segment: []const u8) bool {
+    if (segment.len == 0 or path.len < segment.len) return false;
+    if (std.mem.startsWith(u8, path, segment) and (path.len == segment.len or path[segment.len] == '/')) {
+        return true;
+    }
+    var i: usize = 0;
+    while (i < path.len) : (i += 1) {
+        if (path[i] != '/') continue;
+        const rest = path[i + 1 ..];
+        if (rest.len < segment.len) continue;
+        if (!std.mem.eql(u8, rest[0..segment.len], segment)) continue;
+        if (rest.len == segment.len or rest[segment.len] == '/') return true;
+    }
+    return false;
+}
+
+pub fn skillSourceKind(path: []const u8) SkillSourceKind {
+    if (hasSkillRootSegment(path, ".config/agents/skills")) return .shared;
+    if (hasSkillRootSegment(path, ".config/opencode/skills")) return .opencode;
+    if (hasSkillRootSegment(path, ".pi/agent/skills")) return .pi;
+    if (hasSkillRootSegment(path, ".omp/agent/skills")) return .omp;
+    if (hasSkillRootSegment(path, ".agents/skills")) return .shared;
+    if (hasSkillRootSegment(path, ".claude/skills")) return .claude;
+    if (hasSkillRootSegment(path, ".codex/skills")) return .codex;
+    if (hasSkillRootSegment(path, ".cursor/skills")) return .cursor;
+    if (hasSkillRootSegment(path, ".fx/skills")) return .fx;
+    return .unknown;
+}
+
+pub fn skillSourceLabel(kind: SkillSourceKind, chrome: i18n.SkillsSourceChrome, fallback_location: []const u8) []const u8 {
+    return switch (kind) {
+        .shared => chrome.source_shared,
+        .claude => chrome.source_claude,
+        .codex => chrome.source_codex,
+        .opencode => chrome.source_opencode,
+        .cursor => chrome.source_cursor,
+        .fx => chrome.source_fx,
+        .pi => chrome.source_pi,
+        .omp => chrome.source_omp,
+        .unknown => fallback_location,
+    };
+}
+
+/// Replace a home-directory prefix with `~`. Fail closed (return
+/// `path`) when home is empty / mismatch / overflow.
+pub fn compactHomePath(path: []const u8, home: []const u8, buf: []u8) []const u8 {
+    if (home.len == 0 or path.len < home.len) return path;
+    var home_buf: [max_skill_path]u8 = undefined;
+    const home_norm = copySlashNormalized(home, &home_buf) orelse return path;
+    if (path.len < home_norm.len) return path;
+    if (!std.mem.eql(u8, path[0..home_norm.len], home_norm)) return path;
+    if (path.len > home_norm.len and path[home_norm.len] != '/') return path;
+    const rest = path[home_norm.len..];
+    return std.fmt.bufPrint(buf, "~{s}", .{rest}) catch path;
+}
+
+pub fn selectedSkillDuplicateCount(model: *const Model) usize {
+    if (model.skill_selected_id == 0 or model.skill_selected_id > model.skill_count) return 0;
+    return groupedDuplicates(model, model.skill_selected_id - 1);
+}
+
+pub fn selectedSkillDuplicateBadge(model: *const Model, arena: std.mem.Allocator) []const u8 {
+    const count = selectedSkillDuplicateCount(model);
+    if (count == 0) return "";
+    var buf: [i18n.skills_duplicate_badge_max]u8 = undefined;
+    const chrome = i18n.skillsDuplicateChromeFor(model.language_preference, model.systemLocaleId());
+    const text = i18n.formatSkillsDuplicateBadge(chrome, count, &buf);
+    return copyCaption(arena, text);
+}
+
+/// Absolute install parent for a cached store path (not necessarily
+/// the selected primary).
+fn absParentForStorePath(model: *const Model, relpath: []const u8, buf: []u8) ?[]const u8 {
+    if (relpath.len == 0) return null;
+    const root = model.skill_probe_path_storage[0..model.skill_probe_path_len];
+    const parent = absSkillParent(root, relpath, buf) orelse return null;
+    if (parent.len == 0) return null;
+    return parent;
+}
+
+pub const SkillLocationRow = struct {
+    id: u32,
+    label: []const u8,
+    path: []const u8,
+};
+
+pub fn selectedSkillLocationRows(model: *const Model, arena: std.mem.Allocator) []const SkillLocationRow {
+    if (model.skill_selected_id == 0 or model.skill_selected_id > model.skill_count) return &.{};
+    const index = model.skill_selected_id - 1;
+    var idxs: [max_skill_installs]usize = undefined;
+    const n = collectGroupIndices(model, index, &idxs);
+    if (n == 0) return &.{};
+    const out = arena.alloc(SkillLocationRow, n) catch return &.{};
+    const source_chrome = i18n.skillsSourceChromeFor(model.language_preference, model.systemLocaleId());
+    const location_label = i18n.skillsDetailChromeFor(model.language_preference, model.systemLocaleId()).detail_location;
+    var home_buf: [max_skill_path]u8 = undefined;
+    var userprofile_buf: [max_skill_path]u8 = undefined;
+    var claude_buf: [max_skill_path]u8 = undefined;
+    const env = readProcessUserSkillEnv(&home_buf, &userprofile_buf, &claude_buf);
+    const home = processHomeDir(env.home, env.userprofile);
+    var row_i: usize = 0;
+    while (row_i < n) : (row_i += 1) {
+        const relpath = model.skill_store[idxs[row_i]].path();
+        var parent_buf: [model_exports.max_project_path + max_skill_path + 1]u8 = undefined;
+        const raw_path = absParentForStorePath(model, relpath, &parent_buf) orelse relpath;
+        var compact_buf: [max_skill_path + 2]u8 = undefined;
+        const shown_path = if (n > 1) compactHomePath(raw_path, home, &compact_buf) else raw_path;
+        const label = if (n > 1)
+            skillSourceLabel(skillSourceKind(relpath), source_chrome, location_label)
+        else
+            location_label;
+        out[row_i] = .{
+            .id = @intCast(row_i + 1),
+            .label = label,
+            .path = copyCaption(arena, shown_path),
+        };
+    }
+    return out;
 }
 
 test "argv is packed chdir plus find SKILL.md then user-root slots; not file-mention walk" {
@@ -4879,6 +5108,202 @@ test "skill_rows groups project then user with section headers; insert stays fla
 
     model.settings_page = .general;
     try testing.expectEqual(@as(usize, 0), model.skill_rows(arena).len);
+}
+
+test "skill_rows folds same-name user installs; multi-location source labels; insert stays flat" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    try testing.expectEqual(SkillSourceKind.shared, skillSourceKind("/home/me/.agents/skills/demo/SKILL.md"));
+    try testing.expectEqual(SkillSourceKind.shared, skillSourceKind("/home/me/.config/agents/skills/demo/SKILL.md"));
+    try testing.expectEqual(SkillSourceKind.claude, skillSourceKind("/home/me/.claude/skills/demo/SKILL.md"));
+    try testing.expectEqual(SkillSourceKind.codex, skillSourceKind("/home/me/.codex/skills/demo/SKILL.md"));
+    try testing.expectEqual(SkillSourceKind.opencode, skillSourceKind("/home/me/.config/opencode/skills/demo/SKILL.md"));
+    try testing.expectEqual(SkillSourceKind.cursor, skillSourceKind("/home/me/.cursor/skills/demo/SKILL.md"));
+    try testing.expectEqual(SkillSourceKind.fx, skillSourceKind("/home/me/.fx/skills/demo/SKILL.md"));
+    try testing.expectEqual(SkillSourceKind.pi, skillSourceKind("/home/me/.pi/agent/skills/demo/SKILL.md"));
+    try testing.expectEqual(SkillSourceKind.omp, skillSourceKind("/home/me/.omp/agent/skills/demo/SKILL.md"));
+    try testing.expectEqual(SkillSourceKind.unknown, skillSourceKind("/tmp/unrelated/demo/SKILL.md"));
+    var compact_buf: [max_skill_path + 2]u8 = undefined;
+    try testing.expectEqualStrings("~/.cursor/skills/demo", compactHomePath("/home/me/.cursor/skills/demo", "/home/me", &compact_buf));
+    try testing.expectEqualStrings("/tmp/other", compactHomePath("/tmp/other", "/home/me", &compact_buf));
+
+    var model = Model{};
+    model.settings_page = .skills;
+    applyStdoutPaths(&model, "/home/me/.agents/skills/demo/SKILL.md\n/home/me/.cursor/skills/demo/SKILL.md\n/home/me/.fx/skills/other/SKILL.md\n");
+    try testing.expectEqual(@as(u32, 3), cachedCount(&model));
+    {
+        const rows = model.skill_rows(arena);
+        try testing.expectEqual(@as(usize, 3), rows.len);
+        try testing.expect(rows[0].is_header);
+        try testing.expectEqual(skill_header_id_user, rows[0].id);
+        try testing.expectEqualStrings("2", rows[0].count);
+        try testing.expectEqualStrings("demo", rows[1].name);
+        try testing.expectEqualStrings("/home/me/.agents/skills/demo/SKILL.md", rows[1].path);
+        try testing.expectEqual(skillId(0), rows[1].id);
+        try testing.expectEqualStrings("other", rows[2].name);
+    }
+
+    selectSkill(&model, skillId(0));
+    try testing.expect(!model.has_skill_duplicate_badge());
+    try testing.expectEqualStrings("", model.skill_duplicate_badge(arena));
+    {
+        const locs = model.skill_location_rows(arena);
+        try testing.expectEqual(@as(usize, 2), locs.len);
+        try testing.expectEqualStrings(source_shared, locs[0].label);
+        try testing.expect(std.mem.endsWith(u8, locs[0].path, "/.agents/skills/demo") or std.mem.endsWith(u8, locs[0].path, ".agents/skills/demo"));
+        try testing.expectEqualStrings("Cursor", locs[1].label);
+        try testing.expect(std.mem.endsWith(u8, locs[1].path, "/.cursor/skills/demo") or std.mem.endsWith(u8, locs[1].path, ".cursor/skills/demo"));
+    }
+
+    model.draft_buffer.set("$");
+    {
+        const rows = model.skill_insert_rows(arena);
+        try testing.expectEqual(@as(usize, 3), rows.len);
+        try testing.expect(!rows[0].is_header);
+        try testing.expect(!rows[1].is_header);
+        try testing.expect(!rows[2].is_header);
+        try testing.expectEqualStrings("demo", rows[0].name);
+        try testing.expectEqualStrings("/home/me/.agents/skills/demo/SKILL.md", rows[0].path);
+        try testing.expectEqualStrings("demo", rows[1].name);
+        try testing.expectEqualStrings("/home/me/.cursor/skills/demo/SKILL.md", rows[1].path);
+        try testing.expectEqualStrings("other", rows[2].name);
+    }
+}
+
+test "skill_rows same name project and user stay two rows; duplicate badge EN/zh/ja; single Location" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-dup", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, root);
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setLastProjectPath(root);
+    model.settings_page = .skills;
+    applyStdoutPaths(&model, ".cursor/skills/demo/SKILL.md\n/home/me/.agents/skills/demo/SKILL.md\n.cursor/skills/solo/SKILL.md\n");
+    try testing.expectEqual(@as(u32, 3), cachedCount(&model));
+    {
+        const rows = model.skill_rows(arena);
+        try testing.expectEqual(@as(usize, 5), rows.len);
+        try testing.expect(rows[0].is_header);
+        try testing.expectEqual(skill_header_id_project, rows[0].id);
+        try testing.expectEqualStrings("2", rows[0].count);
+        try testing.expectEqualStrings("demo", rows[1].name);
+        try testing.expectEqualStrings("solo", rows[2].name);
+        try testing.expect(rows[3].is_header);
+        try testing.expectEqual(skill_header_id_user, rows[3].id);
+        try testing.expectEqualStrings("1", rows[3].count);
+        try testing.expectEqualStrings("demo", rows[4].name);
+    }
+
+    selectSkill(&model, skillId(0));
+    try testing.expect(model.has_skill_duplicate_badge());
+    try testing.expectEqualStrings(duplicate_one, model.skill_duplicate_badge(arena));
+    {
+        const locs = model.skill_location_rows(arena);
+        try testing.expectEqual(@as(usize, 1), locs.len);
+        try testing.expectEqualStrings(detail_location, locs[0].label);
+    }
+    try testing.expectEqualStrings(".cursor/skills/demo/SKILL.md", model.skill_location(arena));
+
+    selectSkill(&model, skillId(1));
+    try testing.expect(model.has_skill_duplicate_badge());
+    try testing.expectEqualStrings(duplicate_one, model.skill_duplicate_badge(arena));
+    {
+        const locs = model.skill_location_rows(arena);
+        try testing.expectEqual(@as(usize, 1), locs.len);
+        try testing.expectEqualStrings(detail_location, locs[0].label);
+    }
+
+    selectSkill(&model, skillId(2));
+    try testing.expect(!model.has_skill_duplicate_badge());
+    try testing.expectEqualStrings("", model.skill_duplicate_badge(arena));
+    {
+        const locs = model.skill_location_rows(arena);
+        try testing.expectEqual(@as(usize, 1), locs.len);
+        try testing.expectEqualStrings(detail_location, locs[0].label);
+    }
+
+    model.language_preference = .simplified_chinese;
+    selectSkill(&model, skillId(0));
+    try testing.expectEqualStrings("另有 1 处同名技能 — 更具体的一份生效", model.skill_duplicate_badge(arena));
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings(
+        "同名のスキルが他の 1 か所にもあります — 最も限定的な場所にあるスキルが優先されます",
+        model.skill_duplicate_badge(arena),
+    );
+    model.language_preference = .english;
+
+    model.draft_buffer.set("$");
+    {
+        const rows = model.skill_insert_rows(arena);
+        try testing.expectEqual(@as(usize, 3), rows.len);
+        try testing.expect(!rows[0].is_header);
+        try testing.expectEqualStrings("demo", rows[0].name);
+        try testing.expectEqualStrings("demo", rows[1].name);
+        try testing.expectEqualStrings("solo", rows[2].name);
+    }
+}
+
+test "applyCatalog keeps every install; Settings folds; insert stays flat" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-catalog-multi", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, root);
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setLastProjectPath(root);
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, root);
+    model.settings_page = .skills;
+    model.daemon_load_skills_key = 7;
+    const line =
+        \\{"type":"response","outcome":{"status":"ok","payload":{"type":"skillsCatalog","catalog":{"skills":[{"name":"demo","description":"From catalog.","enabled":true,"installs":[{"dir":"/home/me/.agents/skills/demo","skillFile":"/home/me/.agents/skills/demo/SKILL.md","enabled":true},{"dir":"/home/me/.cursor/skills/demo","skillFile":"/home/me/.cursor/skills/demo/SKILL.md","enabled":true}]}]}}}}
+    ;
+    applyDaemonLine(&model, .{ .key = 7, .line = line });
+    try testing.expectEqual(@as(u32, 2), cachedCount(&model));
+    try testing.expectEqualStrings("demo", cachedName(&model, 0));
+    try testing.expectEqualStrings("From catalog.", cachedDescription(&model, 0));
+    try testing.expectEqualStrings("/home/me/.agents/skills/demo/SKILL.md", cachedPath(&model, 0));
+    try testing.expectEqualStrings("/home/me/.cursor/skills/demo/SKILL.md", cachedPath(&model, 1));
+    {
+        const rows = model.skill_rows(arena);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expect(rows[0].is_header);
+        try testing.expectEqualStrings("1", rows[0].count);
+        try testing.expectEqualStrings("demo", rows[1].name);
+        try testing.expectEqualStrings("/home/me/.agents/skills/demo/SKILL.md", rows[1].path);
+    }
+    selectSkill(&model, skillId(0));
+    {
+        const locs = model.skill_location_rows(arena);
+        try testing.expectEqual(@as(usize, 2), locs.len);
+        try testing.expectEqualStrings(source_shared, locs[0].label);
+        try testing.expectEqualStrings("Cursor", locs[1].label);
+    }
+    model.draft_buffer.set("$");
+    {
+        const rows = model.skill_insert_rows(arena);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expect(!rows[0].is_header);
+        try testing.expectEqualStrings("demo", rows[0].name);
+        try testing.expectEqualStrings("demo", rows[1].name);
+    }
 }
 
 fn writeTestSkill(io: std.Io, dir: []const u8, name: []const u8, body: []const u8, disabled: bool) !void {
