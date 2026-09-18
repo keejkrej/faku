@@ -411,6 +411,12 @@
                       <text foreground="text_muted">{skill_detail_location}</text>
                       <text wrap="true">{skill_location}</text>
                     </column>
+                    <if test="{has_skill_updated}">
+                      <column gap="2">
+                        <text foreground="text_muted">{skill_detail_updated}</text>
+                        <text wrap="false">{skill_updated_label}</text>
+                      </column>
+                    </if>
                     <column gap="2">
                       <text foreground="text_muted">{skill_detail_contents}</text>
                       <if test="{has_skill_body}">

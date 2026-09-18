@@ -152,8 +152,13 @@
 //! Contents follow `i18n.SkillsDetailChrome` (distinct from
 //! SkillsEmptyChrome / SkillsSelectChrome / SkillsCountChrome /
 //! SkillsSectionChrome; description / `/name` / path / body stay
-//! data; no `detail_updated` / file_count / allowed_tools /
-//! duplicate grouping this cut). Composer `$` insert unchanged.
+//! data; Updated lives in `SkillsUpdatedChrome`; no file_count /
+//! allowed_tools / duplicate grouping this cut). Selected-detail
+//! Updated follows `i18n.SkillsUpdatedChrome` (Waku
+//! `skills.detail_updated` + relative just now / m / h / d from
+//! SKILL.md mtime unix seconds at `loadBody`; fail closed when
+//! mtime cannot be read; distinct from SkillsDetailChrome).
+//! Composer `$` insert unchanged.
 //! app.zon already includes windows.
 //!
 //! Spawn/line/exit orchestration lives here. Tests do not need a live
@@ -921,7 +926,7 @@ pub fn slashCommandIndex(id: u32) ?usize {
 pub fn clearCache(model: *Model) void {
     model.skill_count = 0;
     model.skill_selected_id = 0;
-    model.skill_body_len = 0;
+    clearSelectedSkillBody(model);
     model.skill_delete_arming = false;
 }
 
@@ -1520,7 +1525,7 @@ pub fn handleTrashSkillsExit(model: *Model, fx: *Effects, exit: native_sdk.Effec
     if (ok) {
         clearDeleteArming(model);
         model.skill_selected_id = 0;
-        model.skill_body_len = 0;
+        clearSelectedSkillBody(model);
         refresh(model, fx);
         return;
     }
@@ -1541,7 +1546,7 @@ pub fn handleRemoveExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
     }
     clearDeleteArming(model);
     model.skill_selected_id = 0;
-    model.skill_body_len = 0;
+    clearSelectedSkillBody(model);
     refresh(model, fx);
 }
 
@@ -1729,7 +1734,7 @@ pub fn selectSkill(model: *Model, id: u32) void {
     }
     if (id == 0 or id > model.skill_count) {
         model.skill_selected_id = 0;
-        model.skill_body_len = 0;
+        clearSelectedSkillBody(model);
         return;
     }
     model.skill_selected_id = id;
@@ -1819,6 +1824,26 @@ pub fn selectedSkillLocation(model: *const Model, arena: std.mem.Allocator) []co
     return model.skill_store[model.skill_selected_id - 1].path();
 }
 
+/// Settings Skills selected-detail relative Updated value.
+/// Injects live `std.Io` clock "now"; tests pin buckets through
+/// `selectedSkillUpdatedLabelAt`. Empty when unselected, mtime is
+/// unknown, or `store_io` is missing.
+pub fn selectedSkillUpdatedLabel(model: *const Model, arena: std.mem.Allocator) []const u8 {
+    const io = model.store_io orelse return "";
+    return selectedSkillUpdatedLabelAt(model, std.Io.Clock.real.now(io).toSeconds(), arena);
+}
+
+/// Same as `selectedSkillUpdatedLabel` with caller-injected `now`
+/// unix seconds (Waku `updated_label` buckets).
+pub fn selectedSkillUpdatedLabelAt(model: *const Model, now_unix: i64, arena: std.mem.Allocator) []const u8 {
+    if (model.skill_selected_id == 0 or model.skill_selected_id > model.skill_count) return "";
+    if (!model.skill_mtime_valid) return "";
+    var buf: [i18n.skills_updated_label_max]u8 = undefined;
+    const chrome = i18n.skillsUpdatedChromeFor(model.language_preference, model.systemLocaleId());
+    const text = i18n.formatSkillsUpdatedRelative(chrome, model.skill_mtime_unix, now_unix, &buf);
+    return copyCaption(arena, text);
+}
+
 /// Settings Skills Copy path. Writes the absolute skill parent
 /// directory (install dir, not `SKILL.md`) through Native
 /// `fx.writeClipboard` via `copy.copyText` / `copy_turn_key`. Fail
@@ -1833,8 +1858,37 @@ pub fn copySelectedSkillPath(model: *Model, fx: *Effects) void {
     model.setWindowStatus(model.skill_path_copied_status());
 }
 
-fn loadBody(model: *Model, index: usize) void {
+fn clearSelectedSkillBody(model: *Model) void {
     model.skill_body_len = 0;
+    model.skill_mtime_unix = 0;
+    model.skill_mtime_valid = false;
+}
+
+/// Zig `File.Stat.mtime` is ns since epoch: a raw integer on some
+/// std cuts, `Io.Timestamp{ .nanoseconds }` on others. Compile
+/// against whichever this repo's Zig exposes. Same class as Files
+/// preview `mtimeToNs`.
+fn mtimeToNs(mtime: anytype) i64 {
+    return switch (@typeInfo(@TypeOf(mtime))) {
+        .int => @intCast(mtime),
+        .@"struct" => @intCast(mtime.nanoseconds),
+        else => @compileError("unexpected File.Stat.mtime type"),
+    };
+}
+
+/// SKILL.md mtime as unix seconds. Null when the file cannot be
+/// opened or stat fails. Not a Native FS watcher.
+fn readSkillMtimeUnix(io: std.Io, abs: []const u8) ?i64 {
+    var file = std.Io.Dir.cwd().openFile(io, abs, .{}) catch return null;
+    defer file.close(io);
+    const st = file.stat(io) catch return null;
+    const ns = mtimeToNs(st.mtime);
+    if (ns < 0) return null;
+    return @divTrunc(ns, 1_000_000_000);
+}
+
+fn loadBody(model: *Model, index: usize) void {
+    clearSelectedSkillBody(model);
     const io = model.store_io orelse return;
     const root = model.skill_probe_path_storage[0..model.skill_probe_path_len];
     if (root.len == 0) return;
@@ -1845,6 +1899,10 @@ fn loadBody(model: *Model, index: usize) void {
     const source = readSkillSource(io, abs, &file_buf);
     if (source.len == 0) return;
     writeFixed(&model.skill_body_storage, &model.skill_body_len, stripFrontmatter(source));
+    if (readSkillMtimeUnix(io, abs)) |mtime| {
+        model.skill_mtime_unix = mtime;
+        model.skill_mtime_valid = true;
+    }
 }
 
 fn enabledSkillIndex(model: *const Model, name: []const u8) ?usize {
@@ -1975,6 +2033,15 @@ pub const no_description = skills_detail_chrome_en.no_description;
 pub const detail_invoke = skills_detail_chrome_en.detail_invoke;
 pub const detail_location = skills_detail_chrome_en.detail_location;
 pub const detail_contents = skills_detail_chrome_en.detail_contents;
+
+/// English defaults from `i18n.SkillsUpdatedChrome`. Distinct from
+/// SkillsDetailChrome No description / Invoke / Location /
+/// Contents. Matches Waku `skills.detail_updated` /
+/// `updated_just_now` / `updated_minutes` / `updated_hours` /
+/// `updated_days`.
+const skills_updated_chrome_en = i18n.skillsUpdatedChromeFor(.english, "");
+pub const detail_updated = skills_updated_chrome_en.detail_updated;
+pub const updated_just_now = skills_updated_chrome_en.updated_just_now;
 
 /// English defaults from `i18n.SkillsEnableChrome`. Distinct from
 /// Providers Enable / Disable.
@@ -2950,7 +3017,7 @@ test "skills_needs_select true only on Skills page with rows and no selection" {
     try testing.expectEqualStrings("Select a skill", model.skills_select_placeholder());
 }
 
-test "selected-detail chrome description vs no_description; invoke / location / contents; unselected empty" {
+test "selected-detail chrome description vs no_description; invoke / location / contents; updated mtime; unselected empty" {
     const testing = std.testing;
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
@@ -2960,6 +3027,8 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expectEqualStrings("Invoke", detail_invoke);
     try testing.expectEqualStrings("Location", detail_location);
     try testing.expectEqualStrings("Contents", detail_contents);
+    try testing.expectEqualStrings("Updated", detail_updated);
+    try testing.expectEqualStrings("Just now", updated_just_now);
     try testing.expectEqualStrings("No description", i18n.skillsDetailChromeFor(.english, "").no_description);
     try testing.expectEqualStrings("暂无描述", i18n.skillsDetailChromeFor(.simplified_chinese, "").no_description);
     try testing.expectEqualStrings("説明なし", i18n.skillsDetailChromeFor(.japanese, "").no_description);
@@ -2972,6 +3041,12 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expectEqualStrings("Contents", i18n.skillsDetailChromeFor(.english, "").detail_contents);
     try testing.expectEqualStrings("内容", i18n.skillsDetailChromeFor(.simplified_chinese, "").detail_contents);
     try testing.expectEqualStrings("内容", i18n.skillsDetailChromeFor(.japanese, "").detail_contents);
+    try testing.expectEqualStrings("Updated", i18n.skillsUpdatedChromeFor(.english, "").detail_updated);
+    try testing.expectEqualStrings("更新", i18n.skillsUpdatedChromeFor(.simplified_chinese, "").detail_updated);
+    try testing.expectEqualStrings("更新日時", i18n.skillsUpdatedChromeFor(.japanese, "").detail_updated);
+    try testing.expectEqualStrings("Just now", i18n.skillsUpdatedChromeFor(.english, "").updated_just_now);
+    try testing.expectEqualStrings("刚刚", i18n.skillsUpdatedChromeFor(.simplified_chinese, "").updated_just_now);
+    try testing.expectEqualStrings("たった今", i18n.skillsUpdatedChromeFor(.japanese, "").updated_just_now);
 
     var model = Model{};
     try testing.expect(!model.has_selected_skill());
@@ -2983,6 +3058,9 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expectEqualStrings("", model.skill_detail_location());
     try testing.expectEqualStrings("", model.skill_location(arena));
     try testing.expectEqualStrings("", model.skill_detail_contents());
+    try testing.expect(!model.has_skill_updated());
+    try testing.expectEqualStrings("", model.skill_detail_updated());
+    try testing.expectEqualStrings("", model.skill_updated_label(arena));
     try testing.expectEqualStrings("", selectedSkillDescription(&model));
     try testing.expectEqualStrings("", selectedSkillInvokeLine(&model, arena));
     try testing.expectEqualStrings("", selectedSkillLocation(&model, arena));
@@ -3037,6 +3115,9 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expectEqualStrings("", model.skill_location(arena));
     try testing.expectEqualStrings("", model.skill_detail_contents());
     try testing.expect(!model.has_skill_body());
+    try testing.expect(!model.has_skill_updated());
+    try testing.expectEqualStrings("", model.skill_detail_updated());
+    try testing.expectEqualStrings("", model.skill_updated_label(arena));
     try testing.expectEqualStrings("", insertEmptyHint(&model));
 
     selectSkill(&model, 1);
@@ -3053,23 +3134,39 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expectEqualStrings("Contents", model.skill_detail_contents());
     try testing.expect(model.has_skill_body());
     try testing.expectEqualStrings("Body stays in the detail pane.", model.skill_body());
+    try testing.expect(model.has_skill_updated());
+    try testing.expectEqualStrings("Updated", model.skill_detail_updated());
+    try testing.expectEqualStrings("Just now", model.skill_updated_label(arena));
+    try testing.expectEqualStrings("Just now", selectedSkillUpdatedLabelAt(&model, model.skill_mtime_unix, arena));
+    try testing.expectEqualStrings("1m ago", selectedSkillUpdatedLabelAt(&model, model.skill_mtime_unix + 60, arena));
+    try testing.expectEqualStrings("1h ago", selectedSkillUpdatedLabelAt(&model, model.skill_mtime_unix + 3600, arena));
+    try testing.expectEqualStrings("1d ago", selectedSkillUpdatedLabelAt(&model, model.skill_mtime_unix + 86400, arena));
 
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("", model.skill_no_description());
     try testing.expectEqualStrings("调用", model.skill_detail_invoke());
     try testing.expectEqualStrings("位置", model.skill_detail_location());
     try testing.expectEqualStrings("内容", model.skill_detail_contents());
+    try testing.expectEqualStrings("更新", model.skill_detail_updated());
+    try testing.expectEqualStrings("刚刚", model.skill_updated_label(arena));
+    try testing.expectEqualStrings("5 分钟前", selectedSkillUpdatedLabelAt(&model, model.skill_mtime_unix + 300, arena));
     try testing.expectEqualStrings("/with-desc", model.skill_invoke_line(arena));
     try testing.expectEqualStrings("Does the described thing.", model.skill_description());
     model.language_preference = .japanese;
     try testing.expectEqualStrings("呼び出し", model.skill_detail_invoke());
     try testing.expectEqualStrings("場所", model.skill_detail_location());
     try testing.expectEqualStrings("内容", model.skill_detail_contents());
+    try testing.expectEqualStrings("更新日時", model.skill_detail_updated());
+    try testing.expectEqualStrings("たった今", model.skill_updated_label(arena));
+    try testing.expectEqualStrings("2 時間前", selectedSkillUpdatedLabelAt(&model, model.skill_mtime_unix + 7200, arena));
     model.language_preference = .english;
     model.setSystemLocaleId("zh_CN.UTF-8");
     try testing.expectEqualStrings("Invoke", model.skill_detail_invoke());
+    try testing.expectEqualStrings("Updated", model.skill_detail_updated());
     model.language_preference = .system;
     try testing.expectEqualStrings("调用", model.skill_detail_invoke());
+    try testing.expectEqualStrings("更新", model.skill_detail_updated());
+    try testing.expectEqualStrings("刚刚", model.skill_updated_label(arena));
     try testing.expectEqualStrings("暂无描述", i18n.skillsDetailChromeFor(.system, "zh_CN.UTF-8").no_description);
     model.setSystemLocaleId("");
     model.language_preference = .english;
@@ -3084,12 +3181,17 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expectEqualStrings("Contents", model.skill_detail_contents());
     try testing.expect(!model.has_skill_body());
     try testing.expectEqualStrings("", model.skill_body());
+    try testing.expect(model.has_skill_updated());
+    try testing.expectEqualStrings("Updated", model.skill_detail_updated());
+    try testing.expectEqualStrings("Just now", model.skill_updated_label(arena));
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("暂无描述", model.skill_no_description());
     try testing.expectEqualStrings("调用", model.skill_detail_invoke());
+    try testing.expectEqualStrings("更新", model.skill_detail_updated());
     model.language_preference = .japanese;
     try testing.expectEqualStrings("説明なし", model.skill_no_description());
     try testing.expectEqualStrings("呼び出し", model.skill_detail_invoke());
+    try testing.expectEqualStrings("更新日時", model.skill_detail_updated());
     model.language_preference = .english;
 
     const saved_probe = model.skill_probe_path_len;
@@ -3105,6 +3207,9 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expectEqualStrings("User skill body.", model.skill_body());
     try testing.expect(!model.has_skill_description());
     try testing.expectEqualStrings("No description", model.skill_no_description());
+    try testing.expect(model.has_skill_updated());
+    try testing.expectEqualStrings("Updated", model.skill_detail_updated());
+    try testing.expectEqualStrings("Just now", model.skill_updated_label(arena));
 
     model.settings_page = .general;
     try testing.expect(!model.has_selected_skill());
@@ -3115,9 +3220,14 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expectEqualStrings("", model.skill_location(arena));
     try testing.expectEqualStrings("", model.skill_detail_contents());
     try testing.expect(!model.has_skill_body());
+    try testing.expect(!model.has_skill_updated());
+    try testing.expectEqualStrings("", model.skill_detail_updated());
+    try testing.expectEqualStrings("", model.skill_updated_label(arena));
     model.settings_page = .skills;
     try testing.expect(model.has_selected_skill());
     try testing.expectEqualStrings("/from-home", model.skill_invoke_line(arena));
+    try testing.expect(model.has_skill_updated());
+    try testing.expectEqualStrings("Updated", model.skill_detail_updated());
 
     model.skill_selected_id = 0;
     try testing.expect(model.skills_needs_select());
@@ -3125,7 +3235,24 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expectEqualStrings("", model.skill_no_description());
     try testing.expectEqualStrings("", model.skill_detail_invoke());
     try testing.expectEqualStrings("", model.skill_invoke_line(arena));
+    try testing.expect(!model.has_skill_updated());
+    try testing.expectEqualStrings("", model.skill_detail_updated());
+    try testing.expectEqualStrings("", model.skill_updated_label(arena));
     try testing.expectEqualStrings("", insertEmptyHint(&model));
+
+    clearCache(&model);
+    applyStdoutPaths(&model, ".cursor/skills/missing/SKILL.md\n");
+    try testing.expectEqual(@as(u32, 1), cachedCount(&model));
+    model.settings_page = .skills;
+    selectSkill(&model, 1);
+    try testing.expect(model.has_selected_skill());
+    try testing.expect(!model.has_skill_body());
+    try testing.expect(!model.has_skill_updated());
+    try testing.expectEqualStrings("", model.skill_detail_updated());
+    try testing.expectEqualStrings("", model.skill_updated_label(arena));
+    try testing.expectEqualStrings("Updated", i18n.skillsUpdatedChromeFor(.english, "").detail_updated);
+    model.skill_mtime_valid = false;
+    try testing.expectEqualStrings("", model.skill_detail_updated());
 }
 
 test "countCaption empty-filter counts, filter caption, emptyHint owns, disabled append" {
