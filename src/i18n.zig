@@ -382,10 +382,13 @@
 //! Could not delete skill. (same `SkillsTrashStatusChrome` strings;
 //! distinct from `SkillsTrashChrome` Delete / Confirm delete so fail
 //! status stays independently evolvable)
-//! plus Settings Skills Open in editor (reuses
-//! `FilePreviewChrome.open_in_editor` via a distinct Model getter;
-//! same EN Open in editor as Files preview; on-press stays
-//! `open_skill_in_editor`; wire ids stay English)
+//! plus Settings Skills Open SKILL.md (same
+//! `SkillsOpenFileChrome` strings; English matches Waku
+//! `skills.open_file`; EN Open SKILL.md / zh-CN 打开 SKILL.md /
+//! ja SKILL.md を開く; distinct from `FilePreviewChrome.open_in_editor`
+//! / `ComposerProjectChrome` so Files preview Open in editor and
+//! composer Open in Editor stay independently evolvable; on-press
+//! stays `open_skill_in_editor`; wire ids stay English)
 //! plus Settings Skills Reveal (reuses
 //! `ComposerProjectChrome.reveal_folder` via a distinct Model getter;
 //! same EN Reveal folder as composer project-row; on-press stays
@@ -534,8 +537,8 @@
 //! Skills Enable / Disable `on-press` stays `toggle_skill_enabled`.
 //! Skills Delete / Confirm delete `on-press` stays `arm_skill_delete`
 //! / `confirm_skill_delete`.
-//! Skills Open in editor `on-press` stays `open_skill_in_editor`
-//! (label reuses `FilePreviewChrome.open_in_editor` via a distinct
+//! Skills Open SKILL.md `on-press` stays `open_skill_in_editor`
+//! (label uses `SkillsOpenFileChrome.open_file` via a distinct
 //! Model getter).
 //! Skills Reveal `on-press` stays `reveal_skill`
 //! (label reuses `ComposerProjectChrome.reveal_folder` via a distinct
@@ -1888,8 +1891,6 @@ const filter_chrome_ja: FilterChrome = .{
 /// and follows locale. Path text and body content stay
 /// data. Transcript Find placeholder reuses `find` via a distinct
 /// Model getter; a11y reuses `Palette.find_in_transcript`.
-/// Settings Skills Open in editor reuses `open_in_editor` via a
-/// distinct Model getter (`skill_open_in_editor_label`).
 pub const FilePreviewChrome = struct {
     unsaved: []const u8,
     preview: []const u8,
@@ -4800,6 +4801,30 @@ const skills_filter_all_chrome_ja: SkillsFilterAllChrome = .{
     .filter_all = "すべてのスキル",
 };
 
+/// Settings Skills selected-detail Open SKILL.md for the resolved
+/// locale. Same resolve path as SkillsEnableChrome /
+/// SkillsPathCopiedChrome. English matches Waku `skills.open_file`.
+/// Distinct from FilePreviewChrome `open_in_editor` (Files preview
+/// Open in editor) and ComposerProjectChrome `open_in_editor`
+/// (composer Open in Editor) so those packs stay independently
+/// evolvable. Wire ids / on-press stay English
+/// (`open_skill_in_editor`).
+pub const SkillsOpenFileChrome = struct {
+    open_file: []const u8,
+};
+
+const skills_open_file_chrome_en: SkillsOpenFileChrome = .{
+    .open_file = "Open SKILL.md",
+};
+
+const skills_open_file_chrome_zh_cn: SkillsOpenFileChrome = .{
+    .open_file = "打开 SKILL.md",
+};
+
+const skills_open_file_chrome_ja: SkillsOpenFileChrome = .{
+    .open_file = "SKILL.md を開く",
+};
+
 /// Capped scratch for `formatSkillsContentsSummary`. Count phrase +
 /// ` · ` + Latin B/KB/MB stay short in every locale.
 pub const skills_contents_summary_max: usize = 96;
@@ -6361,6 +6386,21 @@ pub fn skillsFilterAllChromeFor(preference: LanguagePreference, system_locale_id
         .simplified_chinese => skills_filter_all_chrome_zh_cn,
         .japanese => skills_filter_all_chrome_ja,
         .system, .english => skills_filter_all_chrome_en,
+    };
+}
+
+/// Settings Skills selected-detail Open SKILL.md for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env.
+/// Distinct from FilePreviewChrome / ComposerProjectChrome so Files
+/// preview Open in editor and composer Open in Editor stay
+/// independently evolvable. English matches Waku `skills.open_file`.
+/// Wire ids / on-press stay English (`open_skill_in_editor`).
+pub fn skillsOpenFileChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsOpenFileChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_open_file_chrome_zh_cn,
+        .japanese => skills_open_file_chrome_ja,
+        .system, .english => skills_open_file_chrome_en,
     };
 }
 
@@ -10472,6 +10512,28 @@ test "skillsFilterAllChromeFor english default; zh and ja chrome; english ignore
     try testing.expect(!std.mem.eql(u8, skillsFilterAllChromeFor(.english, "").filter_all, filterChromeFor(.english, "").filter_skills));
     try testing.expect(!std.mem.eql(u8, skillsFilterAllChromeFor(.simplified_chinese, "").filter_all, skillsSourceChromeFor(.simplified_chinese, "").source_shared));
     try testing.expect(!std.mem.eql(u8, skillsFilterAllChromeFor(.japanese, "").filter_all, skillsSourceChromeFor(.japanese, "").source_shared));
+}
+
+test "skillsOpenFileChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Open SKILL.md", skillsOpenFileChromeFor(.english, "ja").open_file);
+    try testing.expectEqualStrings("Open SKILL.md", skillsOpenFileChromeFor(.english, "").open_file);
+    try testing.expectEqualStrings("Open SKILL.md", skillsOpenFileChromeFor(.system, "").open_file);
+
+    try testing.expectEqualStrings("打开 SKILL.md", skillsOpenFileChromeFor(.simplified_chinese, "").open_file);
+    try testing.expectEqualStrings("SKILL.md を開く", skillsOpenFileChromeFor(.japanese, "").open_file);
+
+    try testing.expectEqualStrings("打开 SKILL.md", skillsOpenFileChromeFor(.system, "zh_CN.UTF-8").open_file);
+    try testing.expectEqualStrings("SKILL.md を開く", skillsOpenFileChromeFor(.system, "ja_JP.UTF-8").open_file);
+    try testing.expectEqualStrings("Open SKILL.md", skillsOpenFileChromeFor(.english, "ja_JP.UTF-8").open_file);
+    try testing.expectEqualStrings("Open SKILL.md", skillsOpenFileChromeFor(.english, "zh_CN.UTF-8").open_file);
+
+    try testing.expect(!std.mem.eql(u8, skillsOpenFileChromeFor(.english, "").open_file, filePreviewChromeFor(.english, "").open_in_editor));
+    try testing.expect(!std.mem.eql(u8, skillsOpenFileChromeFor(.simplified_chinese, "").open_file, filePreviewChromeFor(.simplified_chinese, "").open_in_editor));
+    try testing.expect(!std.mem.eql(u8, skillsOpenFileChromeFor(.japanese, "").open_file, filePreviewChromeFor(.japanese, "").open_in_editor));
+    try testing.expect(!std.mem.eql(u8, skillsOpenFileChromeFor(.english, "").open_file, composerProjectChromeFor(.english, "").open_in_editor));
+    try testing.expect(!std.mem.eql(u8, skillsOpenFileChromeFor(.simplified_chinese, "").open_file, composerProjectChromeFor(.simplified_chinese, "").open_in_editor));
+    try testing.expect(!std.mem.eql(u8, skillsOpenFileChromeFor(.japanese, "").open_file, composerProjectChromeFor(.japanese, "").open_in_editor));
 }
 
 test "skillsPathCopiedChromeFor english default; zh and ja chrome; english ignores ja LANG" {
