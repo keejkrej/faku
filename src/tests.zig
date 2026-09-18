@@ -28080,6 +28080,12 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_disabled_badge}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{has_skill_scope_caption}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_scope_caption}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skills_source_filter_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"toggle_skills_source_picker\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-dismiss=\"close_skills_source_picker\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "each=\"skills_source_picker_rows\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"pick_skills_source:{s.id}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skills_source_picker_open}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{has_skill_updated}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_detail_updated}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_updated_label}"));
@@ -28556,6 +28562,97 @@ test "Settings Skills empty chrome follows Appearance language" {
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "2 skills");
     try testing.expect(findByText(tree.root, .text, "1 of 2 shown") == null);
+}
+
+test "Settings Skills source filter chip lists All skills then sources; pick and dismiss close picker" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = boot.initialModel();
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_skills, &fx);
+    try testing.expect(model.settings_page_skills());
+    try testing.expectEqualStrings("All skills", model.skills_source_filter_label());
+    try testing.expect(!model.skills_source_picker_open);
+
+    skills.applyStdoutPaths(&model, "/home/me/.agents/skills/demo/SKILL.md\n/home/me/.claude/skills/demo/SKILL.md\n/home/me/.fx/skills/other/SKILL.md\n");
+    try testing.expectEqual(@as(u32, 3), model.skill_count);
+
+    var tree = try buildTree(arena, &model);
+    const chip = try expectSelectMsg(tree, "All skills", .toggle_skills_source_picker);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
+    main.update(&model, tree.msgForPointer(chip.id, .up).?, &fx);
+    try testing.expect(model.skills_source_picker_open);
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) != null);
+    const all = try expectByText(tree.root, .menu_item, "All skills");
+    try testing.expect(all.state.selected);
+    switch (tree.msgForPointer(all.id, .up).?) {
+        .pick_skills_source => |picked| try testing.expectEqualStrings("all", picked),
+        else => return error.WrongMsg,
+    }
+    const shared = try expectByText(tree.root, .menu_item, "Shared · 1");
+    try testing.expect(!shared.state.selected);
+    switch (tree.msgForPointer(shared.id, .up).?) {
+        .pick_skills_source => |picked| try testing.expectEqualStrings("shared", picked),
+        else => return error.WrongMsg,
+    }
+    const claude = try expectByText(tree.root, .menu_item, "Claude · 1");
+    switch (tree.msgForPointer(claude.id, .up).?) {
+        .pick_skills_source => |picked| try testing.expectEqualStrings("claude", picked),
+        else => return error.WrongMsg,
+    }
+    _ = try expectByText(tree.root, .menu_item, "fx · 1");
+    _ = try expectByText(tree.root, .menu_item, "Cursor");
+    try testing.expect(findByText(tree.root, .menu_item, "unknown") == null);
+
+    main.update(&model, tree.msgForPointer(claude.id, .up).?, &fx);
+    try testing.expect(!model.skills_source_picker_open);
+    try testing.expectEqual(skills.SkillSourceKind.claude, model.skills_source_filter.?);
+    try testing.expectEqualStrings("Claude", model.skills_source_filter_label());
+    try testing.expectEqual(@as(usize, 2), model.skill_rows(arena).len);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectSelectMsg(tree, "Claude", .toggle_skills_source_picker);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
+
+    main.update(&model, .toggle_skills_source_picker, &fx);
+    try testing.expect(model.skills_source_picker_open);
+    main.update(&model, .close_skills_source_picker, &fx);
+    try testing.expect(!model.skills_source_picker_open);
+    try testing.expectEqual(skills.SkillSourceKind.claude, model.skills_source_filter.?);
+
+    main.update(&model, .toggle_skills_source_picker, &fx);
+    try testing.expect(model.skills_source_picker_open);
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
+    try testing.expect(!model.skills_source_picker_open);
+    try testing.expect(model.settings_open);
+    try testing.expectEqual(skills.SkillSourceKind.claude, model.skills_source_filter.?);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("Claude", model.skills_source_filter_label());
+    main.update(&model, .{ .pick_skills_source = "all" }, &fx);
+    try testing.expectEqualStrings("全部技能", model.skills_source_filter_label());
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("すべてのスキル", model.skills_source_filter_label());
+
+    main.update(&model, .{ .pick_skills_source = "claude" }, &fx);
+    main.update(&model, .toggle_skills_source_picker, &fx);
+    try testing.expect(model.skills_source_picker_open);
+    main.update(&model, .set_settings_page_general, &fx);
+    try testing.expect(!model.skills_source_picker_open);
+    try testing.expectEqual(skills.SkillSourceKind.claude, model.skills_source_filter.?);
+    try testing.expectEqual(@as(usize, 0), model.skill_rows(arena).len);
+    model.draft_buffer.set("$");
+    try testing.expectEqual(@as(usize, 3), model.skill_insert_rows(arena).len);
 }
 
 test "Files preview toolbar chrome follows Appearance language" {

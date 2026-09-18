@@ -341,6 +341,16 @@
           <if test="{settings_page_skills}">
             <row grow="1" main="center">
               <column grow="1" max-width="720" gap="10" padding="14">
+                <stack>
+                  <select on-press="toggle_skills_source_picker">{skills_source_filter_label}</select>
+                  <if test="{skills_source_picker_open}">
+                    <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_skills_source_picker">
+                      <for each="skills_source_picker_rows" key="row_id" as="s">
+                        <menu-item selected="{s.selected}" on-press="pick_skills_source:{s.id}">{s.label}</menu-item>
+                      </for>
+                    </dropdown-menu>
+                  </if>
+                </stack>
                 <text-field text="{skills_filter}" placeholder="{skills_filter_placeholder}" on-input="skills_filter_edit" />
                 <if test="{has_skills_count_caption}">
                   <text foreground="text_muted">{skills_count_caption}</text>

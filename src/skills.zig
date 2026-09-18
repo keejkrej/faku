@@ -142,8 +142,15 @@
 //! `i18n.SkillsCountChrome` (distinct from FilterChrome /
 //! SkillsEmptyChrome / SkillsSelectChrome; muted Native text after
 //! the filter field when emptyHint does not own that space;
-//! `disabled` is total cached disabled like Waku library header).
-//! Settings Skills library section headers follow
+//! `disabled` is total cached disabled like Waku library header;
+//! a trimmed text query or a source filter uses `N of M shown`).
+//! Settings Skills source filter follows Waku `skills.filter_all`
+//! (`i18n.SkillsFilterAllChrome`; All skills chip, then Shared /
+//! Claude / Codex / Cursor / fx / OpenCode / Pi / OMP from
+//! `SkillSourceKind` skipping `unknown`; a grouped skill stays
+//! visible when any same-scope install lives under that source
+//! tree). Composer `$` insert / slash skill rows stay flat and
+//! unfiltered by source. Settings Skills library section headers follow
 //! `i18n.SkillsSectionChrome` (`section_user` only; English matches
 //! Waku GPUI `skills.section_user`; project section paints the
 //! project name; distinct from SkillsEmptyChrome / SkillsCountChrome
@@ -171,7 +178,8 @@
 //! `sectionProjectLabel`, else `scope_user_detail`;
 //! `has_skill_scope_caption` fail-closed). Enable / Disable / Delete / Open / Reveal / Copy path operate on
 //! the primary install this cut. Composer `$` insert / slash skill
-//! rows stay flat (ungrouped).
+//! rows stay flat (ungrouped) and ignore the Settings source
+//! filter.
 //! app.zon already includes windows.
 //!
 //! Spawn/line/exit orchestration lives here. Tests do not need a live
@@ -196,6 +204,7 @@ const copy = @import("copy.zig");
 const Model = model_exports.Model;
 const Effects = main.Effects;
 const writeFixed = model_exports.writeFixed;
+const ChipPickerRow = model_exports.ChipPickerRow;
 
 /// One-shot Skills `find` for `SKILL.md` / `SKILL.md.disabled`.
 /// Distinct from review hunk (520+). Band is 530+. Incremented per
@@ -1026,6 +1035,8 @@ pub fn close(model: *Model, fx: *Effects) void {
     model.skill_trash_cwd_len = 0;
     model.skill_toggle_enable = false;
     model.skills_filter_buffer.clear();
+    model.skills_source_filter = null;
+    model.closeSkillsSourcePicker();
 }
 
 /// Leaving Settings → Skills: drop Delete arming and cancel in-flight
@@ -1035,6 +1046,7 @@ pub fn leavePage(model: *Model, fx: *Effects) void {
     clearDeleteArming(model);
     cancelTrashSkills(model, fx);
     cancelRemove(model, fx);
+    model.closeSkillsSourcePicker();
 }
 
 /// One-shot find when the probe path is empty or changed. No-op when
@@ -2172,6 +2184,12 @@ pub const allowed_tools = skills_allowed_tools_chrome_en.allowed_tools;
 const skills_source_chrome_en = i18n.skillsSourceChromeFor(.english, "");
 pub const source_shared = skills_source_chrome_en.source_shared;
 
+/// English default from `i18n.SkillsFilterAllChrome`. Distinct from
+/// SkillsSourceChrome Shared / provider shorts and FilterChrome
+/// Filter skills. Matches Waku `skills.filter_all`.
+const skills_filter_all_chrome_en = i18n.skillsFilterAllChromeFor(.english, "");
+pub const filter_all = skills_filter_all_chrome_en.filter_all;
+
 /// English defaults from `i18n.SkillsDuplicateChrome`. Distinct from
 /// SkillsDetailChrome / SkillsSourceChrome. Matches Waku
 /// `skills.duplicate_one` / `duplicate_many`.
@@ -2211,20 +2229,22 @@ fn skillsCountChrome(model: *const Model) i18n.SkillsCountChrome {
 /// Settings Skills empty hint. Localized via `i18n.SkillsEmptyChrome`.
 /// Priority: no project → `open_project`; scan in flight → `scanning`
 /// (even when `skill_count == 0`); else no skills → `no_skills_found`;
-/// else a trimmed filter with no `skill_row` match → `no_matching`;
-/// else `""` (list shows rows). Composer `$` insert uses
-/// `insertEmptyHint` so scanning / no-match stay off that surface.
-/// Settings markup prefers `SkillsEmptyRichChrome` title + description
-/// over painting `no_skills_found` when `isNoSkillsEmpty`; `emptyHint`
-/// still returns `no_skills_found` so `skills_empty` / `hasCountCaption`
-/// / `skills_needs_select` keep owning that space.
+/// else a trimmed filter or source filter with no visible grouped
+/// skill → `no_matching`; else `""` (list shows rows). Composer `$`
+/// insert uses `insertEmptyHint` so scanning / no-match stay off
+/// that surface. Settings markup prefers `SkillsEmptyRichChrome`
+/// title + description over painting `no_skills_found` when
+/// `isNoSkillsEmpty`; `emptyHint` still returns `no_skills_found`
+/// so `skills_empty` / `hasCountCaption` / `skills_needs_select`
+/// keep owning that space.
 pub fn emptyHint(model: *const Model) []const u8 {
     const chrome = skillsEmptyChrome(model);
     if (probePath(model).len == 0) return chrome.open_project;
     if (scanInFlight(model)) return chrome.scanning;
     if (model.skill_count == 0) return chrome.no_skills_found;
     const query = std.mem.trim(u8, model.skills_filter_buffer.text(), " \t\r\n");
-    if (query.len != 0 and !anySkillRowMatches(model, query)) return chrome.no_matching;
+    if ((query.len != 0 or model.skills_source_filter != null) and !anyVisibleGroupedSkill(model, query))
+        return chrome.no_matching;
     return "";
 }
 
@@ -2253,8 +2273,8 @@ pub fn insertEmptyHint(model: *const Model) []const u8 {
 
 /// Settings Skills count / filter caption. Empty when `emptyHint`
 /// owns the space (no project / scanning / no skills / no match) or
-/// when `skill_count == 0`. Else a trimmed filter with
-/// `shown != total` uses `filter_caption`; otherwise `count_one` /
+/// when `skill_count == 0`. Else a trimmed text query or a source
+/// filter uses `filter_caption`; otherwise `count_one` /
 /// `count_many`, appending ` · ` + `count_disabled` when any cached
 /// skill is disabled (total cache, not among shown — same as Waku
 /// library header). Numbers stay Latin.
@@ -2265,7 +2285,8 @@ pub fn countCaption(model: *const Model, arena: std.mem.Allocator) []const u8 {
     const query = std.mem.trim(u8, model.skills_filter_buffer.text(), " \t\r\n");
     const total: usize = model.skill_count;
     const shown = shownSkillCount(model, query);
-    const text = if (query.len != 0 and shown != total)
+    const filtering = query.len != 0 or model.skills_source_filter != null;
+    const text = if (filtering)
         i18n.formatSkillsFilterCaption(chrome, shown, total, &buf)
     else
         i18n.formatSkillsCountCaption(chrome, total, disabledSkillCount(model), &buf);
@@ -2283,7 +2304,7 @@ fn shownSkillCount(model: *const Model, query: []const u8) usize {
     var i: usize = 0;
     while (i < model.skill_count) : (i += 1) {
         if (!isPrimaryGroupedIndex(model, i)) continue;
-        if (groupedSkillMatches(model, i, query)) shown += 1;
+        if (groupedSkillVisible(model, i, query)) shown += 1;
     }
     return shown;
 }
@@ -2308,10 +2329,11 @@ fn copyCaption(arena: std.mem.Allocator, text: []const u8) []const u8 {
     return out;
 }
 
-fn anySkillRowMatches(model: *const Model, query: []const u8) bool {
+fn anyVisibleGroupedSkill(model: *const Model, query: []const u8) bool {
     var i: usize = 0;
     while (i < model.skill_count) : (i += 1) {
-        if (skillRowMatches(&model.skill_store[i], query)) return true;
+        if (!isPrimaryGroupedIndex(model, i)) continue;
+        if (groupedSkillVisible(model, i, query)) return true;
     }
     return false;
 }
@@ -2365,6 +2387,27 @@ pub fn groupedSkillMatches(model: *const Model, index: usize, query: []const u8)
     while (i < model.skill_count) : (i += 1) {
         if (!sameSkillGroup(&model.skill_store[i], skill)) continue;
         if (skillRowMatches(&model.skill_store[i], query)) return true;
+    }
+    return false;
+}
+
+/// Settings list visibility: text query **and** source filter. A
+/// grouped skill stays visible when any same-scope install matches
+/// the query and (when a source is picked) any install lives under
+/// that source tree. Waku `visible_skill_indices`.
+pub fn groupedSkillVisible(model: *const Model, index: usize, query: []const u8) bool {
+    if (!groupedSkillMatches(model, index, query)) return false;
+    const kind = model.skills_source_filter orelse return true;
+    return groupedSkillHasSource(model, index, kind);
+}
+
+/// True when any install in the same-scope group lives under `kind`.
+pub fn groupedSkillHasSource(model: *const Model, primary_index: usize, kind: SkillSourceKind) bool {
+    var idxs: [max_skill_installs]usize = undefined;
+    const n = collectGroupIndices(model, primary_index, &idxs);
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        if (skillSourceKind(model.skill_store[idxs[i]].path()) == kind) return true;
     }
     return false;
 }
@@ -2453,6 +2496,106 @@ pub fn skillSourceLabel(kind: SkillSourceKind, chrome: i18n.SkillsSourceChrome, 
         .omp => chrome.source_omp,
         .unknown => fallback_location,
     };
+}
+
+/// Wire ids for `pick_skills_source:{id}`. `all` clears the filter.
+pub const source_filter_all_id = "all";
+
+/// Menu order matches Waku's Shared / Claude / Codex / Cursor / fx /
+/// OpenCode / Pi / OMP chip list. `unknown` is skipped.
+pub const source_filter_kinds = [_]SkillSourceKind{
+    .shared,
+    .claude,
+    .codex,
+    .cursor,
+    .fx,
+    .opencode,
+    .pi,
+    .omp,
+};
+
+pub fn skillSourceKindId(kind: SkillSourceKind) []const u8 {
+    return switch (kind) {
+        .shared => "shared",
+        .claude => "claude",
+        .codex => "codex",
+        .cursor => "cursor",
+        .fx => "fx",
+        .opencode => "opencode",
+        .pi => "pi",
+        .omp => "omp",
+        .unknown => "",
+    };
+}
+
+pub fn pickSourceFilter(model: *Model, id: []const u8) void {
+    if (std.mem.eql(u8, id, source_filter_all_id)) {
+        model.skills_source_filter = null;
+    } else {
+        for (source_filter_kinds) |kind| {
+            if (std.mem.eql(u8, id, skillSourceKindId(kind))) {
+                model.skills_source_filter = kind;
+                break;
+            }
+        }
+    }
+    model.closeSkillsSourcePicker();
+}
+
+fn skillsFilterAllChrome(model: *const Model) i18n.SkillsFilterAllChrome {
+    return i18n.skillsFilterAllChromeFor(model.language_preference, model.systemLocaleId());
+}
+
+fn skillsSourceChrome(model: *const Model) i18n.SkillsSourceChrome {
+    return i18n.skillsSourceChromeFor(model.language_preference, model.systemLocaleId());
+}
+
+/// Chip label: All skills when the filter is none, else that source's
+/// SkillsSourceChrome label. Counts stay on picker rows only.
+pub fn sourceFilterLabel(model: *const Model) []const u8 {
+    const kind = model.skills_source_filter orelse return skillsFilterAllChrome(model).filter_all;
+    return skillSourceLabel(kind, skillsSourceChrome(model), "");
+}
+
+fn groupedSkillCountForSource(model: *const Model, kind: SkillSourceKind) usize {
+    var n: usize = 0;
+    var i: usize = 0;
+    while (i < model.skill_count) : (i += 1) {
+        if (!isPrimaryGroupedIndex(model, i)) continue;
+        if (groupedSkillHasSource(model, i, kind)) n += 1;
+    }
+    return n;
+}
+
+fn formatSourceFilterMenuLabel(arena: std.mem.Allocator, label: []const u8, count: usize) []const u8 {
+    if (count == 0) return label;
+    return std.fmt.allocPrint(arena, "{s} · {d}", .{ label, count }) catch label;
+}
+
+/// All skills (selected when none) then each `source_filter_kinds`
+/// row. Optional `Label · {count}` when that source has at least one
+/// grouped skill. Counts are Latin.
+pub fn sourcePickerRows(model: *const Model, arena: std.mem.Allocator) []const ChipPickerRow {
+    const out = arena.alloc(ChipPickerRow, 1 + source_filter_kinds.len) catch return &.{};
+    const all_selected = model.skills_source_filter == null;
+    out[0] = .{
+        .row_id = 1,
+        .id = source_filter_all_id,
+        .label = skillsFilterAllChrome(model).filter_all,
+        .selected = all_selected,
+    };
+    const source_chrome = skillsSourceChrome(model);
+    for (source_filter_kinds, 0..) |kind, index| {
+        const count = groupedSkillCountForSource(model, kind);
+        const label = skillSourceLabel(kind, source_chrome, "");
+        out[index + 1] = .{
+            .row_id = @intCast(index + 2),
+            .id = skillSourceKindId(kind),
+            .label = formatSourceFilterMenuLabel(arena, label, count),
+            .selected = if (model.skills_source_filter) |current| current == kind else false,
+        };
+    }
+    return out;
 }
 
 /// Replace a home-directory prefix with `~`. Fail closed (return
@@ -4110,7 +4253,7 @@ test "countCaption empty-filter counts, filter caption, emptyHint owns, disabled
 
     model.skills_filter_buffer.clear();
     model.skills_filter_buffer.apply(.{ .insert_text = "SKILL" });
-    try testing.expectEqualStrings("3 skills · 1 disabled", countCaption(&model, arena));
+    try testing.expectEqualStrings("3 of 3 shown", countCaption(&model, arena));
     model.skills_filter_buffer.clear();
     model.skills_filter_buffer.apply(.{ .insert_text = "   " });
     try testing.expectEqualStrings("3 skills · 1 disabled", countCaption(&model, arena));
@@ -5262,6 +5405,135 @@ test "skill_rows folds same-name user installs; multi-location source labels; in
         try testing.expectEqualStrings("/home/me/.cursor/skills/demo/SKILL.md", rows[1].path);
         try testing.expectEqualStrings("other", rows[2].name);
     }
+}
+
+test "source filter All skills; claude hides groups with no Claude install; any-install-in-group passes; insert stays unfiltered" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-source-filter", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, root);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setLastProjectPath(root);
+    model.settings_page = .skills;
+    applyStdoutPaths(&model, "/home/me/.agents/skills/demo/SKILL.md\n/home/me/.claude/skills/demo/SKILL.md\n/home/me/.fx/skills/other/SKILL.md\n/home/me/.codex/skills/solo/SKILL.md\n");
+    try testing.expectEqual(@as(u32, 4), cachedCount(&model));
+    try testing.expectEqualStrings(filter_all, sourceFilterLabel(&model));
+    try testing.expect(groupedSkillHasSource(&model, 0, .shared));
+    try testing.expect(groupedSkillHasSource(&model, 0, .claude));
+    try testing.expect(!groupedSkillHasSource(&model, 0, .fx));
+    try testing.expect(groupedSkillHasSource(&model, 2, .fx));
+    try testing.expect(!groupedSkillHasSource(&model, 2, .claude));
+    {
+        const rows = model.skill_rows(arena);
+        try testing.expectEqual(@as(usize, 4), rows.len);
+        try testing.expect(rows[0].is_header);
+        try testing.expectEqualStrings("3", rows[0].count);
+        try testing.expectEqualStrings("demo", rows[1].name);
+        try testing.expectEqualStrings("other", rows[2].name);
+        try testing.expectEqualStrings("solo", rows[3].name);
+    }
+    try testing.expectEqualStrings("4 skills", countCaption(&model, arena));
+
+    const picker = sourcePickerRows(&model, arena);
+    try testing.expectEqual(@as(usize, 1 + source_filter_kinds.len), picker.len);
+    try testing.expectEqualStrings(source_filter_all_id, picker[0].id);
+    try testing.expectEqualStrings(filter_all, picker[0].label);
+    try testing.expect(picker[0].selected);
+    try testing.expectEqualStrings("shared", picker[1].id);
+    try testing.expectEqualStrings("Shared · 1", picker[1].label);
+    try testing.expect(!picker[1].selected);
+    try testing.expectEqualStrings("claude", picker[2].id);
+    try testing.expectEqualStrings("Claude · 1", picker[2].label);
+    try testing.expectEqualStrings("codex", picker[3].id);
+    try testing.expectEqualStrings("Codex · 1", picker[3].label);
+    try testing.expectEqualStrings("cursor", picker[4].id);
+    try testing.expectEqualStrings("Cursor", picker[4].label);
+    try testing.expectEqualStrings("fx", picker[5].id);
+    try testing.expectEqualStrings("fx · 1", picker[5].label);
+    try testing.expectEqualStrings("opencode", picker[6].id);
+    try testing.expectEqualStrings("OpenCode", picker[6].label);
+
+    model.skills_source_picker_open = true;
+    pickSourceFilter(&model, "claude");
+    try testing.expect(!model.skills_source_picker_open);
+    try testing.expectEqual(SkillSourceKind.claude, model.skills_source_filter.?);
+    try testing.expectEqualStrings("Claude", sourceFilterLabel(&model));
+    {
+        const rows = model.skill_rows(arena);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expect(rows[0].is_header);
+        try testing.expectEqualStrings("1", rows[0].count);
+        try testing.expectEqualStrings("demo", rows[1].name);
+        try testing.expectEqual(skillId(0), rows[1].id);
+    }
+    try testing.expectEqualStrings("", emptyHint(&model));
+    try testing.expectEqualStrings("1 of 4 shown", countCaption(&model, arena));
+    try testing.expect(hasCountCaption(&model));
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("显示 1 / 4 个", countCaption(&model, arena));
+    try testing.expectEqualStrings("Claude", sourceFilterLabel(&model));
+    model.skills_source_filter = null;
+    try testing.expectEqualStrings("全部技能", sourceFilterLabel(&model));
+    model.skills_source_filter = .claude;
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("4 件中 1 件を表示", countCaption(&model, arena));
+    try testing.expectEqualStrings("Claude", sourceFilterLabel(&model));
+    model.skills_source_filter = null;
+    try testing.expectEqualStrings("すべてのスキル", sourceFilterLabel(&model));
+    model.language_preference = .english;
+    model.skills_source_filter = .claude;
+
+    model.draft_buffer.set("$");
+    {
+        const rows = model.skill_insert_rows(arena);
+        try testing.expectEqual(@as(usize, 4), rows.len);
+        try testing.expectEqualStrings("demo", rows[0].name);
+        try testing.expectEqualStrings("/home/me/.agents/skills/demo/SKILL.md", rows[0].path);
+        try testing.expectEqualStrings("demo", rows[1].name);
+        try testing.expectEqualStrings("/home/me/.claude/skills/demo/SKILL.md", rows[1].path);
+        try testing.expectEqualStrings("other", rows[2].name);
+        try testing.expectEqualStrings("solo", rows[3].name);
+    }
+
+    pickSourceFilter(&model, "pi");
+    try testing.expectEqual(SkillSourceKind.pi, model.skills_source_filter.?);
+    try testing.expectEqualStrings("No skills match your search", emptyHint(&model));
+    try testing.expect(!hasCountCaption(&model));
+    try testing.expectEqualStrings("", countCaption(&model, arena));
+    try testing.expectEqual(@as(usize, 0), model.skill_rows(arena).len);
+
+    model.skills_source_picker_open = true;
+    pickSourceFilter(&model, "all");
+    try testing.expect(!model.skills_source_picker_open);
+    try testing.expectEqual(@as(?SkillSourceKind, null), model.skills_source_filter);
+    try testing.expectEqualStrings(filter_all, sourceFilterLabel(&model));
+    try testing.expectEqual(@as(usize, 4), model.skill_rows(arena).len);
+
+    model.skills_source_filter = .codex;
+    model.skills_source_picker_open = true;
+    leavePage(&model, &fx);
+    try testing.expect(!model.skills_source_picker_open);
+    try testing.expectEqual(SkillSourceKind.codex, model.skills_source_filter.?);
+    try testing.expectEqual(@as(u32, 4), cachedCount(&model));
+
+    model.skills_source_picker_open = true;
+    close(&model, &fx);
+    try testing.expect(!model.skills_source_picker_open);
+    try testing.expectEqual(@as(?SkillSourceKind, null), model.skills_source_filter);
+    try testing.expectEqual(@as(u32, 0), cachedCount(&model));
 }
 
 test "skill_rows same name project and user stay two rows; duplicate badge EN/zh/ja; single Location" {

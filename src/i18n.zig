@@ -409,9 +409,10 @@
 //! `SkillsCountChrome` strings; distinct from FilterChrome /
 //! SkillsEmptyChrome / SkillsSelectChrome so the caption stays
 //! independently evolvable; `1 skill` / `%{count} skills` /
-//! optional ` · ` + `%{count} disabled` when the filter is empty
-//! or every cached skill is shown; `%{shown} of %{total} shown`
-//! when a trimmed filter narrows the list; numbers stay Latin;
+//! optional ` · ` + `%{count} disabled` when the text query is
+//! empty and no source filter is set; `%{shown} of %{total} shown`
+//! when a trimmed text query is non-empty or a source filter is
+//! set (Waku `skills.filter_all` chip); numbers stay Latin;
 //! middle-dot ` · ` stays; wire ids stay English)
 //! plus Settings Skills library section headers (same
 //! `SkillsSectionChrome` strings; `section_user` only; English
@@ -482,6 +483,14 @@
 //! SkillsDuplicateChrome so the caption stays independently
 //! evolvable; composer `$` insert / slash skill rows stay flat;
 //! wire ids stay English)
+//! plus Settings Skills source-filter All skills chip
+//! (same `SkillsFilterAllChrome` strings; English matches Waku
+//! `skills.filter_all`; EN All skills / zh-CN 全部技能 / ja
+//! すべてのスキル; distinct from SkillsSourceChrome /
+//! SkillsCountChrome / FilterChrome so All skills stays
+//! independently evolvable; source labels stay on
+//! SkillsSourceChrome; composer `$` insert / slash skill rows
+//! stay flat and unfiltered by source; wire ids stay English)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -4442,7 +4451,9 @@ const skills_select_chrome_ja: SkillsSelectChrome = .{
 /// space), and SkillsSelectChrome (unselected detail) so the
 /// caption stays independently evolvable. Templates keep Waku
 /// `%{count}` / `%{shown}` / `%{total}` slots. Numbers stay Latin.
-/// Middle-dot ` · ` stays. Wire ids stay English.
+/// Middle-dot ` · ` stays. Filter caption also applies when a
+/// Settings Skills source filter is set (Waku `skills.filter_all`).
+/// Wire ids stay English.
 pub const SkillsCountChrome = struct {
     count_one: []const u8,
     count_many: []const u8,
@@ -4763,6 +4774,31 @@ const skills_scope_chrome_ja: SkillsScopeChrome = .{
 /// Capped scratch for `formatSkillsScopeCaption`. Source labels +
 /// ` · ` + scope stay short; `%{project}` is a probe basename.
 pub const skills_scope_caption_max: usize = 256;
+
+/// Settings Skills source-filter All skills chip for the resolved
+/// locale. Same resolve path as SkillsSourceChrome /
+/// SkillsCountChrome. English matches Waku `skills.filter_all`.
+/// Distinct from SkillsSourceChrome (Shared / provider shorts),
+/// SkillsCountChrome (N of M shown), and FilterChrome (Filter
+/// skills placeholder) so All skills stays independently
+/// evolvable. Source labels stay on `SkillsSourceChrome`. Composer
+/// `$` insert / slash skill rows stay flat and unfiltered by
+/// source. Wire ids stay English.
+pub const SkillsFilterAllChrome = struct {
+    filter_all: []const u8,
+};
+
+const skills_filter_all_chrome_en: SkillsFilterAllChrome = .{
+    .filter_all = "All skills",
+};
+
+const skills_filter_all_chrome_zh_cn: SkillsFilterAllChrome = .{
+    .filter_all = "全部技能",
+};
+
+const skills_filter_all_chrome_ja: SkillsFilterAllChrome = .{
+    .filter_all = "すべてのスキル",
+};
 
 /// Capped scratch for `formatSkillsContentsSummary`. Count phrase +
 /// ` · ` + Latin B/KB/MB stay short in every locale.
@@ -6311,6 +6347,20 @@ pub fn skillsScopeChromeFor(preference: LanguagePreference, system_locale_id: []
         .simplified_chinese => skills_scope_chrome_zh_cn,
         .japanese => skills_scope_chrome_ja,
         .system, .english => skills_scope_chrome_en,
+    };
+}
+
+/// Settings Skills source-filter All skills chip for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env.
+/// Distinct from SkillsSourceChrome / SkillsCountChrome /
+/// FilterChrome so All skills stays independently evolvable.
+/// English matches Waku `skills.filter_all`. Wire ids stay English.
+pub fn skillsFilterAllChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsFilterAllChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_filter_all_chrome_zh_cn,
+        .japanese => skills_filter_all_chrome_ja,
+        .system, .english => skills_filter_all_chrome_en,
     };
 }
 
@@ -10401,6 +10451,27 @@ test "skillsScopeChromeFor english default; zh and ja chrome; project vs user ca
         "in project",
         formatSkillsScopeCaption(skillsScopeChromeFor(.english, ""), "", true, "project", &buf),
     );
+}
+
+test "skillsFilterAllChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("All skills", skillsFilterAllChromeFor(.english, "ja").filter_all);
+    try testing.expectEqualStrings("All skills", skillsFilterAllChromeFor(.english, "").filter_all);
+    try testing.expectEqualStrings("All skills", skillsFilterAllChromeFor(.system, "").filter_all);
+
+    try testing.expectEqualStrings("全部技能", skillsFilterAllChromeFor(.simplified_chinese, "").filter_all);
+    try testing.expectEqualStrings("すべてのスキル", skillsFilterAllChromeFor(.japanese, "").filter_all);
+
+    try testing.expectEqualStrings("全部技能", skillsFilterAllChromeFor(.system, "zh_CN.UTF-8").filter_all);
+    try testing.expectEqualStrings("すべてのスキル", skillsFilterAllChromeFor(.system, "ja_JP.UTF-8").filter_all);
+    try testing.expectEqualStrings("All skills", skillsFilterAllChromeFor(.english, "ja_JP.UTF-8").filter_all);
+    try testing.expectEqualStrings("All skills", skillsFilterAllChromeFor(.english, "zh_CN.UTF-8").filter_all);
+
+    try testing.expect(!std.mem.eql(u8, skillsFilterAllChromeFor(.english, "").filter_all, skillsSourceChromeFor(.english, "").source_shared));
+    try testing.expect(!std.mem.eql(u8, skillsFilterAllChromeFor(.english, "").filter_all, skillsCountChromeFor(.english, "").count_many));
+    try testing.expect(!std.mem.eql(u8, skillsFilterAllChromeFor(.english, "").filter_all, filterChromeFor(.english, "").filter_skills));
+    try testing.expect(!std.mem.eql(u8, skillsFilterAllChromeFor(.simplified_chinese, "").filter_all, skillsSourceChromeFor(.simplified_chinese, "").source_shared));
+    try testing.expect(!std.mem.eql(u8, skillsFilterAllChromeFor(.japanese, "").filter_all, skillsSourceChromeFor(.japanese, "").source_shared));
 }
 
 test "skillsPathCopiedChromeFor english default; zh and ja chrome; english ignores ja LANG" {
