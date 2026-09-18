@@ -494,6 +494,16 @@
 //! independently evolvable; source labels stay on
 //! SkillsSourceChrome; composer `$` insert / slash skill rows
 //! stay flat and unfiltered by source; wire ids stay English)
+//! plus Settings Skills library / details pane titles (same
+//! `SkillsPaneChrome` strings; English matches Waku
+//! `skills.library` / `skills.details`; EN Skills library /
+//! Skill details / zh-CN 技能库 / 技能详情 / ja スキルライブラリ /
+//! スキルの詳細; muted/bold Native text above the stacked
+//! library block and above the detail block; distinct from
+//! SkillsSectionChrome User / SkillsSelectChrome Select a skill /
+//! SkillsDetailChrome / SkillsEmptyChrome / SkillsCountChrome /
+//! Chrome.skills / StructuralRegionChrome; not a side-by-side
+//! two-pane layout; wire ids stay English)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -4825,6 +4835,37 @@ const skills_open_file_chrome_ja: SkillsOpenFileChrome = .{
     .open_file = "SKILL.md を開く",
 };
 
+/// Settings Skills library / details pane titles for the resolved
+/// locale. Same resolve path as SkillsFilterAllChrome /
+/// SkillsSectionChrome / SkillsSelectChrome. English matches Waku
+/// `skills.library` / `skills.details`. Distinct from
+/// SkillsSectionChrome (User header), SkillsSelectChrome (Select a
+/// skill), SkillsDetailChrome (No description / Invoke / …),
+/// SkillsEmptyChrome, SkillsCountChrome, Chrome.skills (nav), and
+/// StructuralRegionChrome so the pane titles stay independently
+/// evolvable. Painted as muted/bold Native text above the stacked
+/// library block and above the detail block; not a side-by-side
+/// two-pane layout. Wire ids stay English.
+pub const SkillsPaneChrome = struct {
+    library: []const u8,
+    details: []const u8,
+};
+
+const skills_pane_chrome_en: SkillsPaneChrome = .{
+    .library = "Skills library",
+    .details = "Skill details",
+};
+
+const skills_pane_chrome_zh_cn: SkillsPaneChrome = .{
+    .library = "技能库",
+    .details = "技能详情",
+};
+
+const skills_pane_chrome_ja: SkillsPaneChrome = .{
+    .library = "スキルライブラリ",
+    .details = "スキルの詳細",
+};
+
 /// Capped scratch for `formatSkillsContentsSummary`. Count phrase +
 /// ` · ` + Latin B/KB/MB stay short in every locale.
 pub const skills_contents_summary_max: usize = 96;
@@ -6401,6 +6442,22 @@ pub fn skillsOpenFileChromeFor(preference: LanguagePreference, system_locale_id:
         .simplified_chinese => skills_open_file_chrome_zh_cn,
         .japanese => skills_open_file_chrome_ja,
         .system, .english => skills_open_file_chrome_en,
+    };
+}
+
+/// Settings Skills library / details pane titles for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env.
+/// Distinct from SkillsSectionChrome / SkillsSelectChrome /
+/// SkillsDetailChrome / SkillsEmptyChrome / SkillsCountChrome /
+/// Chrome.skills / StructuralRegionChrome so the pane titles stay
+/// independently evolvable. English matches Waku `skills.library`
+/// / `skills.details`. Wire ids stay English.
+pub fn skillsPaneChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsPaneChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_pane_chrome_zh_cn,
+        .japanese => skills_pane_chrome_ja,
+        .system, .english => skills_pane_chrome_en,
     };
 }
 
@@ -10534,6 +10591,62 @@ test "skillsOpenFileChromeFor english default; zh and ja chrome; english ignores
     try testing.expect(!std.mem.eql(u8, skillsOpenFileChromeFor(.english, "").open_file, composerProjectChromeFor(.english, "").open_in_editor));
     try testing.expect(!std.mem.eql(u8, skillsOpenFileChromeFor(.simplified_chinese, "").open_file, composerProjectChromeFor(.simplified_chinese, "").open_in_editor));
     try testing.expect(!std.mem.eql(u8, skillsOpenFileChromeFor(.japanese, "").open_file, composerProjectChromeFor(.japanese, "").open_in_editor));
+}
+
+test "skillsPaneChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Skills library", skillsPaneChromeFor(.english, "ja").library);
+    try testing.expectEqualStrings("Skill details", skillsPaneChromeFor(.english, "ja").details);
+    try testing.expectEqualStrings("Skills library", skillsPaneChromeFor(.english, "").library);
+    try testing.expectEqualStrings("Skill details", skillsPaneChromeFor(.english, "").details);
+    try testing.expectEqualStrings("Skills library", skillsPaneChromeFor(.system, "").library);
+    try testing.expectEqualStrings("Skill details", skillsPaneChromeFor(.system, "").details);
+
+    try testing.expectEqualStrings("技能库", skillsPaneChromeFor(.simplified_chinese, "").library);
+    try testing.expectEqualStrings("技能详情", skillsPaneChromeFor(.simplified_chinese, "").details);
+    try testing.expectEqualStrings("スキルライブラリ", skillsPaneChromeFor(.japanese, "").library);
+    try testing.expectEqualStrings("スキルの詳細", skillsPaneChromeFor(.japanese, "").details);
+
+    try testing.expectEqualStrings("技能库", skillsPaneChromeFor(.system, "zh_CN.UTF-8").library);
+    try testing.expectEqualStrings("技能详情", skillsPaneChromeFor(.system, "zh_CN.UTF-8").details);
+    try testing.expectEqualStrings("スキルライブラリ", skillsPaneChromeFor(.system, "ja_JP.UTF-8").library);
+    try testing.expectEqualStrings("スキルの詳細", skillsPaneChromeFor(.system, "ja_JP.UTF-8").details);
+    try testing.expectEqualStrings("Skills library", skillsPaneChromeFor(.english, "ja_JP.UTF-8").library);
+    try testing.expectEqualStrings("Skill details", skillsPaneChromeFor(.english, "zh_CN.UTF-8").details);
+
+    try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.english, "").library, skillsPaneChromeFor(.english, "").details));
+    try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.english, "").library, skillsSelectChromeFor(.english, "").select_placeholder));
+    try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.english, "").details, skillsSelectChromeFor(.english, "").select_placeholder));
+    try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.english, "").library, skillsSectionChromeFor(.english, "").section_user));
+    try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.english, "").details, skillsSectionChromeFor(.english, "").section_user));
+    try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.english, "").library, chromeFor(.english, "").skills));
+    try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.english, "").details, chromeFor(.english, "").skills));
+    try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.english, "").library, skillsDetailChromeFor(.english, "").detail_invoke));
+    try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.english, "").details, skillsDetailChromeFor(.english, "").detail_invoke));
+    try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.english, "").library, skillsEmptyChromeFor(.english, "").no_skills_found));
+    try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.english, "").details, skillsCountChromeFor(.english, "").count_one));
+    try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.simplified_chinese, "").library, skillsSelectChromeFor(.simplified_chinese, "").select_placeholder));
+    try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.simplified_chinese, "").details, skillsSectionChromeFor(.simplified_chinese, "").section_user));
+    try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.simplified_chinese, "").library, chromeFor(.simplified_chinese, "").skills));
+    try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.japanese, "").library, skillsSelectChromeFor(.japanese, "").select_placeholder));
+    try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.japanese, "").details, skillsSectionChromeFor(.japanese, "").section_user));
+    try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.japanese, "").library, chromeFor(.japanese, "").skills));
+
+    const region_en = structuralRegionChromeFor(.english, "");
+    inline for (std.meta.fields(@TypeOf(region_en))) |field| {
+        try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.english, "").library, @field(region_en, field.name)));
+        try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.english, "").details, @field(region_en, field.name)));
+    }
+    const region_zh = structuralRegionChromeFor(.simplified_chinese, "");
+    inline for (std.meta.fields(@TypeOf(region_zh))) |field| {
+        try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.simplified_chinese, "").library, @field(region_zh, field.name)));
+        try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.simplified_chinese, "").details, @field(region_zh, field.name)));
+    }
+    const region_ja = structuralRegionChromeFor(.japanese, "");
+    inline for (std.meta.fields(@TypeOf(region_ja))) |field| {
+        try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.japanese, "").library, @field(region_ja, field.name)));
+        try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.japanese, "").details, @field(region_ja, field.name)));
+    }
 }
 
 test "skillsPathCopiedChromeFor english default; zh and ja chrome; english ignores ja LANG" {

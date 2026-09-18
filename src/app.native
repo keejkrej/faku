@@ -341,6 +341,7 @@
           <if test="{settings_page_skills}">
             <row grow="1" main="center">
               <column grow="1" max-width="720" gap="10" padding="14">
+                <text foreground="text_muted"><span weight="bold">{skills_library_title}</span></text>
                 <stack>
                   <select on-press="toggle_skills_source_picker">{skills_source_filter_label}</select>
                   <if test="{skills_source_picker_open}">
@@ -390,6 +391,7 @@
                     </list-item>
                   </else>
                 </for>
+                <text foreground="text_muted"><span weight="bold">{skills_details_title}</span></text>
                 <if test="{skills_needs_select}">
                   <text foreground="text_muted">{skills_select_placeholder}</text>
                 </if>

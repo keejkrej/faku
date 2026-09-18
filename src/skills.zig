@@ -151,7 +151,15 @@
 //! `SkillSourceKind` skipping `unknown`; a grouped skill stays
 //! visible when any same-scope install lives under that source
 //! tree). Composer `$` insert / slash skill rows stay flat and
-//! unfiltered by source. Settings Skills library section headers follow
+//! unfiltered by source. Settings Skills library / details pane
+//! titles follow `i18n.SkillsPaneChrome` (`library` / `details`;
+//! English matches Waku `skills.library` / `skills.details`;
+//! muted/bold Native text above the stacked library block and
+//! above the detail block; distinct from SkillsSectionChrome User /
+//! SkillsSelectChrome Select a skill / SkillsDetailChrome /
+//! SkillsEmptyChrome / SkillsCountChrome / Chrome.skills /
+//! StructuralRegionChrome; not a side-by-side two-pane layout).
+//! Settings Skills library section headers follow
 //! `i18n.SkillsSectionChrome` (`section_user` only; English matches
 //! Waku GPUI `skills.section_user`; project section paints the
 //! project name; distinct from SkillsEmptyChrome / SkillsCountChrome
