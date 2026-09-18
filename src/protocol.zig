@@ -42,8 +42,13 @@
 //! `runtimeId` are nil (same as `loadUsageHistory`). A non-nil
 //! `requestId` is required. Ok payload is
 //! `{ type: "skillsCatalog", catalog: { skills: SkillEntry[] } }`.
-//! First-cut parse keeps `name`, optional `description`, `enabled`, and a display/path key
-//! from the primary install (`skillFile` preferred, else `dir`).
+//! Parse keeps `name`, optional `description`, `enabled`, every
+//! `installs[]` dir / skillFile / enabled (cap
+//! `max_parsed_skill_installs`; overflow fail-closed), and a
+//! display/path key from the primary install (`installs[0]`
+//! `skillFile` preferred, else `dir`). Optional wire `duplicates`
+//! array length is parsed when present; Settings still computes
+//! cross-scope duplicates from the local fold when missing.
 //! Unknown JSON is ignored. Cap extra rows. Hello stays protocol
 //! v4; unknown-command / parse miss fall back quietly to the local
 //! Skills walk.
@@ -780,6 +785,9 @@ pub const max_usage_project_roots: usize = 32;
 /// First-cut SkillsCatalog rows. Extra JSON rows are ignored.
 /// Matches Settings `skill_store` cap.
 pub const max_parsed_skills: usize = 64;
+/// Cap extra `installs[]` per catalog skill (Waku user-root count
+/// plus one project install). Overflow fail-closed.
+pub const max_parsed_skill_installs: usize = 10;
 /// First-cut composer plan-usage lanes. Waku windows are a small
 /// account-rate-limit set; extra JSON rows are ignored.
 pub const max_parsed_plan_windows: usize = 8;
@@ -897,14 +905,30 @@ pub const LoadSkillsProject = struct {
     path: []const u8,
 };
 
+/// Light parse of one catalog install. `skillFile` preferred as the
+/// store path when non-empty, else `dir`. Unknown JSON ignored.
+pub const ParsedSkillInstall = struct {
+    dir: []const u8 = "",
+    skill_file: []const u8 = "",
+    enabled: bool = true,
+};
+
 /// Light parse of one `SkillEntry`. Path is primary-install
-/// `skillFile` when non-empty, else `dir`. Unknown JSON ignored.
-/// `description` is optional; missing / empty stays empty.
+/// `skillFile` when non-empty, else `dir`. Extra installs stay on
+/// `installs` (cap `max_parsed_skill_installs`). Unknown JSON
+/// ignored. `description` is optional; missing / empty stays empty.
+/// `duplicates_len` is the wire `duplicates` array length when that
+/// field is present; Settings still computes cross-scope duplicates
+/// from the local fold when it is missing.
 pub const ParsedSkillEntry = struct {
     name: []const u8 = "",
     description: []const u8 = "",
     path: []const u8 = "",
     enabled: bool = true,
+    installs: [max_parsed_skill_installs]ParsedSkillInstall = [_]ParsedSkillInstall{.{}} ** max_parsed_skill_installs,
+    install_count: usize = 0,
+    duplicates_len: usize = 0,
+    duplicates_present: bool = false,
 };
 
 /// Light parse of ok `skillsCatalog`. Unknown JSON ignored. Empty
@@ -2845,27 +2869,58 @@ fn parseSkillEntries(value: ?std.json.Value, dest: *[max_parsed_skills]ParsedSki
 
 fn parseSkillEntry(obj: std.json.ObjectMap) ?ParsedSkillEntry {
     const name = jsonStringValue(obj.get("name")) orelse "";
+    var installs = [_]ParsedSkillInstall{.{}} ** max_parsed_skill_installs;
+    var install_count: usize = 0;
     var skill_file: []const u8 = "";
     var dir: []const u8 = "";
     var install_enabled: ?bool = null;
+    var any_install_enabled = false;
     if (obj.get("installs")) |installs_val| {
-        if (jsonArrayItems(installs_val)) |installs| {
-            for (installs) |install_item| {
+        if (jsonArrayItems(installs_val)) |items| {
+            for (items) |install_item| {
                 const install = jsonObject(install_item) orelse continue;
-                skill_file = jsonStringValue(install.get("skillFile")) orelse "";
-                dir = jsonStringValue(install.get("dir")) orelse "";
-                install_enabled = jsonBoolValue(install.get("enabled"));
-                break;
+                const one_file = jsonStringValue(install.get("skillFile")) orelse "";
+                const one_dir = jsonStringValue(install.get("dir")) orelse "";
+                if (one_file.len == 0 and one_dir.len == 0) continue;
+                const one_enabled = jsonBoolValue(install.get("enabled")) orelse true;
+                if (install_count == 0) {
+                    skill_file = one_file;
+                    dir = one_dir;
+                    install_enabled = one_enabled;
+                }
+                if (install_count < installs.len) {
+                    installs[install_count] = .{
+                        .dir = one_dir,
+                        .skill_file = one_file,
+                        .enabled = one_enabled,
+                    };
+                    install_count += 1;
+                }
+                if (one_enabled) any_install_enabled = true;
             }
         }
     }
     const path = if (skill_file.len > 0) skill_file else dir;
     if (name.len == 0 and path.len == 0) return null;
+    var duplicates_len: usize = 0;
+    var duplicates_present = false;
+    if (obj.get("duplicates")) |dup_val| {
+        if (jsonArrayItems(dup_val)) |dups| {
+            duplicates_present = true;
+            duplicates_len = dups.len;
+        }
+    }
+    const enabled = jsonBoolValue(obj.get("enabled")) orelse
+        (if (install_count > 0) any_install_enabled else install_enabled orelse true);
     return .{
         .name = name,
         .description = jsonStringValue(obj.get("description")) orelse "",
         .path = path,
-        .enabled = jsonBoolValue(obj.get("enabled")) orelse install_enabled orelse true,
+        .enabled = enabled,
+        .installs = installs,
+        .install_count = install_count,
+        .duplicates_len = duplicates_len,
+        .duplicates_present = duplicates_present,
     };
 }
 
@@ -6332,6 +6387,12 @@ test "parseSkillsCatalog reads a minimal skillsCatalog fixture and ignores unkno
     try std.testing.expectEqualStrings("Do the thing.", parsed.skills[0].description);
     try std.testing.expect(parsed.skills[0].enabled);
     try std.testing.expectEqualStrings("/tmp/faku/.cursor/skills/to-spec/SKILL.md", parsed.skills[0].path);
+    try std.testing.expectEqual(@as(usize, 1), parsed.skills[0].install_count);
+    try std.testing.expectEqualStrings("/tmp/faku/.cursor/skills/to-spec", parsed.skills[0].installs[0].dir);
+    try std.testing.expectEqualStrings("/tmp/faku/.cursor/skills/to-spec/SKILL.md", parsed.skills[0].installs[0].skill_file);
+    try std.testing.expect(parsed.skills[0].installs[0].enabled);
+    try std.testing.expect(parsed.skills[0].duplicates_present);
+    try std.testing.expectEqual(@as(usize, 0), parsed.skills[0].duplicates_len);
     try std.testing.expectEqualStrings("off", parsed.skills[1].name);
     try std.testing.expectEqualStrings("", parsed.skills[1].description);
     try std.testing.expect(!parsed.skills[1].enabled);
@@ -6339,6 +6400,26 @@ test "parseSkillsCatalog reads a minimal skillsCatalog fixture and ignores unkno
     try std.testing.expectEqualStrings("dir-only", parsed.skills[2].name);
     try std.testing.expect(parsed.skills[2].enabled);
     try std.testing.expectEqualStrings("/tmp/faku/.agents/skills/dir-only", parsed.skills[2].path);
+    try std.testing.expectEqual(@as(usize, 1), parsed.skills[2].install_count);
+    try std.testing.expectEqualStrings("/tmp/faku/.agents/skills/dir-only", parsed.skills[2].installs[0].dir);
+    try std.testing.expect(!parsed.skills[2].duplicates_present);
+
+    const multi_line =
+        \\{"type":"response","outcome":{"status":"ok","payload":{"type":"skillsCatalog","catalog":{"skills":[{"name":"shared-name","enabled":true,"duplicates":[{"scope":"project"}],"installs":[{"dir":"/home/me/.agents/skills/shared-name","skillFile":"/home/me/.agents/skills/shared-name/SKILL.md","enabled":true},{"dir":"/home/me/.cursor/skills/shared-name","skillFile":"/home/me/.cursor/skills/shared-name/SKILL.md","enabled":false}]}]}}}}
+    ;
+    const multi = parseSkillsCatalog(arena, multi_line);
+    try std.testing.expect(multi.ok);
+    try std.testing.expectEqual(@as(usize, 1), multi.skill_count);
+    try std.testing.expectEqualStrings("shared-name", multi.skills[0].name);
+    try std.testing.expectEqual(@as(usize, 2), multi.skills[0].install_count);
+    try std.testing.expectEqualStrings("/home/me/.agents/skills/shared-name/SKILL.md", multi.skills[0].path);
+    try std.testing.expectEqualStrings("/home/me/.agents/skills/shared-name", multi.skills[0].installs[0].dir);
+    try std.testing.expect(multi.skills[0].installs[0].enabled);
+    try std.testing.expectEqualStrings("/home/me/.cursor/skills/shared-name", multi.skills[0].installs[1].dir);
+    try std.testing.expect(!multi.skills[0].installs[1].enabled);
+    try std.testing.expect(multi.skills[0].enabled);
+    try std.testing.expect(multi.skills[0].duplicates_present);
+    try std.testing.expectEqual(@as(usize, 1), multi.skills[0].duplicates_len);
 
     const empty = parseSkillsCatalog(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000019\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"skillsCatalog\",\"catalog\":{}}}}");
     try std.testing.expect(empty.ok);

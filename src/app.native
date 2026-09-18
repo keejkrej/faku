@@ -407,10 +407,12 @@
                       <text foreground="text_muted">{skill_detail_invoke}</text>
                       <text wrap="false" overflow="ellipsis">{skill_invoke_line}</text>
                     </column>
-                    <column gap="2">
-                      <text foreground="text_muted">{skill_detail_location}</text>
-                      <text wrap="true">{skill_location}</text>
-                    </column>
+                    <for each="skill_location_rows" key="id" as="loc">
+                      <column gap="2">
+                        <text foreground="text_muted">{loc.label}</text>
+                        <text wrap="true">{loc.path}</text>
+                      </column>
+                    </for>
                     <column gap="2">
                       <text foreground="text_muted">{skill_detail_contents}</text>
                       <if test="{has_skill_contents_summary}">
@@ -428,6 +430,9 @@
                         <text foreground="text_muted">{skill_detail_allowed_tools}</text>
                         <text wrap="false" overflow="ellipsis">{skill_allowed_tools}</text>
                       </column>
+                    </if>
+                    <if test="{has_skill_duplicate_badge}">
+                      <text wrap="true" foreground="destructive">{skill_duplicate_badge}</text>
                     </if>
                     <if test="{has_skill_body}">
                       <text wrap="true">{skill_body}</text>

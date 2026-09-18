@@ -16019,6 +16019,13 @@ test "settings Skills lists SKILL.md name, description, and path; select shows b
     try testing.expectEqualStrings("/demo-skill", model.skill_invoke_line(arena));
     try testing.expectEqualStrings("Location", model.skill_detail_location());
     try testing.expectEqualStrings(skill_dir, model.skill_location(arena));
+    {
+        const locs = model.skill_location_rows(arena);
+        try testing.expectEqual(@as(usize, 1), locs.len);
+        try testing.expectEqualStrings("Location", locs[0].label);
+        try testing.expectEqualStrings(skill_dir, locs[0].path);
+    }
+    try testing.expect(!model.has_skill_duplicate_badge());
     try testing.expectEqualStrings("Contents", model.skill_detail_contents());
     try testing.expect(model.has_skill_body());
     try testing.expect(model.has_skill_updated());
@@ -28050,8 +28057,11 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_no_description}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_detail_invoke}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_invoke_line}"));
-    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_detail_location}"));
-    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_location}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "each=\"skill_location_rows\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{loc.label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{loc.path}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{has_skill_duplicate_badge}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_duplicate_badge}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{has_skill_updated}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_detail_updated}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_updated_label}"));

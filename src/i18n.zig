@@ -431,32 +431,48 @@
 //! data; Contents value is supporting-file count · bytes
 //! (`SkillsFileCountChrome` + Latin B/KB/MB; `{skill_body}` stays
 //! a separate block); Updated lives in `SkillsUpdatedChrome`;
-//! Allowed tools lives in `SkillsAllowedToolsChrome`; no
-//! duplicate grouping this cut;
-//! composer `$` insert unchanged; wire ids stay English)
+//! Allowed tools lives in `SkillsAllowedToolsChrome`; Settings
+//! list folds same-name installs within a scope; selected-detail
+//! multi-location source labels live in `SkillsSourceChrome`;
+//! cross-scope duplicate badge lives in `SkillsDuplicateChrome`;
+//! composer `$` insert / slash skill rows stay flat; wire ids stay English)
 //! plus Settings Skills selected-detail Updated (same
 //! `SkillsUpdatedChrome` strings; English matches Waku
 //! `skills.detail_updated` / `updated_just_now` / `updated_minutes`
 //! / `updated_hours` / `updated_days`; relative SKILL.md mtime;
 //! fail closed when mtime cannot be read; distinct from
 //! SkillsDetailChrome so Updated stays independently evolvable;
-//! numbers stay Latin; no duplicate grouping this
-//! cut; composer `$` insert unchanged; wire ids stay English)
+//! numbers stay Latin; composer `$` insert / slash skill rows
+//! stay flat; wire ids stay English)
 //! plus Settings Skills selected-detail Contents file_count
 //! (same `SkillsFileCountChrome` strings; English matches Waku
 //! `skills.file_count_one` / `file_count_many`; Latin format_bytes
 //! B/KB/MB; 0 supporting files paints bytes only; fail closed when
 //! the skill dir cannot be walked; distinct from SkillsDetailChrome
-//! / SkillsUpdatedChrome; no duplicate grouping
-//! this cut; composer `$` insert unchanged; wire ids stay English)
+//! / SkillsUpdatedChrome; composer `$` insert / slash skill rows
+//! stay flat; wire ids stay English)
 //! plus Settings Skills selected-detail Allowed tools (same
 //! `SkillsAllowedToolsChrome` strings; English matches Waku
 //! `skills.allowed_tools`; EN Tools / zh-CN 工具 / ja ツール;
 //! YAML `allowed-tools:` plain / quoted scalar; fail closed when
 //! missing / empty / unfenced; distinct from SkillsDetailChrome /
 //! SkillsUpdatedChrome / SkillsFileCountChrome so Tools stays
-//! independently evolvable; no duplicate grouping this cut;
-//! composer `$` insert unchanged; wire ids stay English)
+//! independently evolvable; composer `$` insert / slash skill
+//! rows stay flat; wire ids stay English)
+//! plus Settings Skills selected-detail source labels (same
+//! `SkillsSourceChrome` strings; English Shared matches Waku
+//! `skills.source_shared`; provider shorts stay Latin in every
+//! locale matching Waku `ProviderKind::short_name`; distinct from
+//! SkillsDetailChrome so source labels stay independently
+//! evolvable; composer `$` insert / slash skill rows stay flat;
+//! wire ids stay English)
+//! plus Settings Skills selected-detail duplicate badge (same
+//! `SkillsDuplicateChrome` strings; English matches Waku
+//! `skills.duplicate_one` / `duplicate_many`; Latin `{d}` count;
+//! fail closed when duplicates==0; distinct from
+//! SkillsDetailChrome / SkillsSourceChrome so the badge stays
+//! independently evolvable; composer `$` insert / slash skill
+//! rows stay flat; wire ids stay English)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -4484,8 +4500,11 @@ const skills_section_chrome_ja: SkillsSectionChrome = .{
 /// value is supporting-file count · bytes (`SkillsFileCountChrome`
 /// + Latin B/KB/MB; `{skill_body}` stays a separate block).
 /// Updated lives in `SkillsUpdatedChrome`. Allowed tools lives in
-/// `SkillsAllowedToolsChrome`. No duplicate grouping this cut.
-/// Composer `$` insert unchanged.
+/// `SkillsAllowedToolsChrome`. Settings list folds same-name
+/// installs within a scope; selected-detail multi-location source
+/// labels live in `SkillsSourceChrome`; cross-scope duplicate
+/// badge lives in `SkillsDuplicateChrome`. Composer `$` insert /
+/// slash skill rows stay flat.
 /// Wire ids stay English.
 pub const SkillsDetailChrome = struct {
     no_description: []const u8,
@@ -4522,8 +4541,8 @@ const skills_detail_chrome_ja: SkillsDetailChrome = .{
 /// `updated_days`. Distinct from SkillsDetailChrome (Invoke /
 /// Location / Contents) so Updated stays independently evolvable.
 /// Templates keep Waku `%{count}` slots. Numbers stay Latin. Fail
-/// closed when SKILL.md mtime cannot be read. No duplicate
-/// grouping this cut. Composer `$` insert unchanged.
+/// closed when SKILL.md mtime cannot be read. Composer `$` insert /
+/// slash skill rows stay flat.
 /// Wire ids stay English.
 pub const SkillsUpdatedChrome = struct {
     detail_updated: []const u8,
@@ -4570,8 +4589,8 @@ pub const skills_updated_label_max: usize = 64;
 /// the count phrases stay independently evolvable. Templates keep
 /// Waku `%{count}` slots. Numbers stay Latin. Byte formatting is
 /// Latin data (`formatSkillBytes`), not this pack. Fail closed when
-/// the skill dir cannot be walked. No duplicate grouping this cut.
-/// Composer `$` insert unchanged. Wire ids stay
+/// the skill dir cannot be walked. Composer `$` insert / slash
+/// skill rows stay flat. Wire ids stay
 /// English.
 pub const SkillsFileCountChrome = struct {
     file_count_one: []const u8,
@@ -4600,8 +4619,8 @@ const skills_file_count_chrome_ja: SkillsFileCountChrome = .{
 /// (Invoke / Location / Contents), SkillsUpdatedChrome, and
 /// SkillsFileCountChrome so Tools stays independently evolvable.
 /// YAML `allowed-tools:` value stays skill data. Fail closed when
-/// missing / empty / unfenced. No duplicate grouping this cut.
-/// Composer `$` insert unchanged. Wire ids stay English.
+/// missing / empty / unfenced. Composer `$` insert / slash skill
+/// rows stay flat. Wire ids stay English.
 pub const SkillsAllowedToolsChrome = struct {
     allowed_tools: []const u8,
 };
@@ -4617,6 +4636,89 @@ const skills_allowed_tools_chrome_zh_cn: SkillsAllowedToolsChrome = .{
 const skills_allowed_tools_chrome_ja: SkillsAllowedToolsChrome = .{
     .allowed_tools = "ツール",
 };
+
+/// Settings Skills selected-detail install-source labels for the
+/// resolved locale. Same resolve path as SkillsDetailChrome.
+/// English Shared matches Waku `skills.source_shared`. Provider
+/// shorts stay Latin in every locale (Waku `ProviderKind::short_name`).
+/// Distinct from SkillsDetailChrome Location so source labels stay
+/// independently evolvable. Composer `$` insert / slash skill rows
+/// stay flat. Wire ids stay English.
+pub const SkillsSourceChrome = struct {
+    source_shared: []const u8,
+    source_claude: []const u8,
+    source_codex: []const u8,
+    source_opencode: []const u8,
+    source_cursor: []const u8,
+    source_fx: []const u8,
+    source_pi: []const u8,
+    source_omp: []const u8,
+};
+
+const skills_source_chrome_en: SkillsSourceChrome = .{
+    .source_shared = "Shared",
+    .source_claude = "Claude",
+    .source_codex = "Codex",
+    .source_opencode = "OpenCode",
+    .source_cursor = "Cursor",
+    .source_fx = "fx",
+    .source_pi = "Pi",
+    .source_omp = "OMP",
+};
+
+const skills_source_chrome_zh_cn: SkillsSourceChrome = .{
+    .source_shared = "共享",
+    .source_claude = "Claude",
+    .source_codex = "Codex",
+    .source_opencode = "OpenCode",
+    .source_cursor = "Cursor",
+    .source_fx = "fx",
+    .source_pi = "Pi",
+    .source_omp = "OMP",
+};
+
+const skills_source_chrome_ja: SkillsSourceChrome = .{
+    .source_shared = "共有",
+    .source_claude = "Claude",
+    .source_codex = "Codex",
+    .source_opencode = "OpenCode",
+    .source_cursor = "Cursor",
+    .source_fx = "fx",
+    .source_pi = "Pi",
+    .source_omp = "OMP",
+};
+
+/// Settings Skills selected-detail cross-scope duplicate badge for
+/// the resolved locale. Same resolve path as SkillsDetailChrome /
+/// SkillsSourceChrome. English matches Waku `skills.duplicate_one`
+/// / `duplicate_many`. Distinct from SkillsDetailChrome /
+/// SkillsSourceChrome so the badge stays independently evolvable.
+/// Templates keep Waku `%{count}` slots; numbers stay Latin `{d}`.
+/// Fail closed when duplicates==0. Composer `$` insert / slash
+/// skill rows stay flat. Wire ids stay English.
+pub const SkillsDuplicateChrome = struct {
+    duplicate_one: []const u8,
+    duplicate_many: []const u8,
+};
+
+const skills_duplicate_chrome_en: SkillsDuplicateChrome = .{
+    .duplicate_one = "Same name in 1 other location — the most specific copy wins",
+    .duplicate_many = "Same name in %{count} other locations — the most specific copy wins",
+};
+
+const skills_duplicate_chrome_zh_cn: SkillsDuplicateChrome = .{
+    .duplicate_one = "另有 1 处同名技能 — 更具体的一份生效",
+    .duplicate_many = "另有 %{count} 处同名技能 — 更具体的一份生效",
+};
+
+const skills_duplicate_chrome_ja: SkillsDuplicateChrome = .{
+    .duplicate_one = "同名のスキルが他の 1 か所にもあります — 最も限定的な場所にあるスキルが優先されます",
+    .duplicate_many = "同名のスキルが他の %{count} か所にもあります — 最も限定的な場所にあるスキルが優先されます",
+};
+
+/// Capped scratch for `formatSkillsDuplicateBadge`. EN / zh-CN / ja
+/// stay short; Latin `{d}` count digits stay bounded.
+pub const skills_duplicate_badge_max: usize = 160;
 
 /// Capped scratch for `formatSkillsContentsSummary`. Count phrase +
 /// ` · ` + Latin B/KB/MB stay short in every locale.
@@ -6109,6 +6211,47 @@ pub fn skillsAllowedToolsChromeFor(preference: LanguagePreference, system_locale
         .japanese => skills_allowed_tools_chrome_ja,
         .system, .english => skills_allowed_tools_chrome_en,
     };
+}
+
+/// Settings Skills selected-detail install-source labels for the
+/// resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env.
+/// Distinct from SkillsDetailChrome Location so source labels stay
+/// independently evolvable. English Shared matches Waku
+/// `skills.source_shared`. Wire ids stay English.
+pub fn skillsSourceChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsSourceChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_source_chrome_zh_cn,
+        .japanese => skills_source_chrome_ja,
+        .system, .english => skills_source_chrome_en,
+    };
+}
+
+/// Settings Skills selected-detail duplicate badge templates for
+/// the resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env.
+/// Distinct from SkillsDetailChrome / SkillsSourceChrome so the
+/// badge stays independently evolvable. English matches Waku
+/// `skills.duplicate_one` / `duplicate_many`. Wire ids stay English.
+pub fn skillsDuplicateChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsDuplicateChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_duplicate_chrome_zh_cn,
+        .japanese => skills_duplicate_chrome_ja,
+        .system, .english => skills_duplicate_chrome_en,
+    };
+}
+
+/// Waku duplicate badge. `count == 0` fail-closed empty; `1` uses
+/// `duplicate_one`; else `duplicate_many` with Latin `{d}` digits.
+/// Writes into `buf`; overflow returns `""`.
+pub fn formatSkillsDuplicateBadge(chrome: SkillsDuplicateChrome, count: usize, buf: []u8) []const u8 {
+    if (count == 0) return "";
+    if (count == 1) {
+        if (chrome.duplicate_one.len > buf.len) return "";
+        @memcpy(buf[0..chrome.duplicate_one.len], chrome.duplicate_one);
+        return buf[0..chrome.duplicate_one.len];
+    }
+    return formatSkillsPlaceholders(chrome.duplicate_many, &.{.{ .name = "count", .value = count }}, buf);
 }
 
 /// Waku `format_bytes`: Latin B / KB / MB. `<1024` → `{n} B`;
@@ -9978,6 +10121,101 @@ test "skillsAllowedToolsChromeFor english default; zh and ja chrome; english ign
     try testing.expect(!std.mem.eql(u8, skillsAllowedToolsChromeFor(.english, "").allowed_tools, skillsFileCountChromeFor(.english, "").file_count_one));
     try testing.expect(!std.mem.eql(u8, skillsAllowedToolsChromeFor(.simplified_chinese, "").allowed_tools, skillsDetailChromeFor(.simplified_chinese, "").detail_contents));
     try testing.expect(!std.mem.eql(u8, skillsAllowedToolsChromeFor(.japanese, "").allowed_tools, skillsDetailChromeFor(.japanese, "").detail_contents));
+}
+
+test "skillsSourceChromeFor english default; zh and ja Shared; provider shorts stay Latin; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Shared", skillsSourceChromeFor(.english, "ja").source_shared);
+    try testing.expectEqualStrings("Shared", skillsSourceChromeFor(.english, "").source_shared);
+    try testing.expectEqualStrings("Shared", skillsSourceChromeFor(.system, "").source_shared);
+    try testing.expectEqualStrings("Claude", skillsSourceChromeFor(.english, "").source_claude);
+    try testing.expectEqualStrings("Codex", skillsSourceChromeFor(.english, "").source_codex);
+    try testing.expectEqualStrings("OpenCode", skillsSourceChromeFor(.english, "").source_opencode);
+    try testing.expectEqualStrings("Cursor", skillsSourceChromeFor(.english, "").source_cursor);
+    try testing.expectEqualStrings("fx", skillsSourceChromeFor(.english, "").source_fx);
+    try testing.expectEqualStrings("Pi", skillsSourceChromeFor(.english, "").source_pi);
+    try testing.expectEqualStrings("OMP", skillsSourceChromeFor(.english, "").source_omp);
+
+    try testing.expectEqualStrings("共享", skillsSourceChromeFor(.simplified_chinese, "").source_shared);
+    try testing.expectEqualStrings("共有", skillsSourceChromeFor(.japanese, "").source_shared);
+    try testing.expectEqualStrings("Cursor", skillsSourceChromeFor(.simplified_chinese, "").source_cursor);
+    try testing.expectEqualStrings("OpenCode", skillsSourceChromeFor(.japanese, "").source_opencode);
+
+    try testing.expectEqualStrings("共享", skillsSourceChromeFor(.system, "zh_CN.UTF-8").source_shared);
+    try testing.expectEqualStrings("共有", skillsSourceChromeFor(.system, "ja_JP.UTF-8").source_shared);
+    try testing.expectEqualStrings("Shared", skillsSourceChromeFor(.english, "ja_JP.UTF-8").source_shared);
+    try testing.expectEqualStrings("Shared", skillsSourceChromeFor(.english, "zh_CN.UTF-8").source_shared);
+
+    try testing.expect(!std.mem.eql(u8, skillsSourceChromeFor(.english, "").source_shared, skillsDetailChromeFor(.english, "").detail_location));
+    try testing.expect(!std.mem.eql(u8, skillsSourceChromeFor(.simplified_chinese, "").source_shared, skillsDetailChromeFor(.simplified_chinese, "").detail_location));
+    try testing.expect(!std.mem.eql(u8, skillsSourceChromeFor(.japanese, "").source_shared, skillsDetailChromeFor(.japanese, "").detail_location));
+}
+
+test "skillsDuplicateChromeFor english default; zh and ja chrome; latin count; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings(
+        "Same name in 1 other location — the most specific copy wins",
+        skillsDuplicateChromeFor(.english, "ja").duplicate_one,
+    );
+    try testing.expectEqualStrings(
+        "Same name in %{count} other locations — the most specific copy wins",
+        skillsDuplicateChromeFor(.english, "").duplicate_many,
+    );
+    try testing.expectEqualStrings(
+        "Same name in 1 other location — the most specific copy wins",
+        skillsDuplicateChromeFor(.system, "").duplicate_one,
+    );
+
+    try testing.expectEqualStrings("另有 1 处同名技能 — 更具体的一份生效", skillsDuplicateChromeFor(.simplified_chinese, "").duplicate_one);
+    try testing.expectEqualStrings("另有 %{count} 处同名技能 — 更具体的一份生效", skillsDuplicateChromeFor(.simplified_chinese, "").duplicate_many);
+    try testing.expectEqualStrings(
+        "同名のスキルが他の 1 か所にもあります — 最も限定的な場所にあるスキルが優先されます",
+        skillsDuplicateChromeFor(.japanese, "").duplicate_one,
+    );
+    try testing.expectEqualStrings(
+        "同名のスキルが他の %{count} か所にもあります — 最も限定的な場所にあるスキルが優先されます",
+        skillsDuplicateChromeFor(.japanese, "").duplicate_many,
+    );
+
+    try testing.expectEqualStrings("另有 1 处同名技能 — 更具体的一份生效", skillsDuplicateChromeFor(.system, "zh_CN.UTF-8").duplicate_one);
+    try testing.expectEqualStrings(
+        "同名のスキルが他の 1 か所にもあります — 最も限定的な場所にあるスキルが優先されます",
+        skillsDuplicateChromeFor(.system, "ja_JP.UTF-8").duplicate_one,
+    );
+    try testing.expectEqualStrings(
+        "Same name in 1 other location — the most specific copy wins",
+        skillsDuplicateChromeFor(.english, "ja_JP.UTF-8").duplicate_one,
+    );
+    try testing.expectEqualStrings(
+        "Same name in %{count} other locations — the most specific copy wins",
+        skillsDuplicateChromeFor(.english, "zh_CN.UTF-8").duplicate_many,
+    );
+
+    try testing.expect(!std.mem.eql(u8, skillsDuplicateChromeFor(.english, "").duplicate_one, skillsDetailChromeFor(.english, "").detail_location));
+    try testing.expect(!std.mem.eql(u8, skillsDuplicateChromeFor(.english, "").duplicate_one, skillsSourceChromeFor(.english, "").source_shared));
+    try testing.expect(!std.mem.eql(u8, skillsDuplicateChromeFor(.simplified_chinese, "").duplicate_one, skillsSourceChromeFor(.simplified_chinese, "").source_shared));
+    try testing.expect(!std.mem.eql(u8, skillsDuplicateChromeFor(.japanese, "").duplicate_one, skillsSourceChromeFor(.japanese, "").source_shared));
+
+    var buf: [skills_duplicate_badge_max]u8 = undefined;
+    try testing.expectEqualStrings("", formatSkillsDuplicateBadge(skillsDuplicateChromeFor(.english, ""), 0, &buf));
+    try testing.expectEqualStrings(
+        "Same name in 1 other location — the most specific copy wins",
+        formatSkillsDuplicateBadge(skillsDuplicateChromeFor(.english, ""), 1, &buf),
+    );
+    try testing.expectEqualStrings(
+        "Same name in 2 other locations — the most specific copy wins",
+        formatSkillsDuplicateBadge(skillsDuplicateChromeFor(.english, ""), 2, &buf),
+    );
+    try testing.expectEqualStrings("另有 1 处同名技能 — 更具体的一份生效", formatSkillsDuplicateBadge(skillsDuplicateChromeFor(.simplified_chinese, ""), 1, &buf));
+    try testing.expectEqualStrings("另有 3 处同名技能 — 更具体的一份生效", formatSkillsDuplicateBadge(skillsDuplicateChromeFor(.simplified_chinese, ""), 3, &buf));
+    try testing.expectEqualStrings(
+        "同名のスキルが他の 1 か所にもあります — 最も限定的な場所にあるスキルが優先されます",
+        formatSkillsDuplicateBadge(skillsDuplicateChromeFor(.japanese, ""), 1, &buf),
+    );
+    try testing.expectEqualStrings(
+        "同名のスキルが他の 4 か所にもあります — 最も限定的な場所にあるスキルが優先されます",
+        formatSkillsDuplicateBadge(skillsDuplicateChromeFor(.japanese, ""), 4, &buf),
+    );
 }
 
 test "skillsPathCopiedChromeFor english default; zh and ja chrome; english ignores ja LANG" {
