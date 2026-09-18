@@ -1490,6 +1490,11 @@ pub const Model = struct {
     skill_rename_cwd_len: usize = 0,
     skill_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     skill_probe_path_len: usize = 0,
+    /// Absolute user skill roots for the in-flight local walk argv
+    /// slots. Runtime-only; filled at spawnWalk; not `sessions.json`.
+    skill_user_root_storage: [skills.max_user_skill_roots][skills.max_skill_path]u8 = [_][skills.max_skill_path]u8{[_]u8{0} ** skills.max_skill_path} ** skills.max_user_skill_roots,
+    skill_user_root_len: [skills.max_user_skill_roots]usize = [_]usize{0} ** skills.max_user_skill_roots,
+    skill_user_root_count: usize = 0,
     skill_selected_id: u32 = 0,
     skill_body_storage: [skills.max_skill_body]u8 = [_]u8{0} ** skills.max_skill_body,
     skill_body_len: usize = 0,
@@ -2347,6 +2352,9 @@ pub const Model = struct {
         "skill_rename_cwd_len",
         "skill_probe_path_storage",
         "skill_probe_path_len",
+        "skill_user_root_storage",
+        "skill_user_root_len",
+        "skill_user_root_count",
         "skill_selected_id",
         "skill_body_storage",
         "skill_body_len",
