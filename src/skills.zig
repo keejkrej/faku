@@ -91,7 +91,16 @@
 //! selection / empty / invalid path. Label reuses
 //! `i18n.FilePreviewChrome.open_in_editor` via Model
 //! `skill_open_in_editor_label`. Not an embedded editor, not
-//! `open_in_app`, not a daemon method. Not a Native FS API.
+//! `open_in_app`, not a daemon method. First-cut Reveal for the
+//! selected skill calls `reveal_folder.startRevealPath` at the
+//! absolute `SKILL.md` / `SKILL.md.disabled` path from
+//! `selectedSkillAbsPath` (parent directory via Finder / xdg-open /
+//! explorer — same sidecar as composer Reveal folder). Fail closed
+//! with no selection / empty / unresolved path (no spawn).
+//! `.missing_bin` paints `hostMissingStatusFor`. Label reuses
+//! `i18n.ComposerProjectChrome.reveal_folder` via Model
+//! `skill_reveal_label`. Not Open in editor, not copy path, not a
+//! daemon method. Not a Native FS API.
 //! app.zon already includes windows.
 //!
 //! Spawn/line/exit orchestration lives here. Tests do not need a live
@@ -110,6 +119,7 @@ const protocol = @import("protocol.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const effect_keys = @import("effect_keys.zig");
 const open_editor = @import("open_editor.zig");
+const reveal_folder = @import("reveal_folder.zig");
 
 const Model = model_exports.Model;
 const Effects = main.Effects;
@@ -1424,6 +1434,21 @@ pub fn openSelectedSkillInEditor(model: *Model, fx: *Effects) void {
     open_editor.startOpenEditorAt(model, fx, abs);
 }
 
+/// Settings Skills Reveal. Same Finder / xdg-open / Explorer sidecar
+/// as composer Reveal folder (`startRevealPath` on the parent of a
+/// file). Fail closed with no selection / empty / unresolved path
+/// (no crash, no spawn). Missing host tool window_status stays on
+/// `.missing_bin`.
+pub fn revealSelectedSkill(model: *Model, fx: *Effects) void {
+    var path_buf: [model_exports.max_project_path + max_skill_path + 1]u8 = undefined;
+    const abs = selectedSkillAbsPath(model, &path_buf) orelse return;
+    switch (reveal_folder.startRevealPath(model, fx, abs)) {
+        .spawned, .live => {},
+        .missing_bin => model.setWindowStatus(reveal_folder.hostMissingStatusFor(model.language_preference, model.systemLocaleId())),
+        .no_path => {},
+    }
+}
+
 fn loadBody(model: *Model, index: usize) void {
     model.skill_body_len = 0;
     const io = model.store_io orelse return;
@@ -2399,6 +2424,87 @@ test "openSelectedSkillInEditor fails closed with no selection or unresolved pat
     try std.testing.expect(fx.pendingSpawnAt(0) == null);
     try std.testing.expect(!model.open_editor_live);
     try std.testing.expectEqualStrings("", model.window_status());
+}
+
+test "revealSelectedSkill queues host reveal argv at the skill parent directory" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, "/tmp/faku-skills-reveal-{s}", .{tmp.sub_path});
+    var skill_dir_buf: [320]u8 = undefined;
+    const skill_dir = try std.fmt.bufPrint(&skill_dir_buf, "{s}/.cursor/skills/demo", .{root});
+    try std.Io.Dir.cwd().createDirPath(testing.io, skill_dir);
+    var file_buf: [360]u8 = undefined;
+    const file_path = try std.fmt.bufPrint(&file_buf, "{s}/SKILL.md", .{skill_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = file_path,
+        .data =
+        \\---
+        \\name: demo
+        \\---
+        \\
+        \\Body.
+        \\
+        ,
+    });
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, root);
+    applyStdoutPaths(&model, ".cursor/skills/demo/SKILL.md\n");
+    selectSkill(&model, 1);
+    var abs_buf: [model_exports.max_project_path + max_skill_path + 1]u8 = undefined;
+    try std.testing.expectEqualStrings(file_path, selectedSkillAbsPath(&model, &abs_buf).?);
+
+    revealSelectedSkill(&model, &fx);
+    const spawn = fx.pendingSpawnAt(0) orelse return error.MissingRevealFolderSpawn;
+    try std.testing.expect(reveal_folder.isRevealArgv(spawn.argv));
+    try std.testing.expectEqual(reveal_folder.reveal_folder_key, spawn.key);
+    try std.testing.expectEqualStrings(reveal_folder.hostBin().?, spawn.argv[0]);
+    try std.testing.expectEqualStrings(skill_dir, spawn.argv[1]);
+}
+
+test "revealSelectedSkill fails closed with no selection or unresolved path" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    revealSelectedSkill(&model, &fx);
+    try std.testing.expect(fx.pendingSpawnAt(0) == null);
+    try std.testing.expect(!model.reveal_folder_live);
+    try std.testing.expectEqualStrings("", model.window_status());
+
+    applyStdoutPaths(&model, ".cursor/skills/demo/SKILL.md\n");
+    selectSkill(&model, 1);
+    revealSelectedSkill(&model, &fx);
+    try std.testing.expect(fx.pendingSpawnAt(0) == null);
+    try std.testing.expect(!model.reveal_folder_live);
+    try std.testing.expectEqualStrings("", model.window_status());
+}
+
+test "skill_reveal_label equals composerProjectChrome reveal_folder" {
+    var model = Model{};
+    try std.testing.expectEqualStrings(
+        i18n.composerProjectChromeFor(.english, "").reveal_folder,
+        model.skill_reveal_label(),
+    );
+    try std.testing.expectEqualStrings(model.reveal_folder_label(), model.skill_reveal_label());
+    model.language_preference = .simplified_chinese;
+    try std.testing.expectEqualStrings(
+        i18n.composerProjectChromeFor(.simplified_chinese, "").reveal_folder,
+        model.skill_reveal_label(),
+    );
+    model.language_preference = .japanese;
+    try std.testing.expectEqualStrings(
+        i18n.composerProjectChromeFor(.japanese, "").reveal_folder,
+        model.skill_reveal_label(),
+    );
 }
 
 test "composer $ insert lists enabled skills only" {

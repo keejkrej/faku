@@ -377,6 +377,10 @@
 //! `FilePreviewChrome.open_in_editor` via a distinct Model getter;
 //! same EN Open in editor as Files preview; on-press stays
 //! `open_skill_in_editor`; wire ids stay English)
+//! plus Settings Skills Reveal (reuses
+//! `ComposerProjectChrome.reveal_folder` via a distinct Model getter;
+//! same EN Reveal folder as composer project-row; on-press stays
+//! `reveal_skill`; wire ids stay English)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -422,6 +426,9 @@
 //! / `confirm_skill_delete`.
 //! Skills Open in editor `on-press` stays `open_skill_in_editor`
 //! (label reuses `FilePreviewChrome.open_in_editor` via a distinct
+//! Model getter).
+//! Skills Reveal `on-press` stays `reveal_skill`
+//! (label reuses `ComposerProjectChrome.reveal_folder` via a distinct
 //! Model getter).
 //! File-preview toolbar `on-press` / `on-input` stay English
 //! (`file_preview_save` / `close_right_panel_file_preview` /
@@ -1331,6 +1338,8 @@ const right_panel_chrome_ja: RightPanelChrome = .{
 /// duplicated here). Wire ids / on-press stay English. English matches
 /// the former hardcoded composer buttons. Distinct from palette
 /// `Open project in Editor` / `Reveal project folder` / `Copy project path`.
+/// Settings Skills Reveal reuses `reveal_folder` via a distinct Model
+/// getter (`skill_reveal_label`).
 pub const ComposerProjectChrome = struct {
     pick_folder: []const u8,
     reveal_folder: []const u8,

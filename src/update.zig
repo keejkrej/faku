@@ -275,6 +275,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .arm_skill_delete => settings_actions.handleArmSkillDelete(model),
         .confirm_skill_delete => settings_actions.handleConfirmSkillDelete(model, fx),
         .open_skill_in_editor => settings_actions.handleOpenSkillInEditor(model, fx),
+        .reveal_skill => settings_actions.handleRevealSkill(model, fx),
         .select_provider => |id| settings_actions.handleSelectProvider(model, id),
         .toggle_provider_enabled => |id| settings_actions.handleToggleProviderEnabled(model, id),
         .apply_session_provider => settings_actions.handleApplySessionProvider(model, fx),
