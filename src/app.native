@@ -357,20 +357,28 @@
                   </else>
                 </if>
                 <for each="skill_rows" key="id" as="k">
-                  <list-item height="56" padding="8" gap="4" cross="center" selected="{k.selected}" on-press="select_skill:{k.id}" label="{k.name}">
-                    <column gap="2" grow="1">
-                      <row gap="8" cross="center">
-                        <text wrap="false" overflow="ellipsis">{k.name}</text>
-                        <if test="{k.disabled}">
-                          <text wrap="false" overflow="ellipsis" foreground="text_muted">{k.disabled_label}</text>
+                  <if test="{k.is_header}">
+                    <row height="28" cross="center" padding="4" gap="8">
+                      <text foreground="text_muted"><span weight="bold">{k.name}</span></text>
+                      <text wrap="false" overflow="ellipsis" foreground="text_muted">{k.count}</text>
+                    </row>
+                  </if>
+                  <else>
+                    <list-item height="56" padding="8" gap="4" cross="center" selected="{k.selected}" on-press="select_skill:{k.id}" label="{k.name}">
+                      <column gap="2" grow="1">
+                        <row gap="8" cross="center">
+                          <text wrap="false" overflow="ellipsis">{k.name}</text>
+                          <if test="{k.disabled}">
+                            <text wrap="false" overflow="ellipsis" foreground="text_muted">{k.disabled_label}</text>
+                          </if>
+                        </row>
+                        <if test="{k.has_description}">
+                          <text wrap="false" overflow="ellipsis" foreground="text_muted">{k.description}</text>
                         </if>
-                      </row>
-                      <if test="{k.has_description}">
-                        <text wrap="false" overflow="ellipsis" foreground="text_muted">{k.description}</text>
-                      </if>
-                      <text wrap="false" overflow="ellipsis" foreground="text_muted">{k.path}</text>
-                    </column>
-                  </list-item>
+                        <text wrap="false" overflow="ellipsis" foreground="text_muted">{k.path}</text>
+                      </column>
+                    </list-item>
+                  </else>
                 </for>
                 <if test="{skills_needs_select}">
                   <text foreground="text_muted">{skills_select_placeholder}</text>

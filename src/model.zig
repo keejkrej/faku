@@ -373,11 +373,17 @@ pub const RightPanelFileRow = struct {
 /// Settings Skills row. `id` is a 1-based index into the runtime
 /// `SKILL.md` cache so Native `select_skill:{k.id}` /
 /// `insert_skill:{sk.id}` never binds 0 and a filtered click still
-/// targets that path, not a neighbor. `description` /
+/// targets that path, not a neighbor. Section-header rows use
+/// `skills.skill_header_id_*` (well above `skillId`) and
+/// `is_header`; `select_skill` ignores those ids. `description` /
 /// `has_description` are YAML `description:` skill data (not i18n);
 /// empty when missing. `disabled` / `disabled_label` gate the Settings
 /// list Disabled badge (`SKILL.md.disabled`); composer `$` insert
 /// rows stay enabled-only so those fields stay false / empty there.
+/// Header `name` is the painted section label (ASCII uppercased);
+/// `count` is the Latin digit count of visible skill rows in that
+/// section. Composer `$` insert / slash skill rows never set
+/// `is_header`.
 pub const SkillRow = struct {
     id: u32,
     name: []const u8,
@@ -387,6 +393,8 @@ pub const SkillRow = struct {
     selected: bool = false,
     disabled: bool = false,
     disabled_label: []const u8 = "",
+    is_header: bool = false,
+    count: []const u8 = "",
 };
 
 /// Settings Usage history row. `id` is a 1-based Native `for` key.
@@ -5682,6 +5690,10 @@ pub const Model = struct {
         return i18n.skillsSelectChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn skillsSectionChrome(model: *const Model) i18n.SkillsSectionChrome {
+        return i18n.skillsSectionChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn skillsEmptyRichChrome(model: *const Model) i18n.SkillsEmptyRichChrome {
         return i18n.skillsEmptyRichChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6001,25 +6013,55 @@ pub const Model = struct {
         return model.filterChrome().filter_skills;
     }
 
+    /// Settings Skills library rows: project-relative matches first
+    /// under one project-name header, then absolute user-path matches
+    /// under User. Header ids are `skills.skill_header_id_*` (never
+    /// collide with `skillId`). Composer `$` insert stays on
+    /// `skill_insert_rows` (no headers).
     pub fn skill_rows(model: *const Model, arena: std.mem.Allocator) []const SkillRow {
         if (model.settings_page != .skills) return &.{};
         const query = std.mem.trim(u8, model.skills_filter(), " \t\r\n");
-        var count: usize = 0;
+        var project_n: usize = 0;
+        var user_n: usize = 0;
         var i: usize = 0;
         while (i < model.skill_count) : (i += 1) {
             if (!skillRowMatches(&model.skill_store[i], query)) continue;
-            count += 1;
+            if (skills.isAbsoluteSkillPath(model.skill_store[i].path())) {
+                user_n += 1;
+            } else {
+                project_n += 1;
+            }
         }
-        const out = arena.alloc(SkillRow, count) catch return &.{};
+        const header_n = @as(usize, @intFromBool(project_n > 0)) + @as(usize, @intFromBool(user_n > 0));
+        const total = header_n + project_n + user_n;
+        if (total == 0) return &.{};
+        const out = arena.alloc(SkillRow, total) catch return &.{};
         var n: usize = 0;
-        i = 0;
-        while (i < model.skill_count) : (i += 1) {
-            if (!skillRowMatches(&model.skill_store[i], query)) continue;
-            const id = skills.skillId(i);
-            out[n] = skillRowFor(model, i, model.skill_selected_id == id);
+        if (project_n > 0) {
+            out[n] = skillHeaderRow(arena, skills.skill_header_id_project, skills.sectionProjectLabel(model), project_n);
             n += 1;
+            i = 0;
+            while (i < model.skill_count) : (i += 1) {
+                if (!skillRowMatches(&model.skill_store[i], query)) continue;
+                if (skills.isAbsoluteSkillPath(model.skill_store[i].path())) continue;
+                const id = skills.skillId(i);
+                out[n] = skillRowFor(model, i, model.skill_selected_id == id);
+                n += 1;
+            }
         }
-        return out;
+        if (user_n > 0) {
+            out[n] = skillHeaderRow(arena, skills.skill_header_id_user, model.skillsSectionChrome().section_user, user_n);
+            n += 1;
+            i = 0;
+            while (i < model.skill_count) : (i += 1) {
+                if (!skillRowMatches(&model.skill_store[i], query)) continue;
+                if (!skills.isAbsoluteSkillPath(model.skill_store[i].path())) continue;
+                const id = skills.skillId(i);
+                out[n] = skillRowFor(model, i, model.skill_selected_id == id);
+                n += 1;
+            }
+        }
+        return out[0..n];
     }
 
     pub fn skills_empty(model: *const Model) bool {
@@ -9094,6 +9136,19 @@ fn skillRowFor(model: *const Model, index: usize, selected: bool) SkillRow {
         .selected = selected,
         .disabled = disabled,
         .disabled_label = if (disabled) model.skillsEnableChrome().disabled else "",
+    };
+}
+
+fn skillHeaderRow(arena: std.mem.Allocator, id: u32, label: []const u8, count: usize) SkillRow {
+    return .{
+        .id = id,
+        .name = skills.paintedSectionLabel(arena, label),
+        .path = "",
+        .description = "",
+        .selected = false,
+        .disabled = false,
+        .is_header = true,
+        .count = skills.latinCount(arena, count),
     };
 }
 

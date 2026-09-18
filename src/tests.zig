@@ -15976,8 +15976,18 @@ test "settings Skills lists SKILL.md name, description, and path; select shows b
     try testing.expectEqualStrings("demo-skill", skills.cachedName(&model, 0));
 
     var tree = try buildTree(arena, &model);
+    const rows = model.skill_rows(arena);
+    try testing.expectEqual(@as(usize, 2), rows.len);
+    try testing.expect(rows[0].is_header);
+    try testing.expectEqual(skills.skill_header_id_project, rows[0].id);
+    try testing.expectEqualStrings("FAKU-SKILLS-UI", rows[0].name);
+    try testing.expectEqualStrings("1", rows[0].count);
+    try testing.expect(!rows[1].is_header);
+    try testing.expectEqualStrings("demo-skill", rows[1].name);
+    _ = try expectByText(tree.root, .text, "FAKU-SKILLS-UI");
     const row = try expectByText(tree.root, .list_item, "demo-skill");
     try testing.expectEqual(Msg{ .select_skill = 1 }, tree.msgForPointer(row.id, .up).?);
+    try testing.expect(findByText(tree.root, .list_item, "FAKU-SKILLS-UI") == null);
     _ = try expectByText(tree.root, .text, "demo-skill");
     _ = try expectByText(tree.root, .text, "Demo description.");
     _ = try expectByText(tree.root, .text, ".cursor/skills/demo/SKILL.md");
@@ -27984,6 +27994,9 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skills_select_placeholder}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{has_skills_count_caption}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skills_count_caption}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{k.is_header}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{k.count}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"select_skill:{k.id}\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Open a project<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No skills found<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No skills yet<"));
@@ -28225,9 +28238,20 @@ test "Settings Skills empty chrome follows Appearance language" {
         model.skills_select_placeholder(),
     );
     try testing.expectEqualStrings(skills.select_placeholder, model.skills_select_placeholder());
+    {
+        const rows = model.skill_rows(arena);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expect(rows[0].is_header);
+        try testing.expectEqual(skills.skill_header_id_project, rows[0].id);
+        try testing.expectEqualStrings("FAKU-SKILLS-EMPTY-I18N", rows[0].name);
+        try testing.expectEqualStrings("1", rows[0].count);
+        try testing.expect(!rows[1].is_header);
+        try testing.expectEqualStrings("demo", rows[1].name);
+    }
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Select a skill");
     _ = try expectByText(tree.root, .text, "1 skill");
+    _ = try expectByText(tree.root, .text, "FAKU-SKILLS-EMPTY-I18N");
     try testing.expect(findByText(tree.root, .text, "No skills found") == null);
     try testing.expect(findByText(tree.root, .text, "No skills yet") == null);
     try testing.expect(findByText(tree.root, .text, "No skills match your search") == null);

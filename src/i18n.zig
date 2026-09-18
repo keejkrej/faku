@@ -413,6 +413,14 @@
 //! or every cached skill is shown; `%{shown} of %{total} shown`
 //! when a trimmed filter narrows the list; numbers stay Latin;
 //! middle-dot ` · ` stays; wire ids stay English)
+//! plus Settings Skills library section headers (same
+//! `SkillsSectionChrome` strings; `section_user` only; English
+//! matches Waku GPUI `skills.section_user` = "User", not web
+//! `skills.section_user_skills`; project section uses the project
+//! name string, not i18n; distinct from SkillsEmptyChrome /
+//! SkillsCountChrome / SkillsSelectChrome so the header stays
+//! independently evolvable; composer `$` insert / slash skill
+//! rows stay flat; wire ids stay English)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -4402,6 +4410,31 @@ const skills_count_chrome_ja: SkillsCountChrome = .{
     .filter_caption = "%{total} 件中 %{shown} 件を表示",
 };
 
+/// Settings Skills library section-header User label for the
+/// resolved locale. Same resolve path as SkillsEmptyChrome /
+/// SkillsCountChrome / SkillsSelectChrome. English matches Waku
+/// GPUI `skills.section_user` ("User"), not web settings
+/// `skills.section_user_skills` ("User skills"). Distinct from
+/// SkillsEmptyChrome / SkillsCountChrome / SkillsSelectChrome so
+/// the header stays independently evolvable. Project sections
+/// paint the project name string (not this pack). Composer `$`
+/// insert / slash skill rows stay flat. Wire ids stay English.
+pub const SkillsSectionChrome = struct {
+    section_user: []const u8,
+};
+
+const skills_section_chrome_en: SkillsSectionChrome = .{
+    .section_user = "User",
+};
+
+const skills_section_chrome_zh_cn: SkillsSectionChrome = .{
+    .section_user = "用户",
+};
+
+const skills_section_chrome_ja: SkillsSectionChrome = .{
+    .section_user = "ユーザー",
+};
+
 /// Capped scratch for `formatSkillsCountCaption` /
 /// `formatSkillsFilterCaption`. Max cached skills is 64, so Latin
 /// digits stay short; this holds count + ` · ` + disabled or the
@@ -5785,6 +5818,21 @@ pub fn skillsCountChromeFor(preference: LanguagePreference, system_locale_id: []
         .simplified_chinese => skills_count_chrome_zh_cn,
         .japanese => skills_count_chrome_ja,
         .system, .english => skills_count_chrome_en,
+    };
+}
+
+/// Settings Skills library section-header User label for the
+/// resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env.
+/// Distinct from SkillsEmptyChrome / SkillsCountChrome /
+/// SkillsSelectChrome so the header stays independently
+/// evolvable. English matches Waku `skills.section_user`. Wire
+/// ids stay English.
+pub fn skillsSectionChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsSectionChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_section_chrome_zh_cn,
+        .japanese => skills_section_chrome_ja,
+        .system, .english => skills_section_chrome_en,
     };
 }
 
@@ -9427,6 +9475,27 @@ test "skillsCountChromeFor english default; zh and ja chrome; english ignores ja
     try testing.expectEqualStrings("3 件中 1 件を表示", formatSkillsFilterCaption(skillsCountChromeFor(.japanese, ""), 1, 3, &buf));
     try testing.expectEqualStrings("1 of 3 shown", formatSkillsFilterCaption(skillsCountChromeFor(.english, "ja_JP.UTF-8"), 1, 3, &buf));
     try testing.expectEqualStrings("显示 1 / 3 个", formatSkillsFilterCaption(skillsCountChromeFor(.system, "zh_CN.UTF-8"), 1, 3, &buf));
+}
+
+test "skillsSectionChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("User", skillsSectionChromeFor(.english, "ja").section_user);
+    try testing.expectEqualStrings("User", skillsSectionChromeFor(.english, "").section_user);
+    try testing.expectEqualStrings("User", skillsSectionChromeFor(.system, "").section_user);
+
+    try testing.expectEqualStrings("用户", skillsSectionChromeFor(.simplified_chinese, "").section_user);
+    try testing.expectEqualStrings("ユーザー", skillsSectionChromeFor(.japanese, "").section_user);
+
+    try testing.expectEqualStrings("用户", skillsSectionChromeFor(.system, "zh_CN.UTF-8").section_user);
+    try testing.expectEqualStrings("ユーザー", skillsSectionChromeFor(.system, "ja_JP.UTF-8").section_user);
+    try testing.expectEqualStrings("User", skillsSectionChromeFor(.english, "ja_JP.UTF-8").section_user);
+    try testing.expectEqualStrings("User", skillsSectionChromeFor(.english, "zh_CN.UTF-8").section_user);
+
+    try testing.expect(!std.mem.eql(u8, skillsSectionChromeFor(.english, "").section_user, skillsEmptyChromeFor(.english, "").open_project));
+    try testing.expect(!std.mem.eql(u8, skillsSectionChromeFor(.english, "").section_user, skillsSelectChromeFor(.english, "").select_placeholder));
+    try testing.expect(!std.mem.eql(u8, skillsSectionChromeFor(.english, "").section_user, skillsCountChromeFor(.english, "").count_one));
+    try testing.expect(!std.mem.eql(u8, skillsSectionChromeFor(.simplified_chinese, "").section_user, skillsEmptyChromeFor(.simplified_chinese, "").open_project));
+    try testing.expect(!std.mem.eql(u8, skillsSectionChromeFor(.japanese, "").section_user, skillsEmptyChromeFor(.japanese, "").open_project));
 }
 
 test "skillsPathCopiedChromeFor english default; zh and ja chrome; english ignores ja LANG" {
