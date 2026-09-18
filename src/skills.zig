@@ -7,16 +7,25 @@
 //! Native has no FS watcher. Unix one-shots a packed `find` for
 //! `SKILL.md` and `SKILL.md.disabled` (Waku `DISABLED_SKILL_FILE`)
 //! through the same `/bin/sh -c` chdir workaround `fx ask` uses
-//! (`fx_ask_chdir_script`). Windows cannot use `/bin/sh` or `find`:
-//! `powershell.exe -NoProfile -Command {…} -Args <project_path>`
-//! (`$args[0]`; same skip names / depth 8 / cap `max_skills`). Does
-//! **not** prune `.*` — project skills live under `.cursor/skills` /
-//! `.agents/skills`. Settings → Skills still `refresh`s on page open.
+//! (`cd -- "$1"`; project cwd and user roots stay argv slots). Windows
+//! cannot use `/bin/sh` or `find`:
+//! `powershell.exe -NoProfile -Command {…} -Args <project_path> [user roots…]`
+//! (`$args[0]` project, `$args[1…]` existing user roots; never
+//! interpolate `$HOME` into `-Command`). Same skip names / project
+//! depth 8 / user-root depth 2 / cap `max_skills`. Does **not** prune
+//! `.*` — project skills live under `.cursor/skills` / `.agents/skills`.
+//! Local walk prints project-relative lines first, then absolute paths
+//! from Waku `user_skill_locations` that exist (HOME missing skips
+//! user roots fail-closed). One scan cycle / in-flight flag. Nested
+//! chdir wrapper + 9 user slots would exceed Native `max_effect_argv`
+//! 16, so one packed script stays under the cap. Settings → Skills
+//! still `refresh`s on page open.
 //! Composer `$` / `/` slash-prefix calls `ensureScanned` even when
 //! `settings_page != .skills`. Scan root is the selected session
 //! `project_path` when that directory exists, else settings
 //! `last_project_path`. Skip `node_modules` / `target` / `dist` /
-//! `build` / `out` / `vendor` / `__pycache__`. Cap 64 rows. Name comes
+//! `build` / `out` / `vendor` / `__pycache__`. Cap 64 rows (project
+//! hits first, then user roots in Waku order). Name comes
 //! from YAML `name:` frontmatter when present, else the parent folder.
 //! YAML `description:` (plain / quoted, leading `---` fence) is skill
 //! data for Settings list / composer `$` insert / `/` skill-sourced
@@ -48,9 +57,19 @@
 //! `loadSkills` (one `[projectName, projectPath]` tuple for the
 //! current probe path). Ok `skillsCatalog` replaces `skill_store`.
 //! Unknown-command / parse / sidecar / empty / Native 4 KiB overflow
-//! / no address keep today's local `find` / powershell walk. Own
-//! daemon spawn key (`next_daemon_key` on `daemon_load_skills_key`)
-//! — not the find-walk band (530+) or rename band (580+).
+//! / no address keep today's local project+user `find` / powershell
+//! walk. Own daemon spawn key (`next_daemon_key` on
+//! `daemon_load_skills_key`) — not the find-walk band (530+) or
+//! rename band (580+). Local user roots (only those that exist):
+//! `$HOME/.agents/skills`; `$CLAUDE_CONFIG_DIR/skills` when
+//! `CLAUDE_CONFIG_DIR` is set and absolute, else `$HOME/.claude/skills`;
+//! `$HOME/.codex/skills`; `$HOME/.config/opencode/skills`;
+//! `$HOME/.cursor/skills`; `$HOME/.fx/skills`; `$HOME/.pi/agent/skills`;
+//! `$HOME/.omp/agent/skills`; `$HOME/.config/agents/skills`.
+//! `HOME` / `USERPROFILE` / `CLAUDE_CONFIG_DIR` via Zig std process
+//! env (same class as locale env). Windows home prefers
+//! `USERPROFILE`. Daemon `loadSkills` still replaces `skill_store`
+//! on ok.
 //! Enable/Disable prefers hello + `setSkillsEnabled` when a daemon
 //! address is set (`dirs` = `[absSkillParent]`, `enabled` = !current;
 //! own `next_daemon_key` on `daemon_set_skills_enabled_key`). Ok
@@ -173,6 +192,8 @@ pub const max_skills: usize = 64;
 pub const max_skills_s = std.fmt.comptimePrint("{d}", .{max_skills});
 pub const max_skill_path: usize = 255;
 pub const max_skill_name: usize = 64;
+/// Waku `user_skill_locations` count. Only existing roots are argv slots.
+pub const max_user_skill_roots: usize = 9;
 /// One-line UI cap for YAML `description:` (larger than name; not the body).
 pub const max_skill_description: usize = 160;
 pub const max_skill_body: usize = 4096;
@@ -213,6 +234,8 @@ pub const find_maxdepth = file_mention.find_maxdepth;
 pub const find_prune = file_mention.find_prune;
 pub const find_type_file = file_mention.find_type_file;
 pub const find_name_flag = "-name";
+/// Shallow user-root walk: `root/<skill>/SKILL.md` is depth 2.
+pub const find_user_maxdepth = "2";
 pub const powershell_bin = file_mention.powershell_bin;
 pub const powershell_noprofile = file_mention.powershell_noprofile;
 pub const powershell_command = file_mention.powershell_command;
@@ -233,15 +256,29 @@ pub const walk_skip_names = file_mention.walk_skip_names;
 pub const find_skills_script =
     "find . -maxdepth 8 \\( -name node_modules -o -name target -o -name dist -o -name build -o -name out -o -name vendor -o -name __pycache__ \\) -prune -o -type f \\( -name SKILL.md -o -name SKILL.md.disabled \\) -print";
 
-/// Scriptblock + `$args[0]`: project path is its own argv slot after
-/// `-Args`, not spliced into the `-Command` body. Distinct from
-/// `file_mention.powershell_walk_script`: does **not** skip names
-/// starting with `.` (skills live under `.cursor` / `.agents`). Files
-/// named exactly `SKILL.md` / `SKILL.md.disabled` only, depth 8, same
-/// skip names, relative paths with `/`, cap `max_skills`. Six argv
-/// slots total.
+/// User-root find: `$root` is the loop variable after `shift` (argv
+/// slots, not interpolated). Shallow `maxdepth` 2.
+pub const find_user_skills_script =
+    "find \"$root\" -maxdepth 2 \\( -name node_modules -o -name target -o -name dist -o -name build -o -name out -o -name vendor -o -name __pycache__ \\) -prune -o -type f \\( -name SKILL.md -o -name SKILL.md.disabled \\) -print";
+
+/// One `-c` body: `cd -- "$1"` (project cwd argv slot), project
+/// `find .` (relative lines), then remaining argv slots as user roots
+/// (absolute lines). Nested `fx_ask_chdir_script` + inner `-c` + 9
+/// user slots would be 17 argv (over Native 16), so this packed
+/// script stays 5+N (max 14).
+pub const unix_skills_walk_script =
+    "cd -- \"$1\" || exit 1; " ++ find_skills_script ++ "; st=$?; shift; for root; do [ -d \"$root\" ] || continue; " ++ find_user_skills_script ++ " || :; done; exit $st";
+
+/// Scriptblock + `$args[0]` project path, `$args[1…]` existing user
+/// roots: all stay argv slots after `-Args`, never spliced into the
+/// `-Command` body. Distinct from `file_mention.powershell_walk_script`:
+/// does **not** skip names starting with `.` (skills live under
+/// `.cursor` / `.agents`). Files named exactly `SKILL.md` /
+/// `SKILL.md.disabled` only. Project walk depth 8 / relative `/`
+/// paths; user-root walk depth 2 / absolute `/` paths; same skip
+/// names; cap `max_skills` across both. 6+N argv slots (max 15).
 pub const powershell_skills_walk_script =
-    "{ $ErrorActionPreference='Stop'; $script:root=$args[0].TrimEnd('\\','/'); $script:skip=@('node_modules','target','dist','build','out','vendor','__pycache__'); $script:want=@('SKILL.md','SKILL.md.disabled'); $script:n=0; function Walk($dir,$depth){ if($script:n -ge " ++ max_skills_s ++ "){return}; foreach($item in (Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue)){ if($script:n -ge " ++ max_skills_s ++ "){return}; $d=$depth+1; if($d -gt 8){continue}; $name=$item.Name; if($script:skip -contains $name){continue}; if($item.PSIsContainer){ if($d -lt 8){ Walk $item.FullName $d } } else { if($script:want -cnotcontains $name){continue}; $rel=$item.FullName.Substring($script:root.Length).TrimStart('\\','/'); Write-Output ($rel -replace '\\\\','/'); $script:n++ } } }; Walk $script:root 0 }";
+    "{ $ErrorActionPreference='Stop'; $script:skip=@('node_modules','target','dist','build','out','vendor','__pycache__'); $script:want=@('SKILL.md','SKILL.md.disabled'); $script:n=0; function Walk($dir,$depth,$maxd,$asAbs){ if($script:n -ge " ++ max_skills_s ++ "){return}; foreach($item in (Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue)){ if($script:n -ge " ++ max_skills_s ++ "){return}; $d=$depth+1; if($d -gt $maxd){continue}; $name=$item.Name; if($script:skip -contains $name){continue}; if($item.PSIsContainer){ if($d -lt $maxd){ Walk $item.FullName $d $maxd $asAbs } } else { if($script:want -cnotcontains $name){continue}; if($asAbs){ Write-Output ($item.FullName -replace '\\\\','/') } else { $rel=$item.FullName.Substring($script:root.Length).TrimStart('\\','/'); Write-Output ($rel -replace '\\\\','/') }; $script:n++ } } }; $script:root=$args[0].TrimEnd('\\','/'); Walk $script:root 0 8 $false; for($i=1; $i -lt $args.Count; $i++){ if($script:n -ge " ++ max_skills_s ++ "){break}; $u=[string]$args[$i]; if([string]::IsNullOrWhiteSpace($u)){continue}; $u=$u.TrimEnd('\\','/'); if(-not (Test-Path -LiteralPath $u -PathType Container)){continue}; Walk $u 0 2 $true } }";
 
 /// Scriptblock + `$args[0]` / `$args[1]` / `$args[2]`: skill-dir,
 /// from-name, and to-name stay argv slots after `-Args` (never
@@ -257,12 +294,14 @@ pub const powershell_skills_rename_script =
 pub const powershell_skills_remove_script =
     "{ $ErrorActionPreference='Stop'; Remove-Item -LiteralPath $args[0] -Recurse -Force }";
 
-/// Unix `/bin/sh -c` chdir + `/bin/sh -c` + `find_skills_script` (8).
-/// Windows powershell `-Command` + `-Args` is 6; this is the spawn
-/// buffer (max of the two).
-pub const walk_argv_len: usize = 8;
-pub const unix_walk_argv_len: usize = 8;
-pub const windows_walk_argv_len: usize = 6;
+/// Unix packed `-c` is 5 + user roots (max 14). Windows powershell
+/// `-Command` + `-Args` is 6 + user roots (max 15). Spawn buffer is
+/// Native `max_effect_argv` 16.
+pub const walk_argv_len: usize = 16;
+pub const unix_walk_argv_base: usize = 5;
+pub const windows_walk_argv_base: usize = 6;
+pub const unix_walk_argv_len: usize = unix_walk_argv_base + max_user_skill_roots;
+pub const windows_walk_argv_len: usize = windows_walk_argv_base + max_user_skill_roots;
 /// Unix `/bin/sh -c` chdir + `mv --` from to (9). Windows powershell
 /// `-Command` + `-Args` skill-dir / from / to is 8; this is the spawn
 /// buffer (max of the two). Native `max_effect_argv` is 16.
@@ -349,37 +388,52 @@ pub const CachedSkill = struct {
     }
 };
 
-pub fn unixWalkArgvFor(cwd: []const u8, buf: *[walk_argv_len][]const u8) []const []const u8 {
-    buf.* = .{
-        sh_bin,
-        "-c",
-        util.fx_ask_chdir_script,
-        "sh",
-        cwd,
-        sh_bin,
-        "-c",
-        find_skills_script,
-    };
-    return buf[0..unix_walk_argv_len];
+pub fn unixWalkArgvLen(user_n: usize) usize {
+    return unix_walk_argv_base + @min(user_n, max_user_skill_roots);
+}
+
+pub fn windowsWalkArgvLen(user_n: usize) usize {
+    return windows_walk_argv_base + @min(user_n, max_user_skill_roots);
+}
+
+/// Unix: `/bin/sh -c <packed> sh <project_cwd> [user_root…]`.
+/// Project cwd is `$1`; user roots stay later argv slots.
+pub fn unixWalkArgvFor(cwd: []const u8, user_roots: []const []const u8, buf: *[walk_argv_len][]const u8) []const []const u8 {
+    buf[0] = sh_bin;
+    buf[1] = "-c";
+    buf[2] = unix_skills_walk_script;
+    buf[3] = "sh";
+    buf[4] = cwd;
+    const n = @min(user_roots.len, max_user_skill_roots);
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        buf[unix_walk_argv_base + i] = user_roots[i];
+    }
+    return buf[0..unixWalkArgvLen(n)];
 }
 
 /// Windows: `powershell.exe -NoProfile -Command {scriptblock} -Args
-/// <project_path>`. Path stays `$args[0]` — not interpolated into
-/// the `-Command` body.
-pub fn windowsWalkArgvFor(cwd: []const u8, buf: *[walk_argv_len][]const u8) []const []const u8 {
+/// <project_path> [user_root…]`. Paths stay `$args[0]` / `$args[1…]`
+/// — not interpolated into the `-Command` body.
+pub fn windowsWalkArgvFor(cwd: []const u8, user_roots: []const []const u8, buf: *[walk_argv_len][]const u8) []const []const u8 {
     buf[0] = powershell_bin;
     buf[1] = powershell_noprofile;
     buf[2] = powershell_command;
     buf[3] = powershell_skills_walk_script;
     buf[4] = powershell_args_flag;
     buf[5] = cwd;
-    return buf[0..windows_walk_argv_len];
+    const n = @min(user_roots.len, max_user_skill_roots);
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        buf[windows_walk_argv_base + i] = user_roots[i];
+    }
+    return buf[0..windowsWalkArgvLen(n)];
 }
 
-pub fn argvFor(cwd: []const u8, buf: *[walk_argv_len][]const u8) []const []const u8 {
+pub fn argvFor(cwd: []const u8, user_roots: []const []const u8, buf: *[walk_argv_len][]const u8) []const []const u8 {
     return switch (builtin.os.tag) {
-        .windows => windowsWalkArgvFor(cwd, buf),
-        else => unixWalkArgvFor(cwd, buf),
+        .windows => windowsWalkArgvFor(cwd, user_roots, buf),
+        else => unixWalkArgvFor(cwd, user_roots, buf),
     };
 }
 
@@ -388,36 +442,50 @@ fn scriptHas(script: []const u8, needle: []const u8) bool {
 }
 
 fn isUnixSkillsWalkArgv(argv: []const []const u8) bool {
-    if (argv.len != unix_walk_argv_len) return false;
+    if (argv.len < unix_walk_argv_base or argv.len > unix_walk_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], util.fx_ask_chdir_script)) return false;
-    if (!std.mem.eql(u8, argv[5], sh_bin)) return false;
-    if (!std.mem.eql(u8, argv[6], "-c")) return false;
-    if (!std.mem.eql(u8, argv[7], find_skills_script)) return false;
-    if (!scriptHas(argv[7], find_maxdepth_flag)) return false;
-    if (!scriptHas(argv[7], find_maxdepth)) return false;
-    if (!scriptHas(argv[7], find_prune)) return false;
-    if (!scriptHas(argv[7], find_type_file)) return false;
-    if (!scriptHas(argv[7], find_name_flag)) return false;
-    if (!scriptHas(argv[7], skill_filename)) return false;
-    if (!scriptHas(argv[7], disabled_skill_filename)) return false;
+    if (!std.mem.eql(u8, argv[2], unix_skills_walk_script)) return false;
+    if (!std.mem.eql(u8, argv[3], "sh")) return false;
+    if (argv[4].len == 0) return false;
+    var i: usize = unix_walk_argv_base;
+    while (i < argv.len) : (i += 1) {
+        if (argv[i].len == 0) return false;
+        if (scriptHas(argv[2], argv[i])) return false;
+    }
+    if (!scriptHas(argv[2], find_skills_script)) return false;
+    if (!scriptHas(argv[2], find_user_skills_script)) return false;
+    if (!scriptHas(argv[2], find_maxdepth_flag)) return false;
+    if (!scriptHas(argv[2], find_maxdepth)) return false;
+    if (!scriptHas(argv[2], find_user_maxdepth)) return false;
+    if (!scriptHas(argv[2], find_prune)) return false;
+    if (!scriptHas(argv[2], find_type_file)) return false;
+    if (!scriptHas(argv[2], find_name_flag)) return false;
+    if (!scriptHas(argv[2], skill_filename)) return false;
+    if (!scriptHas(argv[2], disabled_skill_filename)) return false;
+    if (!scriptHas(argv[2], "$1")) return false;
     inline for (walk_skip_names) |name| {
-        if (!scriptHas(argv[7], name)) return false;
+        if (!scriptHas(argv[2], name)) return false;
     }
     return true;
 }
 
 fn isWindowsSkillsWalkArgv(argv: []const []const u8) bool {
-    if (argv.len != windows_walk_argv_len) return false;
+    if (argv.len < windows_walk_argv_base or argv.len > windows_walk_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], powershell_bin)) return false;
     if (!std.mem.eql(u8, argv[1], powershell_noprofile)) return false;
     if (!std.mem.eql(u8, argv[2], powershell_command)) return false;
     if (!std.mem.eql(u8, argv[3], powershell_skills_walk_script)) return false;
     if (!std.mem.eql(u8, argv[4], powershell_args_flag)) return false;
     if (argv[5].len == 0) return false;
+    var i: usize = windows_walk_argv_base;
+    while (i < argv.len) : (i += 1) {
+        if (argv[i].len == 0) return false;
+        if (scriptHas(argv[3], argv[i])) return false;
+    }
     if (!scriptHas(argv[3], "$args[0]")) return false;
     if (!scriptHas(argv[3], find_maxdepth)) return false;
+    if (!scriptHas(argv[3], find_user_maxdepth)) return false;
     if (!scriptHas(argv[3], max_skills_s)) return false;
     if (!scriptHas(argv[3], skill_filename)) return false;
     if (!scriptHas(argv[3], disabled_skill_filename)) return false;
@@ -580,18 +648,21 @@ pub fn isSkillsRemoveArgv(argv: []const []const u8) bool {
 
 /// Fail-closed guard for the permanent remove fallback. `dir` must be
 /// non-empty, must not be `/` / `.` / `..`, must not contain a `..`
-/// segment, and must contain the selected skill's parent dir from
-/// cache (relative `skillDirKey`) as a path suffix. Absolute paths
-/// preferred; nested relative paths (test zig-cache / unusual
-/// relative `project_path`) are allowed when they still look like
-/// that skill parent.
+/// segment, and must look like the selected skill's parent from
+/// cache (`skillDirKey`): either equal when that parent is already
+/// absolute (user-root catalog paths) or contain it as a path
+/// suffix. Absolute paths preferred; nested relative paths (test
+/// zig-cache / unusual relative `project_path`) are allowed when they
+/// still look like that skill parent.
 pub fn trashDirAllowed(dir: []const u8, parent_from_cache: []const u8) bool {
     if (dir.len == 0 or parent_from_cache.len == 0) return false;
     if (std.mem.eql(u8, dir, "/") or std.mem.eql(u8, dir, "\\")) return false;
     if (std.mem.eql(u8, dir, ".") or std.mem.eql(u8, dir, "..")) return false;
     if (std.mem.indexOf(u8, dir, "..") != null) return false;
-    if (!pathEndsWithDir(dir, parent_from_cache)) return false;
-    if (isAbsoluteSkillPath(dir) or std.fs.path.isAbsolute(dir)) return true;
+    const abs_dir = isAbsoluteSkillPath(dir) or std.fs.path.isAbsolute(dir);
+    const same_abs = abs_dir and std.mem.eql(u8, dir, parent_from_cache);
+    if (!same_abs and !pathEndsWithDir(dir, parent_from_cache)) return false;
+    if (abs_dir) return true;
     return std.mem.indexOfAny(u8, dir, "/\\") != null;
 }
 
@@ -613,6 +684,165 @@ pub fn scanSupportedOn(tag: std.Target.Os.Tag) bool {
 
 pub fn scanSupported() bool {
     return scanSupportedOn(builtin.os.tag);
+}
+
+/// Process-env inputs for Waku `user_skill_locations`. Tests inject
+/// these instead of reading live `$HOME`.
+pub const UserSkillEnv = struct {
+    home: []const u8 = "",
+    userprofile: []const u8 = "",
+    claude_config_dir: []const u8 = "",
+};
+
+/// `HOME` on Unix; `USERPROFILE` on Windows (then `HOME`). Empty
+/// when both are missing (user-root scan fail-closed).
+pub fn processHomeDirOn(tag: std.Target.Os.Tag, home: []const u8, userprofile: []const u8) []const u8 {
+    return switch (tag) {
+        .windows => if (userprofile.len > 0) userprofile else home,
+        else => if (home.len > 0) home else userprofile,
+    };
+}
+
+pub fn processHomeDir(home: []const u8, userprofile: []const u8) []const u8 {
+    return processHomeDirOn(builtin.os.tag, home, userprofile);
+}
+
+/// Host-agnostic absolute check for `CLAUDE_CONFIG_DIR` (Unix `/…`
+/// or Windows drive-letter). Relative / empty → no override.
+pub fn isAbsoluteEnvPath(path: []const u8) bool {
+    if (path.len == 0) return false;
+    if (path[0] == '/' or path[0] == '\\') return true;
+    return path.len >= 2 and std.ascii.isAlphabetic(path[0]) and path[1] == ':';
+}
+
+fn copyProcessEnv(name: []const u8, dest: []u8) []const u8 {
+    const value = std.process.getEnvVarOwned(std.heap.page_allocator, name) catch return "";
+    defer std.heap.page_allocator.free(value);
+    if (value.len == 0 or value.len > dest.len) return "";
+    @memcpy(dest[0..value.len], value);
+    return dest[0..value.len];
+}
+
+/// `HOME` / `USERPROFILE` / `CLAUDE_CONFIG_DIR` via Zig std process
+/// env (same class as locale env; not a Native env API).
+pub fn readProcessUserSkillEnv(home_buf: []u8, userprofile_buf: []u8, claude_buf: []u8) UserSkillEnv {
+    return .{
+        .home = copyProcessEnv("HOME", home_buf),
+        .userprofile = copyProcessEnv("USERPROFILE", userprofile_buf),
+        .claude_config_dir = copyProcessEnv("CLAUDE_CONFIG_DIR", claude_buf),
+    };
+}
+
+fn joinRootRel(root: []const u8, rel: []const u8, buf: []u8) ?[]const u8 {
+    const base = std.mem.trimEnd(u8, root, "/\\");
+    const rest = std.mem.trim(u8, rel, "/\\");
+    if (base.len == 0 or rest.len == 0) return null;
+    const printed = std.fmt.bufPrint(buf, "{s}/{s}", .{ base, rest }) catch return null;
+    slashNormalizeInPlace(printed);
+    return printed;
+}
+
+fn claudeSkillsRoot(env: UserSkillEnv, home: []const u8, buf: []u8) ?[]const u8 {
+    const claude = std.mem.trim(u8, env.claude_config_dir, " \t\r\n");
+    if (claude.len > 0 and isAbsoluteEnvPath(claude)) {
+        return joinRootRel(claude, "skills", buf);
+    }
+    return joinRootRel(home, ".claude/skills", buf);
+}
+
+/// Candidate user skill roots in Waku `user_skill_locations` order.
+/// Does not check existence. Empty `HOME`/`USERPROFILE` yields zero
+/// (fail-closed). Claude is `$CLAUDE_CONFIG_DIR/skills` when that
+/// env is set and absolute, else `$HOME/.claude/skills`.
+pub fn collectUserSkillRootCandidates(
+    env: UserSkillEnv,
+    store: *[max_user_skill_roots][max_skill_path]u8,
+    dest: *[max_user_skill_roots][]const u8,
+) usize {
+    const home = processHomeDir(env.home, env.userprofile);
+    if (home.len == 0) return 0;
+
+    const rels = [_][]const u8{
+        ".agents/skills",
+        ".codex/skills",
+        ".config/opencode/skills",
+        ".cursor/skills",
+        ".fx/skills",
+        ".pi/agent/skills",
+        ".omp/agent/skills",
+        ".config/agents/skills",
+    };
+
+    var n: usize = 0;
+    if (joinRootRel(home, ".agents/skills", store[n][0..])) |path| {
+        dest[n] = path;
+        n += 1;
+    }
+    if (claudeSkillsRoot(env, home, store[n][0..])) |path| {
+        dest[n] = path;
+        n += 1;
+    }
+    for (rels[1..]) |rel| {
+        if (n >= max_user_skill_roots) break;
+        if (joinRootRel(home, rel, store[n][0..])) |path| {
+            dest[n] = path;
+            n += 1;
+        }
+    }
+    return n;
+}
+
+/// Keep only directories that exist, in candidate order.
+pub fn existingUserSkillRoots(
+    io: std.Io,
+    candidates: []const []const u8,
+    dest: *[max_user_skill_roots][]const u8,
+) usize {
+    var n: usize = 0;
+    for (candidates) |path| {
+        if (n >= max_user_skill_roots) break;
+        if (path.len == 0) continue;
+        if (!util.directoryExists(io, path)) continue;
+        dest[n] = path;
+        n += 1;
+    }
+    return n;
+}
+
+fn storeUserRootsOnModel(model: *Model, roots: []const []const u8) void {
+    const n = @min(roots.len, max_user_skill_roots);
+    model.skill_user_root_count = n;
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        writeFixed(&model.skill_user_root_storage[i], &model.skill_user_root_len[i], roots[i]);
+        slashNormalizeInPlace(model.skill_user_root_storage[i][0..model.skill_user_root_len[i]]);
+    }
+    while (i < max_user_skill_roots) : (i += 1) {
+        model.skill_user_root_len[i] = 0;
+    }
+}
+
+/// Collect Waku user-root candidates from `env`, keep directories
+/// that exist, store them on the model for the packed walk argv.
+fn bindUserSkillRootsFromEnv(model: *Model, env: UserSkillEnv) void {
+    var cand_store: [max_user_skill_roots][max_skill_path]u8 = undefined;
+    var cand_ptrs: [max_user_skill_roots][]const u8 = undefined;
+    const cand_n = collectUserSkillRootCandidates(env, &cand_store, &cand_ptrs);
+    var existing: [max_user_skill_roots][]const u8 = undefined;
+    const exist_n = if (model.store_io) |io|
+        existingUserSkillRoots(io, cand_ptrs[0..cand_n], &existing)
+    else
+        0;
+    storeUserRootsOnModel(model, existing[0..exist_n]);
+}
+
+fn userRootsOnModel(model: *const Model, dest: *[max_user_skill_roots][]const u8) []const []const u8 {
+    const n = @min(model.skill_user_root_count, max_user_skill_roots);
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        dest[i] = model.skill_user_root_storage[i][0..model.skill_user_root_len[i]];
+    }
+    return dest[0..n];
 }
 
 pub fn cachedCount(model: *const Model) u32 {
@@ -857,13 +1087,21 @@ fn trySpawnDaemon(model: *Model, fx: *Effects, cwd: []const u8) bool {
 }
 
 fn spawnWalk(model: *Model, fx: *Effects, cwd: []const u8) void {
+    var home_buf: [max_skill_path]u8 = undefined;
+    var userprofile_buf: [max_skill_path]u8 = undefined;
+    var claude_buf: [max_skill_path]u8 = undefined;
+    const env = readProcessUserSkillEnv(&home_buf, &userprofile_buf, &claude_buf);
+    bindUserSkillRootsFromEnv(model, env);
+    var root_ptrs: [max_user_skill_roots][]const u8 = undefined;
+    const roots = userRootsOnModel(model, &root_ptrs);
+
     const key = model.next_skill_key;
     model.next_skill_key = key + 1;
     model.skill_key = key;
     var argv_buf: [walk_argv_len][]const u8 = undefined;
     fx.spawn(.{
         .key = key,
-        .argv = argvFor(cwd, &argv_buf),
+        .argv = argvFor(cwd, roots, &argv_buf),
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
@@ -1812,31 +2050,59 @@ fn skillRowMatches(skill: *const CachedSkill, query: []const u8) bool {
         util.asciiContainsIgnoreCase(skill.description(), query);
 }
 
-test "argv is chdir script plus find SKILL.md skips; not file-mention walk" {
+test "argv is packed chdir plus find SKILL.md then user-root slots; not file-mention walk" {
     var buf: [walk_argv_len][]const u8 = undefined;
-    const argv = unixWalkArgvFor("/tmp/faku-skills", &buf);
-    try std.testing.expectEqual(@as(usize, unix_walk_argv_len), argv.len);
+    const argv = unixWalkArgvFor("/tmp/faku-skills", &.{}, &buf);
+    try std.testing.expectEqual(@as(usize, unix_walk_argv_base), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
-    try std.testing.expectEqualStrings(util.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings(unix_skills_walk_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
     try std.testing.expectEqualStrings("/tmp/faku-skills", argv[4]);
-    try std.testing.expectEqualStrings(sh_bin, argv[5]);
-    try std.testing.expectEqualStrings("-c", argv[6]);
-    try std.testing.expectEqualStrings(find_skills_script, argv[7]);
     try std.testing.expect(isSkillsWalkArgv(argv));
     try std.testing.expect(!file_mention.isWalkArgv(argv));
     try std.testing.expect(!file_mention.isGitLsFilesArgv(argv));
-    try std.testing.expect(scriptHas(argv[7], find_maxdepth_flag));
-    try std.testing.expect(scriptHas(argv[7], find_maxdepth));
-    try std.testing.expect(scriptHas(argv[7], find_prune));
-    try std.testing.expect(scriptHas(argv[7], find_type_file));
-    try std.testing.expect(scriptHas(argv[7], skill_filename));
-    try std.testing.expect(scriptHas(argv[7], disabled_skill_filename));
-    try std.testing.expect(!scriptHas(argv[7], file_mention.find_dot_star));
+    try std.testing.expect(scriptHas(argv[2], find_skills_script));
+    try std.testing.expect(scriptHas(argv[2], find_user_skills_script));
+    try std.testing.expect(scriptHas(argv[2], find_maxdepth_flag));
+    try std.testing.expect(scriptHas(argv[2], find_maxdepth));
+    try std.testing.expect(scriptHas(argv[2], find_user_maxdepth));
+    try std.testing.expect(scriptHas(argv[2], find_prune));
+    try std.testing.expect(scriptHas(argv[2], find_type_file));
+    try std.testing.expect(scriptHas(argv[2], skill_filename));
+    try std.testing.expect(scriptHas(argv[2], disabled_skill_filename));
+    try std.testing.expect(scriptHas(argv[2], "$1"));
+    try std.testing.expect(!scriptHas(argv[2], file_mention.find_dot_star));
     inline for (walk_skip_names) |name| {
-        try std.testing.expect(scriptHas(argv[7], name));
+        try std.testing.expect(scriptHas(argv[2], name));
     }
+    const user_root = "/tmp/faku-user/.cursor/skills";
+    const with_user = unixWalkArgvFor("/tmp/faku-skills", &.{user_root}, &buf);
+    try std.testing.expectEqual(@as(usize, unix_walk_argv_base + 1), with_user.len);
+    try std.testing.expectEqualStrings(user_root, with_user[5]);
+    try std.testing.expect(std.mem.indexOf(u8, with_user[2], user_root) == null);
+    try std.testing.expect(isSkillsWalkArgv(with_user));
+    try std.testing.expect(with_user.len <= 16);
+    const nine = [_][]const u8{
+        "/home/me/.agents/skills",
+        "/home/me/.claude/skills",
+        "/home/me/.codex/skills",
+        "/home/me/.config/opencode/skills",
+        "/home/me/.cursor/skills",
+        "/home/me/.fx/skills",
+        "/home/me/.pi/agent/skills",
+        "/home/me/.omp/agent/skills",
+        "/home/me/.config/agents/skills",
+    };
+    const packed = unixWalkArgvFor("/tmp/faku-skills", &nine, &buf);
+    try std.testing.expectEqual(@as(usize, unix_walk_argv_base + 9), packed.len);
+    try std.testing.expect(packed.len <= 16);
+    try std.testing.expectEqualStrings("/tmp/faku-skills", packed[4]);
+    try std.testing.expectEqualStrings(nine[0], packed[5]);
+    try std.testing.expectEqualStrings(nine[8], packed[13]);
+    try std.testing.expect(std.mem.indexOf(u8, packed[2], nine[0]) == null);
+    try std.testing.expect(std.mem.indexOf(u8, packed[2], nine[5]) == null);
+    try std.testing.expect(isSkillsWalkArgv(packed));
     try std.testing.expect(!isSkillsWalkArgv(&.{ find_bin, find_skills_script }));
     var mention_buf: [file_mention.walk_argv_len][]const u8 = undefined;
     try std.testing.expect(!isSkillsWalkArgv(file_mention.unixWalkArgvFor("/tmp/faku-skills", &mention_buf)));
@@ -1849,11 +2115,11 @@ test "argv is chdir script plus find SKILL.md skips; not file-mention walk" {
     try std.testing.expect(skills_remove_key_first < 600);
 }
 
-test "windows walk argv is powershell scriptblock -Args PATH; descends into hidden dirs" {
+test "windows walk argv is powershell scriptblock -Args PATH then user roots; descends into hidden dirs" {
     var buf: [walk_argv_len][]const u8 = undefined;
     const cwd = "C:\\Users\\me\\proj";
-    const argv = windowsWalkArgvFor(cwd, &buf);
-    try std.testing.expectEqual(@as(usize, windows_walk_argv_len), argv.len);
+    const argv = windowsWalkArgvFor(cwd, &.{}, &buf);
+    try std.testing.expectEqual(@as(usize, windows_walk_argv_base), argv.len);
     try std.testing.expect(argv.len <= 16);
     try std.testing.expectEqualStrings(powershell_bin, argv[0]);
     try std.testing.expectEqualStrings(powershell_noprofile, argv[1]);
@@ -1867,6 +2133,7 @@ test "windows walk argv is powershell scriptblock -Args PATH; descends into hidd
     try std.testing.expect(std.mem.indexOf(u8, argv[3], cwd) == null);
     try std.testing.expect(scriptHas(argv[3], "$args[0]"));
     try std.testing.expect(scriptHas(argv[3], find_maxdepth));
+    try std.testing.expect(scriptHas(argv[3], find_user_maxdepth));
     try std.testing.expect(scriptHas(argv[3], max_skills_s));
     try std.testing.expect(scriptHas(argv[3], skill_filename));
     try std.testing.expect(scriptHas(argv[3], disabled_skill_filename));
@@ -1875,6 +2142,35 @@ test "windows walk argv is powershell scriptblock -Args PATH; descends into hidd
     inline for (walk_skip_names) |name| {
         try std.testing.expect(scriptHas(argv[3], name));
     }
+    const user_root = "C:\\Users\\me\\.cursor\\skills";
+    const with_user = windowsWalkArgvFor(cwd, &.{user_root}, &buf);
+    try std.testing.expectEqual(@as(usize, windows_walk_argv_base + 1), with_user.len);
+    try std.testing.expectEqualStrings(user_root, with_user[6]);
+    try std.testing.expect(std.mem.indexOf(u8, with_user[3], user_root) == null);
+    try std.testing.expect(std.mem.indexOf(u8, with_user[3], "$HOME") == null);
+    try std.testing.expect(std.mem.indexOf(u8, with_user[3], "USERPROFILE") == null);
+    try std.testing.expect(isSkillsWalkArgv(with_user));
+    try std.testing.expect(with_user.len <= 16);
+    const nine = [_][]const u8{
+        "C:\\Users\\me\\.agents\\skills",
+        "C:\\Users\\me\\.claude\\skills",
+        "C:\\Users\\me\\.codex\\skills",
+        "C:\\Users\\me\\.config\\opencode\\skills",
+        "C:\\Users\\me\\.cursor\\skills",
+        "C:\\Users\\me\\.fx\\skills",
+        "C:\\Users\\me\\.pi\\agent\\skills",
+        "C:\\Users\\me\\.omp\\agent\\skills",
+        "C:\\Users\\me\\.config\\agents\\skills",
+    };
+    const packed = windowsWalkArgvFor(cwd, &nine, &buf);
+    try std.testing.expectEqual(@as(usize, windows_walk_argv_base + 9), packed.len);
+    try std.testing.expect(packed.len <= 16);
+    try std.testing.expectEqualStrings(cwd, packed[5]);
+    try std.testing.expectEqualStrings(nine[0], packed[6]);
+    try std.testing.expectEqualStrings(nine[8], packed[14]);
+    try std.testing.expect(std.mem.indexOf(u8, packed[3], nine[0]) == null);
+    try std.testing.expect(std.mem.indexOf(u8, packed[3], "$HOME") == null);
+    try std.testing.expect(isSkillsWalkArgv(packed));
     try std.testing.expect(!isSkillsWalkArgv(&.{
         powershell_bin,
         powershell_noprofile,
@@ -1889,7 +2185,7 @@ test "windows walk argv is powershell scriptblock -Args PATH; descends into hidd
 
 test "host argvFor and renameArgvFor match the process OS" {
     var walk_buf: [walk_argv_len][]const u8 = undefined;
-    const walk_argv = argvFor("/tmp/faku-skills", &walk_buf);
+    const walk_argv = argvFor("/tmp/faku-skills", &.{}, &walk_buf);
     try std.testing.expect(isSkillsWalkArgv(walk_argv));
     var rename_buf: [rename_argv_len][]const u8 = undefined;
     const rename_argv = renameArgvFor("/tmp/faku-skill-dir", false, &rename_buf);
@@ -1907,6 +2203,7 @@ test "host argvFor and renameArgvFor match the process OS" {
         .windows => {
             try std.testing.expectEqualStrings(powershell_bin, walk_argv[0]);
             try std.testing.expectEqualStrings(powershell_args_flag, walk_argv[4]);
+            try std.testing.expectEqual(@as(usize, windows_walk_argv_base), walk_argv.len);
             try std.testing.expectEqualStrings(powershell_bin, rename_argv[0]);
             try std.testing.expectEqualStrings(powershell_args_flag, rename_argv[4]);
             try std.testing.expectEqualStrings(powershell_bin, remove_argv[0]);
@@ -1914,7 +2211,8 @@ test "host argvFor and renameArgvFor match the process OS" {
         },
         else => {
             try std.testing.expectEqualStrings(sh_bin, walk_argv[0]);
-            try std.testing.expectEqualStrings(find_skills_script, walk_argv[7]);
+            try std.testing.expectEqualStrings(unix_skills_walk_script, walk_argv[2]);
+            try std.testing.expectEqual(@as(usize, unix_walk_argv_base), walk_argv.len);
             try std.testing.expectEqualStrings(sh_bin, rename_argv[0]);
             try std.testing.expectEqualStrings(mv_bin, rename_argv[5]);
             try std.testing.expectEqualStrings(sh_bin, remove_argv[0]);
@@ -1930,6 +2228,318 @@ test "scanSupported is true on macOS Linux Windows" {
     try std.testing.expect(scanSupportedOn(.macos));
     try std.testing.expect(scanSupportedOn(.windows));
     try std.testing.expect(scanSupported());
+}
+
+test "userSkillRootCandidates lists Waku order; HOME missing is empty; CLAUDE_CONFIG_DIR absolute override" {
+    var store: [max_user_skill_roots][max_skill_path]u8 = undefined;
+    var dest: [max_user_skill_roots][]const u8 = undefined;
+
+    try std.testing.expectEqual(@as(usize, 0), collectUserSkillRootCandidates(.{}, &store, &dest));
+    try std.testing.expectEqual(@as(usize, 0), collectUserSkillRootCandidates(.{ .claude_config_dir = "/opt/claude" }, &store, &dest));
+    try std.testing.expectEqualStrings("", processHomeDirOn(.linux, "", ""));
+    try std.testing.expectEqualStrings("/home/me", processHomeDirOn(.linux, "/home/me", "C:\\Users\\me"));
+    try std.testing.expectEqualStrings("C:\\Users\\me", processHomeDirOn(.windows, "/home/me", "C:\\Users\\me"));
+    try std.testing.expectEqualStrings("/home/me", processHomeDirOn(.windows, "/home/me", ""));
+    try std.testing.expect(isAbsoluteEnvPath("/opt/claude"));
+    try std.testing.expect(isAbsoluteEnvPath("C:\\Users\\me\\.claude"));
+    try std.testing.expect(!isAbsoluteEnvPath(""));
+    try std.testing.expect(!isAbsoluteEnvPath(".claude"));
+    try std.testing.expect(!isAbsoluteEnvPath("claude-config"));
+
+    const n = collectUserSkillRootCandidates(.{ .home = "/home/me" }, &store, &dest);
+    try std.testing.expectEqual(@as(usize, 9), n);
+    try std.testing.expectEqualStrings("/home/me/.agents/skills", dest[0]);
+    try std.testing.expectEqualStrings("/home/me/.claude/skills", dest[1]);
+    try std.testing.expectEqualStrings("/home/me/.codex/skills", dest[2]);
+    try std.testing.expectEqualStrings("/home/me/.config/opencode/skills", dest[3]);
+    try std.testing.expectEqualStrings("/home/me/.cursor/skills", dest[4]);
+    try std.testing.expectEqualStrings("/home/me/.fx/skills", dest[5]);
+    try std.testing.expectEqualStrings("/home/me/.pi/agent/skills", dest[6]);
+    try std.testing.expectEqualStrings("/home/me/.omp/agent/skills", dest[7]);
+    try std.testing.expectEqualStrings("/home/me/.config/agents/skills", dest[8]);
+
+    const overridden = collectUserSkillRootCandidates(.{
+        .home = "/home/me",
+        .claude_config_dir = "/opt/claude",
+    }, &store, &dest);
+    try std.testing.expectEqual(@as(usize, 9), overridden);
+    try std.testing.expectEqualStrings("/home/me/.agents/skills", dest[0]);
+    try std.testing.expectEqualStrings("/opt/claude/skills", dest[1]);
+    try std.testing.expectEqualStrings("/home/me/.codex/skills", dest[2]);
+
+    const relative_claude = collectUserSkillRootCandidates(.{
+        .home = "/home/me",
+        .claude_config_dir = "claude-config",
+    }, &store, &dest);
+    try std.testing.expectEqual(@as(usize, 9), relative_claude);
+    try std.testing.expectEqualStrings("/home/me/.claude/skills", dest[1]);
+
+    const win = collectUserSkillRootCandidates(.{
+        .userprofile = "C:\\Users\\me",
+        .claude_config_dir = "C:\\Claude",
+    }, &store, &dest);
+    try std.testing.expectEqual(@as(usize, 9), win);
+    try std.testing.expectEqualStrings("C:/Users/me/.agents/skills", dest[0]);
+    try std.testing.expectEqualStrings("C:/Claude/skills", dest[1]);
+    try std.testing.expectEqualStrings("C:/Users/me/.fx/skills", dest[5]);
+}
+
+test "existingUserSkillRoots keeps Waku order of dirs that exist" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var home_buf: [256]u8 = undefined;
+    const home = try std.fmt.bufPrint(&home_buf, ".zig-cache/tmp/{s}/faku-user-roots", .{tmp.sub_path[0..]});
+    var cursor_buf: [256]u8 = undefined;
+    const cursor = try std.fmt.bufPrint(&cursor_buf, "{s}/.cursor/skills", .{home});
+    var fx_buf: [256]u8 = undefined;
+    const fx_root = try std.fmt.bufPrint(&fx_buf, "{s}/.fx/skills", .{home});
+    try std.Io.Dir.cwd().createDirPath(testing.io, cursor);
+    try std.Io.Dir.cwd().createDirPath(testing.io, fx_root);
+
+    var store: [max_user_skill_roots][max_skill_path]u8 = undefined;
+    var cand: [max_user_skill_roots][]const u8 = undefined;
+    const cand_n = collectUserSkillRootCandidates(.{ .home = home }, &store, &cand);
+    try std.testing.expectEqual(@as(usize, 9), cand_n);
+    var existing: [max_user_skill_roots][]const u8 = undefined;
+    const exist_n = existingUserSkillRoots(testing.io, cand[0..cand_n], &existing);
+    try std.testing.expectEqual(@as(usize, 2), exist_n);
+    try std.testing.expectEqualStrings(cursor, existing[0]);
+    try std.testing.expectEqualStrings(fx_root, existing[1]);
+
+    var model = Model{};
+    model.store_io = testing.io;
+    bindUserSkillRootsFromEnv(&model, .{ .home = home });
+    try std.testing.expectEqual(@as(usize, 2), model.skill_user_root_count);
+    var root_ptrs: [max_user_skill_roots][]const u8 = undefined;
+    const bound = userRootsOnModel(&model, &root_ptrs);
+    try std.testing.expectEqual(@as(usize, 2), bound.len);
+    try std.testing.expectEqualStrings(cursor, bound[0]);
+    try std.testing.expectEqualStrings(fx_root, bound[1]);
+    var argv_buf: [walk_argv_len][]const u8 = undefined;
+    const argv = unixWalkArgvFor("/tmp/faku-proj", bound, &argv_buf);
+    try std.testing.expectEqual(@as(usize, unix_walk_argv_base + 2), argv.len);
+    try std.testing.expectEqualStrings("/tmp/faku-proj", argv[4]);
+    try std.testing.expectEqualStrings(cursor, argv[5]);
+    try std.testing.expectEqualStrings(fx_root, argv[6]);
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], cursor) == null);
+    try std.testing.expect(isSkillsWalkArgv(argv));
+}
+
+test "applyStdoutPaths merges relative project then absolute user; cap prefers project then user order" {
+    var model = Model{};
+    applyStdoutPaths(&model, ".cursor/skills/alpha/SKILL.md\n/home/me/.cursor/skills/user-one/SKILL.md\n");
+    try std.testing.expectEqual(@as(u32, 2), cachedCount(&model));
+    try std.testing.expectEqualStrings(".cursor/skills/alpha/SKILL.md", cachedPath(&model, 0));
+    try std.testing.expect(!isAbsoluteSkillPath(cachedPath(&model, 0)));
+    try std.testing.expectEqualStrings("/home/me/.cursor/skills/user-one/SKILL.md", cachedPath(&model, 1));
+    try std.testing.expect(isAbsoluteSkillPath(cachedPath(&model, 1)));
+    try std.testing.expectEqualStrings("alpha", cachedName(&model, 0));
+    try std.testing.expectEqualStrings("user-one", cachedName(&model, 1));
+
+    applyStdoutPaths(&model, "/home/me/.cursor/skills/user-one/SKILL.md.disabled\n.cursor/skills/alpha/SKILL.md.disabled\n");
+    try std.testing.expectEqual(@as(u32, 2), cachedCount(&model));
+    try std.testing.expect(cachedEnabled(&model, 0));
+    try std.testing.expect(cachedEnabled(&model, 1));
+
+    clearCache(&model);
+    var overflow: [max_skills * 80 + 64]u8 = undefined;
+    var n: usize = 0;
+    var i: usize = 0;
+    while (i < max_skills) : (i += 1) {
+        const piece = try std.fmt.bufPrint(overflow[n..], "skills/p{d}/SKILL.md\n", .{i});
+        n += piece.len;
+    }
+    const extra = try std.fmt.bufPrint(overflow[n..], "/home/me/.cursor/skills/overflow/SKILL.md\n", .{});
+    n += extra.len;
+    applyStdoutPaths(&model, overflow[0..n]);
+    try std.testing.expectEqual(@as(u32, max_skills), cachedCount(&model));
+    try std.testing.expectEqualStrings("skills/p0/SKILL.md", cachedPath(&model, 0));
+    try std.testing.expect(!isAbsoluteSkillPath(cachedPath(&model, 0)));
+    try std.testing.expect(!isAbsoluteSkillPath(cachedPath(&model, max_skills - 1)));
+
+    clearCache(&model);
+    n = 0;
+    i = 0;
+    while (i < max_skills - 2) : (i += 1) {
+        const piece = try std.fmt.bufPrint(overflow[n..], "skills/p{d}/SKILL.md\n", .{i});
+        n += piece.len;
+    }
+    const u0 = try std.fmt.bufPrint(overflow[n..], "/home/me/.agents/skills/ua/SKILL.md\n", .{});
+    n += u0.len;
+    const u1 = try std.fmt.bufPrint(overflow[n..], "/home/me/.cursor/skills/ub/SKILL.md\n", .{});
+    n += u1.len;
+    const u2 = try std.fmt.bufPrint(overflow[n..], "/home/me/.fx/skills/uc/SKILL.md\n", .{});
+    n += u2.len;
+    applyStdoutPaths(&model, overflow[0..n]);
+    try std.testing.expectEqual(@as(u32, max_skills), cachedCount(&model));
+    try std.testing.expectEqualStrings("skills/p0/SKILL.md", cachedPath(&model, 0));
+    try std.testing.expectEqualStrings("/home/me/.agents/skills/ua/SKILL.md", cachedPath(&model, max_skills - 2));
+    try std.testing.expectEqualStrings("/home/me/.cursor/skills/ub/SKILL.md", cachedPath(&model, max_skills - 1));
+}
+
+test "skill_rows User section classifies absolute catalog paths" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-user-class", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, root);
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setLastProjectPath(root);
+    model.settings_page = .skills;
+    applyStdoutPaths(&model, ".cursor/skills/proj/SKILL.md\n/home/me/.fx/skills/from-home/SKILL.md\n");
+    const rows = model.skill_rows(arena);
+    try testing.expectEqual(@as(usize, 4), rows.len);
+    try testing.expect(rows[0].is_header);
+    try testing.expectEqual(skill_header_id_project, rows[0].id);
+    try testing.expect(!rows[1].is_header);
+    try testing.expectEqualStrings(".cursor/skills/proj/SKILL.md", rows[1].path);
+    try testing.expect(rows[2].is_header);
+    try testing.expectEqual(skill_header_id_user, rows[2].id);
+    try testing.expectEqualStrings("USER", rows[2].name);
+    try testing.expectEqualStrings("1", rows[2].count);
+    try testing.expect(!rows[3].is_header);
+    try testing.expectEqualStrings("/home/me/.fx/skills/from-home/SKILL.md", rows[3].path);
+    try testing.expectEqualStrings("from-home", rows[3].name);
+}
+
+test "absolute user catalog paths keep Enable/Disable Delete Open Reveal Copy insert slash Send prepend" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var rel_buf: [256]u8 = undefined;
+    const rel_root = try std.fmt.bufPrint(&rel_buf, ".zig-cache/tmp/{s}/faku-user-abs", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, rel_root);
+    var abs_root_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const project = try std.fs.cwd().realpath(rel_root, &abs_root_buf);
+
+    var user_rel_buf: [256]u8 = undefined;
+    const user_rel = try std.fmt.bufPrint(&user_rel_buf, ".zig-cache/tmp/{s}/faku-user-home/.fx/skills/from-home", .{tmp.sub_path[0..]});
+    try writeTestSkill(testing.io, user_rel, "from-home", "User skill body.", false);
+    var abs_user_dir_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const user_dir = try std.fs.cwd().realpath(user_rel, &abs_user_dir_buf);
+    var user_file_buf: [std.fs.max_path_bytes + 16]u8 = undefined;
+    const user_file = try std.fmt.bufPrint(&user_file_buf, "{s}/SKILL.md", .{user_dir});
+    try testing.expect(isAbsoluteSkillPath(user_file));
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setLastProjectPath(project);
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, project);
+    model.settings_page = .skills;
+    var stdout_buf: [512]u8 = undefined;
+    const stdout = try std.fmt.bufPrint(&stdout_buf, ".cursor/skills/proj/SKILL.md\n{s}\n", .{user_file});
+    applyStdoutPaths(&model, stdout);
+    try testing.expectEqual(@as(u32, 2), cachedCount(&model));
+    try testing.expect(!isAbsoluteSkillPath(cachedPath(&model, 0)));
+    try testing.expectEqualStrings(user_file, cachedPath(&model, 1));
+    try testing.expect(isAbsoluteSkillPath(cachedPath(&model, 1)));
+    try testing.expectEqualStrings("from-home", cachedName(&model, 1));
+    try testing.expect(cachedEnabled(&model, 1));
+
+    {
+        const rows = model.skill_rows(arena);
+        try testing.expectEqual(@as(usize, 4), rows.len);
+        try testing.expectEqual(skill_header_id_user, rows[2].id);
+        try testing.expectEqualStrings(user_file, rows[3].path);
+    }
+
+    model.draft_buffer.set("$");
+    {
+        const rows = model.skill_insert_rows(arena);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expect(!rows[0].is_header);
+        try testing.expect(!rows[1].is_header);
+        try testing.expectEqualStrings("proj", rows[0].name);
+        try testing.expectEqualStrings("from-home", rows[1].name);
+        try testing.expectEqual(skillId(1), rows[1].id);
+    }
+
+    const id = model.addSession("user abs actions", .fx);
+    model.selected = id;
+    model.draft_buffer.set("/");
+    {
+        const rows = model.command_rows(arena);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expectEqualStrings("/proj", rows[0].slash_name);
+        try testing.expectEqualStrings("/from-home", rows[1].slash_name);
+        try testing.expectEqual(slashCommandId(1), rows[1].id);
+    }
+
+    var prompt_buf: [model_exports.max_body]u8 = undefined;
+    const expanded = expandPrompt(&model, "$from-home do it", &prompt_buf);
+    try testing.expect(std.mem.indexOf(u8, expanded, "### Skill: from-home") != null);
+    try testing.expect(std.mem.indexOf(u8, expanded, "User skill body.") != null);
+    try testing.expect(std.mem.endsWith(u8, expanded, "$from-home do it"));
+    const slash_expanded = expandPrompt(&model, "/from-home do it", &prompt_buf);
+    try testing.expect(std.mem.indexOf(u8, slash_expanded, "### Skill: from-home") != null);
+    const sent = prepareSendPrompt(&model, &fx, "$from-home do it", &prompt_buf);
+    try testing.expect(std.mem.indexOf(u8, sent, "User skill body.") != null);
+
+    selectSkill(&model, 2);
+    try testing.expectEqualStrings("User skill body.", model.skill_body_storage[0..model.skill_body_len]);
+    var abs_buf: [model_exports.max_project_path + max_skill_path + 1]u8 = undefined;
+    try testing.expectEqualStrings(user_file, selectedSkillAbsPath(&model, &abs_buf).?);
+    try testing.expectEqualStrings(user_dir, selectedSkillAbsParent(&model, &abs_buf).?);
+
+    copySelectedSkillPath(&model, &fx);
+    try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    try testing.expectEqualStrings(user_dir, fx.pendingClipboardAt(0).?.text);
+    try testing.expectEqualStrings(path_copied_status, model.window_status());
+
+    openSelectedSkillInEditor(&model, &fx);
+    const open_spawn = fx.pendingSpawnAt(0) orelse return error.MissingOpenEditorSpawn;
+    try testing.expect(open_editor.isEditorArgv(open_spawn.argv));
+    const open_slot: usize = if (open_spawn.argv.len == 4) 3 else 1;
+    try testing.expectEqualStrings(user_file, open_spawn.argv[open_slot]);
+
+    revealSelectedSkill(&model, &fx);
+    var reveal: ?@TypeOf(fx.pendingSpawnAt(0).?) = null;
+    var ri: usize = 0;
+    while (fx.pendingSpawnAt(ri)) |item| : (ri += 1) {
+        if (reveal_folder.isRevealArgv(item.argv)) {
+            reveal = item;
+            break;
+        }
+    }
+    try testing.expect(reveal != null);
+    try testing.expectEqualStrings(user_dir, reveal.?.argv[1]);
+
+    toggleSkillEnabled(&model, &fx);
+    try testing.expect(model.skill_rename_key >= skills_rename_key_first);
+    const rename = pendingSpawnKey(&fx, model.skill_rename_key) orelse return error.MissingUserRename;
+    try testing.expect(isSkillsRenameArgv(rename.argv));
+    switch (builtin.os.tag) {
+        .windows => try testing.expectEqualStrings(user_dir, rename.argv[5]),
+        else => try testing.expectEqualStrings(user_dir, rename.argv[4]),
+    }
+
+    model.skill_rename_key = 0;
+    armSkillDelete(&model);
+    confirmSkillDelete(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.daemon_trash_skills_key);
+    try testing.expect(model.skill_remove_key >= skills_remove_key_first);
+    const remove = pendingSpawnKey(&fx, model.skill_remove_key) orelse return error.MissingUserRemove;
+    try testing.expect(isSkillsRemoveArgv(remove.argv));
+    switch (builtin.os.tag) {
+        .windows => try testing.expectEqualStrings(user_dir, remove.argv[5]),
+        else => try testing.expectEqualStrings(user_dir, remove.argv[8]),
+    }
 }
 
 test "parse name from frontmatter; quoted and missing" {
@@ -2559,7 +3169,7 @@ test "rename argv enable and disable round-trip; not the find walk" {
     try std.testing.expectEqualStrings(skill_filename, enable[8]);
     try std.testing.expect(!isSkillsRenameArgv(&.{ mv_bin, skill_filename, disabled_skill_filename }));
     var walk_buf: [walk_argv_len][]const u8 = undefined;
-    try std.testing.expect(!isSkillsRenameArgv(unixWalkArgvFor("/tmp/faku-skills", &walk_buf)));
+    try std.testing.expect(!isSkillsRenameArgv(unixWalkArgvFor("/tmp/faku-skills", &.{}, &walk_buf)));
 }
 
 test "windows rename argv enable and disable round-trip; paths stay -Args slots" {
@@ -2603,7 +3213,7 @@ test "windows rename argv enable and disable round-trip; paths stay -Args slots"
         disabled_skill_filename,
     }));
     var walk_buf: [walk_argv_len][]const u8 = undefined;
-    try std.testing.expect(!isSkillsRenameArgv(windowsWalkArgvFor(cwd, &walk_buf)));
+    try std.testing.expect(!isSkillsRenameArgv(windowsWalkArgvFor(cwd, &.{}, &walk_buf)));
 }
 
 test "unix remove argv is chdir plus rm -rf -- skill dir; not rename or find" {
@@ -2664,6 +3274,8 @@ test "trashDirAllowed requires absolute dir containing cache parent; fail closed
     try std.testing.expect(trashDirAllowed("/tmp/faku/skills/other", "skills/other"));
     try std.testing.expect(trashDirAllowed("C:/Users/me/proj/.cursor/skills/demo", ".cursor/skills/demo"));
     try std.testing.expect(trashDirAllowed(".zig-cache/tmp/x/skills/demo", "skills/demo"));
+    try std.testing.expect(trashDirAllowed("/home/me/.cursor/skills/user-one", "/home/me/.cursor/skills/user-one"));
+    try std.testing.expect(trashDirAllowed("C:/Users/me/.fx/skills/from-home", "C:/Users/me/.fx/skills/from-home"));
     try std.testing.expect(!trashDirAllowed("", ".cursor/skills/demo"));
     try std.testing.expect(!trashDirAllowed("/tmp/faku/.cursor/skills/demo", ""));
     try std.testing.expect(!trashDirAllowed(".cursor/skills/demo", ".cursor/skills/demo"));
@@ -3673,9 +4285,34 @@ test "refresh without a daemon address keeps local find walk" {
     refresh(&model, &fx);
     try testing.expectEqual(@as(u64, 0), model.daemon_load_skills_key);
     try testing.expect(model.skill_key >= skills_key_first);
+    try testing.expect(scanInFlight(&model));
     const walk = pendingSpawnKey(&fx, model.skill_key) orelse return error.MissingSkillsWalk;
     try testing.expect(isSkillsWalkArgv(walk.argv));
     try testing.expect(!daemon_proxy.isSidecarArgv(walk.argv));
+    switch (builtin.os.tag) {
+        .windows => {
+            try testing.expectEqualStrings(root, walk.argv[5]);
+            try testing.expectEqual(windowsWalkArgvLen(model.skill_user_root_count), walk.argv.len);
+        },
+        else => {
+            try testing.expectEqualStrings(root, walk.argv[4]);
+            try testing.expectEqual(unixWalkArgvLen(model.skill_user_root_count), walk.argv.len);
+        },
+    }
+    try testing.expect(walk.argv.len <= 16);
+    var extra: usize = switch (builtin.os.tag) {
+        .windows => windows_walk_argv_base,
+        else => unix_walk_argv_base,
+    };
+    while (extra < walk.argv.len) : (extra += 1) {
+        const slot = walk.argv[extra];
+        try testing.expect(slot.len > 0);
+        const script = switch (builtin.os.tag) {
+            .windows => walk.argv[3],
+            else => walk.argv[2],
+        };
+        try testing.expect(std.mem.indexOf(u8, script, slot) == null);
+    }
 }
 
 test "LoadSkills sidecar fills skill_store; unknown-command falls back to find" {
