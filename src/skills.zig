@@ -83,7 +83,15 @@
 //! Could not delete skill. follows `i18n.SkillsTrashStatusChrome`
 //! (distinct from SkillsTrashChrome Delete / Confirm delete).
 //! Daemon `trashSkills` is best-effort; the fallback is a
-//! permanent directory remove, not OS Trash. Not a Native FS API.
+//! permanent directory remove, not OS Trash. First-cut Open in
+//! editor for the selected skill calls
+//! `open_editor.startOpenEditorAt` at the absolute `SKILL.md` /
+//! `SKILL.md.disabled` path from `joinProbeRelpath` (same Cursor /
+//! code / `open -a` sidecar as Files preview). Fail closed with no
+//! selection / empty / invalid path. Label reuses
+//! `i18n.FilePreviewChrome.open_in_editor` via Model
+//! `skill_open_in_editor_label`. Not an embedded editor, not
+//! `open_in_app`, not a daemon method. Not a Native FS API.
 //! app.zon already includes windows.
 //!
 //! Spawn/line/exit orchestration lives here. Tests do not need a live
@@ -101,6 +109,7 @@ const i18n = @import("i18n.zig");
 const protocol = @import("protocol.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const effect_keys = @import("effect_keys.zig");
+const open_editor = @import("open_editor.zig");
 
 const Model = model_exports.Model;
 const Effects = main.Effects;
@@ -1391,6 +1400,30 @@ pub fn selectSkill(model: *Model, id: u32) void {
     loadBody(model, id - 1);
 }
 
+/// Absolute `SKILL.md` / `SKILL.md.disabled` for the selected Settings
+/// Skills row. Reuses `joinProbeRelpath` (same join as body read /
+/// Enable/Disable / catalog store). Null when nothing is selected,
+/// the store path is empty, or the join does not resolve.
+pub fn selectedSkillAbsPath(model: *const Model, buf: []u8) ?[]const u8 {
+    if (model.skill_selected_id == 0 or model.skill_selected_id > model.skill_count) return null;
+    const relpath = model.skill_store[model.skill_selected_id - 1].path();
+    if (relpath.len == 0) return null;
+    const root = model.skill_probe_path_storage[0..model.skill_probe_path_len];
+    const abs = joinProbeRelpath(root, relpath, buf) orelse return null;
+    if (abs.len == 0) return null;
+    return abs;
+}
+
+/// Settings Skills Open in editor. Same `cursor` / `code` /
+/// `open -a` sidecar as Files preview. Fail closed with no
+/// selection / empty / invalid path (no crash, no spawn). Missing
+/// host editor window_status stays on `startOpenEditorAt`.
+pub fn openSelectedSkillInEditor(model: *Model, fx: *Effects) void {
+    var path_buf: [model_exports.max_project_path + max_skill_path + 1]u8 = undefined;
+    const abs = selectedSkillAbsPath(model, &path_buf) orelse return;
+    open_editor.startOpenEditorAt(model, fx, abs);
+}
+
 fn loadBody(model: *Model, index: usize) void {
     model.skill_body_len = 0;
     const io = model.store_io orelse return;
@@ -2285,6 +2318,87 @@ test "joinProbeRelpath and absSkillParent tolerate Windows roots and mixed separ
         "/home/user/.cursor/skills/foo",
         absSkillParent("/tmp/proj", "/home/user/.cursor/skills/foo/SKILL.md", &buf).?,
     );
+}
+
+test "selectedSkillAbsPath joins probe root; absolute catalog paths stay absolute" {
+    var model = Model{};
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, "C:\\Users\\me\\proj");
+    applyStdoutPaths(&model, ".cursor/skills/demo/SKILL.md\n");
+    try std.testing.expectEqual(@as(u32, 1), cachedCount(&model));
+
+    var buf: [256]u8 = undefined;
+    try std.testing.expect(selectedSkillAbsPath(&model, &buf) == null);
+
+    selectSkill(&model, 1);
+    try std.testing.expectEqualStrings(
+        "C:/Users/me/proj/.cursor/skills/demo/SKILL.md",
+        selectedSkillAbsPath(&model, &buf).?,
+    );
+
+    clearCache(&model);
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, "/tmp/proj");
+    applyStdoutPaths(&model, ".cursor/skills/off/SKILL.md.disabled\n/home/user/.cursor/skills/foo/SKILL.md\n");
+    selectSkill(&model, 1);
+    try std.testing.expectEqualStrings(
+        "/tmp/proj/.cursor/skills/off/SKILL.md.disabled",
+        selectedSkillAbsPath(&model, &buf).?,
+    );
+    selectSkill(&model, 2);
+    try std.testing.expectEqualStrings(
+        "/home/user/.cursor/skills/foo/SKILL.md",
+        selectedSkillAbsPath(&model, &buf).?,
+    );
+
+    model.skill_selected_id = 0;
+    try std.testing.expect(selectedSkillAbsPath(&model, &buf) == null);
+    model.skill_selected_id = 99;
+    try std.testing.expect(selectedSkillAbsPath(&model, &buf) == null);
+
+    model.skill_probe_path_len = 0;
+    selectSkill(&model, 1);
+    try std.testing.expect(selectedSkillAbsPath(&model, &buf) == null);
+    selectSkill(&model, 2);
+    try std.testing.expectEqualStrings(
+        "/home/user/.cursor/skills/foo/SKILL.md",
+        selectedSkillAbsPath(&model, &buf).?,
+    );
+}
+
+test "openSelectedSkillInEditor queues host editor argv at the absolute skill file" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, "/tmp/proj");
+    applyStdoutPaths(&model, ".cursor/skills/demo/SKILL.md\n");
+    selectSkill(&model, 1);
+
+    openSelectedSkillInEditor(&model, &fx);
+    const spawn = fx.pendingSpawnAt(0) orelse return error.MissingOpenEditorSpawn;
+    try std.testing.expect(open_editor.isEditorArgv(spawn.argv));
+    try std.testing.expectEqual(open_editor.open_editor_key, spawn.key);
+    const path_slot: usize = if (spawn.argv.len == 4) 3 else 1;
+    try std.testing.expectEqualStrings("/tmp/proj/.cursor/skills/demo/SKILL.md", spawn.argv[path_slot]);
+}
+
+test "openSelectedSkillInEditor fails closed with no selection or unresolved path" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    openSelectedSkillInEditor(&model, &fx);
+    try std.testing.expect(fx.pendingSpawnAt(0) == null);
+    try std.testing.expect(!model.open_editor_live);
+    try std.testing.expectEqualStrings("", model.window_status());
+
+    applyStdoutPaths(&model, ".cursor/skills/demo/SKILL.md\n");
+    selectSkill(&model, 1);
+    openSelectedSkillInEditor(&model, &fx);
+    try std.testing.expect(fx.pendingSpawnAt(0) == null);
+    try std.testing.expect(!model.open_editor_live);
+    try std.testing.expectEqualStrings("", model.window_status());
 }
 
 test "composer $ insert lists enabled skills only" {

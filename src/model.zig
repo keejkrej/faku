@@ -670,6 +670,11 @@ pub const Msg = union(enum) {
     /// Settings Skills detail: second click confirms daemon
     /// `trashSkills` or the Faku-side permanent directory remove.
     confirm_skill_delete,
+    /// Settings Skills detail: Open in editor at the selected
+    /// skill's absolute `SKILL.md` / `SKILL.md.disabled`. Same
+    /// `open_editor.startOpenEditorAt` sidecar as Files preview.
+    /// `on-press` stays `open_skill_in_editor`.
+    open_skill_in_editor,
     select_provider: u32,
     /// Settings Providers: toggle persisted `disabled_providers` for that row.
     toggle_provider_enabled: u32,
@@ -6070,6 +6075,16 @@ pub const Model = struct {
 
     pub fn skill_delete_idle(model: *const Model) bool {
         return model.has_selected_skill() and !model.skill_delete_arming;
+    }
+
+    /// Settings Skills detail Open in editor. Reuses
+    /// `i18n.FilePreviewChrome.open_in_editor` (same EN Open in
+    /// editor as Files preview). Distinct from
+    /// `file_preview_open_in_editor_label` and composer
+    /// `open_in_editor_label`. `on-press` stays
+    /// `open_skill_in_editor`.
+    pub fn skill_open_in_editor_label(model: *const Model) []const u8 {
+        return model.filePreviewChrome().open_in_editor;
     }
 
     pub fn skill_body(model: *const Model) []const u8 {

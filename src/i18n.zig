@@ -373,6 +373,10 @@
 //! Could not delete skill. (same `SkillsTrashStatusChrome` strings;
 //! distinct from `SkillsTrashChrome` Delete / Confirm delete so fail
 //! status stays independently evolvable)
+//! plus Settings Skills Open in editor (reuses
+//! `FilePreviewChrome.open_in_editor` via a distinct Model getter;
+//! same EN Open in editor as Files preview; on-press stays
+//! `open_skill_in_editor`; wire ids stay English)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -416,6 +420,9 @@
 //! Skills Enable / Disable `on-press` stays `toggle_skill_enabled`.
 //! Skills Delete / Confirm delete `on-press` stays `arm_skill_delete`
 //! / `confirm_skill_delete`.
+//! Skills Open in editor `on-press` stays `open_skill_in_editor`
+//! (label reuses `FilePreviewChrome.open_in_editor` via a distinct
+//! Model getter).
 //! File-preview toolbar `on-press` / `on-input` stay English
 //! (`file_preview_save` / `close_right_panel_file_preview` /
 //! `toggle_file_preview_find_replace` / `file_preview_find_edit` /
@@ -1754,6 +1761,8 @@ const filter_chrome_ja: FilterChrome = .{
 /// and follows locale. Path text and body content stay
 /// data. Transcript Find placeholder reuses `find` via a distinct
 /// Model getter; a11y reuses `Palette.find_in_transcript`.
+/// Settings Skills Open in editor reuses `open_in_editor` via a
+/// distinct Model getter (`skill_open_in_editor_label`).
 pub const FilePreviewChrome = struct {
     unsaved: []const u8,
     preview: []const u8,

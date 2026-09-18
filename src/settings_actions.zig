@@ -531,6 +531,10 @@ pub fn handleConfirmSkillDelete(model: *Model, fx: *Effects) void {
     skills.confirmSkillDelete(model, fx);
 }
 
+pub fn handleOpenSkillInEditor(model: *Model, fx: *Effects) void {
+    skills.openSelectedSkillInEditor(model, fx);
+}
+
 pub fn handleCycleAccess(model: *Model, fx: *Effects) void {
     model.cycleSelectedAccess();
     persist.persistComposerChips(model, fx);
