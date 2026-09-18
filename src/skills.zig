@@ -151,13 +151,21 @@
 //! stay flat. Selected-detail No description / Invoke / Location /
 //! Contents follow `i18n.SkillsDetailChrome` (distinct from
 //! SkillsEmptyChrome / SkillsSelectChrome / SkillsCountChrome /
-//! SkillsSectionChrome; description / `/name` / path / body stay
-//! data; Updated lives in `SkillsUpdatedChrome`; no file_count /
+//! SkillsSectionChrome; description / `/name` / path stay data;
+//! Contents value is supporting-file count · bytes
+//! (`SkillsFileCountChrome` + Latin B/KB/MB; `{skill_body}` stays
+//! a separate block); Updated lives in `SkillsUpdatedChrome`; no
 //! allowed_tools / duplicate grouping this cut). Selected-detail
 //! Updated follows `i18n.SkillsUpdatedChrome` (Waku
 //! `skills.detail_updated` + relative just now / m / h / d from
 //! SKILL.md mtime unix seconds at `loadBody`; fail closed when
 //! mtime cannot be read; distinct from SkillsDetailChrome).
+//! Selected-detail Contents file_count follows
+//! `i18n.SkillsFileCountChrome` (Waku `file_count_one` /
+//! `file_count_many` + Latin format_bytes; 0 supporting files
+//! paints bytes only; measured at `loadBody` from the absolute
+//! skill parent; fail closed when the dir cannot be walked;
+//! distinct from SkillsDetailChrome / SkillsUpdatedChrome).
 //! Composer `$` insert unchanged.
 //! app.zon already includes windows.
 //!
@@ -1844,6 +1852,19 @@ pub fn selectedSkillUpdatedLabelAt(model: *const Model, now_unix: i64, arena: st
     return copyCaption(arena, text);
 }
 
+/// Settings Skills selected-detail Contents value: supporting-file
+/// count · bytes (Waku `file_count_one` / `file_count_many` +
+/// Latin `format_bytes`). Empty when unselected or when the skill
+/// dir cannot be walked.
+pub fn selectedSkillContentsSummary(model: *const Model, arena: std.mem.Allocator) []const u8 {
+    if (model.skill_selected_id == 0 or model.skill_selected_id > model.skill_count) return "";
+    if (!model.skill_contents_valid) return "";
+    var buf: [i18n.skills_contents_summary_max]u8 = undefined;
+    const chrome = i18n.skillsFileCountChromeFor(model.language_preference, model.systemLocaleId());
+    const text = i18n.formatSkillsContentsSummary(chrome, model.skill_supporting_files, model.skill_total_bytes, &buf);
+    return copyCaption(arena, text);
+}
+
 /// Settings Skills Copy path. Writes the absolute skill parent
 /// directory (install dir, not `SKILL.md`) through Native
 /// `fx.writeClipboard` via `copy.copyText` / `copy_turn_key`. Fail
@@ -1862,6 +1883,9 @@ fn clearSelectedSkillBody(model: *Model) void {
     model.skill_body_len = 0;
     model.skill_mtime_unix = 0;
     model.skill_mtime_valid = false;
+    model.skill_supporting_files = 0;
+    model.skill_total_bytes = 0;
+    model.skill_contents_valid = false;
 }
 
 /// Zig `File.Stat.mtime` is ns since epoch: a raw integer on some
@@ -1887,6 +1911,53 @@ fn readSkillMtimeUnix(io: std.Io, abs: []const u8) ?i64 {
     return @divTrunc(ns, 1_000_000_000);
 }
 
+/// Waku `DIR_WALK_MAX_DEPTH` / `DIR_WALK_MAX_FILES` for the
+/// selected-skill Contents supporting-file walk.
+const skill_dir_walk_max_depth: usize = 6;
+const skill_dir_walk_max_files: usize = 500;
+
+const SkillDirMeasure = struct {
+    files: usize,
+    bytes: u64,
+};
+
+/// Waku `measure_skill_dir`: walk the skill parent, skip names
+/// starting with `.`, follow metadata for files/dirs, cap depth 6
+/// / 500 files. Skill file counts in bytes but not as a supporting
+/// file (`files.saturating_sub(1)`). Null when the dir cannot be
+/// opened — fail closed, do not invent counts.
+fn measureSkillDir(io: std.Io, abs: []const u8) ?SkillDirMeasure {
+    if (abs.len == 0) return null;
+    var root = std.Io.Dir.cwd().openDir(io, abs, .{ .iterate = true }) catch return null;
+    defer root.close(io);
+    var files: usize = 0;
+    var bytes: u64 = 0;
+    walkSkillDir(io, root, 0, &files, &bytes);
+    return .{ .files = files -| 1, .bytes = bytes };
+}
+
+fn walkSkillDir(io: std.Io, dir: std.Io.Dir, depth: usize, files: *usize, bytes: *u64) void {
+    if (depth > skill_dir_walk_max_depth or files.* >= skill_dir_walk_max_files) return;
+    var it = dir.iterate();
+    while (it.next(io) catch return) |entry| {
+        if (files.* >= skill_dir_walk_max_files) return;
+        if (entry.name.len == 0 or entry.name[0] == '.') continue;
+        const st = dir.statFile(io, entry.name, .{ .follow_symlinks = true }) catch continue;
+        switch (st.kind) {
+            .directory => {
+                var child = dir.openDir(io, entry.name, .{ .iterate = true, .follow_symlinks = true }) catch continue;
+                defer child.close(io);
+                walkSkillDir(io, child, depth + 1, files, bytes);
+            },
+            .file => {
+                files.* += 1;
+                bytes.* +|= st.size;
+            },
+            else => {},
+        }
+    }
+}
+
 fn loadBody(model: *Model, index: usize) void {
     clearSelectedSkillBody(model);
     const io = model.store_io orelse return;
@@ -1902,6 +1973,13 @@ fn loadBody(model: *Model, index: usize) void {
     if (readSkillMtimeUnix(io, abs)) |mtime| {
         model.skill_mtime_unix = mtime;
         model.skill_mtime_valid = true;
+    }
+    var parent_buf: [model_exports.max_project_path + max_skill_path + 1]u8 = undefined;
+    const parent = absSkillParent(root, relpath, &parent_buf) orelse return;
+    if (measureSkillDir(io, parent)) |measured| {
+        model.skill_supporting_files = measured.files;
+        model.skill_total_bytes = measured.bytes;
+        model.skill_contents_valid = true;
     }
 }
 
@@ -2042,6 +2120,13 @@ pub const detail_contents = skills_detail_chrome_en.detail_contents;
 const skills_updated_chrome_en = i18n.skillsUpdatedChromeFor(.english, "");
 pub const detail_updated = skills_updated_chrome_en.detail_updated;
 pub const updated_just_now = skills_updated_chrome_en.updated_just_now;
+
+/// English defaults from `i18n.SkillsFileCountChrome`. Distinct from
+/// SkillsDetailChrome Contents label and SkillsUpdatedChrome.
+/// Matches Waku `skills.file_count_one` / `file_count_many`.
+const skills_file_count_chrome_en = i18n.skillsFileCountChromeFor(.english, "");
+pub const file_count_one = skills_file_count_chrome_en.file_count_one;
+pub const file_count_many = skills_file_count_chrome_en.file_count_many;
 
 /// English defaults from `i18n.SkillsEnableChrome`. Distinct from
 /// Providers Enable / Disable.
@@ -3061,6 +3146,12 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expect(!model.has_skill_updated());
     try testing.expectEqualStrings("", model.skill_detail_updated());
     try testing.expectEqualStrings("", model.skill_updated_label(arena));
+    try testing.expect(!model.has_skill_contents_summary());
+    try testing.expectEqualStrings("", model.skill_contents_summary(arena));
+    try testing.expectEqualStrings("1 supporting file", i18n.skillsFileCountChromeFor(.english, "").file_count_one);
+    try testing.expectEqualStrings("%{count} supporting files", i18n.skillsFileCountChromeFor(.english, "").file_count_many);
+    try testing.expectEqualStrings("1 个附属文件", i18n.skillsFileCountChromeFor(.simplified_chinese, "").file_count_one);
+    try testing.expectEqualStrings("補助ファイル 1 件", i18n.skillsFileCountChromeFor(.japanese, "").file_count_one);
     try testing.expectEqualStrings("", selectedSkillDescription(&model));
     try testing.expectEqualStrings("", selectedSkillInvokeLine(&model, arena));
     try testing.expectEqualStrings("", selectedSkillLocation(&model, arena));
@@ -3137,6 +3228,14 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expect(model.has_skill_updated());
     try testing.expectEqualStrings("Updated", model.skill_detail_updated());
     try testing.expectEqualStrings("Just now", model.skill_updated_label(arena));
+    try testing.expect(model.has_skill_contents_summary());
+    {
+        const with_bytes = try testFileSize(testing.io, with_file);
+        var sum_buf: [i18n.skills_contents_summary_max]u8 = undefined;
+        const expected = i18n.formatSkillsContentsSummary(i18n.skillsFileCountChromeFor(.english, ""), 0, with_bytes, &sum_buf);
+        try testing.expectEqualStrings(expected, model.skill_contents_summary(arena));
+        try testing.expect(std.mem.indexOf(u8, expected, "supporting") == null);
+    }
     try testing.expectEqualStrings("Just now", selectedSkillUpdatedLabelAt(&model, model.skill_mtime_unix, arena));
     try testing.expectEqualStrings("1m ago", selectedSkillUpdatedLabelAt(&model, model.skill_mtime_unix + 60, arena));
     try testing.expectEqualStrings("1h ago", selectedSkillUpdatedLabelAt(&model, model.skill_mtime_unix + 3600, arena));
@@ -3149,6 +3248,8 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expectEqualStrings("内容", model.skill_detail_contents());
     try testing.expectEqualStrings("更新", model.skill_detail_updated());
     try testing.expectEqualStrings("刚刚", model.skill_updated_label(arena));
+    try testing.expect(model.has_skill_contents_summary());
+    try testing.expect(std.mem.indexOf(u8, model.skill_contents_summary(arena), "附属文件") == null);
     try testing.expectEqualStrings("5 分钟前", selectedSkillUpdatedLabelAt(&model, model.skill_mtime_unix + 300, arena));
     try testing.expectEqualStrings("/with-desc", model.skill_invoke_line(arena));
     try testing.expectEqualStrings("Does the described thing.", model.skill_description());
@@ -3158,6 +3259,7 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expectEqualStrings("内容", model.skill_detail_contents());
     try testing.expectEqualStrings("更新日時", model.skill_detail_updated());
     try testing.expectEqualStrings("たった今", model.skill_updated_label(arena));
+    try testing.expect(std.mem.indexOf(u8, model.skill_contents_summary(arena), "補助ファイル") == null);
     try testing.expectEqualStrings("2 時間前", selectedSkillUpdatedLabelAt(&model, model.skill_mtime_unix + 7200, arena));
     model.language_preference = .english;
     model.setSystemLocaleId("zh_CN.UTF-8");
@@ -3184,6 +3286,8 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expect(model.has_skill_updated());
     try testing.expectEqualStrings("Updated", model.skill_detail_updated());
     try testing.expectEqualStrings("Just now", model.skill_updated_label(arena));
+    try testing.expect(model.has_skill_contents_summary());
+    try testing.expect(std.mem.indexOf(u8, model.skill_contents_summary(arena), "supporting") == null);
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("暂无描述", model.skill_no_description());
     try testing.expectEqualStrings("调用", model.skill_detail_invoke());
@@ -3223,6 +3327,8 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expect(!model.has_skill_updated());
     try testing.expectEqualStrings("", model.skill_detail_updated());
     try testing.expectEqualStrings("", model.skill_updated_label(arena));
+    try testing.expect(!model.has_skill_contents_summary());
+    try testing.expectEqualStrings("", model.skill_contents_summary(arena));
     model.settings_page = .skills;
     try testing.expect(model.has_selected_skill());
     try testing.expectEqualStrings("/from-home", model.skill_invoke_line(arena));
@@ -3238,6 +3344,8 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expect(!model.has_skill_updated());
     try testing.expectEqualStrings("", model.skill_detail_updated());
     try testing.expectEqualStrings("", model.skill_updated_label(arena));
+    try testing.expect(!model.has_skill_contents_summary());
+    try testing.expectEqualStrings("", model.skill_contents_summary(arena));
     try testing.expectEqualStrings("", insertEmptyHint(&model));
 
     clearCache(&model);
@@ -3250,9 +3358,136 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expect(!model.has_skill_updated());
     try testing.expectEqualStrings("", model.skill_detail_updated());
     try testing.expectEqualStrings("", model.skill_updated_label(arena));
+    try testing.expect(!model.has_skill_contents_summary());
+    try testing.expectEqualStrings("", model.skill_contents_summary(arena));
     try testing.expectEqualStrings("Updated", i18n.skillsUpdatedChromeFor(.english, "").detail_updated);
     model.skill_mtime_valid = false;
     try testing.expectEqualStrings("", model.skill_detail_updated());
+}
+
+test "selected-detail Contents file_count · bytes; one/many/zero; locales; fail closed" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-contents", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, root);
+
+    var one_dir_buf: [320]u8 = undefined;
+    const one_dir = try std.fmt.bufPrint(&one_dir_buf, "{s}/.cursor/skills/one-file", .{root});
+    try writeTestSkill(testing.io, one_dir, "one-file", "One body.", false);
+    var one_skill_buf: [360]u8 = undefined;
+    const one_skill = try std.fmt.bufPrint(&one_skill_buf, "{s}/SKILL.md", .{one_dir});
+    var one_extra_buf: [360]u8 = undefined;
+    const one_extra = try std.fmt.bufPrint(&one_extra_buf, "{s}/runbook.md", .{one_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = one_extra, .data = "details" });
+    var one_hidden_buf: [360]u8 = undefined;
+    const one_hidden = try std.fmt.bufPrint(&one_hidden_buf, "{s}/.secret", .{one_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = one_hidden, .data = "skip-me" });
+
+    var many_dir_buf: [320]u8 = undefined;
+    const many_dir = try std.fmt.bufPrint(&many_dir_buf, "{s}/.cursor/skills/many-files", .{root});
+    try writeTestSkill(testing.io, many_dir, "many-files", "Many body.", false);
+    var many_skill_buf: [360]u8 = undefined;
+    const many_skill = try std.fmt.bufPrint(&many_skill_buf, "{s}/SKILL.md", .{many_dir});
+    var many_a_buf: [360]u8 = undefined;
+    const many_a = try std.fmt.bufPrint(&many_a_buf, "{s}/a.md", .{many_dir});
+    var many_b_buf: [360]u8 = undefined;
+    const many_b = try std.fmt.bufPrint(&many_b_buf, "{s}/b.md", .{many_dir});
+    var many_c_buf: [360]u8 = undefined;
+    const many_c = try std.fmt.bufPrint(&many_c_buf, "{s}/nested", .{many_dir});
+    try std.Io.Dir.cwd().createDirPath(testing.io, many_c);
+    var many_c_file_buf: [400]u8 = undefined;
+    const many_c_file = try std.fmt.bufPrint(&many_c_file_buf, "{s}/c.md", .{many_c});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = many_a, .data = "aaa" });
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = many_b, .data = "bb" });
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = many_c_file, .data = "c" });
+
+    var zero_dir_buf: [320]u8 = undefined;
+    const zero_dir = try std.fmt.bufPrint(&zero_dir_buf, "{s}/.cursor/skills/zero-files", .{root});
+    try writeTestSkill(testing.io, zero_dir, "zero-files", "", false);
+    var zero_skill_buf: [360]u8 = undefined;
+    const zero_skill = try std.fmt.bufPrint(&zero_skill_buf, "{s}/SKILL.md", .{zero_dir});
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setLastProjectPath(root);
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, root);
+    model.settings_page = .skills;
+    applyStdoutPaths(&model, ".cursor/skills/one-file/SKILL.md\n.cursor/skills/many-files/SKILL.md\n.cursor/skills/zero-files/SKILL.md\n");
+    try testing.expectEqual(@as(u32, 3), cachedCount(&model));
+    try testing.expect(!model.has_skill_contents_summary());
+    try testing.expectEqualStrings("", model.skill_contents_summary(arena));
+
+    selectSkill(&model, 1);
+    try testing.expect(model.has_selected_skill());
+    try testing.expect(model.has_skill_body());
+    try testing.expectEqualStrings("One body.", model.skill_body());
+    try testing.expect(model.has_skill_contents_summary());
+    {
+        const bytes = (try testFileSize(testing.io, one_skill)) + (try testFileSize(testing.io, one_extra));
+        var sum_buf: [i18n.skills_contents_summary_max]u8 = undefined;
+        const expected = i18n.formatSkillsContentsSummary(i18n.skillsFileCountChromeFor(.english, ""), 1, bytes, &sum_buf);
+        try testing.expectEqualStrings(expected, model.skill_contents_summary(arena));
+        try testing.expect(std.mem.startsWith(u8, expected, "1 supporting file · "));
+    }
+    model.language_preference = .simplified_chinese;
+    try testing.expect(std.mem.startsWith(u8, model.skill_contents_summary(arena), "1 个附属文件 · "));
+    model.language_preference = .japanese;
+    try testing.expect(std.mem.startsWith(u8, model.skill_contents_summary(arena), "補助ファイル 1 件 · "));
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expect(std.mem.startsWith(u8, model.skill_contents_summary(arena), "1 个附属文件 · "));
+    model.setSystemLocaleId("");
+    model.language_preference = .english;
+
+    selectSkill(&model, 2);
+    try testing.expect(model.has_skill_contents_summary());
+    try testing.expect(model.has_skill_body());
+    {
+        const bytes = (try testFileSize(testing.io, many_skill)) +
+            (try testFileSize(testing.io, many_a)) +
+            (try testFileSize(testing.io, many_b)) +
+            (try testFileSize(testing.io, many_c_file));
+        var sum_buf: [i18n.skills_contents_summary_max]u8 = undefined;
+        const expected = i18n.formatSkillsContentsSummary(i18n.skillsFileCountChromeFor(.english, ""), 3, bytes, &sum_buf);
+        try testing.expectEqualStrings(expected, model.skill_contents_summary(arena));
+        try testing.expect(std.mem.startsWith(u8, expected, "3 supporting files · "));
+    }
+    model.language_preference = .simplified_chinese;
+    try testing.expect(std.mem.startsWith(u8, model.skill_contents_summary(arena), "3 个附属文件 · "));
+    model.language_preference = .japanese;
+    try testing.expect(std.mem.startsWith(u8, model.skill_contents_summary(arena), "補助ファイル 3 件 · "));
+    model.language_preference = .english;
+
+    selectSkill(&model, 3);
+    try testing.expect(model.has_skill_contents_summary());
+    try testing.expect(!model.has_skill_body());
+    {
+        const bytes = try testFileSize(testing.io, zero_skill);
+        var sum_buf: [i18n.skills_contents_summary_max]u8 = undefined;
+        const expected = i18n.formatSkillsContentsSummary(i18n.skillsFileCountChromeFor(.english, ""), 0, bytes, &sum_buf);
+        try testing.expectEqualStrings(expected, model.skill_contents_summary(arena));
+        try testing.expect(std.mem.indexOf(u8, expected, "supporting") == null);
+        try testing.expect(std.mem.endsWith(u8, expected, " B"));
+    }
+
+    model.skill_selected_id = 0;
+    try testing.expect(!model.has_skill_contents_summary());
+    try testing.expectEqualStrings("", model.skill_contents_summary(arena));
+    try testing.expectEqualStrings("", model.skill_detail_contents());
+
+    clearCache(&model);
+    applyStdoutPaths(&model, ".cursor/skills/missing/SKILL.md\n");
+    selectSkill(&model, 1);
+    try testing.expect(model.has_selected_skill());
+    try testing.expectEqualStrings("Contents", model.skill_detail_contents());
+    try testing.expect(!model.has_skill_contents_summary());
+    try testing.expectEqualStrings("", model.skill_contents_summary(arena));
 }
 
 test "countCaption empty-filter counts, filter caption, emptyHint owns, disabled append" {
@@ -4443,6 +4678,12 @@ fn writeTestSkill(io: std.Io, dir: []const u8, name: []const u8, body: []const u
     var data_buf: [512]u8 = undefined;
     const data = try std.fmt.bufPrint(&data_buf, "---\nname: {s}\n---\n\n{s}\n", .{ name, body });
     try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = file_path, .data = data });
+}
+
+fn testFileSize(io: std.Io, path: []const u8) !u64 {
+    var file = try std.Io.Dir.cwd().openFile(io, path, .{});
+    defer file.close(io);
+    return (try file.stat(io)).size;
 }
 
 test "expandPrompt no-op without $ tokens or matching enabled skills" {

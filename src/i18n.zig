@@ -427,9 +427,11 @@
 //! `detail_location` / `detail_contents`; distinct from
 //! SkillsEmptyChrome / SkillsSelectChrome / SkillsCountChrome /
 //! SkillsSectionChrome so the selected-detail chrome stays
-//! independently evolvable; description / `/name` / path / body
-//! stay data; Updated lives in `SkillsUpdatedChrome`; no
-//! file_count / allowed_tools / duplicate grouping this cut;
+//! independently evolvable; description / `/name` / path stay
+//! data; Contents value is supporting-file count · bytes
+//! (`SkillsFileCountChrome` + Latin B/KB/MB; `{skill_body}` stays
+//! a separate block); Updated lives in `SkillsUpdatedChrome`; no
+//! allowed_tools / duplicate grouping this cut;
 //! composer `$` insert unchanged; wire ids stay English)
 //! plus Settings Skills selected-detail Updated (same
 //! `SkillsUpdatedChrome` strings; English matches Waku
@@ -437,9 +439,15 @@
 //! / `updated_hours` / `updated_days`; relative SKILL.md mtime;
 //! fail closed when mtime cannot be read; distinct from
 //! SkillsDetailChrome so Updated stays independently evolvable;
-//! numbers stay Latin; no file_count / allowed_tools / duplicate
-//! grouping this cut; composer `$` insert unchanged; wire ids stay
-//! English)
+//! numbers stay Latin; no allowed_tools / duplicate grouping this
+//! cut; composer `$` insert unchanged; wire ids stay English)
+//! plus Settings Skills selected-detail Contents file_count
+//! (same `SkillsFileCountChrome` strings; English matches Waku
+//! `skills.file_count_one` / `file_count_many`; Latin format_bytes
+//! B/KB/MB; 0 supporting files paints bytes only; fail closed when
+//! the skill dir cannot be walked; distinct from SkillsDetailChrome
+//! / SkillsUpdatedChrome; no allowed_tools / duplicate grouping
+//! this cut; composer `$` insert unchanged; wire ids stay English)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -4463,10 +4471,12 @@ const skills_section_chrome_ja: SkillsSectionChrome = .{
 /// SkillsSelectChrome (unselected detail), SkillsCountChrome
 /// (filter caption), and SkillsSectionChrome (library headers) so
 /// the selected-detail chrome stays independently evolvable.
-/// Description / `/name` invoke line / path / `{skill_body}` stay
-/// data. Updated lives in `SkillsUpdatedChrome`. No file_count /
-/// allowed_tools / duplicate grouping this cut. Composer `$`
-/// insert unchanged. Wire ids stay English.
+/// Description / `/name` invoke line / path stay data. Contents
+/// value is supporting-file count · bytes (`SkillsFileCountChrome`
+/// + Latin B/KB/MB; `{skill_body}` stays a separate block).
+/// Updated lives in `SkillsUpdatedChrome`. No allowed_tools /
+/// duplicate grouping this cut. Composer `$` insert unchanged.
+/// Wire ids stay English.
 pub const SkillsDetailChrome = struct {
     no_description: []const u8,
     detail_invoke: []const u8,
@@ -4502,9 +4512,9 @@ const skills_detail_chrome_ja: SkillsDetailChrome = .{
 /// `updated_days`. Distinct from SkillsDetailChrome (Invoke /
 /// Location / Contents) so Updated stays independently evolvable.
 /// Templates keep Waku `%{count}` slots. Numbers stay Latin. Fail
-/// closed when SKILL.md mtime cannot be read. No file_count /
-/// allowed_tools / duplicate grouping this cut. Composer `$`
-/// insert unchanged. Wire ids stay English.
+/// closed when SKILL.md mtime cannot be read. No allowed_tools /
+/// duplicate grouping this cut. Composer `$` insert unchanged.
+/// Wire ids stay English.
 pub const SkillsUpdatedChrome = struct {
     detail_updated: []const u8,
     updated_just_now: []const u8,
@@ -4541,6 +4551,41 @@ const skills_updated_chrome_ja: SkillsUpdatedChrome = .{
 /// minutes / hours / days stay Latin; templates are short in
 /// every locale.
 pub const skills_updated_label_max: usize = 64;
+
+/// Settings Skills selected-detail Contents supporting-file count
+/// phrases for the resolved locale. Same resolve path as
+/// SkillsDetailChrome / SkillsUpdatedChrome. English matches Waku
+/// `skills.file_count_one` / `file_count_many`. Distinct from
+/// SkillsDetailChrome (Contents label) and SkillsUpdatedChrome so
+/// the count phrases stay independently evolvable. Templates keep
+/// Waku `%{count}` slots. Numbers stay Latin. Byte formatting is
+/// Latin data (`formatSkillBytes`), not this pack. Fail closed when
+/// the skill dir cannot be walked. No allowed_tools / duplicate
+/// grouping this cut. Composer `$` insert unchanged. Wire ids stay
+/// English.
+pub const SkillsFileCountChrome = struct {
+    file_count_one: []const u8,
+    file_count_many: []const u8,
+};
+
+const skills_file_count_chrome_en: SkillsFileCountChrome = .{
+    .file_count_one = "1 supporting file",
+    .file_count_many = "%{count} supporting files",
+};
+
+const skills_file_count_chrome_zh_cn: SkillsFileCountChrome = .{
+    .file_count_one = "1 个附属文件",
+    .file_count_many = "%{count} 个附属文件",
+};
+
+const skills_file_count_chrome_ja: SkillsFileCountChrome = .{
+    .file_count_one = "補助ファイル 1 件",
+    .file_count_many = "補助ファイル %{count} 件",
+};
+
+/// Capped scratch for `formatSkillsContentsSummary`. Count phrase +
+/// ` · ` + Latin B/KB/MB stay short in every locale.
+pub const skills_contents_summary_max: usize = 96;
 
 /// Capped scratch for `formatSkillsCountCaption` /
 /// `formatSkillsFilterCaption`. Max cached skills is 64, so Latin
@@ -5998,6 +6043,60 @@ pub fn formatSkillsUpdatedRelative(chrome: SkillsUpdatedChrome, mtime_unix: i64,
         86400;
     const count: usize = @intCast(@divTrunc(elapsed, unit));
     return formatSkillsPlaceholders(template, &.{.{ .name = "count", .value = count }}, buf);
+}
+
+/// Settings Skills selected-detail Contents supporting-file count
+/// phrases for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does not
+/// read process env. Distinct from SkillsDetailChrome Contents
+/// label and SkillsUpdatedChrome so the count phrases stay
+/// independently evolvable. English matches Waku
+/// `skills.file_count_one` / `file_count_many`. Wire ids stay
+/// English.
+pub fn skillsFileCountChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsFileCountChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_file_count_chrome_zh_cn,
+        .japanese => skills_file_count_chrome_ja,
+        .system, .english => skills_file_count_chrome_en,
+    };
+}
+
+/// Waku `format_bytes`: Latin B / KB / MB. `<1024` → `{n} B`;
+/// `<1MiB` → `{:.1} KB`; else `{:.1} MB`. Not i18n.
+pub fn formatSkillBytes(bytes: u64, buf: []u8) []const u8 {
+    if (bytes < 1024) {
+        return std.fmt.bufPrint(buf, "{d} B", .{bytes}) catch return "";
+    }
+    if (bytes < 1024 * 1024) {
+        const kb = @as(f64, @floatFromInt(bytes)) / 1024.0;
+        return std.fmt.bufPrint(buf, "{d:.1} KB", .{kb}) catch return "";
+    }
+    const mb = @as(f64, @floatFromInt(bytes)) / (1024.0 * 1024.0);
+    return std.fmt.bufPrint(buf, "{d:.1} MB", .{mb}) catch return "";
+}
+
+/// Waku Contents info-row value: supporting-file count phrase (when
+/// `supporting_files >= 1`) joined with Latin `format_bytes` by
+/// ` · `. Zero supporting files is the byte string only.
+pub fn formatSkillsContentsSummary(
+    chrome: SkillsFileCountChrome,
+    supporting_files: usize,
+    total_bytes: u64,
+    buf: []u8,
+) []const u8 {
+    var bytes_buf: [32]u8 = undefined;
+    const bytes = formatSkillBytes(total_bytes, &bytes_buf);
+    if (supporting_files == 0) {
+        if (bytes.len > buf.len) return "";
+        @memcpy(buf[0..bytes.len], bytes);
+        return buf[0..bytes.len];
+    }
+    var count_buf: [64]u8 = undefined;
+    const count_text = if (supporting_files == 1)
+        chrome.file_count_one
+    else
+        formatSkillsPlaceholders(chrome.file_count_many, &.{.{ .name = "count", .value = supporting_files }}, &count_buf);
+    return std.fmt.bufPrint(buf, "{s} · {s}", .{ count_text, bytes }) catch "";
 }
 
 /// Settings Skills Copy path success window_status Path copied for
@@ -9763,6 +9862,51 @@ test "skillsUpdatedChromeFor english default; zh and ja chrome; relative buckets
     try testing.expectEqualStrings("刚刚", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.system, "zh_CN.UTF-8"), now, now, &buf));
     try testing.expectEqualStrings("5 分前", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.system, "ja_JP.UTF-8"), now, now + 300, &buf));
     try testing.expectEqualStrings("Just now", formatSkillsUpdatedRelative(skillsUpdatedChromeFor(.english, "zh_CN.UTF-8"), now, now, &buf));
+}
+
+test "skillsFileCountChromeFor english default; zh and ja chrome; contents summary; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("1 supporting file", skillsFileCountChromeFor(.english, "ja").file_count_one);
+    try testing.expectEqualStrings("%{count} supporting files", skillsFileCountChromeFor(.english, "").file_count_many);
+    try testing.expectEqualStrings("1 supporting file", skillsFileCountChromeFor(.system, "").file_count_one);
+
+    try testing.expectEqualStrings("1 个附属文件", skillsFileCountChromeFor(.simplified_chinese, "").file_count_one);
+    try testing.expectEqualStrings("%{count} 个附属文件", skillsFileCountChromeFor(.simplified_chinese, "").file_count_many);
+    try testing.expectEqualStrings("補助ファイル 1 件", skillsFileCountChromeFor(.japanese, "").file_count_one);
+    try testing.expectEqualStrings("補助ファイル %{count} 件", skillsFileCountChromeFor(.japanese, "").file_count_many);
+
+    try testing.expectEqualStrings("1 个附属文件", skillsFileCountChromeFor(.system, "zh_CN.UTF-8").file_count_one);
+    try testing.expectEqualStrings("%{count} 个附属文件", skillsFileCountChromeFor(.system, "zh_CN.UTF-8").file_count_many);
+    try testing.expectEqualStrings("補助ファイル 1 件", skillsFileCountChromeFor(.system, "ja_JP.UTF-8").file_count_one);
+    try testing.expectEqualStrings("補助ファイル %{count} 件", skillsFileCountChromeFor(.system, "ja_JP.UTF-8").file_count_many);
+    try testing.expectEqualStrings("1 supporting file", skillsFileCountChromeFor(.english, "ja_JP.UTF-8").file_count_one);
+    try testing.expectEqualStrings("%{count} supporting files", skillsFileCountChromeFor(.english, "zh_CN.UTF-8").file_count_many);
+
+    try testing.expect(!std.mem.eql(u8, skillsFileCountChromeFor(.english, "").file_count_one, skillsDetailChromeFor(.english, "").detail_contents));
+    try testing.expect(!std.mem.eql(u8, skillsFileCountChromeFor(.english, "").file_count_one, skillsUpdatedChromeFor(.english, "").detail_updated));
+    try testing.expect(!std.mem.eql(u8, skillsFileCountChromeFor(.simplified_chinese, "").file_count_one, skillsDetailChromeFor(.simplified_chinese, "").detail_contents));
+    try testing.expect(!std.mem.eql(u8, skillsFileCountChromeFor(.japanese, "").file_count_one, skillsDetailChromeFor(.japanese, "").detail_contents));
+
+    var bytes_buf: [32]u8 = undefined;
+    try testing.expectEqualStrings("0 B", formatSkillBytes(0, &bytes_buf));
+    try testing.expectEqualStrings("1023 B", formatSkillBytes(1023, &bytes_buf));
+    try testing.expectEqualStrings("1.0 KB", formatSkillBytes(1024, &bytes_buf));
+    try testing.expectEqualStrings("1.5 KB", formatSkillBytes(1536, &bytes_buf));
+    try testing.expectEqualStrings("1.0 MB", formatSkillBytes(1024 * 1024, &bytes_buf));
+    try testing.expectEqualStrings("1.5 MB", formatSkillBytes(1024 * 1024 + 512 * 1024, &bytes_buf));
+
+    var buf: [skills_contents_summary_max]u8 = undefined;
+    try testing.expectEqualStrings("12 B", formatSkillsContentsSummary(skillsFileCountChromeFor(.english, ""), 0, 12, &buf));
+    try testing.expectEqualStrings("1 supporting file · 12 B", formatSkillsContentsSummary(skillsFileCountChromeFor(.english, ""), 1, 12, &buf));
+    try testing.expectEqualStrings("3 supporting files · 1.5 KB", formatSkillsContentsSummary(skillsFileCountChromeFor(.english, ""), 3, 1536, &buf));
+    try testing.expectEqualStrings("1 个附属文件 · 12 B", formatSkillsContentsSummary(skillsFileCountChromeFor(.simplified_chinese, ""), 1, 12, &buf));
+    try testing.expectEqualStrings("3 个附属文件 · 12 B", formatSkillsContentsSummary(skillsFileCountChromeFor(.simplified_chinese, ""), 3, 12, &buf));
+    try testing.expectEqualStrings("補助ファイル 1 件 · 12 B", formatSkillsContentsSummary(skillsFileCountChromeFor(.japanese, ""), 1, 12, &buf));
+    try testing.expectEqualStrings("補助ファイル 3 件 · 12 B", formatSkillsContentsSummary(skillsFileCountChromeFor(.japanese, ""), 3, 12, &buf));
+    try testing.expectEqualStrings("12 B", formatSkillsContentsSummary(skillsFileCountChromeFor(.japanese, ""), 0, 12, &buf));
+    try testing.expectEqualStrings("1 个附属文件 · 12 B", formatSkillsContentsSummary(skillsFileCountChromeFor(.system, "zh_CN.UTF-8"), 1, 12, &buf));
+    try testing.expectEqualStrings("補助ファイル 3 件 · 12 B", formatSkillsContentsSummary(skillsFileCountChromeFor(.system, "ja_JP.UTF-8"), 3, 12, &buf));
+    try testing.expectEqualStrings("1 supporting file · 12 B", formatSkillsContentsSummary(skillsFileCountChromeFor(.english, "zh_CN.UTF-8"), 1, 12, &buf));
 }
 
 test "skillsPathCopiedChromeFor english default; zh and ja chrome; english ignores ja LANG" {
