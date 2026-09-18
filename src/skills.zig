@@ -715,8 +715,21 @@ pub fn isAbsoluteEnvPath(path: []const u8) bool {
     return path.len >= 2 and std.ascii.isAlphabetic(path[0]) and path[1] == ':';
 }
 
+fn liveProcessEnviron() std.process.Environ {
+    return switch (builtin.os.tag) {
+        .windows => .{ .block = .global },
+        else => posix: {
+            const raw = std.c.environ;
+            if (@intFromPtr(raw) == 0) break :posix .{ .block = .empty };
+            var n: usize = 0;
+            while (raw[n] != null) : (n += 1) {}
+            break :posix .{ .block = .{ .slice = raw[0..n :null] } };
+        },
+    };
+}
+
 fn copyProcessEnv(name: []const u8, dest: []u8) []const u8 {
-    const value = std.process.getEnvVarOwned(std.heap.page_allocator, name) catch return "";
+    const value = std.process.Environ.getAlloc(liveProcessEnviron(), std.heap.page_allocator, name) catch return "";
     defer std.heap.page_allocator.free(value);
     if (value.len == 0 or value.len > dest.len) return "";
     @memcpy(dest[0..value.len], value);
@@ -2365,12 +2378,12 @@ test "applyStdoutPaths merges relative project then absolute user; cap prefers p
         const piece = try std.fmt.bufPrint(overflow[n..], "skills/p{d}/SKILL.md\n", .{i});
         n += piece.len;
     }
-    const u0 = try std.fmt.bufPrint(overflow[n..], "/home/me/.agents/skills/ua/SKILL.md\n", .{});
-    n += u0.len;
-    const u1 = try std.fmt.bufPrint(overflow[n..], "/home/me/.cursor/skills/ub/SKILL.md\n", .{});
-    n += u1.len;
-    const u2 = try std.fmt.bufPrint(overflow[n..], "/home/me/.fx/skills/uc/SKILL.md\n", .{});
-    n += u2.len;
+    const user0 = try std.fmt.bufPrint(overflow[n..], "/home/me/.agents/skills/ua/SKILL.md\n", .{});
+    n += user0.len;
+    const user1 = try std.fmt.bufPrint(overflow[n..], "/home/me/.cursor/skills/ub/SKILL.md\n", .{});
+    n += user1.len;
+    const user2 = try std.fmt.bufPrint(overflow[n..], "/home/me/.fx/skills/uc/SKILL.md\n", .{});
+    n += user2.len;
     applyStdoutPaths(&model, overflow[0..n]);
     try std.testing.expectEqual(@as(u32, max_skills), cachedCount(&model));
     try std.testing.expectEqualStrings("skills/p0/SKILL.md", cachedPath(&model, 0));
@@ -2418,18 +2431,14 @@ test "absolute user catalog paths keep Enable/Disable Delete Open Reveal Copy in
 
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
-    var rel_buf: [256]u8 = undefined;
-    const rel_root = try std.fmt.bufPrint(&rel_buf, ".zig-cache/tmp/{s}/faku-user-abs", .{tmp.sub_path[0..]});
-    try std.Io.Dir.cwd().createDirPath(testing.io, rel_root);
-    var abs_root_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const project = try std.fs.cwd().realpath(rel_root, &abs_root_buf);
+    var dir_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&dir_buf, "/tmp/faku-user-abs-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
 
-    var user_rel_buf: [256]u8 = undefined;
-    const user_rel = try std.fmt.bufPrint(&user_rel_buf, ".zig-cache/tmp/{s}/faku-user-home/.fx/skills/from-home", .{tmp.sub_path[0..]});
-    try writeTestSkill(testing.io, user_rel, "from-home", "User skill body.", false);
-    var abs_user_dir_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const user_dir = try std.fs.cwd().realpath(user_rel, &abs_user_dir_buf);
-    var user_file_buf: [std.fs.max_path_bytes + 16]u8 = undefined;
+    var user_dir_buf: [320]u8 = undefined;
+    const user_dir = try std.fmt.bufPrint(&user_dir_buf, "/tmp/faku-user-home-{s}/.fx/skills/from-home", .{tmp.sub_path});
+    try writeTestSkill(testing.io, user_dir, "from-home", "User skill body.", false);
+    var user_file_buf: [360]u8 = undefined;
     const user_file = try std.fmt.bufPrint(&user_file_buf, "{s}/SKILL.md", .{user_dir});
     try testing.expect(isAbsoluteSkillPath(user_file));
 
