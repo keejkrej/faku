@@ -361,6 +361,9 @@
                     </column>
                   </list-item>
                 </for>
+                <if test="{skills_needs_select}">
+                  <text foreground="text_muted">{skills_select_placeholder}</text>
+                </if>
                 <if test="{has_selected_skill}">
                   <row gap="8" cross="center">
                     <button variant="ghost" size="sm" selected="{skill_enabled}" on-press="toggle_skill_enabled">{skill_enable_label}</button>

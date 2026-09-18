@@ -109,7 +109,10 @@
 //! selection / empty / unresolved path (no clipboard write, no
 //! crash). Label reuses `i18n.ComposerProjectChrome.copy_path` via
 //! Model `skill_copy_path_label`. Not Reveal, not Open in editor,
-//! not a daemon method. Not a Native FS API.
+//! not a daemon method. Not a Native FS API. Unselected-detail
+//! Select a skill follows `i18n.SkillsSelectChrome` (distinct from
+//! SkillsEmptyChrome; muted Native text when the list has rows and
+//! none is selected).
 //! app.zon already includes windows.
 //!
 //! Spawn/line/exit orchestration lives here. Tests do not need a live
@@ -1606,6 +1609,12 @@ pub const scanning = skills_empty_chrome_en.scanning;
 pub const no_skills_found = skills_empty_chrome_en.no_skills_found;
 pub const no_matching = skills_empty_chrome_en.no_matching;
 
+/// English default from `i18n.SkillsSelectChrome`. Distinct from
+/// SkillsEmptyChrome Open a project / Scanning / No skills found /
+/// No skills match your search.
+const skills_select_chrome_en = i18n.skillsSelectChromeFor(.english, "");
+pub const select_placeholder = skills_select_chrome_en.select_placeholder;
+
 /// English defaults from `i18n.SkillsEnableChrome`. Distinct from
 /// Providers Enable / Disable.
 const skills_enable_chrome_en = i18n.skillsEnableChromeFor(.english, "");
@@ -1969,6 +1978,88 @@ test "emptyHint follows Appearance language; scanning and no-match vs No skills 
     model.skill_key = 1;
     try testing.expectEqualStrings("Scanning skill folders…", emptyHint(&model));
     try testing.expectEqualStrings("", insertEmptyHint(&model));
+}
+
+test "skills_needs_select true only on Skills page with rows and no selection" {
+    const testing = std.testing;
+    var model = Model{};
+    try testing.expectEqualStrings("Select a skill", select_placeholder);
+    try testing.expectEqualStrings("Select a skill", i18n.skillsSelectChromeFor(.english, "").select_placeholder);
+    try testing.expect(!model.skills_needs_select());
+    try testing.expectEqualStrings("", model.skills_select_placeholder());
+
+    model.settings_page = .skills;
+    try testing.expect(model.skills_empty());
+    try testing.expect(!model.skills_needs_select());
+    try testing.expectEqualStrings("", model.skills_select_placeholder());
+    try testing.expectEqualStrings("Open a project", emptyHint(&model));
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-select", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, root);
+    model.store_io = testing.io;
+    model.setLastProjectPath(root);
+    try testing.expect(model.skills_empty());
+    try testing.expect(!model.skills_needs_select());
+    try testing.expectEqualStrings("No skills found", emptyHint(&model));
+
+    model.skill_key = 1;
+    try testing.expect(scanInFlight(&model));
+    try testing.expect(model.skills_empty());
+    try testing.expect(!model.skills_needs_select());
+    try testing.expectEqualStrings("Scanning skill folders…", emptyHint(&model));
+    model.skill_key = 0;
+
+    applyStdoutPaths(&model, "./.cursor/skills/demo/SKILL.md\n");
+    try testing.expectEqual(@as(u32, 1), cachedCount(&model));
+    try testing.expectEqual(@as(u32, 0), model.skill_selected_id);
+    try testing.expect(!model.has_selected_skill());
+    try testing.expect(!model.skills_empty());
+    try testing.expect(model.skills_needs_select());
+    try testing.expectEqualStrings("Select a skill", model.skills_select_placeholder());
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("选择一个技能", model.skills_select_placeholder());
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("スキルを選択", model.skills_select_placeholder());
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Select a skill", model.skills_select_placeholder());
+    model.language_preference = .system;
+    try testing.expectEqualStrings("スキルを選択", model.skills_select_placeholder());
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("选择一个技能", model.skills_select_placeholder());
+    model.setSystemLocaleId("");
+    model.language_preference = .english;
+    try testing.expectEqualStrings("Select a skill", model.skills_select_placeholder());
+
+    model.settings_page = .general;
+    try testing.expect(!model.skills_needs_select());
+    try testing.expectEqualStrings("", model.skills_select_placeholder());
+    try testing.expect(!model.skills_empty());
+    model.settings_page = .appearance;
+    try testing.expect(!model.skills_needs_select());
+    model.settings_page = .skills;
+    try testing.expect(model.skills_needs_select());
+
+    selectSkill(&model, 1);
+    try testing.expect(model.has_selected_skill());
+    try testing.expect(!model.skills_empty());
+    try testing.expect(!model.skills_needs_select());
+    try testing.expectEqualStrings("", model.skills_select_placeholder());
+
+    model.skill_selected_id = 0;
+    try testing.expect(model.skills_needs_select());
+    model.skills_filter_buffer.apply(.{ .insert_text = "zzz" });
+    try testing.expect(model.skills_empty());
+    try testing.expect(!model.skills_needs_select());
+    try testing.expectEqualStrings("", model.skills_select_placeholder());
+    try testing.expectEqualStrings("No skills match your search", emptyHint(&model));
+    model.skills_filter_buffer.clear();
+    try testing.expect(model.skills_needs_select());
+    try testing.expectEqualStrings("Select a skill", model.skills_select_placeholder());
 }
 
 test "hydrate name from SKILL.md frontmatter in a temp project" {
