@@ -356,6 +356,13 @@
 //! independently evolvable; composer `$` insert empty reuses Open
 //! a project / No skills found only, not scanning / no-match;
 //! wire ids stay English)
+//! plus Settings Skills richer empty title / description when a
+//! project is open, scan is idle, and `skill_count == 0` (same
+//! `SkillsEmptyRichChrome` strings; English matches Waku
+//! `skills.empty_title` / `skills.empty_description`; distinct from
+//! `SkillsEmptyChrome` so the single-line hints stay independently
+//! evolvable; composer `$` insert empty unchanged; wire ids stay
+//! English)
 //! plus Settings Skills Enable / Disable chip and Disabled badge
 //! (same `SkillsEnableChrome` strings; distinct from
 //! `ProvidersChrome` Enable / Disable so Skills enable stays
@@ -4307,6 +4314,34 @@ const skills_empty_chrome_ja: SkillsEmptyChrome = .{
     .no_matching = "検索に一致するスキルはありません",
 };
 
+/// Settings Skills richer empty title + description when a project
+/// is open, scan is idle, and `skill_count == 0`. Same resolve path
+/// as SkillsEmptyChrome. English matches Waku `skills.empty_title` /
+/// `skills.empty_description`. Distinct from SkillsEmptyChrome so
+/// Open a project / Scanning / No skills found / No skills match
+/// your search stay independently evolvable. Composer `$` insert
+/// empty still reuses `open_project` / `no_skills_found` only via
+/// `skills.insertEmptyHint`. Wire ids stay English.
+pub const SkillsEmptyRichChrome = struct {
+    empty_title: []const u8,
+    empty_description: []const u8,
+};
+
+const skills_empty_rich_chrome_en: SkillsEmptyRichChrome = .{
+    .empty_title = "No skills yet",
+    .empty_description = "A skill is a folder with a SKILL.md — reusable instructions any agent can load, like a deploy runbook or a review checklist. Skills installed for Claude Code, Codex, and every other agent show up here, invoked as /name.",
+};
+
+const skills_empty_rich_chrome_zh_cn: SkillsEmptyRichChrome = .{
+    .empty_title = "还没有技能",
+    .empty_description = "技能是一个包含 SKILL.md 的文件夹 — 任何智能体都能加载的可复用指令，例如部署手册或评审清单。为 Claude Code、Codex 等所有智能体安装的技能都会显示在这里，以 /名称 调用。",
+};
+
+const skills_empty_rich_chrome_ja: SkillsEmptyRichChrome = .{
+    .empty_title = "スキルはまだありません",
+    .empty_description = "スキルは SKILL.md を含むフォルダです。デプロイ手順やレビューチェックリストのように、どのエージェントでも読み込める再利用可能な指示をまとめられます。Claude Code、Codex、その他のエージェント向けにインストールされたスキルがここに表示され、/name で呼び出せます。",
+};
+
 /// Settings Skills unselected-detail Select a skill placeholder for
 /// the resolved locale. Same resolve path as SkillsEmptyChrome.
 /// English matches Waku `skills.select_placeholder`. Distinct from
@@ -5708,6 +5743,21 @@ pub fn skillsEmptyChromeFor(preference: LanguagePreference, system_locale_id: []
         .simplified_chinese => skills_empty_chrome_zh_cn,
         .japanese => skills_empty_chrome_ja,
         .system, .english => skills_empty_chrome_en,
+    };
+}
+
+/// Settings Skills richer empty title + description for the
+/// resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from SkillsEmptyChrome so the single-line empty hints stay
+/// independently evolvable. English matches Waku `skills.empty_title`
+/// / `skills.empty_description`. Composer `$` insert empty is
+/// unchanged. Wire ids stay English.
+pub fn skillsEmptyRichChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsEmptyRichChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_empty_rich_chrome_zh_cn,
+        .japanese => skills_empty_rich_chrome_ja,
+        .system, .english => skills_empty_rich_chrome_en,
     };
 }
 
@@ -9266,6 +9316,51 @@ test "skillsEmptyChromeFor english default; zh and ja chrome; english ignores ja
     try testing.expect(!std.mem.eql(u8, skillsEmptyChromeFor(.english, "").open_project, rightPanelChromeFor(.english, "").no_project_open));
     try testing.expect(!std.mem.eql(u8, skillsEmptyChromeFor(.simplified_chinese, "").open_project, rightPanelChromeFor(.simplified_chinese, "").open_project_to_browse_files));
     try testing.expect(!std.mem.eql(u8, skillsEmptyChromeFor(.japanese, "").open_project, rightPanelChromeFor(.japanese, "").open_project_to_browse_files));
+}
+
+test "skillsEmptyRichChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("No skills yet", skillsEmptyRichChromeFor(.english, "ja").empty_title);
+    try testing.expectEqualStrings(
+        "A skill is a folder with a SKILL.md — reusable instructions any agent can load, like a deploy runbook or a review checklist. Skills installed for Claude Code, Codex, and every other agent show up here, invoked as /name.",
+        skillsEmptyRichChromeFor(.english, "").empty_description,
+    );
+    try testing.expectEqualStrings("No skills yet", skillsEmptyRichChromeFor(.system, "").empty_title);
+    try testing.expectEqualStrings(
+        "A skill is a folder with a SKILL.md — reusable instructions any agent can load, like a deploy runbook or a review checklist. Skills installed for Claude Code, Codex, and every other agent show up here, invoked as /name.",
+        skillsEmptyRichChromeFor(.system, "").empty_description,
+    );
+
+    try testing.expectEqualStrings("还没有技能", skillsEmptyRichChromeFor(.simplified_chinese, "").empty_title);
+    try testing.expectEqualStrings(
+        "技能是一个包含 SKILL.md 的文件夹 — 任何智能体都能加载的可复用指令，例如部署手册或评审清单。为 Claude Code、Codex 等所有智能体安装的技能都会显示在这里，以 /名称 调用。",
+        skillsEmptyRichChromeFor(.simplified_chinese, "").empty_description,
+    );
+    try testing.expectEqualStrings("スキルはまだありません", skillsEmptyRichChromeFor(.japanese, "").empty_title);
+    try testing.expectEqualStrings(
+        "スキルは SKILL.md を含むフォルダです。デプロイ手順やレビューチェックリストのように、どのエージェントでも読み込める再利用可能な指示をまとめられます。Claude Code、Codex、その他のエージェント向けにインストールされたスキルがここに表示され、/name で呼び出せます。",
+        skillsEmptyRichChromeFor(.japanese, "").empty_description,
+    );
+
+    try testing.expectEqualStrings("还没有技能", skillsEmptyRichChromeFor(.system, "zh_CN.UTF-8").empty_title);
+    try testing.expectEqualStrings(
+        "技能是一个包含 SKILL.md 的文件夹 — 任何智能体都能加载的可复用指令，例如部署手册或评审清单。为 Claude Code、Codex 等所有智能体安装的技能都会显示在这里，以 /名称 调用。",
+        skillsEmptyRichChromeFor(.system, "zh_CN.UTF-8").empty_description,
+    );
+    try testing.expectEqualStrings("スキルはまだありません", skillsEmptyRichChromeFor(.system, "ja_JP.UTF-8").empty_title);
+    try testing.expectEqualStrings(
+        "スキルは SKILL.md を含むフォルダです。デプロイ手順やレビューチェックリストのように、どのエージェントでも読み込める再利用可能な指示をまとめられます。Claude Code、Codex、その他のエージェント向けにインストールされたスキルがここに表示され、/name で呼び出せます。",
+        skillsEmptyRichChromeFor(.system, "ja_JP.UTF-8").empty_description,
+    );
+    try testing.expectEqualStrings("No skills yet", skillsEmptyRichChromeFor(.english, "ja_JP.UTF-8").empty_title);
+    try testing.expectEqualStrings(
+        "A skill is a folder with a SKILL.md — reusable instructions any agent can load, like a deploy runbook or a review checklist. Skills installed for Claude Code, Codex, and every other agent show up here, invoked as /name.",
+        skillsEmptyRichChromeFor(.english, "zh_CN.UTF-8").empty_description,
+    );
+
+    try testing.expect(!std.mem.eql(u8, skillsEmptyRichChromeFor(.english, "").empty_title, skillsEmptyChromeFor(.english, "").no_skills_found));
+    try testing.expect(!std.mem.eql(u8, skillsEmptyRichChromeFor(.simplified_chinese, "").empty_title, skillsEmptyChromeFor(.simplified_chinese, "").no_skills_found));
+    try testing.expect(!std.mem.eql(u8, skillsEmptyRichChromeFor(.japanese, "").empty_title, skillsEmptyChromeFor(.japanese, "").no_skills_found));
 }
 
 test "skillsSelectChromeFor english default; zh and ja chrome; english ignores ja LANG" {

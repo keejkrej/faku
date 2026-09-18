@@ -5682,6 +5682,10 @@ pub const Model = struct {
         return i18n.skillsSelectChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn skillsEmptyRichChrome(model: *const Model) i18n.SkillsEmptyRichChrome {
+        return i18n.skillsEmptyRichChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn skillsEnableChrome(model: *const Model) i18n.SkillsEnableChrome {
         return i18n.skillsEnableChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6023,12 +6027,39 @@ pub const Model = struct {
         return skills.emptyHint(model).len != 0;
     }
 
+    /// Settings Skills richer empty title + description. True only
+    /// on the Skills page when `emptyHint` would be the no-skills
+    /// case (project open, scan idle, `skill_count == 0`). Open a
+    /// project / scanning / filter no-match stay single-line.
+    pub fn skills_empty_rich(model: *const Model) bool {
+        return model.settings_page == .skills and skills.isNoSkillsEmpty(model);
+    }
+
     /// Settings Skills empty-state. Localized via
     /// `i18n.SkillsEmptyChrome`. Distinct from FilterChrome /
     /// RightPanelChrome. Composer `$` insert reuses `skills_insert_hint`
-    /// (open_project / no_skills_found only).
+    /// (open_project / no_skills_found only). Empty when
+    /// `skills_empty_rich` so the old No skills found line does not
+    /// double-paint over title + description.
     pub fn skills_empty_hint(model: *const Model) []const u8 {
+        if (model.skills_empty_rich()) return "";
         return skills.emptyHint(model);
+    }
+
+    /// Settings Skills richer empty title. Localized via
+    /// `i18n.SkillsEmptyRichChrome`. Empty when `skills_empty_rich`
+    /// is false.
+    pub fn skills_empty_title(model: *const Model) []const u8 {
+        if (!model.skills_empty_rich()) return "";
+        return model.skillsEmptyRichChrome().empty_title;
+    }
+
+    /// Settings Skills richer empty description. Localized via
+    /// `i18n.SkillsEmptyRichChrome`. Empty when `skills_empty_rich`
+    /// is false.
+    pub fn skills_empty_description(model: *const Model) []const u8 {
+        if (!model.skills_empty_rich()) return "";
+        return model.skillsEmptyRichChrome().empty_description;
     }
 
     pub fn has_skill_body(model: *const Model) bool {

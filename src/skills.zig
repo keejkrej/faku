@@ -73,7 +73,11 @@
 //! project / Scanning skill folders… / No skills found / No skills
 //! match your search follow `i18n.SkillsEmptyChrome`
 //! (distinct from FilterChrome / RightPanelChrome; composer `$`
-//! insert empty reuses Open a project / No skills found only). Enable / Disable / Disabled
+//! insert empty reuses Open a project / No skills found only).
+//! Richer empty title / description when a project is open, scan is
+//! idle, and `skill_count == 0` follow `i18n.SkillsEmptyRichChrome`
+//! (distinct from SkillsEmptyChrome so the single-line hints stay
+//! independently evolvable; composer `$` insert empty unchanged). Enable / Disable / Disabled
 //! badge follow `i18n.SkillsEnableChrome` (distinct from
 //! ProvidersChrome). Enable/Disable rename-fail window_status
 //! Could not update skill. follows `i18n.SkillsEnableStatusChrome`
@@ -1656,6 +1660,10 @@ fn skillsCountChrome(model: *const Model) i18n.SkillsCountChrome {
 /// else a trimmed filter with no `skill_row` match → `no_matching`;
 /// else `""` (list shows rows). Composer `$` insert uses
 /// `insertEmptyHint` so scanning / no-match stay off that surface.
+/// Settings markup prefers `SkillsEmptyRichChrome` title + description
+/// over painting `no_skills_found` when `isNoSkillsEmpty`; `emptyHint`
+/// still returns `no_skills_found` so `skills_empty` / `hasCountCaption`
+/// / `skills_needs_select` keep owning that space.
 pub fn emptyHint(model: *const Model) []const u8 {
     const chrome = skillsEmptyChrome(model);
     if (probePath(model).len == 0) return chrome.open_project;
@@ -1664,6 +1672,17 @@ pub fn emptyHint(model: *const Model) []const u8 {
     const query = std.mem.trim(u8, model.skills_filter_buffer.text(), " \t\r\n");
     if (query.len != 0 and !anySkillRowMatches(model, query)) return chrome.no_matching;
     return "";
+}
+
+/// True when Settings emptyHint would be the no-skills case: a
+/// project is open, the scan is idle, and `skill_count == 0`.
+/// Open a project / scanning / filter no-match stay on the
+/// single-line `SkillsEmptyChrome` hints. Does not check
+/// `settings_page` — Model `skills_empty_rich` gates the page.
+pub fn isNoSkillsEmpty(model: *const Model) bool {
+    if (probePath(model).len == 0) return false;
+    if (scanInFlight(model)) return false;
+    return model.skill_count == 0;
 }
 
 /// Composer `$` insert empty. Same `i18n.SkillsEmptyChrome` pack, but
@@ -2052,6 +2071,44 @@ test "emptyHint follows Appearance language; scanning and no-match vs No skills 
     try testing.expectEqualStrings("", insertEmptyHint(&model));
 }
 
+test "isNoSkillsEmpty only when project open, scan idle, skill_count 0" {
+    const testing = std.testing;
+    var model = Model{};
+    try testing.expect(!isNoSkillsEmpty(&model));
+    try testing.expectEqualStrings("Open a project", emptyHint(&model));
+    try testing.expectEqualStrings("Open a project", insertEmptyHint(&model));
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-rich-empty", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, root);
+    model.store_io = testing.io;
+    model.setLastProjectPath(root);
+    try testing.expect(isNoSkillsEmpty(&model));
+    try testing.expectEqualStrings("No skills found", emptyHint(&model));
+    try testing.expectEqualStrings("No skills found", insertEmptyHint(&model));
+
+    model.skill_key = 1;
+    try testing.expect(scanInFlight(&model));
+    try testing.expect(!isNoSkillsEmpty(&model));
+    try testing.expectEqualStrings("Scanning skill folders…", emptyHint(&model));
+    try testing.expectEqualStrings("", insertEmptyHint(&model));
+    model.skill_key = 0;
+    try testing.expect(isNoSkillsEmpty(&model));
+    try testing.expectEqualStrings("No skills found", insertEmptyHint(&model));
+
+    applyStdoutPaths(&model, "./.cursor/skills/demo/SKILL.md\n");
+    try testing.expectEqual(@as(u32, 1), cachedCount(&model));
+    try testing.expect(!isNoSkillsEmpty(&model));
+    try testing.expectEqualStrings("", emptyHint(&model));
+    try testing.expectEqualStrings("", insertEmptyHint(&model));
+    model.skills_filter_buffer.apply(.{ .insert_text = "zzz" });
+    try testing.expect(!isNoSkillsEmpty(&model));
+    try testing.expectEqualStrings("No skills match your search", emptyHint(&model));
+    try testing.expectEqualStrings("", insertEmptyHint(&model));
+}
+
 test "skills_needs_select true only on Skills page with rows and no selection" {
     const testing = std.testing;
     var model = Model{};
@@ -2062,9 +2119,13 @@ test "skills_needs_select true only on Skills page with rows and no selection" {
 
     model.settings_page = .skills;
     try testing.expect(model.skills_empty());
+    try testing.expect(!model.skills_empty_rich());
     try testing.expect(!model.skills_needs_select());
     try testing.expectEqualStrings("", model.skills_select_placeholder());
+    try testing.expectEqualStrings("", model.skills_empty_title());
+    try testing.expectEqualStrings("", model.skills_empty_description());
     try testing.expectEqualStrings("Open a project", emptyHint(&model));
+    try testing.expectEqualStrings("Open a project", model.skills_empty_hint());
 
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -2074,14 +2135,54 @@ test "skills_needs_select true only on Skills page with rows and no selection" {
     model.store_io = testing.io;
     model.setLastProjectPath(root);
     try testing.expect(model.skills_empty());
+    try testing.expect(model.skills_empty_rich());
     try testing.expect(!model.skills_needs_select());
     try testing.expectEqualStrings("No skills found", emptyHint(&model));
+    try testing.expectEqualStrings("", model.skills_empty_hint());
+    try testing.expectEqualStrings("No skills yet", model.skills_empty_title());
+    try testing.expectEqualStrings(
+        i18n.skillsEmptyRichChromeFor(.english, "").empty_description,
+        model.skills_empty_description(),
+    );
+    try testing.expectEqualStrings("No skills found", insertEmptyHint(&model));
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("还没有技能", model.skills_empty_title());
+    try testing.expectEqualStrings(
+        i18n.skillsEmptyRichChromeFor(.simplified_chinese, "").empty_description,
+        model.skills_empty_description(),
+    );
+    try testing.expectEqualStrings("", model.skills_empty_hint());
+    try testing.expectEqualStrings("未找到技能", insertEmptyHint(&model));
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("スキルはまだありません", model.skills_empty_title());
+    try testing.expectEqualStrings("スキルが見つかりません", insertEmptyHint(&model));
+    model.language_preference = .english;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("No skills yet", model.skills_empty_title());
+    model.language_preference = .system;
+    try testing.expectEqualStrings("还没有技能", model.skills_empty_title());
+    model.setSystemLocaleId("");
+    model.language_preference = .english;
+
+    model.settings_page = .general;
+    try testing.expect(!model.skills_empty());
+    try testing.expect(!model.skills_empty_rich());
+    try testing.expectEqualStrings("", model.skills_empty_title());
+    try testing.expectEqualStrings("No skills found", emptyHint(&model));
+    try testing.expectEqualStrings("No skills found", insertEmptyHint(&model));
+    model.settings_page = .skills;
+    try testing.expect(model.skills_empty_rich());
 
     model.skill_key = 1;
     try testing.expect(scanInFlight(&model));
     try testing.expect(model.skills_empty());
+    try testing.expect(!model.skills_empty_rich());
     try testing.expect(!model.skills_needs_select());
     try testing.expectEqualStrings("Scanning skill folders…", emptyHint(&model));
+    try testing.expectEqualStrings("Scanning skill folders…", model.skills_empty_hint());
+    try testing.expectEqualStrings("", model.skills_empty_title());
+    try testing.expectEqualStrings("", insertEmptyHint(&model));
     model.skill_key = 0;
 
     applyStdoutPaths(&model, "./.cursor/skills/demo/SKILL.md\n");
@@ -2126,9 +2227,13 @@ test "skills_needs_select true only on Skills page with rows and no selection" {
     try testing.expect(model.skills_needs_select());
     model.skills_filter_buffer.apply(.{ .insert_text = "zzz" });
     try testing.expect(model.skills_empty());
+    try testing.expect(!model.skills_empty_rich());
     try testing.expect(!model.skills_needs_select());
     try testing.expectEqualStrings("", model.skills_select_placeholder());
+    try testing.expectEqualStrings("", model.skills_empty_title());
     try testing.expectEqualStrings("No skills match your search", emptyHint(&model));
+    try testing.expectEqualStrings("No skills match your search", model.skills_empty_hint());
+    try testing.expectEqualStrings("", insertEmptyHint(&model));
     model.skills_filter_buffer.clear();
     try testing.expect(model.skills_needs_select());
     try testing.expectEqualStrings("Select a skill", model.skills_select_placeholder());
