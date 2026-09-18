@@ -5798,6 +5798,10 @@ pub const Model = struct {
         return i18n.skillsPathCopiedChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn skillsOpenFileChrome(model: *const Model) i18n.SkillsOpenFileChrome {
+        return i18n.skillsOpenFileChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     /// Palette row display label for `action`. New Task / Settings /
     /// Collapse all folders reuse Sidebar / Chrome strings; remaining
     /// names come from `i18n.Palette`. Ids / keywords stay English.
@@ -6293,14 +6297,14 @@ pub const Model = struct {
         return model.has_selected_skill() and !model.skill_delete_arming;
     }
 
-    /// Settings Skills detail Open in editor. Reuses
-    /// `i18n.FilePreviewChrome.open_in_editor` (same EN Open in
-    /// editor as Files preview). Distinct from
-    /// `file_preview_open_in_editor_label` and composer
-    /// `open_in_editor_label`. `on-press` stays
-    /// `open_skill_in_editor`.
-    pub fn skill_open_in_editor_label(model: *const Model) []const u8 {
-        return model.filePreviewChrome().open_in_editor;
+    /// Settings Skills detail Open SKILL.md. Localized via
+    /// `i18n.SkillsOpenFileChrome`. English matches Waku
+    /// `skills.open_file`. Distinct from
+    /// `file_preview_open_in_editor_label` (`FilePreviewChrome`)
+    /// and composer `open_in_editor_label` (`ComposerProjectChrome`).
+    /// `on-press` stays `open_skill_in_editor`.
+    pub fn skill_open_file_label(model: *const Model) []const u8 {
+        return model.skillsOpenFileChrome().open_file;
     }
 
     /// Settings Skills detail Reveal. Reuses

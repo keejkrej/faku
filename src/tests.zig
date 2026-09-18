@@ -16070,12 +16070,13 @@ test "settings Skills lists SKILL.md name, description, and path; select shows b
     try testing.expect(findByText(tree.root, .text, "No description") == null);
     _ = try expectButtonMsg(tree, skills.disable_label, .toggle_skill_enabled);
     _ = try expectButtonMsg(tree, skills.delete_label, .arm_skill_delete);
-    _ = try expectButtonMsg(tree, model.skill_open_in_editor_label(), .open_skill_in_editor);
+    _ = try expectButtonMsg(tree, model.skill_open_file_label(), .open_skill_in_editor);
     _ = try expectButtonMsg(tree, model.skill_reveal_label(), .reveal_skill);
     _ = try expectButtonMsg(tree, model.skill_copy_path_label(), .copy_skill_path);
-    try testing.expectEqualStrings("Open in editor", model.skill_open_in_editor_label());
-    try testing.expectEqualStrings(model.file_preview_open_in_editor_label(), model.skill_open_in_editor_label());
-    try testing.expectEqualStrings(i18n.filePreviewChromeFor(.english, "").open_in_editor, model.skill_open_in_editor_label());
+    try testing.expectEqualStrings("Open SKILL.md", model.skill_open_file_label());
+    try testing.expect(!std.mem.eql(u8, model.file_preview_open_in_editor_label(), model.skill_open_file_label()));
+    try testing.expectEqualStrings(i18n.skillsOpenFileChromeFor(.english, "").open_file, model.skill_open_file_label());
+    try testing.expect(!std.mem.eql(u8, i18n.filePreviewChromeFor(.english, "").open_in_editor, model.skill_open_file_label()));
     try testing.expectEqualStrings("Reveal folder", model.skill_reveal_label());
     try testing.expectEqualStrings(model.reveal_folder_label(), model.skill_reveal_label());
     try testing.expectEqualStrings(i18n.composerProjectChromeFor(.english, "").reveal_folder, model.skill_reveal_label());
@@ -16157,7 +16158,7 @@ test "settings Skills Open in editor queues host editor argv at the absolute ski
     try testing.expect(model.has_selected_skill() == false);
 
     var tree = try buildTree(arena, &model);
-    try testing.expect(findByText(tree.root, .button, "Open in editor") == null);
+    try testing.expect(findByText(tree.root, .button, "Open SKILL.md") == null);
 
     const before = fx.pendingSpawnCount();
     main.update(&model, .open_skill_in_editor, &fx);
@@ -16172,7 +16173,7 @@ test "settings Skills Open in editor queues host editor argv at the absolute ski
     try testing.expectEqualStrings(file_path, abs);
 
     tree = try buildTree(arena, &model);
-    _ = try expectButtonMsg(tree, "Open in editor", .open_skill_in_editor);
+    _ = try expectButtonMsg(tree, "Open SKILL.md", .open_skill_in_editor);
     _ = try expectButtonMsg(tree, "Reveal folder", .reveal_skill);
     _ = try expectButtonMsg(tree, "Copy path", .copy_skill_path);
 
@@ -16420,7 +16421,7 @@ test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabl
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_confirm_delete_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_delete_idle}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"open_skill_in_editor\""));
-    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_open_in_editor_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_open_file_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"reveal_skill\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_reveal_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"copy_skill_path\""));
@@ -16429,6 +16430,7 @@ test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabl
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Disabled</text>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"arm_skill_delete\">Delete</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"confirm_skill_delete\">Confirm delete</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"open_skill_in_editor\">Open SKILL.md</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"open_skill_in_editor\">Open in editor</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"reveal_skill\">Reveal folder</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"copy_skill_path\">Copy path</button>"));
@@ -16457,7 +16459,7 @@ test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabl
     tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, skills.enable_label, .toggle_skill_enabled);
     _ = try expectButtonMsg(tree, skills.delete_label, .arm_skill_delete);
-    _ = try expectButtonMsg(tree, "Open in editor", .open_skill_in_editor);
+    _ = try expectButtonMsg(tree, "Open SKILL.md", .open_skill_in_editor);
     _ = try expectButtonMsg(tree, "Reveal folder", .reveal_skill);
     _ = try expectButtonMsg(tree, "Copy path", .copy_skill_path);
     _ = try expectByText(tree.root, .text, "Hidden from insert.");
@@ -16479,7 +16481,7 @@ test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabl
     _ = try expectByText(tree.root, .text, "已禁用");
     _ = try expectButtonMsg(tree, "启用", .toggle_skill_enabled);
     _ = try expectButtonMsg(tree, "删除", .arm_skill_delete);
-    _ = try expectButtonMsg(tree, "在编辑器中打开", .open_skill_in_editor);
+    _ = try expectButtonMsg(tree, "打开 SKILL.md", .open_skill_in_editor);
     _ = try expectButtonMsg(tree, "显示文件夹", .reveal_skill);
     _ = try expectButtonMsg(tree, "复制路径", .copy_skill_path);
     model.language_preference = .japanese;
@@ -16487,7 +16489,7 @@ test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabl
     _ = try expectByText(tree.root, .text, "無効");
     _ = try expectButtonMsg(tree, "有効", .toggle_skill_enabled);
     _ = try expectButtonMsg(tree, "削除", .arm_skill_delete);
-    _ = try expectButtonMsg(tree, "エディターで開く", .open_skill_in_editor);
+    _ = try expectButtonMsg(tree, "SKILL.md を開く", .open_skill_in_editor);
     _ = try expectButtonMsg(tree, "フォルダを表示", .reveal_skill);
     _ = try expectButtonMsg(tree, "パスをコピー", .copy_skill_path);
     model.language_preference = .english;

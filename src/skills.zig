@@ -112,9 +112,10 @@
 //! `open_editor.startOpenEditorAt` at the absolute `SKILL.md` /
 //! `SKILL.md.disabled` path from `joinProbeRelpath` (same Cursor /
 //! code / `open -a` sidecar as Files preview). Fail closed with no
-//! selection / empty / invalid path. Label reuses
-//! `i18n.FilePreviewChrome.open_in_editor` via Model
-//! `skill_open_in_editor_label`. Not an embedded editor, not
+//! selection / empty / invalid path. Label follows
+//! `i18n.SkillsOpenFileChrome.open_file` via Model
+//! `skill_open_file_label` (English matches Waku `skills.open_file`;
+//! distinct from FilePreviewChrome / ComposerProjectChrome). Not an embedded editor, not
 //! `open_in_app`, not a daemon method. First-cut Reveal for the
 //! selected skill calls `reveal_folder.startRevealPath` at the
 //! absolute `SKILL.md` / `SKILL.md.disabled` path from
