@@ -396,9 +396,28 @@
                     <button variant="ghost" size="sm" on-press="reveal_skill">{skill_reveal_label}</button>
                     <button variant="ghost" size="sm" on-press="copy_skill_path">{skill_copy_path_label}</button>
                   </row>
-                </if>
-                <if test="{has_skill_body}">
-                  <text wrap="true">{skill_body}</text>
+                  <column gap="6">
+                    <if test="{has_skill_description}">
+                      <text wrap="true">{skill_description}</text>
+                    </if>
+                    <else>
+                      <text wrap="true" foreground="text_muted">{skill_no_description}</text>
+                    </else>
+                    <column gap="2">
+                      <text foreground="text_muted">{skill_detail_invoke}</text>
+                      <text wrap="false" overflow="ellipsis">{skill_invoke_line}</text>
+                    </column>
+                    <column gap="2">
+                      <text foreground="text_muted">{skill_detail_location}</text>
+                      <text wrap="true">{skill_location}</text>
+                    </column>
+                    <column gap="2">
+                      <text foreground="text_muted">{skill_detail_contents}</text>
+                      <if test="{has_skill_body}">
+                        <text wrap="true">{skill_body}</text>
+                      </if>
+                    </column>
+                  </column>
                 </if>
                 <if test="{has_window_status}">
                   <text wrap="true" foreground="text_muted">{window_status}</text>

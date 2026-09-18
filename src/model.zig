@@ -5702,6 +5702,10 @@ pub const Model = struct {
         return i18n.skillsSectionChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn skillsDetailChrome(model: *const Model) i18n.SkillsDetailChrome {
+        return i18n.skillsDetailChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn skillsEmptyRichChrome(model: *const Model) i18n.SkillsEmptyRichChrome {
         return i18n.skillsEmptyRichChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6237,6 +6241,62 @@ pub const Model = struct {
 
     pub fn skill_body(model: *const Model) []const u8 {
         return model.skill_body_storage[0..model.skill_body_len];
+    }
+
+    /// Settings Skills selected-detail YAML description. Empty when
+    /// nothing is selected or the field is missing.
+    pub fn has_skill_description(model: *const Model) bool {
+        return model.has_selected_skill() and skills.selectedSkillDescription(model).len > 0;
+    }
+
+    pub fn skill_description(model: *const Model) []const u8 {
+        if (!model.has_skill_description()) return "";
+        return skills.selectedSkillDescription(model);
+    }
+
+    /// Settings Skills selected-detail No description. Localized via
+    /// `i18n.SkillsDetailChrome`. Distinct from SkillsSelectChrome /
+    /// SkillsEmptyChrome. Empty when unselected or when the skill
+    /// already has a description.
+    pub fn skill_no_description(model: *const Model) []const u8 {
+        if (!model.has_selected_skill() or model.has_skill_description()) return "";
+        return model.skillsDetailChrome().no_description;
+    }
+
+    /// Settings Skills selected-detail Invoke / Location / Contents
+    /// labels. Localized via `i18n.SkillsDetailChrome`. Distinct from
+    /// SkillsEmptyChrome / SkillsSelectChrome / SkillsCountChrome /
+    /// SkillsSectionChrome. Empty when nothing is selected so the
+    /// unselected-detail placeholder still owns that pane. Composer
+    /// `$` insert unchanged.
+    pub fn skill_detail_invoke(model: *const Model) []const u8 {
+        if (!model.has_selected_skill()) return "";
+        return model.skillsDetailChrome().detail_invoke;
+    }
+
+    /// `/` + selected skill name. Name is skill data, not i18n.
+    /// Empty when nothing is selected.
+    pub fn skill_invoke_line(model: *const Model, arena: std.mem.Allocator) []const u8 {
+        if (!model.has_selected_skill()) return "";
+        return skills.selectedSkillInvokeLine(model, arena);
+    }
+
+    pub fn skill_detail_location(model: *const Model) []const u8 {
+        if (!model.has_selected_skill()) return "";
+        return model.skillsDetailChrome().detail_location;
+    }
+
+    /// Absolute install parent when `selectedSkillAbsParent`
+    /// resolves; else the cached store path the list already shows.
+    /// Empty when nothing is selected.
+    pub fn skill_location(model: *const Model, arena: std.mem.Allocator) []const u8 {
+        if (!model.has_selected_skill()) return "";
+        return skills.selectedSkillLocation(model, arena);
+    }
+
+    pub fn skill_detail_contents(model: *const Model) []const u8 {
+        if (!model.has_selected_skill()) return "";
+        return model.skillsDetailChrome().detail_contents;
     }
 
     pub fn applySkillsFilter(model: *Model, edit: canvas.TextInputEvent) void {

@@ -421,6 +421,16 @@
 //! SkillsCountChrome / SkillsSelectChrome so the header stays
 //! independently evolvable; composer `$` insert / slash skill
 //! rows stay flat; wire ids stay English)
+//! plus Settings Skills selected-detail No description / Invoke /
+//! Location / Contents (same `SkillsDetailChrome` strings; English
+//! matches Waku `skills.no_description` / `detail_invoke` /
+//! `detail_location` / `detail_contents`; distinct from
+//! SkillsEmptyChrome / SkillsSelectChrome / SkillsCountChrome /
+//! SkillsSectionChrome so the selected-detail chrome stays
+//! independently evolvable; description / `/name` / path / body
+//! stay data; no `detail_updated` / file_count / allowed_tools /
+//! duplicate grouping this cut; composer `$` insert unchanged;
+//! wire ids stay English)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -4435,6 +4445,47 @@ const skills_section_chrome_ja: SkillsSectionChrome = .{
     .section_user = "ユーザー",
 };
 
+/// Settings Skills selected-detail No description / Invoke /
+/// Location / Contents labels for the resolved locale. Same resolve
+/// path as SkillsEmptyChrome / SkillsSelectChrome /
+/// SkillsCountChrome / SkillsSectionChrome. English matches Waku
+/// `skills.no_description` / `detail_invoke` / `detail_location` /
+/// `detail_contents`. Distinct from SkillsEmptyChrome (empty pane),
+/// SkillsSelectChrome (unselected detail), SkillsCountChrome
+/// (filter caption), and SkillsSectionChrome (library headers) so
+/// the selected-detail chrome stays independently evolvable.
+/// Description / `/name` invoke line / path / `{skill_body}` stay
+/// data. No `detail_updated` / file_count / allowed_tools /
+/// duplicate grouping this cut. Composer `$` insert unchanged.
+/// Wire ids stay English.
+pub const SkillsDetailChrome = struct {
+    no_description: []const u8,
+    detail_invoke: []const u8,
+    detail_location: []const u8,
+    detail_contents: []const u8,
+};
+
+const skills_detail_chrome_en: SkillsDetailChrome = .{
+    .no_description = "No description",
+    .detail_invoke = "Invoke",
+    .detail_location = "Location",
+    .detail_contents = "Contents",
+};
+
+const skills_detail_chrome_zh_cn: SkillsDetailChrome = .{
+    .no_description = "暂无描述",
+    .detail_invoke = "调用",
+    .detail_location = "位置",
+    .detail_contents = "内容",
+};
+
+const skills_detail_chrome_ja: SkillsDetailChrome = .{
+    .no_description = "説明なし",
+    .detail_invoke = "呼び出し",
+    .detail_location = "場所",
+    .detail_contents = "内容",
+};
+
 /// Capped scratch for `formatSkillsCountCaption` /
 /// `formatSkillsFilterCaption`. Max cached skills is 64, so Latin
 /// digits stay short; this holds count + ` · ` + disabled or the
@@ -5833,6 +5884,22 @@ pub fn skillsSectionChromeFor(preference: LanguagePreference, system_locale_id: 
         .simplified_chinese => skills_section_chrome_zh_cn,
         .japanese => skills_section_chrome_ja,
         .system, .english => skills_section_chrome_en,
+    };
+}
+
+/// Settings Skills selected-detail No description / Invoke /
+/// Location / Contents for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does not
+/// read process env. Distinct from SkillsEmptyChrome /
+/// SkillsSelectChrome / SkillsCountChrome / SkillsSectionChrome so
+/// the selected-detail chrome stays independently evolvable.
+/// English matches Waku `skills.no_description` / `detail_invoke` /
+/// `detail_location` / `detail_contents`. Wire ids stay English.
+pub fn skillsDetailChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsDetailChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_detail_chrome_zh_cn,
+        .japanese => skills_detail_chrome_ja,
+        .system, .english => skills_detail_chrome_en,
     };
 }
 
@@ -9496,6 +9563,45 @@ test "skillsSectionChromeFor english default; zh and ja chrome; english ignores 
     try testing.expect(!std.mem.eql(u8, skillsSectionChromeFor(.english, "").section_user, skillsCountChromeFor(.english, "").count_one));
     try testing.expect(!std.mem.eql(u8, skillsSectionChromeFor(.simplified_chinese, "").section_user, skillsEmptyChromeFor(.simplified_chinese, "").open_project));
     try testing.expect(!std.mem.eql(u8, skillsSectionChromeFor(.japanese, "").section_user, skillsEmptyChromeFor(.japanese, "").open_project));
+}
+
+test "skillsDetailChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("No description", skillsDetailChromeFor(.english, "ja").no_description);
+    try testing.expectEqualStrings("Invoke", skillsDetailChromeFor(.english, "").detail_invoke);
+    try testing.expectEqualStrings("Location", skillsDetailChromeFor(.english, "").detail_location);
+    try testing.expectEqualStrings("Contents", skillsDetailChromeFor(.english, "").detail_contents);
+    try testing.expectEqualStrings("No description", skillsDetailChromeFor(.system, "").no_description);
+    try testing.expectEqualStrings("Invoke", skillsDetailChromeFor(.system, "").detail_invoke);
+
+    try testing.expectEqualStrings("暂无描述", skillsDetailChromeFor(.simplified_chinese, "").no_description);
+    try testing.expectEqualStrings("调用", skillsDetailChromeFor(.simplified_chinese, "").detail_invoke);
+    try testing.expectEqualStrings("位置", skillsDetailChromeFor(.simplified_chinese, "").detail_location);
+    try testing.expectEqualStrings("内容", skillsDetailChromeFor(.simplified_chinese, "").detail_contents);
+    try testing.expectEqualStrings("説明なし", skillsDetailChromeFor(.japanese, "").no_description);
+    try testing.expectEqualStrings("呼び出し", skillsDetailChromeFor(.japanese, "").detail_invoke);
+    try testing.expectEqualStrings("場所", skillsDetailChromeFor(.japanese, "").detail_location);
+    try testing.expectEqualStrings("内容", skillsDetailChromeFor(.japanese, "").detail_contents);
+
+    try testing.expectEqualStrings("暂无描述", skillsDetailChromeFor(.system, "zh_CN.UTF-8").no_description);
+    try testing.expectEqualStrings("调用", skillsDetailChromeFor(.system, "zh_CN.UTF-8").detail_invoke);
+    try testing.expectEqualStrings("位置", skillsDetailChromeFor(.system, "zh_CN.UTF-8").detail_location);
+    try testing.expectEqualStrings("内容", skillsDetailChromeFor(.system, "zh_CN.UTF-8").detail_contents);
+    try testing.expectEqualStrings("説明なし", skillsDetailChromeFor(.system, "ja_JP.UTF-8").no_description);
+    try testing.expectEqualStrings("呼び出し", skillsDetailChromeFor(.system, "ja_JP.UTF-8").detail_invoke);
+    try testing.expectEqualStrings("場所", skillsDetailChromeFor(.system, "ja_JP.UTF-8").detail_location);
+    try testing.expectEqualStrings("内容", skillsDetailChromeFor(.system, "ja_JP.UTF-8").detail_contents);
+    try testing.expectEqualStrings("No description", skillsDetailChromeFor(.english, "ja_JP.UTF-8").no_description);
+    try testing.expectEqualStrings("Invoke", skillsDetailChromeFor(.english, "zh_CN.UTF-8").detail_invoke);
+    try testing.expectEqualStrings("Location", skillsDetailChromeFor(.english, "ja_JP.UTF-8").detail_location);
+    try testing.expectEqualStrings("Contents", skillsDetailChromeFor(.english, "zh_CN.UTF-8").detail_contents);
+
+    try testing.expect(!std.mem.eql(u8, skillsDetailChromeFor(.english, "").no_description, skillsSelectChromeFor(.english, "").select_placeholder));
+    try testing.expect(!std.mem.eql(u8, skillsDetailChromeFor(.english, "").detail_invoke, skillsEmptyChromeFor(.english, "").open_project));
+    try testing.expect(!std.mem.eql(u8, skillsDetailChromeFor(.english, "").detail_location, skillsSectionChromeFor(.english, "").section_user));
+    try testing.expect(!std.mem.eql(u8, skillsDetailChromeFor(.english, "").detail_contents, skillsCountChromeFor(.english, "").count_one));
+    try testing.expect(!std.mem.eql(u8, skillsDetailChromeFor(.simplified_chinese, "").no_description, skillsSelectChromeFor(.simplified_chinese, "").select_placeholder));
+    try testing.expect(!std.mem.eql(u8, skillsDetailChromeFor(.japanese, "").no_description, skillsSelectChromeFor(.japanese, "").select_placeholder));
 }
 
 test "skillsPathCopiedChromeFor english default; zh and ja chrome; english ignores ja LANG" {
