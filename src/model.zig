@@ -5802,6 +5802,10 @@ pub const Model = struct {
         return i18n.skillsOpenFileChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn skillsPaneChrome(model: *const Model) i18n.SkillsPaneChrome {
+        return i18n.skillsPaneChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     /// Palette row display label for `action`. New Task / Settings /
     /// Collapse all folders reuse Sidebar / Chrome strings; remaining
     /// names come from `i18n.Palette`. Ids / keywords stay English.
@@ -6229,6 +6233,24 @@ pub const Model = struct {
     pub fn skills_select_placeholder(model: *const Model) []const u8 {
         if (!model.skills_needs_select()) return "";
         return model.skillsSelectChrome().select_placeholder;
+    }
+
+    /// Settings Skills library pane title. Localized via
+    /// `i18n.SkillsPaneChrome`. English matches Waku `skills.library`.
+    /// Distinct from SkillsSectionChrome User, Chrome.skills nav,
+    /// SkillsSelectChrome, and StructuralRegionChrome. Muted/bold
+    /// Native text above the source filter / filter field / list.
+    pub fn skills_library_title(model: *const Model) []const u8 {
+        return model.skillsPaneChrome().library;
+    }
+
+    /// Settings Skills details pane title. Localized via
+    /// `i18n.SkillsPaneChrome`. English matches Waku `skills.details`.
+    /// Distinct from SkillsSelectChrome Select a skill,
+    /// SkillsDetailChrome, and StructuralRegionChrome. Muted/bold
+    /// Native text above the unselected placeholder or selected skill.
+    pub fn skills_details_title(model: *const Model) []const u8 {
+        return model.skillsPaneChrome().details;
     }
 
     /// Settings Skills muted count / filter caption after the filter
