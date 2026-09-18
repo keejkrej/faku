@@ -41,9 +41,10 @@
 //! Available Pi is
 //! one-shot `pi --mode rpc --no-session` (stdin prompt JSONL;
 //! documented RPC `images` when a composer image is attached). fx
-//! Not found copies the verified keejkrej/fx Unix install script
-//! (`releases/latest/download/install` into `~/.fx/bin`; never
-//! auto-runs; not fx.sh). fx Available copies
+//! Not found copies the verified keejkrej/fx install script
+//! (Unix `releases/latest/download/install` curl|bash into `~/.fx/bin`;
+//! Windows `install.ps1` irm|iex on the same latest release; clipboard
+//! only, never auto-runs; not fx.sh). fx Available copies
 //! `fx login` the same way — convenience copy, not auth-state detection
 //! or OAuth UI. Other missing CLIs get a muted PATH hint only (no
 //! invented install URLs). Status / Enable / Apply / Copy / First-party
@@ -72,6 +73,7 @@
 //! Unavailable / Off; no Native helper). Not Waku install/auth.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const main = @import("main.zig");
 const model_exports = @import("model_exports.zig");
 const sidecar_keys = @import("sidecar_keys.zig");
@@ -116,10 +118,13 @@ pub const amp_transport_note = providers_detail_chrome_en.amp_transport_note;
 pub const pi_transport_note = providers_detail_chrome_en.pi_transport_note;
 pub const apply_session_label = providers_chrome_en.apply;
 /// Working keejkrej/fx Unix install script on the latest GitHub Release.
-/// Copied to the clipboard; never auto-run. Not fx.sh.
-/// Lands in `~/.fx/bin`. Windows uses `install.ps1` on the same latest
-/// release (Windows binary zips also ship there).
+/// Copied to the clipboard on Unix hosts; never auto-run. Not fx.sh.
+/// Lands in `~/.fx/bin`.
 pub const fx_install_command = "curl -fsSL https://github.com/keejkrej/fx/releases/latest/download/install | bash";
+/// Working keejkrej/fx Windows PowerShell install on the same latest
+/// GitHub Release (`install.ps1`). Copied to the clipboard on Windows
+/// hosts; never auto-run. Not fx.sh.
+pub const fx_install_command_windows = "irm https://github.com/keejkrej/fx/releases/latest/download/install.ps1 | iex";
 /// Convenience copy only. Fork pitch is also `fx login grok` / `fx login codex`.
 pub const fx_login_command = "fx login";
 pub const copy_install_label = providers_chrome_en.copy_install;
@@ -333,11 +338,26 @@ pub fn showsOtherInstallHint(model: *const Model) bool {
     return id != .fx and !isAvailable(model, id);
 }
 
-/// Copy the verified fx install command. No-op when the install
-/// button would be hidden. Does not spawn a shell.
+/// Host-OS Copy install command: Unix curl|bash, Windows irm|iex.
+/// Clipboard-only; never auto-run. Not fx.sh.
+pub fn fxInstallCommand() []const u8 {
+    return fxInstallCommandForOs(builtin.os.tag);
+}
+
+/// Same verified commands as README. Unix keeps today's curl|bash;
+/// Windows copies `install.ps1` irm|iex. Other tags stay Unix.
+pub fn fxInstallCommandForOs(tag: std.Target.Os.Tag) []const u8 {
+    return switch (tag) {
+        .windows => fx_install_command_windows,
+        else => fx_install_command,
+    };
+}
+
+/// Copy the verified fx install command for this host OS. No-op when
+/// the install button would be hidden. Does not spawn a shell.
 pub fn copyFxInstall(model: *const Model, fx: *Effects) void {
     if (!canCopyFxInstall(model)) return;
-    copy_helpers.copyText(fx, fx_install_command);
+    copy_helpers.copyText(fx, fxInstallCommand());
 }
 
 /// Copy `fx login`. No-op when the login button would be hidden.
@@ -788,9 +808,24 @@ test "copy command strings are the verified keejkrej/fx install / login commands
         "curl -fsSL https://github.com/keejkrej/fx/releases/latest/download/install | bash",
         fx_install_command,
     );
+    try std.testing.expectEqualStrings(
+        "irm https://github.com/keejkrej/fx/releases/latest/download/install.ps1 | iex",
+        fx_install_command_windows,
+    );
     try std.testing.expectEqualStrings("fx login", fx_login_command);
     try std.testing.expectEqualStrings("Copy install command", copy_install_label);
     try std.testing.expectEqualStrings("Copy login command", copy_login_label);
+}
+
+test "fxInstallCommandForOs picks Unix curl|bash vs Windows irm|iex" {
+    try std.testing.expectEqualStrings(fx_install_command, fxInstallCommandForOs(.linux));
+    try std.testing.expectEqualStrings(fx_install_command, fxInstallCommandForOs(.macos));
+    try std.testing.expectEqualStrings(fx_install_command_windows, fxInstallCommandForOs(.windows));
+    try std.testing.expectEqualStrings(fxInstallCommandForOs(builtin.os.tag), fxInstallCommand());
+    switch (builtin.os.tag) {
+        .windows => try std.testing.expectEqualStrings(fx_install_command_windows, fxInstallCommand()),
+        else => try std.testing.expectEqualStrings(fx_install_command, fxInstallCommand()),
+    }
 }
 
 test "install/login copy predicates: fx missing, fx available, other missing" {
@@ -854,13 +889,16 @@ test "copyFxInstall / copyFxLogin write verified commands; wrong state is a no-o
     const install = fx.pendingClipboardAt(0).?;
     try testing.expectEqual(sidecar_keys.copy_turn_key, install.key);
     try testing.expectEqual(@import("native_sdk").EffectClipboardOp.write, install.op);
-    try testing.expectEqualStrings(fx_install_command, install.text);
-    try testing.expectEqualStrings("curl -fsSL https://github.com/keejkrej/fx/releases/latest/download/install | bash", install.text);
+    try testing.expectEqualStrings(fxInstallCommand(), install.text);
+    switch (builtin.os.tag) {
+        .windows => try testing.expectEqualStrings(fx_install_command_windows, install.text),
+        else => try testing.expectEqualStrings(fx_install_command, install.text),
+    }
 
     model.fx_available = true;
     copyFxInstall(&model, &fx);
     try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
-    try testing.expectEqualStrings(fx_install_command, fx.pendingClipboardAt(0).?.text);
+    try testing.expectEqualStrings(fxInstallCommand(), fx.pendingClipboardAt(0).?.text);
 
     var login_fx = Effects.init(testing.allocator);
     defer login_fx.deinit();

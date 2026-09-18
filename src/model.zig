@@ -5927,9 +5927,11 @@ pub const Model = struct {
         return model.settings_page == .providers and providers.showsOtherInstallHint(model);
     }
 
+    /// Settings Providers Copy install command text. Host OS: Unix
+    /// curl|bash, Windows irm|iex. Clipboard-only; never auto-run.
     pub fn fx_install_command(model: *const Model) []const u8 {
         _ = model;
-        return providers.fx_install_command;
+        return providers.fxInstallCommand();
     }
 
     pub fn fx_login_command(model: *const Model) []const u8 {
