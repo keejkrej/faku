@@ -16344,7 +16344,7 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     try testing.expect(findByText(tree.root, .text, "Sign in") == null);
     try testing.expect(findByText(tree.root, .button, providers.copy_install_label) == null);
     try testing.expect(findByText(tree.root, .button, providers.copy_login_label) == null);
-    try testing.expect(findTextContaining(tree.root, providers.fx_install_command) == null);
+    try testing.expect(findTextContaining(tree.root, providers.fxInstallCommand()) == null);
     try testing.expect(findTextContaining(tree.root, providers.other_install_hint) == null);
     try testing.expect(findByText(tree.root, .text, "Catalog id only") == null);
     try testing.expect(findByText(tree.root, .button, providers.apply_session_label) == null);
@@ -16400,7 +16400,7 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
     try testing.expect(findTextContaining(tree.root, providers.fx_login_command) != null);
     try testing.expect(findTextContaining(tree.root, providers.fx_login_note) != null);
     try testing.expect(findTextContaining(tree.root, providers.fx_login_codex_note) != null);
-    try testing.expect(findTextContaining(tree.root, providers.fx_install_command) == null);
+    try testing.expect(findTextContaining(tree.root, providers.fxInstallCommand()) == null);
     try testing.expect(findTextContaining(tree.root, providers.other_install_hint) == null);
 
     main.update(&model, .{ .select_provider = 2 }, &fx);
@@ -16568,11 +16568,12 @@ test "settings Providers fx copy install when missing, copy login when available
     try testing.expect(!model.can_copy_fx_login());
     try testing.expect(!model.has_other_install_hint());
     try testing.expect(model.can_apply_session_provider());
+    try testing.expectEqualStrings(providers.fxInstallCommand(), model.fx_install_command());
 
     var tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, providers.copy_install_label, .copy_fx_install);
     try testing.expect(findByText(tree.root, .button, providers.copy_login_label) == null);
-    try testing.expect(findTextContaining(tree.root, providers.fx_install_command) != null);
+    try testing.expect(findTextContaining(tree.root, providers.fxInstallCommand()) != null);
     try testing.expect(findTextContaining(tree.root, providers.other_install_hint) == null);
     _ = try expectButtonMsg(tree, providers.apply_session_label, .apply_session_provider);
 
@@ -16584,8 +16585,11 @@ test "settings Providers fx copy install when missing, copy login when available
     const written_install = fx.pendingClipboardAt(0).?;
     try testing.expectEqual(sidecar_keys.copy_turn_key, written_install.key);
     try testing.expectEqual(native_sdk.EffectClipboardOp.write, written_install.op);
-    try testing.expectEqualStrings("curl -fsSL https://github.com/keejkrej/fx/releases/latest/download/install | bash", written_install.text);
-    try testing.expectEqualStrings(providers.fx_install_command, written_install.text);
+    try testing.expectEqualStrings(providers.fxInstallCommand(), written_install.text);
+    switch (builtin.os.tag) {
+        .windows => try testing.expectEqualStrings(providers.fx_install_command_windows, written_install.text),
+        else => try testing.expectEqualStrings(providers.fx_install_command, written_install.text),
+    }
 
     model.fx_available = true;
     model.setFxPath("/tmp/faku-fx-login");
@@ -16597,7 +16601,7 @@ test "settings Providers fx copy install when missing, copy login when available
     try testing.expect(findTextContaining(tree.root, providers.fx_login_command) != null);
     try testing.expect(findTextContaining(tree.root, providers.fx_login_note) != null);
     try testing.expect(findTextContaining(tree.root, providers.fx_login_codex_note) != null);
-    try testing.expect(findTextContaining(tree.root, providers.fx_install_command) == null);
+    try testing.expect(findTextContaining(tree.root, providers.fxInstallCommand()) == null);
     _ = try expectButtonMsg(tree, providers.apply_session_label, .apply_session_provider);
 
     var login_fx = Effects.init(testing.allocator);
@@ -16621,7 +16625,7 @@ test "settings Providers fx copy install when missing, copy login when available
     try testing.expect(findByText(tree.root, .button, providers.copy_install_label) == null);
     try testing.expect(findByText(tree.root, .button, providers.copy_login_label) == null);
     try testing.expect(findTextContaining(tree.root, providers.other_install_hint) != null);
-    try testing.expect(findTextContaining(tree.root, providers.fx_install_command) == null);
+    try testing.expect(findTextContaining(tree.root, providers.fxInstallCommand()) == null);
     _ = try expectButtonMsg(tree, providers.apply_session_label, .apply_session_provider);
 }
 
@@ -35213,7 +35217,7 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     try testing.expect(findByText(tree.root, .button, "Use for this session") == null);
     try testing.expect(findByText(tree.root, .button, "Copy install command") == null);
     try testing.expect(findByText(tree.root, .list_item, "fx") != null);
-    try testing.expect(findTextContaining(tree.root, providers.fx_install_command) != null);
+    try testing.expect(findTextContaining(tree.root, providers.fxInstallCommand()) != null);
 
     model.language_preference = .japanese;
     try testing.expectEqualStrings("このセッションで使う", model.apply_session_provider_label());
