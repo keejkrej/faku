@@ -112,7 +112,11 @@
 //! not a daemon method. Not a Native FS API. Unselected-detail
 //! Select a skill follows `i18n.SkillsSelectChrome` (distinct from
 //! SkillsEmptyChrome; muted Native text when the list has rows and
-//! none is selected).
+//! none is selected). Count / filter caption follows
+//! `i18n.SkillsCountChrome` (distinct from FilterChrome /
+//! SkillsEmptyChrome / SkillsSelectChrome; muted Native text after
+//! the filter field when emptyHint does not own that space;
+//! `disabled` is total cached disabled like Waku library header).
 //! app.zon already includes windows.
 //!
 //! Spawn/line/exit orchestration lives here. Tests do not need a live
@@ -1632,6 +1636,10 @@ fn skillsEmptyChrome(model: *const Model) i18n.SkillsEmptyChrome {
     return i18n.skillsEmptyChromeFor(model.language_preference, model.systemLocaleId());
 }
 
+fn skillsCountChrome(model: *const Model) i18n.SkillsCountChrome {
+    return i18n.skillsCountChromeFor(model.language_preference, model.systemLocaleId());
+}
+
 /// Settings Skills empty hint. Localized via `i18n.SkillsEmptyChrome`.
 /// Priority: no project → `open_project`; scan in flight → `scanning`
 /// (even when `skill_count == 0`); else no skills → `no_skills_found`;
@@ -1658,6 +1666,60 @@ pub fn insertEmptyHint(model: *const Model) []const u8 {
     if (scanInFlight(model) and model.skill_count == 0) return "";
     if (model.skill_count == 0) return chrome.no_skills_found;
     return "";
+}
+
+/// Settings Skills count / filter caption. Empty when `emptyHint`
+/// owns the space (no project / scanning / no skills / no match) or
+/// when `skill_count == 0`. Else a trimmed filter with
+/// `shown != total` uses `filter_caption`; otherwise `count_one` /
+/// `count_many`, appending ` · ` + `count_disabled` when any cached
+/// skill is disabled (total cache, not among shown — same as Waku
+/// library header). Numbers stay Latin.
+pub fn countCaption(model: *const Model, arena: std.mem.Allocator) []const u8 {
+    if (!hasCountCaption(model)) return "";
+    const chrome = skillsCountChrome(model);
+    var buf: [i18n.skills_count_caption_max]u8 = undefined;
+    const query = std.mem.trim(u8, model.skills_filter_buffer.text(), " \t\r\n");
+    const total: usize = model.skill_count;
+    const shown = shownSkillCount(model, query);
+    const text = if (query.len != 0 and shown != total)
+        i18n.formatSkillsFilterCaption(chrome, shown, total, &buf)
+    else
+        i18n.formatSkillsCountCaption(chrome, total, disabledSkillCount(model), &buf);
+    return copyCaption(arena, text);
+}
+
+pub fn hasCountCaption(model: *const Model) bool {
+    if (emptyHint(model).len != 0) return false;
+    if (model.skill_count == 0) return false;
+    return true;
+}
+
+fn shownSkillCount(model: *const Model, query: []const u8) usize {
+    var shown: usize = 0;
+    var i: usize = 0;
+    while (i < model.skill_count) : (i += 1) {
+        if (skillRowMatches(&model.skill_store[i], query)) shown += 1;
+    }
+    return shown;
+}
+
+/// Total cached disabled entries (not among the filtered shown set).
+/// Matches Waku library header `disabled_count`.
+fn disabledSkillCount(model: *const Model) usize {
+    var n: usize = 0;
+    var i: usize = 0;
+    while (i < model.skill_count) : (i += 1) {
+        if (!model.skill_store[i].enabled) n += 1;
+    }
+    return n;
+}
+
+fn copyCaption(arena: std.mem.Allocator, text: []const u8) []const u8 {
+    if (text.len == 0) return "";
+    const out = arena.alloc(u8, text.len) catch return "";
+    @memcpy(out, text);
+    return out;
 }
 
 fn anySkillRowMatches(model: *const Model, query: []const u8) bool {
@@ -2060,6 +2122,110 @@ test "skills_needs_select true only on Skills page with rows and no selection" {
     model.skills_filter_buffer.clear();
     try testing.expect(model.skills_needs_select());
     try testing.expectEqualStrings("Select a skill", model.skills_select_placeholder());
+}
+
+test "countCaption empty-filter counts, filter caption, emptyHint owns, disabled append" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model = Model{};
+    try testing.expect(!hasCountCaption(&model));
+    try testing.expectEqualStrings("", countCaption(&model, arena));
+    try testing.expect(!model.has_skills_count_caption());
+    try testing.expectEqualStrings("", model.skills_count_caption(arena));
+    try testing.expectEqualStrings("Open a project", emptyHint(&model));
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-count", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, root);
+    model.store_io = testing.io;
+    model.setLastProjectPath(root);
+    try testing.expectEqualStrings("No skills found", emptyHint(&model));
+    try testing.expect(!hasCountCaption(&model));
+    try testing.expectEqualStrings("", countCaption(&model, arena));
+
+    model.skill_key = 1;
+    try testing.expect(scanInFlight(&model));
+    try testing.expectEqualStrings("Scanning skill folders…", emptyHint(&model));
+    try testing.expect(!hasCountCaption(&model));
+    try testing.expectEqualStrings("", countCaption(&model, arena));
+    model.skill_key = 0;
+
+    applyStdoutPaths(&model, "./.cursor/skills/demo/SKILL.md\n");
+    try testing.expectEqual(@as(u32, 1), cachedCount(&model));
+    try testing.expect(hasCountCaption(&model));
+    try testing.expectEqualStrings("1 skill", countCaption(&model, arena));
+    try testing.expectEqualStrings(
+        i18n.skillsCountChromeFor(.english, "").count_one,
+        countCaption(&model, arena),
+    );
+    model.settings_page = .skills;
+    try testing.expect(model.has_skills_count_caption());
+    try testing.expectEqualStrings("1 skill", model.skills_count_caption(arena));
+    model.settings_page = .general;
+    try testing.expect(!model.has_skills_count_caption());
+    try testing.expectEqualStrings("", model.skills_count_caption(arena));
+    model.settings_page = .skills;
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("1 个技能", countCaption(&model, arena));
+    try testing.expectEqualStrings("1 个技能", model.skills_count_caption(arena));
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("1 個のスキル", countCaption(&model, arena));
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("1 skill", countCaption(&model, arena));
+    model.language_preference = .system;
+    try testing.expectEqualStrings("1 個のスキル", countCaption(&model, arena));
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("1 个技能", countCaption(&model, arena));
+    model.setSystemLocaleId("");
+    model.language_preference = .english;
+    try testing.expectEqualStrings("1 skill", countCaption(&model, arena));
+
+    applyStdoutPaths(&model, "./.cursor/skills/other/SKILL.md\n./.agents/skills/off/SKILL.md.disabled\n");
+    try testing.expectEqual(@as(u32, 3), cachedCount(&model));
+    try testing.expectEqualStrings("3 skills · 1 disabled", countCaption(&model, arena));
+    try testing.expectEqualStrings("3 skills · 1 disabled", model.skills_count_caption(arena));
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("3 个技能 · 已禁用 1 个", countCaption(&model, arena));
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("3 個のスキル · 無効 1 件", countCaption(&model, arena));
+    model.language_preference = .english;
+    try testing.expectEqualStrings("3 skills · 1 disabled", countCaption(&model, arena));
+
+    model.skills_filter_buffer.apply(.{ .insert_text = "demo" });
+    try testing.expect(!model.skills_empty());
+    try testing.expectEqualStrings("", emptyHint(&model));
+    try testing.expect(hasCountCaption(&model));
+    try testing.expectEqualStrings("1 of 3 shown", countCaption(&model, arena));
+    try testing.expectEqualStrings("1 of 3 shown", model.skills_count_caption(arena));
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("显示 1 / 3 个", countCaption(&model, arena));
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("3 件中 1 件を表示", countCaption(&model, arena));
+    model.language_preference = .english;
+    try testing.expectEqualStrings("1 of 3 shown", countCaption(&model, arena));
+
+    model.skills_filter_buffer.clear();
+    model.skills_filter_buffer.apply(.{ .insert_text = "SKILL" });
+    try testing.expectEqualStrings("3 skills · 1 disabled", countCaption(&model, arena));
+    model.skills_filter_buffer.clear();
+    model.skills_filter_buffer.apply(.{ .insert_text = "   " });
+    try testing.expectEqualStrings("3 skills · 1 disabled", countCaption(&model, arena));
+
+    model.skills_filter_buffer.clear();
+    model.skills_filter_buffer.apply(.{ .insert_text = "zzz" });
+    try testing.expect(model.skills_empty());
+    try testing.expectEqualStrings("No skills match your search", emptyHint(&model));
+    try testing.expect(!hasCountCaption(&model));
+    try testing.expectEqualStrings("", countCaption(&model, arena));
+    try testing.expect(!model.has_skills_count_caption());
+    try testing.expectEqualStrings("", model.skills_count_caption(arena));
 }
 
 test "hydrate name from SKILL.md frontmatter in a temp project" {

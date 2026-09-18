@@ -342,6 +342,9 @@
             <row grow="1" main="center">
               <column grow="1" max-width="720" gap="10" padding="14">
                 <text-field text="{skills_filter}" placeholder="{skills_filter_placeholder}" on-input="skills_filter_edit" />
+                <if test="{has_skills_count_caption}">
+                  <text foreground="text_muted">{skills_count_caption}</text>
+                </if>
                 <if test="{skills_empty}">
                   <text foreground="text_muted">{skills_empty_hint}</text>
                 </if>
