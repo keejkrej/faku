@@ -71,7 +71,10 @@
 //! (distinct from FilterChrome / RightPanelChrome; composer `$`
 //! insert empty reuses the same hint). Enable / Disable / Disabled
 //! badge follow `i18n.SkillsEnableChrome` (distinct from
-//! ProvidersChrome). Delete / Confirm delete follow
+//! ProvidersChrome). Enable/Disable rename-fail window_status
+//! Could not update skill. follows `i18n.SkillsEnableStatusChrome`
+//! (distinct from SkillsEnableChrome Enable / Disable / Disabled
+//! and from SkillsTrashStatusChrome). Delete / Confirm delete follow
 //! `i18n.SkillsTrashChrome` (distinct from SkillsEnableChrome /
 //! SkillsEmptyChrome). Delete miss / remove-fail window_status
 //! Could not delete skill. follows `i18n.SkillsTrashStatusChrome`
@@ -134,6 +137,11 @@ pub const mv_end_of_options = "--";
 pub const rm_bin = "rm";
 pub const rm_rf_flag = "-rf";
 pub const rm_end_of_options = "--";
+/// English default for Enable/Disable rename-fail window_status.
+/// Localized copy lives on `i18n.SkillsEnableStatusChrome.enable_failed`
+/// via Model `skill_enable_failed_status`. Distinct from
+/// SkillsEnableChrome Enable / Disable / Disabled.
+pub const could_not_update_status = i18n.skillsEnableStatusChromeFor(.english, "").enable_failed;
 /// English default for Delete miss / remove-fail window_status.
 /// Localized copy lives on `i18n.SkillsTrashStatusChrome.delete_failed`
 /// via Model `skill_delete_failed_status`. Distinct from
@@ -1072,11 +1080,17 @@ pub fn handleDaemonExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
     spawnWalk(model, fx, cwd);
 }
 
+/// Success refreshes the catalog. Non-zero exit / non-exited keep
+/// cache unchanged and set localized Could not update skill.
+/// window_status (`skill_enable_failed_status`).
 pub fn handleRenameExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     if (exit.key != model.skill_rename_key or model.skill_rename_key == 0) return;
     model.skill_rename_key = 0;
     const succeeded = exit.reason == .exited and exit.code == 0;
-    if (!succeeded) return;
+    if (!succeeded) {
+        failEnable(model);
+        return;
+    }
     refresh(model, fx);
 }
 
@@ -1151,6 +1165,10 @@ pub fn handleRemoveExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
 
 fn failTrash(model: *Model) void {
     model.setWindowStatus(model.skill_delete_failed_status());
+}
+
+fn failEnable(model: *Model) void {
+    model.setWindowStatus(model.skill_enable_failed_status());
 }
 
 /// Enable when the selected skill is disabled, Disable when enabled.
@@ -2082,12 +2100,16 @@ test "toggleSkillEnabled one-shots mv; success refreshes find; fail and stale ke
     handleRenameExit(&model, &fx, .{ .key = rename_key + 9, .reason = .exited, .code = 0 });
     try testing.expectEqual(rename_key, model.skill_rename_key);
     try testing.expectEqual(@as(u32, 1), cachedCount(&model));
+    try testing.expect(!model.has_window_status());
 
     handleRenameExit(&model, &fx, .{ .key = rename_key, .reason = .exited, .code = 1 });
     try testing.expectEqual(@as(u64, 0), model.skill_rename_key);
     try testing.expectEqual(@as(u32, 1), cachedCount(&model));
     try testing.expect(cachedEnabled(&model, 0));
+    try testing.expectEqualStrings(could_not_update_status, model.window_status());
+    try testing.expectEqualStrings(model.skill_enable_failed_status(), model.window_status());
 
+    model.clearWindowStatus();
     toggleSkillEnabled(&model, &fx);
     const retry_key = model.skill_rename_key;
     try testing.expect(retry_key > rename_key);
@@ -2095,6 +2117,7 @@ test "toggleSkillEnabled one-shots mv; success refreshes find; fail and stale ke
     try testing.expectEqual(@as(u64, 0), model.skill_rename_key);
     try testing.expectEqual(@as(u32, 0), cachedCount(&model));
     try testing.expect(model.skill_key >= skills_key_first);
+    try testing.expect(!model.has_window_status());
     i = 0;
     spawn = fx.pendingSpawnAt(0);
     while (spawn) |item| : (i += 1) {
@@ -2966,4 +2989,76 @@ test "Delete miss / remove-fail window_status follows Appearance language" {
     model.skill_remove_key = skills_remove_key_first;
     handleRemoveExit(&model, &fx, .{ .key = skills_remove_key_first, .reason = .exited, .code = 1 });
     try testing.expectEqualStrings("スキルを削除できませんでした。", model.window_status());
+}
+
+test "Enable/Disable rename-fail window_status follows Appearance language" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Could not update skill.", could_not_update_status);
+    try testing.expectEqualStrings(i18n.skillsEnableStatusChromeFor(.english, "").enable_failed, could_not_update_status);
+    try testing.expect(!std.mem.eql(u8, could_not_update_status, could_not_delete_status));
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    try testing.expectEqualStrings(could_not_update_status, model.skill_enable_failed_status());
+
+    applyStdoutPaths(&model, "SKILL.md\n");
+    try testing.expectEqual(@as(u32, 1), cachedCount(&model));
+    try testing.expect(cachedEnabled(&model, 0));
+
+    model.skill_rename_key = skills_rename_key_first;
+    handleRenameExit(&model, &fx, .{ .key = skills_rename_key_first, .reason = .exited, .code = 1 });
+    try testing.expectEqual(@as(u64, 0), model.skill_rename_key);
+    try testing.expectEqual(@as(u32, 1), cachedCount(&model));
+    try testing.expect(cachedEnabled(&model, 0));
+    try testing.expectEqualStrings(could_not_update_status, model.window_status());
+    try testing.expectEqualStrings(model.skill_enable_failed_status(), model.window_status());
+
+    model.clearWindowStatus();
+    model.skill_rename_key = skills_rename_key_first + 1;
+    handleRenameExit(&model, &fx, .{ .key = skills_rename_key_first + 1, .reason = .cancelled, .code = 0 });
+    try testing.expectEqual(@as(u64, 0), model.skill_rename_key);
+    try testing.expectEqual(@as(u32, 1), cachedCount(&model));
+    try testing.expectEqualStrings(could_not_update_status, model.window_status());
+
+    model.language_preference = .simplified_chinese;
+    model.skill_rename_key = skills_rename_key_first;
+    handleRenameExit(&model, &fx, .{ .key = skills_rename_key_first, .reason = .exited, .code = 1 });
+    try testing.expectEqualStrings("无法更新技能。", model.window_status());
+    try testing.expectEqualStrings(i18n.skillsEnableStatusChromeFor(.simplified_chinese, "").enable_failed, model.window_status());
+    try testing.expect(!std.mem.eql(u8, could_not_update_status, model.window_status()));
+    try testing.expectEqual(@as(u32, 1), cachedCount(&model));
+
+    model.language_preference = .japanese;
+    model.skill_rename_key = skills_rename_key_first;
+    handleRenameExit(&model, &fx, .{ .key = skills_rename_key_first, .reason = .exited, .code = 1 });
+    try testing.expectEqualStrings("スキルを更新できませんでした。", model.window_status());
+    try testing.expectEqualStrings(i18n.skillsEnableStatusChromeFor(.japanese, "").enable_failed, model.window_status());
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    model.skill_rename_key = skills_rename_key_first;
+    handleRenameExit(&model, &fx, .{ .key = skills_rename_key_first, .reason = .exited, .code = 1 });
+    try testing.expectEqualStrings(could_not_update_status, model.window_status());
+    try testing.expectEqualStrings("Could not update skill.", model.window_status());
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    model.skill_rename_key = skills_rename_key_first;
+    handleRenameExit(&model, &fx, .{ .key = skills_rename_key_first, .reason = .exited, .code = 1 });
+    try testing.expectEqualStrings("无法更新技能。", model.window_status());
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    model.skill_rename_key = skills_rename_key_first;
+    handleRenameExit(&model, &fx, .{ .key = skills_rename_key_first, .reason = .exited, .code = 1 });
+    try testing.expectEqualStrings("スキルを更新できませんでした。", model.window_status());
+
+    model.clearWindowStatus();
+    model.skill_rename_key = skills_rename_key_first;
+    handleRenameExit(&model, &fx, .{ .key = skills_rename_key_first, .reason = .exited, .code = 0 });
+    try testing.expectEqual(@as(u64, 0), model.skill_rename_key);
+    try testing.expectEqual(@as(u32, 0), cachedCount(&model));
+    try testing.expect(!model.has_window_status());
 }

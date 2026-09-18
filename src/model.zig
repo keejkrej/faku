@@ -2290,6 +2290,7 @@ pub const Model = struct {
         "providersChrome",
         "providersDetailChrome",
         "skillsEnableChrome",
+        "skillsEnableStatusChrome",
         "skillsTrashChrome",
         "skillsTrashStatusChrome",
         "palette_action_label",
@@ -5668,6 +5669,10 @@ pub const Model = struct {
         return i18n.skillsEnableChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn skillsEnableStatusChrome(model: *const Model) i18n.SkillsEnableStatusChrome {
+        return i18n.skillsEnableStatusChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn skillsTrashChrome(model: *const Model) i18n.SkillsTrashChrome {
         return i18n.skillsTrashChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6038,6 +6043,15 @@ pub const Model = struct {
         const chrome = model.skillsEnableChrome();
         if (model.skill_enabled()) return chrome.disable;
         return chrome.enable;
+    }
+
+    /// Settings Skills Enable/Disable rename-fail window_status.
+    /// Localized via `i18n.SkillsEnableStatusChrome`. Distinct from
+    /// Enable / Disable / Disabled (`SkillsEnableChrome`) and from
+    /// `SkillsTrashStatusChrome` Could not delete skill. English
+    /// matches `skills.could_not_update_status`.
+    pub fn skill_enable_failed_status(model: *const Model) []const u8 {
+        return model.skillsEnableStatusChrome().enable_failed;
     }
 
     /// Settings Skills detail Delete / Confirm delete chip. Localized
