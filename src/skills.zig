@@ -99,8 +99,16 @@
 //! with no selection / empty / unresolved path (no spawn).
 //! `.missing_bin` paints `hostMissingStatusFor`. Label reuses
 //! `i18n.ComposerProjectChrome.reveal_folder` via Model
-//! `skill_reveal_label`. Not Open in editor, not copy path, not a
-//! daemon method. Not a Native FS API.
+//! `skill_reveal_label`. Not Open in editor, not a daemon method.
+//! First-cut Copy path for the selected skill writes the absolute
+//! skill parent directory (install dir, not `SKILL.md`) through
+//! Native `fx.writeClipboard` via `copy.copyText` / `copy_turn_key`.
+//! Same parent as Enable/Disable / Delete (`absSkillParent` from
+//! selected store path + probe root). Fail closed with no
+//! selection / empty / unresolved path (no clipboard write, no
+//! crash). Label reuses `i18n.ComposerProjectChrome.copy_path` via
+//! Model `skill_copy_path_label`. Not Reveal, not Open in editor,
+//! not a daemon method. Not a Native FS API.
 //! app.zon already includes windows.
 //!
 //! Spawn/line/exit orchestration lives here. Tests do not need a live
@@ -120,6 +128,7 @@ const daemon_proxy = @import("daemon_proxy.zig");
 const effect_keys = @import("effect_keys.zig");
 const open_editor = @import("open_editor.zig");
 const reveal_folder = @import("reveal_folder.zig");
+const copy = @import("copy.zig");
 
 const Model = model_exports.Model;
 const Effects = main.Effects;
@@ -1424,6 +1433,20 @@ pub fn selectedSkillAbsPath(model: *const Model, buf: []u8) ?[]const u8 {
     return abs;
 }
 
+/// Absolute skill install directory for the selected Settings Skills
+/// row. Same join as Enable/Disable / Delete (`absSkillParent` from
+/// selected store path + probe root). Null when nothing is selected,
+/// the store path is empty, or the join does not resolve.
+pub fn selectedSkillAbsParent(model: *const Model, buf: []u8) ?[]const u8 {
+    if (model.skill_selected_id == 0 or model.skill_selected_id > model.skill_count) return null;
+    const relpath = model.skill_store[model.skill_selected_id - 1].path();
+    if (relpath.len == 0) return null;
+    const root = model.skill_probe_path_storage[0..model.skill_probe_path_len];
+    const parent = absSkillParent(root, relpath, buf) orelse return null;
+    if (parent.len == 0) return null;
+    return parent;
+}
+
 /// Settings Skills Open in editor. Same `cursor` / `code` /
 /// `open -a` sidecar as Files preview. Fail closed with no
 /// selection / empty / invalid path (no crash, no spawn). Missing
@@ -1447,6 +1470,18 @@ pub fn revealSelectedSkill(model: *Model, fx: *Effects) void {
         .missing_bin => model.setWindowStatus(reveal_folder.hostMissingStatusFor(model.language_preference, model.systemLocaleId())),
         .no_path => {},
     }
+}
+
+/// Settings Skills Copy path. Writes the absolute skill parent
+/// directory (install dir, not `SKILL.md`) through Native
+/// `fx.writeClipboard` via `copy.copyText` / `copy_turn_key`. Fail
+/// closed with no selection / empty / unresolved path (no clipboard
+/// write, no crash). Not Reveal, not Open in editor, not a daemon
+/// method.
+pub fn copySelectedSkillPath(model: *Model, fx: *Effects) void {
+    var parent_buf: [model_exports.max_project_path + max_skill_path + 1]u8 = undefined;
+    const parent = selectedSkillAbsParent(model, &parent_buf) orelse return;
+    copy.copyText(fx, parent);
 }
 
 fn loadBody(model: *Model, index: usize) void {
@@ -2505,6 +2540,91 @@ test "skill_reveal_label equals composerProjectChrome reveal_folder" {
         i18n.composerProjectChromeFor(.japanese, "").reveal_folder,
         model.skill_reveal_label(),
     );
+}
+
+test "copySelectedSkillPath queues writeClipboard with the absolute skill parent directory" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, "/tmp/faku-skills-copy-path-{s}", .{tmp.sub_path});
+    var skill_dir_buf: [320]u8 = undefined;
+    const skill_dir = try std.fmt.bufPrint(&skill_dir_buf, "{s}/.cursor/skills/demo", .{root});
+    try std.Io.Dir.cwd().createDirPath(testing.io, skill_dir);
+    var file_buf: [360]u8 = undefined;
+    const file_path = try std.fmt.bufPrint(&file_buf, "{s}/SKILL.md", .{skill_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = file_path,
+        .data =
+        \\---
+        \\name: demo
+        \\---
+        \\
+        \\Body.
+        \\
+        ,
+    });
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, root);
+    applyStdoutPaths(&model, ".cursor/skills/demo/SKILL.md\n");
+    selectSkill(&model, 1);
+    var abs_buf: [model_exports.max_project_path + max_skill_path + 1]u8 = undefined;
+    try std.testing.expectEqualStrings(file_path, selectedSkillAbsPath(&model, &abs_buf).?);
+    try std.testing.expectEqualStrings(skill_dir, selectedSkillAbsParent(&model, &abs_buf).?);
+
+    copySelectedSkillPath(&model, &fx);
+    try std.testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    const written = fx.pendingClipboardAt(0).?;
+    try std.testing.expectEqual(copy.copy_turn_key, written.key);
+    try std.testing.expectEqual(native_sdk.EffectClipboardOp.write, written.op);
+    try std.testing.expectEqualStrings(skill_dir, written.text);
+    try std.testing.expect(!std.mem.eql(u8, written.text, file_path));
+    try std.testing.expect(!std.mem.endsWith(u8, written.text, "/SKILL.md"));
+}
+
+test "copySelectedSkillPath fails closed with no selection or unresolved path" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    copySelectedSkillPath(&model, &fx);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    try std.testing.expectEqualStrings("", model.window_status());
+
+    applyStdoutPaths(&model, ".cursor/skills/demo/SKILL.md\n");
+    selectSkill(&model, 1);
+    copySelectedSkillPath(&model, &fx);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    try std.testing.expectEqualStrings("", model.window_status());
+}
+
+test "skill_copy_path_label equals composerProjectChrome copy_path" {
+    var model = Model{};
+    try std.testing.expectEqualStrings(
+        i18n.composerProjectChromeFor(.english, "").copy_path,
+        model.skill_copy_path_label(),
+    );
+    try std.testing.expectEqualStrings(model.copy_path_label(), model.skill_copy_path_label());
+    model.language_preference = .simplified_chinese;
+    try std.testing.expectEqualStrings(
+        i18n.composerProjectChromeFor(.simplified_chinese, "").copy_path,
+        model.skill_copy_path_label(),
+    );
+    try std.testing.expectEqualStrings(model.copy_path_label(), model.skill_copy_path_label());
+    model.language_preference = .japanese;
+    try std.testing.expectEqualStrings(
+        i18n.composerProjectChromeFor(.japanese, "").copy_path,
+        model.skill_copy_path_label(),
+    );
+    try std.testing.expectEqualStrings(model.copy_path_label(), model.skill_copy_path_label());
 }
 
 test "composer $ insert lists enabled skills only" {

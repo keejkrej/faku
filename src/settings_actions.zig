@@ -539,6 +539,10 @@ pub fn handleRevealSkill(model: *Model, fx: *Effects) void {
     skills.revealSelectedSkill(model, fx);
 }
 
+pub fn handleCopySkillPath(model: *Model, fx: *Effects) void {
+    skills.copySelectedSkillPath(model, fx);
+}
+
 pub fn handleCycleAccess(model: *Model, fx: *Effects) void {
     model.cycleSelectedAccess();
     persist.persistComposerChips(model, fx);

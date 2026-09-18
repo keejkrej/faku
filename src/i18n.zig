@@ -381,6 +381,10 @@
 //! `ComposerProjectChrome.reveal_folder` via a distinct Model getter;
 //! same EN Reveal folder as composer project-row; on-press stays
 //! `reveal_skill`; wire ids stay English)
+//! plus Settings Skills Copy path (reuses
+//! `ComposerProjectChrome.copy_path` via a distinct Model getter;
+//! same EN Copy path as composer project-row; on-press stays
+//! `copy_skill_path`; wire ids stay English)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -429,6 +433,9 @@
 //! Model getter).
 //! Skills Reveal `on-press` stays `reveal_skill`
 //! (label reuses `ComposerProjectChrome.reveal_folder` via a distinct
+//! Model getter).
+//! Skills Copy path `on-press` stays `copy_skill_path`
+//! (label reuses `ComposerProjectChrome.copy_path` via a distinct
 //! Model getter).
 //! File-preview toolbar `on-press` / `on-input` stay English
 //! (`file_preview_save` / `close_right_panel_file_preview` /
@@ -1339,7 +1346,8 @@ const right_panel_chrome_ja: RightPanelChrome = .{
 /// the former hardcoded composer buttons. Distinct from palette
 /// `Open project in Editor` / `Reveal project folder` / `Copy project path`.
 /// Settings Skills Reveal reuses `reveal_folder` via a distinct Model
-/// getter (`skill_reveal_label`).
+/// getter (`skill_reveal_label`). Settings Skills Copy path reuses
+/// `copy_path` via a distinct Model getter (`skill_copy_path_label`).
 pub const ComposerProjectChrome = struct {
     pick_folder: []const u8,
     reveal_folder: []const u8,

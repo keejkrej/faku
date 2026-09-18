@@ -372,6 +372,7 @@
                     </if>
                     <button variant="ghost" size="sm" on-press="open_skill_in_editor">{skill_open_in_editor_label}</button>
                     <button variant="ghost" size="sm" on-press="reveal_skill">{skill_reveal_label}</button>
+                    <button variant="ghost" size="sm" on-press="copy_skill_path">{skill_copy_path_label}</button>
                   </row>
                 </if>
                 <if test="{has_skill_body}">
