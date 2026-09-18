@@ -16204,6 +16204,56 @@ test "skills delete fail window_status follows Appearance language" {
     try testing.expectEqualStrings("スキルを削除できませんでした。", model.skill_delete_failed_status());
 }
 
+test "skills enable fail window_status follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Could not update skill."));
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, main.app_markup, "{window_status}"));
+
+    var model = Model{};
+    try testing.expectEqualStrings("Could not update skill.", model.skill_enable_failed_status());
+    try testing.expectEqualStrings(skills.could_not_update_status, model.skill_enable_failed_status());
+    try testing.expectEqualStrings(i18n.skillsEnableStatusChromeFor(.english, "").enable_failed, model.skill_enable_failed_status());
+    try testing.expect(!std.mem.eql(u8, model.skill_enable_failed_status(), model.skill_delete_failed_status()));
+    try testing.expect(!std.mem.eql(u8, model.skill_enable_failed_status(), model.skill_enable_label()));
+
+    model.setWindowStatus(model.skill_enable_failed_status());
+    try testing.expectEqualStrings("Could not update skill.", model.window_status());
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Could not update skill.");
+    try testing.expect(findByText(tree.root, .text, "无法更新技能。") == null);
+    try testing.expect(findByText(tree.root, .text, "スキルを更新できませんでした。") == null);
+
+    model.language_preference = .simplified_chinese;
+    model.setWindowStatus(model.skill_enable_failed_status());
+    try testing.expectEqualStrings("无法更新技能。", model.window_status());
+    try testing.expectEqualStrings(i18n.skillsEnableStatusChromeFor(.simplified_chinese, "").enable_failed, model.window_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "无法更新技能。");
+    try testing.expect(findByText(tree.root, .text, "Could not update skill.") == null);
+
+    model.language_preference = .japanese;
+    model.setWindowStatus(model.skill_enable_failed_status());
+    try testing.expectEqualStrings("スキルを更新できませんでした。", model.window_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "スキルを更新できませんでした。");
+    try testing.expect(findByText(tree.root, .text, "Could not update skill.") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    model.setWindowStatus(model.skill_enable_failed_status());
+    try testing.expectEqualStrings("Could not update skill.", model.window_status());
+    try testing.expectEqualStrings(skills.could_not_update_status, model.window_status());
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("无法更新技能。", model.skill_enable_failed_status());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("スキルを更新できませんでした。", model.skill_enable_failed_status());
+}
+
 test "settings Providers tab lists catalog; fx Available vs Not found from model fields" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

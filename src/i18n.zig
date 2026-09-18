@@ -359,6 +359,11 @@
 //! `ProvidersChrome` Enable / Disable so Skills enable stays
 //! independently evolvable; on-press stays `toggle_skill_enabled`;
 //! wire ids stay English)
+//! plus Settings Skills Enable/Disable rename-fail window_status
+//! Could not update skill. (same `SkillsEnableStatusChrome` strings;
+//! distinct from `SkillsEnableChrome` Enable / Disable / Disabled
+//! badge and from `SkillsTrashStatusChrome` so fail status stays
+//! independently evolvable)
 //! plus Settings Skills Delete / Confirm delete (same
 //! `SkillsTrashChrome` strings; distinct from `SkillsEnableChrome` /
 //! `SkillsEmptyChrome` so Delete stays independently evolvable;
@@ -4269,6 +4274,29 @@ const skills_enable_chrome_ja: SkillsEnableChrome = .{
     .disabled = "無効",
 };
 
+/// Settings Skills Enable/Disable rename-fail window_status Could
+/// not update skill. for the resolved locale. Same resolve path as
+/// SkillsEnableChrome. English is the first-cut fail string.
+/// Distinct from Enable / Disable / Disabled (`SkillsEnableChrome`)
+/// and from Delete miss (`SkillsTrashStatusChrome`) so fail status
+/// stays independently evolvable. Wire ids / on-press stay English
+/// (`toggle_skill_enabled`).
+pub const SkillsEnableStatusChrome = struct {
+    enable_failed: []const u8,
+};
+
+const skills_enable_status_chrome_en: SkillsEnableStatusChrome = .{
+    .enable_failed = "Could not update skill.",
+};
+
+const skills_enable_status_chrome_zh_cn: SkillsEnableStatusChrome = .{
+    .enable_failed = "无法更新技能。",
+};
+
+const skills_enable_status_chrome_ja: SkillsEnableStatusChrome = .{
+    .enable_failed = "スキルを更新できませんでした。",
+};
+
 /// Settings Skills Delete / Confirm delete chip for the resolved
 /// locale. Same resolve path as SkillsEnableChrome. Distinct from
 /// Enable / Disable / empty-state so Delete stays independently
@@ -5540,6 +5568,20 @@ pub fn skillsEnableChromeFor(preference: LanguagePreference, system_locale_id: [
         .simplified_chinese => skills_enable_chrome_zh_cn,
         .japanese => skills_enable_chrome_ja,
         .system, .english => skills_enable_chrome_en,
+    };
+}
+
+/// Settings Skills Enable/Disable rename-fail Could not update skill.
+/// window_status for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does not
+/// read process env. Distinct from SkillsEnableChrome Enable /
+/// Disable / Disabled and from SkillsTrashStatusChrome. Wire ids /
+/// on-press stay English (`toggle_skill_enabled`).
+pub fn skillsEnableStatusChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsEnableStatusChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_enable_status_chrome_zh_cn,
+        .japanese => skills_enable_status_chrome_ja,
+        .system, .english => skills_enable_status_chrome_en,
     };
 }
 
@@ -9012,5 +9054,27 @@ test "skillsTrashStatusChromeFor english default; zh and ja chrome; english igno
     try testing.expect(!std.mem.eql(u8, skillsTrashStatusChromeFor(.english, "").delete_failed, branchOpStatusChromeFor(.english, "").delete_failed));
     try testing.expect(!std.mem.eql(u8, skillsTrashStatusChromeFor(.simplified_chinese, "").delete_failed, branchOpStatusChromeFor(.simplified_chinese, "").delete_failed));
     try testing.expect(!std.mem.eql(u8, skillsTrashStatusChromeFor(.japanese, "").delete_failed, branchOpStatusChromeFor(.japanese, "").delete_failed));
+}
+
+test "skillsEnableStatusChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Could not update skill.", skillsEnableStatusChromeFor(.english, "ja").enable_failed);
+    try testing.expectEqualStrings("Could not update skill.", skillsEnableStatusChromeFor(.english, "").enable_failed);
+    try testing.expectEqualStrings("Could not update skill.", skillsEnableStatusChromeFor(.system, "").enable_failed);
+
+    try testing.expectEqualStrings("无法更新技能。", skillsEnableStatusChromeFor(.simplified_chinese, "").enable_failed);
+    try testing.expectEqualStrings("スキルを更新できませんでした。", skillsEnableStatusChromeFor(.japanese, "").enable_failed);
+
+    try testing.expectEqualStrings("无法更新技能。", skillsEnableStatusChromeFor(.system, "zh_CN.UTF-8").enable_failed);
+    try testing.expectEqualStrings("スキルを更新できませんでした。", skillsEnableStatusChromeFor(.system, "ja_JP.UTF-8").enable_failed);
+    try testing.expectEqualStrings("Could not update skill.", skillsEnableStatusChromeFor(.english, "ja_JP.UTF-8").enable_failed);
+    try testing.expectEqualStrings("Could not update skill.", skillsEnableStatusChromeFor(.english, "zh_CN.UTF-8").enable_failed);
+
+    try testing.expect(!std.mem.eql(u8, skillsEnableStatusChromeFor(.english, "").enable_failed, skillsEnableChromeFor(.english, "").enable));
+    try testing.expect(!std.mem.eql(u8, skillsEnableStatusChromeFor(.english, "").enable_failed, skillsEnableChromeFor(.english, "").disable));
+    try testing.expect(!std.mem.eql(u8, skillsEnableStatusChromeFor(.english, "").enable_failed, skillsEnableChromeFor(.english, "").disabled));
+    try testing.expect(!std.mem.eql(u8, skillsEnableStatusChromeFor(.english, "").enable_failed, skillsTrashStatusChromeFor(.english, "").delete_failed));
+    try testing.expect(!std.mem.eql(u8, skillsEnableStatusChromeFor(.simplified_chinese, "").enable_failed, skillsTrashStatusChromeFor(.simplified_chinese, "").delete_failed));
+    try testing.expect(!std.mem.eql(u8, skillsEnableStatusChromeFor(.japanese, "").enable_failed, skillsTrashStatusChromeFor(.japanese, "").delete_failed));
 }
 
