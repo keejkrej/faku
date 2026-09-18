@@ -3530,6 +3530,7 @@ test "composer slash card lists enabled skills with no ACP; Commands button stay
         .data =
         \\---
         \\name: to-spec
+        \\description: Turn the draft into a spec.
         \\---
         \\
         \\Do the thing.
@@ -3600,10 +3601,12 @@ test "composer slash card lists enabled skills with no ACP; Commands button stay
         try testing.expectEqualStrings("/to-spec", rows[0].slash_name);
         try testing.expectEqual(skills.slashCommandId(1), rows[0].id);
         try testing.expect(rows[0].selected);
-        try testing.expect(!rows[0].has_description);
+        try testing.expect(rows[0].has_description);
+        try testing.expectEqualStrings("Turn the draft into a spec.", rows[0].description);
     }
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "/to-spec");
+    _ = try expectByText(tree.root, .text, "Turn the draft into a spec.");
     try testing.expect(findByText(tree.root, .text, "/off") == null);
     try testing.expect(findByText(tree.root, .button, "Commands") == null);
     const row = try expectButton(tree.root, "/to-spec");
@@ -3698,6 +3701,7 @@ test "composer $ prefix lists cached SKILL.md; filters; click inserts $name; no 
         .data =
         \\---
         \\name: to-spec
+        \\description: Do the specified thing.
         \\---
         \\
         \\Do the thing.
@@ -3759,11 +3763,14 @@ test "composer $ prefix lists cached SKILL.md; filters; click inserts $name; no 
         try testing.expectEqual(@as(usize, 1), rows.len);
         try testing.expectEqualStrings("to-spec", rows[0].name);
         try testing.expectEqualStrings(".cursor/skills/to-spec/SKILL.md", rows[0].path);
+        try testing.expectEqualStrings("Do the specified thing.", rows[0].description);
+        try testing.expect(rows[0].has_description);
         try testing.expectEqual(@as(u32, 1), rows[0].id);
         try testing.expect(rows[0].selected);
     }
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "to-spec");
+    _ = try expectByText(tree.root, .text, "Do the specified thing.");
     _ = try expectByText(tree.root, .text, ".cursor/skills/to-spec/SKILL.md");
     try testing.expect(findByText(tree.root, .text, "/to-spec") == null);
     try testing.expect(findByText(tree.root, .button, "Commands") == null);
@@ -15910,7 +15917,7 @@ test "theme preference defaults to System; Light/Dark force scheme regardless of
     try testing.expectEqualStrings("High contrast on, reduce motion on. These follow the OS.", model.appearance_os_caption());
 }
 
-test "settings Skills lists SKILL.md name and path; select shows body" {
+test "settings Skills lists SKILL.md name, description, and path; select shows body" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -15929,6 +15936,7 @@ test "settings Skills lists SKILL.md name and path; select shows body" {
         .data =
         \\---
         \\name: demo-skill
+        \\description: Demo description.
         \\---
         \\
         \\Use this skill.
@@ -15968,6 +15976,7 @@ test "settings Skills lists SKILL.md name and path; select shows body" {
     const row = try expectByText(tree.root, .list_item, "demo-skill");
     try testing.expectEqual(Msg{ .select_skill = 1 }, tree.msgForPointer(row.id, .up).?);
     _ = try expectByText(tree.root, .text, "demo-skill");
+    _ = try expectByText(tree.root, .text, "Demo description.");
     _ = try expectByText(tree.root, .text, ".cursor/skills/demo/SKILL.md");
     try testing.expect(findByText(tree.root, .text, "Use this skill.") == null);
 

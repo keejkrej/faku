@@ -18,6 +18,9 @@
 //! `last_project_path`. Skip `node_modules` / `target` / `dist` /
 //! `build` / `out` / `vendor` / `__pycache__`. Cap 64 rows. Name comes
 //! from YAML `name:` frontmatter when present, else the parent folder.
+//! YAML `description:` (plain / quoted, leading `---` fence) is skill
+//! data for Settings list / composer `$` insert / `/` skill-sourced
+//! slash rows — not i18n; empty when missing. Cap `max_skill_description`.
 //! Body read still uses the actual file on disk (including
 //! `.disabled`). When both live and disabled exist in the same dir,
 //! live wins (one row). Settings selecting a row shows the body with
@@ -122,6 +125,8 @@ pub const max_skills: usize = 64;
 pub const max_skills_s = std.fmt.comptimePrint("{d}", .{max_skills});
 pub const max_skill_path: usize = 255;
 pub const max_skill_name: usize = 64;
+/// One-line UI cap for YAML `description:` (larger than name; not the body).
+pub const max_skill_description: usize = 160;
 pub const max_skill_body: usize = 4096;
 pub const max_skill_file_read: usize = 8192;
 
@@ -260,6 +265,8 @@ pub const CachedSkill = struct {
     path_len: usize = 0,
     name_storage: [max_skill_name]u8 = [_]u8{0} ** max_skill_name,
     name_len: usize = 0,
+    description_storage: [max_skill_description]u8 = [_]u8{0} ** max_skill_description,
+    description_len: usize = 0,
     /// `SKILL.md` = true; `SKILL.md.disabled` = false.
     enabled: bool = true,
 
@@ -271,6 +278,10 @@ pub const CachedSkill = struct {
         return self.name_storage[0..self.name_len];
     }
 
+    pub fn description(self: *const CachedSkill) []const u8 {
+        return self.description_storage[0..self.description_len];
+    }
+
     pub fn setPath(self: *CachedSkill, value: []const u8) void {
         writeFixed(&self.path_storage, &self.path_len, value);
         slashNormalizeInPlace(self.path_storage[0..self.path_len]);
@@ -278,6 +289,10 @@ pub const CachedSkill = struct {
 
     pub fn setName(self: *CachedSkill, value: []const u8) void {
         writeFixed(&self.name_storage, &self.name_len, value);
+    }
+
+    pub fn setDescription(self: *CachedSkill, value: []const u8) void {
+        writeFixed(&self.description_storage, &self.description_len, value);
     }
 };
 
@@ -561,6 +576,11 @@ pub fn cachedName(model: *const Model, index: usize) []const u8 {
     return model.skill_store[index].name();
 }
 
+pub fn cachedDescription(model: *const Model, index: usize) []const u8 {
+    if (index >= model.skill_count) return "";
+    return model.skill_store[index].description();
+}
+
 pub fn cachedEnabled(model: *const Model, index: usize) bool {
     if (index >= model.skill_count) return false;
     return model.skill_store[index].enabled;
@@ -836,6 +856,16 @@ fn frontmatterClose(rest: []const u8) ?usize {
 
 /// Light YAML `name:` in a leading `---` fence. Empty when missing.
 pub fn parseFrontmatterName(source: []const u8) []const u8 {
+    return parseFrontmatterField(source, "name:");
+}
+
+/// Light YAML `description:` in a leading `---` fence. Empty when
+/// missing. Plain / single-quoted / double-quoted like `name:`.
+pub fn parseFrontmatterDescription(source: []const u8) []const u8 {
+    return parseFrontmatterField(source, "description:");
+}
+
+fn parseFrontmatterField(source: []const u8, key: []const u8) []const u8 {
     const start = std.mem.trimStart(u8, source, " \t\r\n");
     if (!std.mem.startsWith(u8, start, "---")) return "";
     const rest = trimOneNewline(start[3..]);
@@ -844,8 +874,8 @@ pub fn parseFrontmatterName(source: []const u8) []const u8 {
     var lines = std.mem.splitScalar(u8, fm, '\n');
     while (lines.next()) |raw_line| {
         const line = std.mem.trim(u8, raw_line, " \t\r");
-        if (!std.mem.startsWith(u8, line, "name:")) continue;
-        var value = std.mem.trim(u8, line["name:".len..], " \t\r");
+        if (!std.mem.startsWith(u8, line, key)) continue;
+        var value = std.mem.trim(u8, line[key.len..], " \t\r");
         if (value.len >= 2) {
             const q = value[0];
             if ((q == '"' or q == '\'') and value[value.len - 1] == q) {
@@ -964,22 +994,26 @@ fn hydrateOne(model: *Model, index: usize) void {
     const io = model.store_io;
     const root = model.skill_probe_path_storage[0..model.skill_probe_path_len];
     var name: []const u8 = "";
+    var description: []const u8 = "";
     if (io != null and root.len > 0) {
         var path_buf: [model_exports.max_project_path + max_skill_path + 1]u8 = undefined;
         if (joinProbeRelpath(root, relpath, &path_buf)) |abs| {
             var file_buf: [max_skill_file_read]u8 = undefined;
             const source = readSkillSource(io.?, abs, &file_buf);
             name = parseFrontmatterName(source);
+            description = parseFrontmatterDescription(source);
         }
     }
     model.skill_store[index].setName(displayName(relpath, name));
+    model.skill_store[index].setDescription(description);
 }
 
 /// Append trimmed `SKILL.md` / `SKILL.md.disabled` paths until
 /// `max_skills`. Later new dirs are dropped. When both live and
 /// disabled exist in the same dir, live wins (replace in place).
 /// Names start as the parent folder and pick up YAML `name:` when
-/// the file can be read.
+/// the file can be read. YAML `description:` hydrates the same way
+/// (empty when missing / unreadable).
 pub fn applyStdoutPaths(model: *Model, raw: []const u8) void {
     var it = std.mem.splitScalar(u8, raw, '\n');
     while (it.next()) |line| {
@@ -1017,6 +1051,7 @@ fn storeSkillAt(model: *Model, index: usize, path: []const u8, enabled: bool) vo
     model.skill_store[index].setPath(path);
     model.skill_store[index].enabled = enabled;
     model.skill_store[index].setName(displayName(path, ""));
+    model.skill_store[index].setDescription("");
     hydrateOne(model, index);
 }
 
@@ -1052,6 +1087,9 @@ fn applyCatalog(model: *Model, parsed: protocol.ParsedSkillsCatalog) void {
         storeSkillAt(model, index, path, entry.enabled);
         if (entry.name.len > 0) {
             model.skill_store[index].setName(displayName(path, entry.name));
+        }
+        if (entry.description.len > 0) {
+            model.skill_store[index].setDescription(entry.description);
         }
         model.skill_count += 1;
     }
@@ -1652,6 +1690,36 @@ test "parse name from frontmatter; quoted and missing" {
     try std.testing.expectEqualStrings("plain body", stripFrontmatter("plain body\n"));
 }
 
+test "parse description from frontmatter; quoted and missing" {
+    try std.testing.expectEqualStrings("hello", parseFrontmatterDescription(
+        \\---
+        \\name: my-skill
+        \\description: hello
+        \\---
+        \\
+        \\# Body
+    ));
+    try std.testing.expectEqualStrings("Pretty desc", parseFrontmatterDescription(
+        \\---
+        \\description: "Pretty desc"
+        \\---
+        \\body
+    ));
+    try std.testing.expectEqualStrings("quoted", parseFrontmatterDescription(
+        \\---
+        \\description: 'quoted'
+        \\---
+    ));
+    try std.testing.expectEqualStrings("", parseFrontmatterDescription("# no fence\ndescription: nope\n"));
+    try std.testing.expectEqualStrings("", parseFrontmatterDescription("---\nname: x\n---\n"));
+    try std.testing.expectEqualStrings("", parseFrontmatterDescription(""));
+    try std.testing.expectEqualStrings("", parseFrontmatterDescription(
+        \\---
+        \\description:
+        \\---
+    ));
+}
+
 test "empty scan; list cap; parent folder name" {
     var model = Model{};
     applyStdoutPaths(&model, "");
@@ -1664,6 +1732,7 @@ test "empty scan; list cap; parent folder name" {
     try std.testing.expectEqual(@as(u32, 3), cachedCount(&model));
     try std.testing.expectEqualStrings(".cursor/skills/demo/SKILL.md", cachedPath(&model, 0));
     try std.testing.expectEqualStrings("demo", cachedName(&model, 0));
+    try std.testing.expectEqualStrings("", cachedDescription(&model, 0));
     try std.testing.expect(cachedEnabled(&model, 0));
     try std.testing.expectEqualStrings("skills/other/SKILL.md", cachedPath(&model, 1));
     try std.testing.expectEqualStrings("other", cachedName(&model, 1));
@@ -1748,6 +1817,7 @@ test "hydrate name from SKILL.md frontmatter in a temp project" {
         .data =
         \\---
         \\name: pretty-skill
+        \\description: One-line skill summary.
         \\---
         \\
         \\Do the thing.
@@ -1761,6 +1831,7 @@ test "hydrate name from SKILL.md frontmatter in a temp project" {
     applyStdoutPaths(&model, "skills/named/SKILL.md\n");
     try std.testing.expectEqual(@as(u32, 1), cachedCount(&model));
     try std.testing.expectEqualStrings("pretty-skill", cachedName(&model, 0));
+    try std.testing.expectEqualStrings("One-line skill summary.", cachedDescription(&model, 0));
 
     selectSkill(&model, 1);
     try std.testing.expectEqual(@as(u32, 1), model.skill_selected_id);
@@ -2234,9 +2305,104 @@ test "composer $ insert lists enabled skills only" {
     try testing.expectEqualStrings("on", rows[0].name);
     try testing.expectEqualStrings("skills/on/SKILL.md", rows[0].path);
     try testing.expectEqual(@as(u32, 2), rows[0].id);
+    try testing.expect(!rows[0].has_description);
+    try testing.expectEqualStrings("", rows[0].description);
 
     model.draft_buffer.set("$off");
     try testing.expectEqual(@as(usize, 0), model.skill_insert_rows(arena).len);
+}
+
+test "hydrate description; skill_rows skill_insert_rows command_rows expose it" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-desc", .{tmp.sub_path[0..]});
+    var with_dir_buf: [256]u8 = undefined;
+    const with_dir = try std.fmt.bufPrint(&with_dir_buf, "{s}/skills/with-desc", .{root});
+    try std.Io.Dir.cwd().createDirPath(testing.io, with_dir);
+    var with_file_buf: [256]u8 = undefined;
+    const with_file = try std.fmt.bufPrint(&with_file_buf, "{s}/SKILL.md", .{with_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = with_file,
+        .data =
+        \\---
+        \\name: with-desc
+        \\description: "Does the described thing."
+        \\---
+        \\
+        \\Body stays in the detail pane.
+        \\
+        ,
+    });
+    var bare_dir_buf: [256]u8 = undefined;
+    const bare_dir = try std.fmt.bufPrint(&bare_dir_buf, "{s}/skills/bare", .{root});
+    try std.Io.Dir.cwd().createDirPath(testing.io, bare_dir);
+    var bare_file_buf: [256]u8 = undefined;
+    const bare_file = try std.fmt.bufPrint(&bare_file_buf, "{s}/SKILL.md", .{bare_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = bare_file,
+        .data =
+        \\---
+        \\name: bare
+        \\---
+        \\
+        \\No description field.
+        \\
+        ,
+    });
+
+    var model = Model{};
+    model.store_io = testing.io;
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, root);
+    applyStdoutPaths(&model, "skills/with-desc/SKILL.md\nskills/bare/SKILL.md\n");
+    try testing.expectEqual(@as(u32, 2), cachedCount(&model));
+    try testing.expectEqualStrings("Does the described thing.", cachedDescription(&model, 0));
+    try testing.expectEqualStrings("", cachedDescription(&model, 1));
+
+    model.settings_page = .skills;
+    {
+        const rows = model.skill_rows(arena);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expect(rows[0].has_description);
+        try testing.expectEqualStrings("Does the described thing.", rows[0].description);
+        try testing.expect(!rows[1].has_description);
+        try testing.expectEqualStrings("", rows[1].description);
+    }
+
+    model.draft_buffer.set("$");
+    {
+        const rows = model.skill_insert_rows(arena);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expect(rows[0].has_description);
+        try testing.expectEqualStrings("Does the described thing.", rows[0].description);
+        try testing.expect(!rows[1].has_description);
+    }
+
+    model.draft_buffer.set("$described");
+    {
+        const rows = model.skill_insert_rows(arena);
+        try testing.expectEqual(@as(usize, 1), rows.len);
+        try testing.expectEqualStrings("with-desc", rows[0].name);
+    }
+
+    const id = model.addSession("desc rows", .fx);
+    model.selected = id;
+    model.draft_buffer.set("/");
+    {
+        const rows = model.command_rows(arena);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expectEqualStrings("/with-desc", rows[0].slash_name);
+        try testing.expect(rows[0].has_description);
+        try testing.expectEqualStrings("Does the described thing.", rows[0].description);
+        try testing.expectEqualStrings("/bare", rows[1].slash_name);
+        try testing.expect(!rows[1].has_description);
+        try testing.expectEqualStrings("", rows[1].description);
+    }
 }
 
 fn writeTestSkill(io: std.Io, dir: []const u8, name: []const u8, body: []const u8, disabled: bool) !void {
@@ -2487,9 +2653,9 @@ test "LoadSkills sidecar fills skill_store; unknown-command falls back to find" 
     refresh(&model, &fx);
     const sidecar = pendingSpawnKey(&fx, model.daemon_load_skills_key) orelse return error.MissingDaemonLoadSkillsFill;
     const fill_key = sidecar.key;
-    var line_buf: [2048]u8 = undefined;
+    var line_buf: [2560]u8 = undefined;
     const ok_line = try std.fmt.bufPrint(&line_buf, "{s}{s}{s}{s}{s}{s}{s}{s}{s}", .{
-        "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000019\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"skillsCatalog\",\"catalog\":{\"skills\":[{\"name\":\"to-spec\",\"enabled\":true,\"installs\":[{\"dir\":\"",
+        "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000019\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"skillsCatalog\",\"catalog\":{\"skills\":[{\"name\":\"to-spec\",\"description\":\"Catalog summary.\",\"enabled\":true,\"installs\":[{\"dir\":\"",
         root,
         "/.cursor/skills/to-spec\",\"skillFile\":\"",
         root,
@@ -2502,9 +2668,11 @@ test "LoadSkills sidecar fills skill_store; unknown-command falls back to find" 
     applyDaemonLine(&model, .{ .key = fill_key, .line = ok_line });
     try testing.expectEqual(@as(u32, 2), cachedCount(&model));
     try testing.expectEqualStrings("to-spec", cachedName(&model, 0));
+    try testing.expectEqualStrings("Catalog summary.", cachedDescription(&model, 0));
     try testing.expect(cachedEnabled(&model, 0));
     try testing.expectEqualStrings(".cursor/skills/to-spec/SKILL.md", cachedPath(&model, 0));
     try testing.expectEqualStrings("off", cachedName(&model, 1));
+    try testing.expectEqualStrings("", cachedDescription(&model, 1));
     try testing.expect(!cachedEnabled(&model, 1));
     try testing.expectEqualStrings(".cursor/skills/off/SKILL.md.disabled", cachedPath(&model, 1));
     var prompt_buf: [2048]u8 = undefined;

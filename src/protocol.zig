@@ -42,7 +42,7 @@
 //! `runtimeId` are nil (same as `loadUsageHistory`). A non-nil
 //! `requestId` is required. Ok payload is
 //! `{ type: "skillsCatalog", catalog: { skills: SkillEntry[] } }`.
-//! First-cut parse keeps `name`, `enabled`, and a display/path key
+//! First-cut parse keeps `name`, optional `description`, `enabled`, and a display/path key
 //! from the primary install (`skillFile` preferred, else `dir`).
 //! Unknown JSON is ignored. Cap extra rows. Hello stays protocol
 //! v4; unknown-command / parse miss fall back quietly to the local
@@ -899,8 +899,10 @@ pub const LoadSkillsProject = struct {
 
 /// Light parse of one `SkillEntry`. Path is primary-install
 /// `skillFile` when non-empty, else `dir`. Unknown JSON ignored.
+/// `description` is optional; missing / empty stays empty.
 pub const ParsedSkillEntry = struct {
     name: []const u8 = "",
+    description: []const u8 = "",
     path: []const u8 = "",
     enabled: bool = true,
 };
@@ -2861,6 +2863,7 @@ fn parseSkillEntry(obj: std.json.ObjectMap) ?ParsedSkillEntry {
     if (name.len == 0 and path.len == 0) return null;
     return .{
         .name = name,
+        .description = jsonStringValue(obj.get("description")) orelse "",
         .path = path,
         .enabled = jsonBoolValue(obj.get("enabled")) orelse install_enabled orelse true,
     };
@@ -6326,9 +6329,11 @@ test "parseSkillsCatalog reads a minimal skillsCatalog fixture and ignores unkno
     try std.testing.expect(parsed.ok);
     try std.testing.expectEqual(@as(usize, 3), parsed.skill_count);
     try std.testing.expectEqualStrings("to-spec", parsed.skills[0].name);
+    try std.testing.expectEqualStrings("Do the thing.", parsed.skills[0].description);
     try std.testing.expect(parsed.skills[0].enabled);
     try std.testing.expectEqualStrings("/tmp/faku/.cursor/skills/to-spec/SKILL.md", parsed.skills[0].path);
     try std.testing.expectEqualStrings("off", parsed.skills[1].name);
+    try std.testing.expectEqualStrings("", parsed.skills[1].description);
     try std.testing.expect(!parsed.skills[1].enabled);
     try std.testing.expectEqualStrings("/tmp/faku/.cursor/skills/off/SKILL.md.disabled", parsed.skills[1].path);
     try std.testing.expectEqualStrings("dir-only", parsed.skills[2].name);
