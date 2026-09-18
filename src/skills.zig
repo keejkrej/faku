@@ -107,7 +107,10 @@
 //! Same parent as Enable/Disable / Delete (`absSkillParent` from
 //! selected store path + probe root). Fail closed with no
 //! selection / empty / unresolved path (no clipboard write, no
-//! crash). Label reuses `i18n.ComposerProjectChrome.copy_path` via
+//! window_status, no crash). Successful write sets window_status
+//! Path copied (`i18n.SkillsPathCopiedChrome.path_copied` via Model
+//! `skill_path_copied_status`). Label reuses
+//! `i18n.ComposerProjectChrome.copy_path` via
 //! Model `skill_copy_path_label`. Not Reveal, not Open in editor,
 //! not a daemon method. Not a Native FS API. Unselected-detail
 //! Select a skill follows `i18n.SkillsSelectChrome` (distinct from
@@ -188,6 +191,11 @@ pub const could_not_update_status = i18n.skillsEnableStatusChromeFor(.english, "
 /// via Model `skill_delete_failed_status`. Distinct from
 /// SkillsTrashChrome Delete / Confirm delete.
 pub const could_not_delete_status = i18n.skillsTrashStatusChromeFor(.english, "").delete_failed;
+/// English default for Copy path success window_status.
+/// Localized copy lives on `i18n.SkillsPathCopiedChrome.path_copied`
+/// via Model `skill_path_copied_status`. Distinct from
+/// ComposerProjectChrome Copy path.
+pub const path_copied_status = i18n.skillsPathCopiedChromeFor(.english, "").path_copied;
 
 pub const sh_bin = file_mention.sh_bin;
 pub const find_bin = file_mention.find_bin;
@@ -1484,12 +1492,14 @@ pub fn revealSelectedSkill(model: *Model, fx: *Effects) void {
 /// directory (install dir, not `SKILL.md`) through Native
 /// `fx.writeClipboard` via `copy.copyText` / `copy_turn_key`. Fail
 /// closed with no selection / empty / unresolved path (no clipboard
-/// write, no crash). Not Reveal, not Open in editor, not a daemon
-/// method.
+/// write, no window_status, no crash). Successful write sets
+/// window_status Path copied (`skill_path_copied_status`). Not
+/// Reveal, not Open in editor, not a daemon method.
 pub fn copySelectedSkillPath(model: *Model, fx: *Effects) void {
     var parent_buf: [model_exports.max_project_path + max_skill_path + 1]u8 = undefined;
     const parent = selectedSkillAbsParent(model, &parent_buf) orelse return;
     copy.copyText(fx, parent);
+    model.setWindowStatus(model.skill_path_copied_status());
 }
 
 fn loadBody(model: *Model, index: usize) void {
@@ -2921,6 +2931,40 @@ test "copySelectedSkillPath queues writeClipboard with the absolute skill parent
     try std.testing.expectEqualStrings(skill_dir, written.text);
     try std.testing.expect(!std.mem.eql(u8, written.text, file_path));
     try std.testing.expect(!std.mem.endsWith(u8, written.text, "/SKILL.md"));
+    try std.testing.expectEqualStrings("Path copied", model.window_status());
+    try std.testing.expectEqualStrings(model.skill_path_copied_status(), model.window_status());
+    try std.testing.expectEqualStrings(path_copied_status, model.window_status());
+    try std.testing.expectEqualStrings(i18n.skillsPathCopiedChromeFor(.english, "").path_copied, model.window_status());
+
+    model.language_preference = .simplified_chinese;
+    copySelectedSkillPath(&model, &fx);
+    try std.testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    try std.testing.expectEqualStrings("已复制路径", model.window_status());
+    try std.testing.expectEqualStrings(model.skill_path_copied_status(), model.window_status());
+    try std.testing.expectEqualStrings(i18n.skillsPathCopiedChromeFor(.simplified_chinese, "").path_copied, model.window_status());
+    try std.testing.expect(!std.mem.eql(u8, path_copied_status, model.window_status()));
+
+    model.language_preference = .japanese;
+    copySelectedSkillPath(&model, &fx);
+    try std.testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    try std.testing.expectEqualStrings("パスをコピーしました", model.window_status());
+    try std.testing.expectEqualStrings(model.skill_path_copied_status(), model.window_status());
+    try std.testing.expectEqualStrings(i18n.skillsPathCopiedChromeFor(.japanese, "").path_copied, model.window_status());
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    copySelectedSkillPath(&model, &fx);
+    try std.testing.expectEqualStrings("Path copied", model.window_status());
+    try std.testing.expectEqualStrings(path_copied_status, model.window_status());
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    copySelectedSkillPath(&model, &fx);
+    try std.testing.expectEqualStrings("已复制路径", model.window_status());
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    copySelectedSkillPath(&model, &fx);
+    try std.testing.expectEqualStrings("パスをコピーしました", model.window_status());
 }
 
 test "copySelectedSkillPath fails closed with no selection or unresolved path" {
@@ -2959,6 +3003,37 @@ test "skill_copy_path_label equals composerProjectChrome copy_path" {
         model.skill_copy_path_label(),
     );
     try std.testing.expectEqualStrings(model.copy_path_label(), model.skill_copy_path_label());
+}
+
+test "skill_path_copied_status equals SkillsPathCopiedChrome path_copied" {
+    var model = Model{};
+    try std.testing.expectEqualStrings(
+        i18n.skillsPathCopiedChromeFor(.english, "").path_copied,
+        model.skill_path_copied_status(),
+    );
+    try std.testing.expectEqualStrings("Path copied", model.skill_path_copied_status());
+    try std.testing.expectEqualStrings(path_copied_status, model.skill_path_copied_status());
+    try std.testing.expect(!std.mem.eql(u8, model.skill_copy_path_label(), model.skill_path_copied_status()));
+    model.language_preference = .simplified_chinese;
+    try std.testing.expectEqualStrings(
+        i18n.skillsPathCopiedChromeFor(.simplified_chinese, "").path_copied,
+        model.skill_path_copied_status(),
+    );
+    try std.testing.expectEqualStrings("已复制路径", model.skill_path_copied_status());
+    model.language_preference = .japanese;
+    try std.testing.expectEqualStrings(
+        i18n.skillsPathCopiedChromeFor(.japanese, "").path_copied,
+        model.skill_path_copied_status(),
+    );
+    try std.testing.expectEqualStrings("パスをコピーしました", model.skill_path_copied_status());
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try std.testing.expectEqualStrings("Path copied", model.skill_path_copied_status());
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try std.testing.expectEqualStrings("已复制路径", model.skill_path_copied_status());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try std.testing.expectEqualStrings("パスをコピーしました", model.skill_path_copied_status());
 }
 
 test "composer $ insert lists enabled skills only" {

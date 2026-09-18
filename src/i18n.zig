@@ -387,6 +387,12 @@
 //! `ComposerProjectChrome.copy_path` via a distinct Model getter;
 //! same EN Copy path as composer project-row; on-press stays
 //! `copy_skill_path`; wire ids stay English)
+//! plus Settings Skills Copy path success window_status Path copied
+//! (same `SkillsPathCopiedChrome` strings; distinct from
+//! `ComposerProjectChrome.copy_path` so the toast stays independently
+//! evolvable; on-press stays `copy_skill_path`; fail closed with no
+//! selection / empty / unresolved path does not write clipboard or
+//! set window_status; wire ids stay English)
 //! plus Settings Skills Select a skill unselected-detail
 //! placeholder (same `SkillsSelectChrome` strings; distinct from
 //! `SkillsEmptyChrome` so the placeholder stays independently
@@ -451,7 +457,9 @@
 //! Model getter).
 //! Skills Copy path `on-press` stays `copy_skill_path`
 //! (label reuses `ComposerProjectChrome.copy_path` via a distinct
-//! Model getter).
+//! Model getter; success window_status Path copied uses
+//! `SkillsPathCopiedChrome.path_copied` via Model
+//! `skill_path_copied_status`).
 //! File-preview toolbar `on-press` / `on-input` stay English
 //! (`file_preview_save` / `close_right_panel_file_preview` /
 //! `toggle_file_preview_find_replace` / `file_preview_find_edit` /
@@ -1363,6 +1371,8 @@ const right_panel_chrome_ja: RightPanelChrome = .{
 /// Settings Skills Reveal reuses `reveal_folder` via a distinct Model
 /// getter (`skill_reveal_label`). Settings Skills Copy path reuses
 /// `copy_path` via a distinct Model getter (`skill_copy_path_label`).
+/// Copy path success window_status Path copied lives in
+/// `SkillsPathCopiedChrome`, not here.
 pub const ComposerProjectChrome = struct {
     pick_folder: []const u8,
     reveal_folder: []const u8,
@@ -4363,6 +4373,30 @@ const skills_count_chrome_ja: SkillsCountChrome = .{
 /// filter caption in every locale.
 pub const skills_count_caption_max: usize = 96;
 
+/// Settings Skills Copy path success window_status Path copied for
+/// the resolved locale. Same resolve path as SkillsEmptyChrome /
+/// SkillsCountChrome / SkillsEnableStatusChrome. English matches
+/// Waku `skills.path_copied`. Distinct from ComposerProjectChrome
+/// `copy_path` (the button label) so the toast stays independently
+/// evolvable. Fail closed with no selection / empty / unresolved
+/// path does not write clipboard or set window_status. Wire ids /
+/// on-press stay English (`copy_skill_path`).
+pub const SkillsPathCopiedChrome = struct {
+    path_copied: []const u8,
+};
+
+const skills_path_copied_chrome_en: SkillsPathCopiedChrome = .{
+    .path_copied = "Path copied",
+};
+
+const skills_path_copied_chrome_zh_cn: SkillsPathCopiedChrome = .{
+    .path_copied = "已复制路径",
+};
+
+const skills_path_copied_chrome_ja: SkillsPathCopiedChrome = .{
+    .path_copied = "パスをコピーしました",
+};
+
 /// Settings Skills Enable / Disable chip and Disabled list badge for
 /// the resolved locale. Same resolve path as SkillsEmptyChrome.
 /// Distinct from ProvidersChrome Enable / Disable so Skills enable
@@ -5701,6 +5735,20 @@ pub fn skillsCountChromeFor(preference: LanguagePreference, system_locale_id: []
         .simplified_chinese => skills_count_chrome_zh_cn,
         .japanese => skills_count_chrome_ja,
         .system, .english => skills_count_chrome_en,
+    };
+}
+
+/// Settings Skills Copy path success window_status Path copied for
+/// the resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from ComposerProjectChrome `copy_path` so the button label and
+/// the toast stay independently evolvable. Wire ids / on-press stay
+/// English (`copy_skill_path`).
+pub fn skillsPathCopiedChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsPathCopiedChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_path_copied_chrome_zh_cn,
+        .japanese => skills_path_copied_chrome_ja,
+        .system, .english => skills_path_copied_chrome_en,
     };
 }
 
@@ -9284,6 +9332,26 @@ test "skillsCountChromeFor english default; zh and ja chrome; english ignores ja
     try testing.expectEqualStrings("3 件中 1 件を表示", formatSkillsFilterCaption(skillsCountChromeFor(.japanese, ""), 1, 3, &buf));
     try testing.expectEqualStrings("1 of 3 shown", formatSkillsFilterCaption(skillsCountChromeFor(.english, "ja_JP.UTF-8"), 1, 3, &buf));
     try testing.expectEqualStrings("显示 1 / 3 个", formatSkillsFilterCaption(skillsCountChromeFor(.system, "zh_CN.UTF-8"), 1, 3, &buf));
+}
+
+test "skillsPathCopiedChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Path copied", skillsPathCopiedChromeFor(.english, "ja").path_copied);
+    try testing.expectEqualStrings("Path copied", skillsPathCopiedChromeFor(.english, "").path_copied);
+    try testing.expectEqualStrings("Path copied", skillsPathCopiedChromeFor(.system, "").path_copied);
+
+    try testing.expectEqualStrings("已复制路径", skillsPathCopiedChromeFor(.simplified_chinese, "").path_copied);
+    try testing.expectEqualStrings("パスをコピーしました", skillsPathCopiedChromeFor(.japanese, "").path_copied);
+
+    try testing.expectEqualStrings("已复制路径", skillsPathCopiedChromeFor(.system, "zh_CN.UTF-8").path_copied);
+    try testing.expectEqualStrings("パスをコピーしました", skillsPathCopiedChromeFor(.system, "ja_JP.UTF-8").path_copied);
+    try testing.expectEqualStrings("Path copied", skillsPathCopiedChromeFor(.english, "ja_JP.UTF-8").path_copied);
+    try testing.expectEqualStrings("Path copied", skillsPathCopiedChromeFor(.english, "zh_CN.UTF-8").path_copied);
+
+    try testing.expect(!std.mem.eql(u8, skillsPathCopiedChromeFor(.english, "").path_copied, composerProjectChromeFor(.english, "").copy_path));
+    try testing.expect(!std.mem.eql(u8, skillsPathCopiedChromeFor(.simplified_chinese, "").path_copied, composerProjectChromeFor(.simplified_chinese, "").copy_path));
+    try testing.expect(!std.mem.eql(u8, skillsPathCopiedChromeFor(.japanese, "").path_copied, composerProjectChromeFor(.japanese, "").copy_path));
+    try testing.expect(!std.mem.eql(u8, skillsPathCopiedChromeFor(.english, "").path_copied, skillsEnableStatusChromeFor(.english, "").enable_failed));
 }
 
 test "skillsEnableChromeFor english default; zh and ja chrome; english ignores ja LANG" {

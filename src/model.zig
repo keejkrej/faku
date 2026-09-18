@@ -680,7 +680,8 @@ pub const Msg = union(enum) {
     /// markdown outside-project links. `on-press` stays `reveal_skill`.
     reveal_skill,
     /// Settings Skills detail Copy path: absolute skill parent dir
-    /// via Native `fx.writeClipboard`. `on-press` stays `copy_skill_path`.
+    /// via Native `fx.writeClipboard`. Successful write sets
+    /// window_status Path copied. `on-press` stays `copy_skill_path`.
     copy_skill_path,
     select_provider: u32,
     /// Settings Providers: toggle persisted `disabled_providers` for that row.
@@ -5697,6 +5698,10 @@ pub const Model = struct {
         return i18n.skillsTrashStatusChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn skillsPathCopiedChrome(model: *const Model) i18n.SkillsPathCopiedChrome {
+        return i18n.skillsPathCopiedChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     /// Palette row display label for `action`. New Task / Settings /
     /// Collapse all folders reuse Sidebar / Chrome strings; remaining
     /// names come from `i18n.Palette`. Ids / keywords stay English.
@@ -6139,6 +6144,14 @@ pub const Model = struct {
     /// stays `copy_skill_path`.
     pub fn skill_copy_path_label(model: *const Model) []const u8 {
         return model.composerProjectChrome().copy_path;
+    }
+
+    /// Settings Skills Copy path success window_status Path copied.
+    /// Localized via `i18n.SkillsPathCopiedChrome`. Distinct from
+    /// `skill_copy_path_label` / composer `copy_path_label`. English
+    /// matches Waku `skills.path_copied`.
+    pub fn skill_path_copied_status(model: *const Model) []const u8 {
+        return model.skillsPathCopiedChrome().path_copied;
     }
 
     pub fn skill_body(model: *const Model) []const u8 {
