@@ -1503,6 +1503,13 @@ pub const Model = struct {
     /// mtime cannot be read.
     skill_mtime_unix: i64 = 0,
     skill_mtime_valid: bool = false,
+    /// Selected skill Contents supporting-file count and total
+    /// bytes. Runtime-only; valid when `skill_contents_valid`.
+    /// Fail closed (no Contents value) when the skill dir cannot
+    /// be walked.
+    skill_supporting_files: usize = 0,
+    skill_total_bytes: u64 = 0,
+    skill_contents_valid: bool = false,
     project_edit_active: bool = false,
     project_edit_buffer: canvas.TextBuffer(max_project_path) = .{},
     git_branch_create_buffer: canvas.TextBuffer(git_branch.max_git_branch) = .{},
@@ -2365,6 +2372,9 @@ pub const Model = struct {
         "skill_body_len",
         "skill_mtime_unix",
         "skill_mtime_valid",
+        "skill_supporting_files",
+        "skill_total_bytes",
+        "skill_contents_valid",
         "applySkillsFilter",
         "project_edit_buffer",
         "git_branch_search_buffer",
@@ -6308,6 +6318,22 @@ pub const Model = struct {
     pub fn skill_detail_contents(model: *const Model) []const u8 {
         if (!model.has_selected_skill()) return "";
         return model.skillsDetailChrome().detail_contents;
+    }
+
+    /// Settings Skills selected-detail Contents supporting-file
+    /// count · bytes when the skill dir walk succeeded. Distinct
+    /// from `has_skill_body`.
+    pub fn has_skill_contents_summary(model: *const Model) bool {
+        return model.has_selected_skill() and model.skill_contents_valid;
+    }
+
+    /// Settings Skills selected-detail Contents value (Waku
+    /// supporting-file count · Latin B/KB/MB). Localized count
+    /// phrases via `i18n.SkillsFileCountChrome`. Empty when
+    /// unselected or when the skill dir cannot be walked.
+    pub fn skill_contents_summary(model: *const Model, arena: std.mem.Allocator) []const u8 {
+        if (!model.has_skill_contents_summary()) return "";
+        return skills.selectedSkillContentsSummary(model, arena);
     }
 
     /// Settings Skills selected-detail Updated row when SKILL.md

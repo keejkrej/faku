@@ -16021,6 +16021,16 @@ test "settings Skills lists SKILL.md name, description, and path; select shows b
     try testing.expect(model.has_skill_updated());
     try testing.expectEqualStrings("Updated", model.skill_detail_updated());
     try testing.expectEqualStrings("Just now", model.skill_updated_label(arena));
+    try testing.expect(model.has_skill_contents_summary());
+    {
+        var file = try std.Io.Dir.cwd().openFile(testing.io, file_path, .{});
+        defer file.close(testing.io);
+        const bytes = (try file.stat(testing.io)).size;
+        var sum_buf: [i18n.skills_contents_summary_max]u8 = undefined;
+        const expected = i18n.formatSkillsContentsSummary(i18n.skillsFileCountChromeFor(.english, ""), 0, bytes, &sum_buf);
+        try testing.expectEqualStrings(expected, model.skill_contents_summary(arena));
+        _ = try expectByText((try buildTree(arena, &model)).root, .text, expected);
+    }
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Use this skill.");
     _ = try expectByText(tree.root, .text, "Demo description.");
@@ -16031,6 +16041,7 @@ test "settings Skills lists SKILL.md name, description, and path; select shows b
     _ = try expectByText(tree.root, .text, "Updated");
     _ = try expectByText(tree.root, .text, "Just now");
     _ = try expectByText(tree.root, .text, "Contents");
+    try testing.expect(findByText(tree.root, .text, "1 supporting file") == null);
     try testing.expect(findByText(tree.root, .text, "Select a skill") == null);
     try testing.expect(findByText(tree.root, .text, "No description") == null);
     _ = try expectButtonMsg(tree, skills.disable_label, .toggle_skill_enabled);
@@ -28037,6 +28048,8 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_detail_updated}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_updated_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_detail_contents}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{has_skill_contents_summary}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_contents_summary}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{has_skill_body}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_body}"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Open a project<"));
@@ -28053,6 +28066,8 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Contents<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Updated<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Just now<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">1 supporting file<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">%{count} supporting files<"));
 
     var model = boot.initialModel();
     try testing.expectEqualStrings("Open a project", model.skills_empty_hint());
@@ -28321,6 +28336,8 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expect(!model.has_skill_updated());
     try testing.expectEqualStrings("", model.skill_detail_updated());
     try testing.expectEqualStrings("", model.skill_updated_label(arena));
+    try testing.expect(!model.has_skill_contents_summary());
+    try testing.expectEqualStrings("", model.skill_contents_summary(arena));
 
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("选择一个技能", model.skills_select_placeholder());
@@ -28362,6 +28379,8 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expect(!model.has_skill_updated());
     try testing.expectEqualStrings("", model.skill_detail_updated());
     try testing.expectEqualStrings("", model.skill_updated_label(arena));
+    try testing.expect(!model.has_skill_contents_summary());
+    try testing.expectEqualStrings("", model.skill_contents_summary(arena));
     try testing.expectEqualStrings(
         i18n.skillsDetailChromeFor(.english, "").no_description,
         model.skill_no_description(),
@@ -28377,6 +28396,7 @@ test "Settings Skills empty chrome follows Appearance language" {
     _ = try expectByText(tree.root, .text, "Contents");
     try testing.expect(findByText(tree.root, .text, "Updated") == null);
     try testing.expect(findByText(tree.root, .text, "Just now") == null);
+    try testing.expect(findByText(tree.root, .text, "1 supporting file") == null);
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("暂无描述", model.skill_no_description());
     try testing.expectEqualStrings("调用", model.skill_detail_invoke());

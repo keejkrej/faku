@@ -419,10 +419,13 @@
                     </if>
                     <column gap="2">
                       <text foreground="text_muted">{skill_detail_contents}</text>
-                      <if test="{has_skill_body}">
-                        <text wrap="true">{skill_body}</text>
+                      <if test="{has_skill_contents_summary}">
+                        <text wrap="false" overflow="ellipsis">{skill_contents_summary}</text>
                       </if>
                     </column>
+                    <if test="{has_skill_body}">
+                      <text wrap="true">{skill_body}</text>
+                    </if>
                   </column>
                 </if>
                 <if test="{has_window_status}">
