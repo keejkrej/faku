@@ -6049,6 +6049,23 @@ pub const Model = struct {
         return model.skillsSelectChrome().select_placeholder;
     }
 
+    /// Settings Skills muted count / filter caption after the filter
+    /// field. Localized via `i18n.SkillsCountChrome`. Distinct from
+    /// FilterChrome / SkillsEmptyChrome / SkillsSelectChrome.
+    /// Empty when not on the Skills page or when emptyHint owns that
+    /// space. `disabled` is total cached disabled (Waku library
+    /// header), not among the filtered shown set. Numbers stay Latin.
+    /// Middle-dot ` · ` stays.
+    pub fn skills_count_caption(model: *const Model, arena: std.mem.Allocator) []const u8 {
+        if (model.settings_page != .skills) return "";
+        return skills.countCaption(model, arena);
+    }
+
+    pub fn has_skills_count_caption(model: *const Model) bool {
+        if (model.settings_page != .skills) return false;
+        return skills.hasCountCaption(model);
+    }
+
     pub fn skill_enabled(model: *const Model) bool {
         if (!model.has_selected_skill()) return false;
         return model.skill_store[model.skill_selected_id - 1].enabled;

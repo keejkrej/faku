@@ -392,6 +392,14 @@
 //! `SkillsEmptyChrome` so the placeholder stays independently
 //! evolvable; muted Native text when the list has rows and none
 //! is selected; wire ids stay English)
+//! plus Settings Skills count / filter caption (same
+//! `SkillsCountChrome` strings; distinct from FilterChrome /
+//! SkillsEmptyChrome / SkillsSelectChrome so the caption stays
+//! independently evolvable; `1 skill` / `%{count} skills` /
+//! optional ` · ` + `%{count} disabled` when the filter is empty
+//! or every cached skill is shown; `%{shown} of %{total} shown`
+//! when a trimmed filter narrows the list; numbers stay Latin;
+//! middle-dot ` · ` stays; wire ids stay English)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -4312,6 +4320,49 @@ const skills_select_chrome_ja: SkillsSelectChrome = .{
     .select_placeholder = "スキルを選択",
 };
 
+/// Settings Skills count / filter caption for the resolved locale.
+/// Same resolve path as SkillsEmptyChrome / SkillsSelectChrome.
+/// English matches Waku `skills.count_one` / `count_many` /
+/// `count_disabled` / `filter_caption`. Distinct from FilterChrome
+/// (filter placeholder), SkillsEmptyChrome (emptyHint owns that
+/// space), and SkillsSelectChrome (unselected detail) so the
+/// caption stays independently evolvable. Templates keep Waku
+/// `%{count}` / `%{shown}` / `%{total}` slots. Numbers stay Latin.
+/// Middle-dot ` · ` stays. Wire ids stay English.
+pub const SkillsCountChrome = struct {
+    count_one: []const u8,
+    count_many: []const u8,
+    count_disabled: []const u8,
+    filter_caption: []const u8,
+};
+
+const skills_count_chrome_en: SkillsCountChrome = .{
+    .count_one = "1 skill",
+    .count_many = "%{count} skills",
+    .count_disabled = "%{count} disabled",
+    .filter_caption = "%{shown} of %{total} shown",
+};
+
+const skills_count_chrome_zh_cn: SkillsCountChrome = .{
+    .count_one = "1 个技能",
+    .count_many = "%{count} 个技能",
+    .count_disabled = "已禁用 %{count} 个",
+    .filter_caption = "显示 %{shown} / %{total} 个",
+};
+
+const skills_count_chrome_ja: SkillsCountChrome = .{
+    .count_one = "1 個のスキル",
+    .count_many = "%{count} 個のスキル",
+    .count_disabled = "無効 %{count} 件",
+    .filter_caption = "%{total} 件中 %{shown} 件を表示",
+};
+
+/// Capped scratch for `formatSkillsCountCaption` /
+/// `formatSkillsFilterCaption`. Max cached skills is 64, so Latin
+/// digits stay short; this holds count + ` · ` + disabled or the
+/// filter caption in every locale.
+pub const skills_count_caption_max: usize = 96;
+
 /// Settings Skills Enable / Disable chip and Disabled list badge for
 /// the resolved locale. Same resolve path as SkillsEmptyChrome.
 /// Distinct from ProvidersChrome Enable / Disable so Skills enable
@@ -5637,6 +5688,92 @@ pub fn skillsSelectChromeFor(preference: LanguagePreference, system_locale_id: [
         .japanese => skills_select_chrome_ja,
         .system, .english => skills_select_chrome_en,
     };
+}
+
+/// Settings Skills count / filter caption for the resolved locale.
+/// Callers pass Model `language_preference` + `system_locale_id`;
+/// this file does not read process env. Distinct from FilterChrome /
+/// SkillsEmptyChrome / SkillsSelectChrome so the caption stays
+/// independently evolvable. Numbers stay Latin. Middle-dot ` · `
+/// stays. Wire ids stay English.
+pub fn skillsCountChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsCountChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_count_chrome_zh_cn,
+        .japanese => skills_count_chrome_ja,
+        .system, .english => skills_count_chrome_en,
+    };
+}
+
+const SkillsCountPlaceholder = struct {
+    name: []const u8,
+    value: usize,
+};
+
+/// Substitute Waku `%{name}` slots with Latin `{d}` digits into a
+/// caller scratch buffer. Unknown / truncated slots copy as-is until
+/// `buf` fills; overflow returns the prefix written so far (never
+/// unbounded).
+fn formatSkillsPlaceholders(template: []const u8, vars: []const SkillsCountPlaceholder, buf: []u8) []const u8 {
+    var out: usize = 0;
+    var i: usize = 0;
+    while (i < template.len) {
+        if (out >= buf.len) return buf[0..out];
+        if (template[i] == '%' and i + 1 < template.len and template[i + 1] == '{') {
+            if (std.mem.indexOfScalarPos(u8, template, i + 2, '}')) |end| {
+                const name = template[i + 2 .. end];
+                var found = false;
+                for (vars) |slot| {
+                    if (!std.mem.eql(u8, slot.name, name)) continue;
+                    const printed = std.fmt.bufPrint(buf[out..], "{d}", .{slot.value}) catch return buf[0..out];
+                    out += printed.len;
+                    found = true;
+                    break;
+                }
+                if (!found) {
+                    const raw = template[i .. end + 1];
+                    const n = @min(raw.len, buf.len - out);
+                    @memcpy(buf[out .. out + n], raw[0..n]);
+                    out += n;
+                    if (n < raw.len) return buf[0..out];
+                }
+                i = end + 1;
+                continue;
+            }
+        }
+        buf[out] = template[i];
+        out += 1;
+        i += 1;
+    }
+    return buf[0..out];
+}
+
+/// Format `count_one` / `count_many`, optionally appending
+/// ` · ` + `count_disabled` when `disabled > 0`. `total == 1` uses
+/// the literal `count_one` (Waku does not use `%{count}` there).
+/// Writes into `buf`; overflow returns `""`.
+pub fn formatSkillsCountCaption(chrome: SkillsCountChrome, total: usize, disabled: usize, buf: []u8) []const u8 {
+    var count_buf: [48]u8 = undefined;
+    const count_text = if (total == 1)
+        chrome.count_one
+    else
+        formatSkillsPlaceholders(chrome.count_many, &.{.{ .name = "count", .value = total }}, &count_buf);
+    if (disabled == 0) {
+        if (count_text.len > buf.len) return "";
+        @memcpy(buf[0..count_text.len], count_text);
+        return buf[0..count_text.len];
+    }
+    var disabled_buf: [48]u8 = undefined;
+    const disabled_text = formatSkillsPlaceholders(chrome.count_disabled, &.{.{ .name = "count", .value = disabled }}, &disabled_buf);
+    return std.fmt.bufPrint(buf, "{s} · {s}", .{ count_text, disabled_text }) catch "";
+}
+
+/// Format `filter_caption` with Latin `shown` / `total`. Writes into
+/// `buf`; overflow returns the prefix written so far.
+pub fn formatSkillsFilterCaption(chrome: SkillsCountChrome, shown: usize, total: usize, buf: []u8) []const u8 {
+    return formatSkillsPlaceholders(chrome.filter_caption, &.{
+        .{ .name = "shown", .value = shown },
+        .{ .name = "total", .value = total },
+    }, buf);
 }
 
 /// Settings Skills Enable / Disable chip and Disabled badge for the
@@ -9100,6 +9237,53 @@ test "skillsSelectChromeFor english default; zh and ja chrome; english ignores j
     try testing.expect(!std.mem.eql(u8, skillsSelectChromeFor(.english, "").select_placeholder, skillsEmptyChromeFor(.english, "").no_skills_found));
     try testing.expect(!std.mem.eql(u8, skillsSelectChromeFor(.simplified_chinese, "").select_placeholder, skillsEmptyChromeFor(.simplified_chinese, "").no_skills_found));
     try testing.expect(!std.mem.eql(u8, skillsSelectChromeFor(.japanese, "").select_placeholder, skillsEmptyChromeFor(.japanese, "").no_skills_found));
+}
+
+test "skillsCountChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("1 skill", skillsCountChromeFor(.english, "ja").count_one);
+    try testing.expectEqualStrings("%{count} skills", skillsCountChromeFor(.english, "").count_many);
+    try testing.expectEqualStrings("%{count} disabled", skillsCountChromeFor(.english, "").count_disabled);
+    try testing.expectEqualStrings("%{shown} of %{total} shown", skillsCountChromeFor(.english, "").filter_caption);
+    try testing.expectEqualStrings("1 skill", skillsCountChromeFor(.system, "").count_one);
+    try testing.expectEqualStrings("%{count} skills", skillsCountChromeFor(.system, "").count_many);
+
+    try testing.expectEqualStrings("1 个技能", skillsCountChromeFor(.simplified_chinese, "").count_one);
+    try testing.expectEqualStrings("%{count} 个技能", skillsCountChromeFor(.simplified_chinese, "").count_many);
+    try testing.expectEqualStrings("已禁用 %{count} 个", skillsCountChromeFor(.simplified_chinese, "").count_disabled);
+    try testing.expectEqualStrings("显示 %{shown} / %{total} 个", skillsCountChromeFor(.simplified_chinese, "").filter_caption);
+    try testing.expectEqualStrings("1 個のスキル", skillsCountChromeFor(.japanese, "").count_one);
+    try testing.expectEqualStrings("%{count} 個のスキル", skillsCountChromeFor(.japanese, "").count_many);
+    try testing.expectEqualStrings("無効 %{count} 件", skillsCountChromeFor(.japanese, "").count_disabled);
+    try testing.expectEqualStrings("%{total} 件中 %{shown} 件を表示", skillsCountChromeFor(.japanese, "").filter_caption);
+
+    try testing.expectEqualStrings("1 个技能", skillsCountChromeFor(.system, "zh_CN.UTF-8").count_one);
+    try testing.expectEqualStrings("已禁用 %{count} 个", skillsCountChromeFor(.system, "zh_CN.UTF-8").count_disabled);
+    try testing.expectEqualStrings("1 個のスキル", skillsCountChromeFor(.system, "ja_JP.UTF-8").count_one);
+    try testing.expectEqualStrings("%{total} 件中 %{shown} 件を表示", skillsCountChromeFor(.system, "ja_JP.UTF-8").filter_caption);
+    try testing.expectEqualStrings("1 skill", skillsCountChromeFor(.english, "ja_JP.UTF-8").count_one);
+    try testing.expectEqualStrings("%{count} skills", skillsCountChromeFor(.english, "zh_CN.UTF-8").count_many);
+
+    try testing.expect(!std.mem.eql(u8, skillsCountChromeFor(.english, "").count_one, skillsEmptyChromeFor(.english, "").no_skills_found));
+    try testing.expect(!std.mem.eql(u8, skillsCountChromeFor(.english, "").filter_caption, skillsSelectChromeFor(.english, "").select_placeholder));
+    try testing.expect(!std.mem.eql(u8, skillsCountChromeFor(.english, "").count_disabled, skillsEnableChromeFor(.english, "").disabled));
+
+    var buf: [skills_count_caption_max]u8 = undefined;
+    try testing.expectEqualStrings("1 skill", formatSkillsCountCaption(skillsCountChromeFor(.english, ""), 1, 0, &buf));
+    try testing.expectEqualStrings("3 skills", formatSkillsCountCaption(skillsCountChromeFor(.english, ""), 3, 0, &buf));
+    try testing.expectEqualStrings("3 skills · 1 disabled", formatSkillsCountCaption(skillsCountChromeFor(.english, ""), 3, 1, &buf));
+    try testing.expectEqualStrings("1 skill · 1 disabled", formatSkillsCountCaption(skillsCountChromeFor(.english, ""), 1, 1, &buf));
+    try testing.expectEqualStrings("1 of 3 shown", formatSkillsFilterCaption(skillsCountChromeFor(.english, ""), 1, 3, &buf));
+    try testing.expectEqualStrings("1 个技能", formatSkillsCountCaption(skillsCountChromeFor(.simplified_chinese, ""), 1, 0, &buf));
+    try testing.expectEqualStrings("3 个技能", formatSkillsCountCaption(skillsCountChromeFor(.simplified_chinese, ""), 3, 0, &buf));
+    try testing.expectEqualStrings("3 个技能 · 已禁用 2 个", formatSkillsCountCaption(skillsCountChromeFor(.simplified_chinese, ""), 3, 2, &buf));
+    try testing.expectEqualStrings("显示 1 / 3 个", formatSkillsFilterCaption(skillsCountChromeFor(.simplified_chinese, ""), 1, 3, &buf));
+    try testing.expectEqualStrings("1 個のスキル", formatSkillsCountCaption(skillsCountChromeFor(.japanese, ""), 1, 0, &buf));
+    try testing.expectEqualStrings("3 個のスキル", formatSkillsCountCaption(skillsCountChromeFor(.japanese, ""), 3, 0, &buf));
+    try testing.expectEqualStrings("3 個のスキル · 無効 2 件", formatSkillsCountCaption(skillsCountChromeFor(.japanese, ""), 3, 2, &buf));
+    try testing.expectEqualStrings("3 件中 1 件を表示", formatSkillsFilterCaption(skillsCountChromeFor(.japanese, ""), 1, 3, &buf));
+    try testing.expectEqualStrings("1 of 3 shown", formatSkillsFilterCaption(skillsCountChromeFor(.english, "ja_JP.UTF-8"), 1, 3, &buf));
+    try testing.expectEqualStrings("显示 1 / 3 个", formatSkillsFilterCaption(skillsCountChromeFor(.system, "zh_CN.UTF-8"), 1, 3, &buf));
 }
 
 test "skillsEnableChromeFor english default; zh and ja chrome; english ignores ja LANG" {
