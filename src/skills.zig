@@ -154,8 +154,9 @@
 //! SkillsSectionChrome; description / `/name` / path stay data;
 //! Contents value is supporting-file count · bytes
 //! (`SkillsFileCountChrome` + Latin B/KB/MB; `{skill_body}` stays
-//! a separate block); Updated lives in `SkillsUpdatedChrome`; no
-//! allowed_tools / duplicate grouping this cut). Selected-detail
+//! a separate block); Updated lives in `SkillsUpdatedChrome`;
+//! Allowed tools lives in `SkillsAllowedToolsChrome`; no
+//! duplicate grouping this cut). Selected-detail
 //! Updated follows `i18n.SkillsUpdatedChrome` (Waku
 //! `skills.detail_updated` + relative just now / m / h / d from
 //! SKILL.md mtime unix seconds at `loadBody`; fail closed when
@@ -166,7 +167,14 @@
 //! paints bytes only; measured at `loadBody` from the absolute
 //! skill parent; fail closed when the dir cannot be walked;
 //! distinct from SkillsDetailChrome / SkillsUpdatedChrome).
-//! Composer `$` insert unchanged.
+//! Selected-detail Allowed tools follows
+//! `i18n.SkillsAllowedToolsChrome` (Waku `skills.allowed_tools`;
+//! YAML `allowed-tools:` plain / quoted scalar copied at
+//! `loadBody`; cap `max_skill_allowed_tools`; fail closed when
+//! missing / empty / unfenced; distinct from SkillsDetailChrome /
+//! SkillsUpdatedChrome / SkillsFileCountChrome). No duplicate
+//! grouping this cut (list fold by name, multi-location lines,
+//! duplicate badge stay later). Composer `$` insert unchanged.
 //! app.zon already includes windows.
 //!
 //! Spawn/line/exit orchestration lives here. Tests do not need a live
@@ -215,6 +223,10 @@ pub const max_skill_name: usize = 64;
 pub const max_user_skill_roots: usize = 9;
 /// One-line UI cap for YAML `description:` (larger than name; not the body).
 pub const max_skill_description: usize = 160;
+/// One-line UI cap for YAML `allowed-tools:` on the selected-detail
+/// Tools row. Same order as `max_skill_description`. Overflow
+/// truncates; missing / empty / unfenced stays empty (no row).
+pub const max_skill_allowed_tools: usize = 160;
 pub const max_skill_body: usize = 4096;
 pub const max_skill_file_read: usize = 8192;
 
@@ -1222,6 +1234,14 @@ pub fn parseFrontmatterDescription(source: []const u8) []const u8 {
     return parseFrontmatterField(source, "description:");
 }
 
+/// Light YAML `allowed-tools:` in a leading `---` fence. Empty when
+/// missing. Plain / single-quoted / double-quoted like `description:`.
+/// No block-scalar folding / YAML lists this cut (same class as
+/// description). Empty / missing / unfenced → fail closed.
+pub fn parseFrontmatterAllowedTools(source: []const u8) []const u8 {
+    return parseFrontmatterField(source, "allowed-tools:");
+}
+
 fn parseFrontmatterField(source: []const u8, key: []const u8) []const u8 {
     const start = std.mem.trimStart(u8, source, " \t\r\n");
     if (!std.mem.startsWith(u8, start, "---")) return "";
@@ -1886,6 +1906,7 @@ fn clearSelectedSkillBody(model: *Model) void {
     model.skill_supporting_files = 0;
     model.skill_total_bytes = 0;
     model.skill_contents_valid = false;
+    model.skill_allowed_tools_len = 0;
 }
 
 /// Zig `File.Stat.mtime` is ns since epoch: a raw integer on some
@@ -1970,6 +1991,7 @@ fn loadBody(model: *Model, index: usize) void {
     const source = readSkillSource(io, abs, &file_buf);
     if (source.len == 0) return;
     writeFixed(&model.skill_body_storage, &model.skill_body_len, stripFrontmatter(source));
+    writeFixed(&model.skill_allowed_tools_storage, &model.skill_allowed_tools_len, parseFrontmatterAllowedTools(source));
     if (readSkillMtimeUnix(io, abs)) |mtime| {
         model.skill_mtime_unix = mtime;
         model.skill_mtime_valid = true;
@@ -2127,6 +2149,12 @@ pub const updated_just_now = skills_updated_chrome_en.updated_just_now;
 const skills_file_count_chrome_en = i18n.skillsFileCountChromeFor(.english, "");
 pub const file_count_one = skills_file_count_chrome_en.file_count_one;
 pub const file_count_many = skills_file_count_chrome_en.file_count_many;
+
+/// English defaults from `i18n.SkillsAllowedToolsChrome`. Distinct from
+/// SkillsDetailChrome / SkillsUpdatedChrome / SkillsFileCountChrome.
+/// Matches Waku `skills.allowed_tools`.
+const skills_allowed_tools_chrome_en = i18n.skillsAllowedToolsChromeFor(.english, "");
+pub const allowed_tools = skills_allowed_tools_chrome_en.allowed_tools;
 
 /// English defaults from `i18n.SkillsEnableChrome`. Distinct from
 /// Providers Enable / Disable.
@@ -2813,6 +2841,41 @@ test "parse description from frontmatter; quoted and missing" {
     ));
 }
 
+test "parse allowed-tools from frontmatter; quoted and missing" {
+    try std.testing.expectEqualStrings("Bash, Read", parseFrontmatterAllowedTools(
+        \\---
+        \\name: my-skill
+        \\allowed-tools: Bash, Read
+        \\---
+        \\
+        \\# Body
+    ));
+    try std.testing.expectEqualStrings("Pretty Tools", parseFrontmatterAllowedTools(
+        \\---
+        \\allowed-tools: "Pretty Tools"
+        \\---
+        \\body
+    ));
+    try std.testing.expectEqualStrings("quoted", parseFrontmatterAllowedTools(
+        \\---
+        \\allowed-tools: 'quoted'
+        \\---
+    ));
+    try std.testing.expectEqualStrings("", parseFrontmatterAllowedTools("# no fence\nallowed-tools: nope\n"));
+    try std.testing.expectEqualStrings("", parseFrontmatterAllowedTools("---\nname: x\n---\n"));
+    try std.testing.expectEqualStrings("", parseFrontmatterAllowedTools(""));
+    try std.testing.expectEqualStrings("", parseFrontmatterAllowedTools(
+        \\---
+        \\allowed-tools:
+        \\---
+    ));
+    try std.testing.expectEqualStrings("", parseFrontmatterAllowedTools(
+        \\---
+        \\allowed_tools: Bash
+        \\---
+    ));
+}
+
 test "empty scan; list cap; parent folder name" {
     var model = Model{};
     applyStdoutPaths(&model, "");
@@ -3148,6 +3211,9 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expectEqualStrings("", model.skill_updated_label(arena));
     try testing.expect(!model.has_skill_contents_summary());
     try testing.expectEqualStrings("", model.skill_contents_summary(arena));
+    try testing.expect(!model.has_skill_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_detail_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_allowed_tools());
     try testing.expectEqualStrings("1 supporting file", i18n.skillsFileCountChromeFor(.english, "").file_count_one);
     try testing.expectEqualStrings("%{count} supporting files", i18n.skillsFileCountChromeFor(.english, "").file_count_many);
     try testing.expectEqualStrings("1 个附属文件", i18n.skillsFileCountChromeFor(.simplified_chinese, "").file_count_one);
@@ -3210,6 +3276,9 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expectEqualStrings("", model.skill_detail_updated());
     try testing.expectEqualStrings("", model.skill_updated_label(arena));
     try testing.expectEqualStrings("", insertEmptyHint(&model));
+    try testing.expect(!model.has_skill_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_detail_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_allowed_tools());
 
     selectSkill(&model, 1);
     try testing.expect(model.has_selected_skill());
@@ -3253,6 +3322,9 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expectEqualStrings("5 分钟前", selectedSkillUpdatedLabelAt(&model, model.skill_mtime_unix + 300, arena));
     try testing.expectEqualStrings("/with-desc", model.skill_invoke_line(arena));
     try testing.expectEqualStrings("Does the described thing.", model.skill_description());
+    try testing.expect(!model.has_skill_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_detail_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_allowed_tools());
     model.language_preference = .japanese;
     try testing.expectEqualStrings("呼び出し", model.skill_detail_invoke());
     try testing.expectEqualStrings("場所", model.skill_detail_location());
@@ -3288,6 +3360,9 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expectEqualStrings("Just now", model.skill_updated_label(arena));
     try testing.expect(model.has_skill_contents_summary());
     try testing.expect(std.mem.indexOf(u8, model.skill_contents_summary(arena), "supporting") == null);
+    try testing.expect(!model.has_skill_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_detail_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_allowed_tools());
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("暂无描述", model.skill_no_description());
     try testing.expectEqualStrings("调用", model.skill_detail_invoke());
@@ -3329,6 +3404,9 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expectEqualStrings("", model.skill_updated_label(arena));
     try testing.expect(!model.has_skill_contents_summary());
     try testing.expectEqualStrings("", model.skill_contents_summary(arena));
+    try testing.expect(!model.has_skill_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_detail_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_allowed_tools());
     model.settings_page = .skills;
     try testing.expect(model.has_selected_skill());
     try testing.expectEqualStrings("/from-home", model.skill_invoke_line(arena));
@@ -3346,6 +3424,9 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expectEqualStrings("", model.skill_updated_label(arena));
     try testing.expect(!model.has_skill_contents_summary());
     try testing.expectEqualStrings("", model.skill_contents_summary(arena));
+    try testing.expect(!model.has_skill_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_detail_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_allowed_tools());
     try testing.expectEqualStrings("", insertEmptyHint(&model));
 
     clearCache(&model);
@@ -3360,6 +3441,9 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expectEqualStrings("", model.skill_updated_label(arena));
     try testing.expect(!model.has_skill_contents_summary());
     try testing.expectEqualStrings("", model.skill_contents_summary(arena));
+    try testing.expect(!model.has_skill_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_detail_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_allowed_tools());
     try testing.expectEqualStrings("Updated", i18n.skillsUpdatedChromeFor(.english, "").detail_updated);
     model.skill_mtime_valid = false;
     try testing.expectEqualStrings("", model.skill_detail_updated());
@@ -3488,6 +3572,133 @@ test "selected-detail Contents file_count · bytes; one/many/zero; locales; fail
     try testing.expectEqualStrings("Contents", model.skill_detail_contents());
     try testing.expect(!model.has_skill_contents_summary());
     try testing.expectEqualStrings("", model.skill_contents_summary(arena));
+}
+
+test "selected-detail Allowed tools from YAML allowed-tools; locales; fail closed" {
+    const testing = std.testing;
+
+    try testing.expectEqualStrings("Tools", allowed_tools);
+    try testing.expectEqualStrings("Tools", i18n.skillsAllowedToolsChromeFor(.english, "").allowed_tools);
+    try testing.expectEqualStrings("工具", i18n.skillsAllowedToolsChromeFor(.simplified_chinese, "").allowed_tools);
+    try testing.expectEqualStrings("ツール", i18n.skillsAllowedToolsChromeFor(.japanese, "").allowed_tools);
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-allowed-tools", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, root);
+
+    var with_dir_buf: [360]u8 = undefined;
+    const with_dir = try std.fmt.bufPrint(&with_dir_buf, "{s}/.cursor/skills/with-tools", .{root});
+    try std.Io.Dir.cwd().createDirPath(testing.io, with_dir);
+    var with_file_buf: [400]u8 = undefined;
+    const with_file = try std.fmt.bufPrint(&with_file_buf, "{s}/SKILL.md", .{with_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = with_file,
+        .data =
+        \\---
+        \\name: with-tools
+        \\description: Uses tools.
+        \\allowed-tools: Bash, Read
+        \\---
+        \\
+        \\Body stays in the detail pane.
+        \\
+        ,
+    });
+    var quoted_dir_buf: [360]u8 = undefined;
+    const quoted_dir = try std.fmt.bufPrint(&quoted_dir_buf, "{s}/.cursor/skills/quoted-tools", .{root});
+    try std.Io.Dir.cwd().createDirPath(testing.io, quoted_dir);
+    var quoted_file_buf: [400]u8 = undefined;
+    const quoted_file = try std.fmt.bufPrint(&quoted_file_buf, "{s}/SKILL.md", .{quoted_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = quoted_file,
+        .data =
+        \\---
+        \\name: quoted-tools
+        \\allowed-tools: "Write, Edit"
+        \\---
+        \\
+        \\Quoted tools body.
+        \\
+        ,
+    });
+    var bare_dir_buf: [360]u8 = undefined;
+    const bare_dir = try std.fmt.bufPrint(&bare_dir_buf, "{s}/.cursor/skills/bare", .{root});
+    try writeTestSkill(testing.io, bare_dir, "bare", "Bare body.", false);
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setLastProjectPath(root);
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, root);
+    model.settings_page = .skills;
+    applyStdoutPaths(&model, ".cursor/skills/with-tools/SKILL.md\n.cursor/skills/quoted-tools/SKILL.md\n.cursor/skills/bare/SKILL.md\n");
+    try testing.expectEqual(@as(u32, 3), cachedCount(&model));
+    try testing.expect(!model.has_selected_skill());
+    try testing.expect(!model.has_skill_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_detail_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_allowed_tools());
+
+    selectSkill(&model, 1);
+    try testing.expect(model.has_selected_skill());
+    try testing.expect(model.has_skill_allowed_tools());
+    try testing.expectEqualStrings("Tools", model.skill_detail_allowed_tools());
+    try testing.expectEqualStrings("Bash, Read", model.skill_allowed_tools());
+    try testing.expectEqualStrings("Invoke", model.skill_detail_invoke());
+    try testing.expectEqualStrings("Contents", model.skill_detail_contents());
+    try testing.expect(model.has_skill_body());
+    try testing.expectEqualStrings("Body stays in the detail pane.", model.skill_body());
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("工具", model.skill_detail_allowed_tools());
+    try testing.expectEqualStrings("Bash, Read", model.skill_allowed_tools());
+    try testing.expectEqualStrings("调用", model.skill_detail_invoke());
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("ツール", model.skill_detail_allowed_tools());
+    try testing.expectEqualStrings("Bash, Read", model.skill_allowed_tools());
+    model.language_preference = .english;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("Tools", model.skill_detail_allowed_tools());
+    model.language_preference = .system;
+    try testing.expectEqualStrings("工具", model.skill_detail_allowed_tools());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("ツール", model.skill_detail_allowed_tools());
+    model.setSystemLocaleId("");
+    model.language_preference = .english;
+    try testing.expectEqualStrings("Tools", model.skill_detail_allowed_tools());
+
+    selectSkill(&model, 2);
+    try testing.expect(model.has_skill_allowed_tools());
+    try testing.expectEqualStrings("Tools", model.skill_detail_allowed_tools());
+    try testing.expectEqualStrings("Write, Edit", model.skill_allowed_tools());
+
+    selectSkill(&model, 3);
+    try testing.expect(model.has_selected_skill());
+    try testing.expect(!model.has_skill_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_detail_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_allowed_tools());
+    try testing.expectEqualStrings("No description", model.skill_no_description());
+
+    model.settings_page = .general;
+    try testing.expect(!model.has_selected_skill());
+    try testing.expect(!model.has_skill_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_detail_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_allowed_tools());
+    model.settings_page = .skills;
+    try testing.expect(model.has_selected_skill());
+    try testing.expect(!model.has_skill_allowed_tools());
+
+    model.skill_selected_id = 0;
+    try testing.expect(!model.has_skill_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_detail_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_allowed_tools());
+
+    clearCache(&model);
+    applyStdoutPaths(&model, ".cursor/skills/missing/SKILL.md\n");
+    selectSkill(&model, 1);
+    try testing.expect(model.has_selected_skill());
+    try testing.expect(!model.has_skill_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_detail_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_allowed_tools());
 }
 
 test "countCaption empty-filter counts, filter caption, emptyHint owns, disabled append" {

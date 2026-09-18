@@ -430,8 +430,9 @@
 //! independently evolvable; description / `/name` / path stay
 //! data; Contents value is supporting-file count · bytes
 //! (`SkillsFileCountChrome` + Latin B/KB/MB; `{skill_body}` stays
-//! a separate block); Updated lives in `SkillsUpdatedChrome`; no
-//! allowed_tools / duplicate grouping this cut;
+//! a separate block); Updated lives in `SkillsUpdatedChrome`;
+//! Allowed tools lives in `SkillsAllowedToolsChrome`; no
+//! duplicate grouping this cut;
 //! composer `$` insert unchanged; wire ids stay English)
 //! plus Settings Skills selected-detail Updated (same
 //! `SkillsUpdatedChrome` strings; English matches Waku
@@ -439,15 +440,23 @@
 //! / `updated_hours` / `updated_days`; relative SKILL.md mtime;
 //! fail closed when mtime cannot be read; distinct from
 //! SkillsDetailChrome so Updated stays independently evolvable;
-//! numbers stay Latin; no allowed_tools / duplicate grouping this
+//! numbers stay Latin; no duplicate grouping this
 //! cut; composer `$` insert unchanged; wire ids stay English)
 //! plus Settings Skills selected-detail Contents file_count
 //! (same `SkillsFileCountChrome` strings; English matches Waku
 //! `skills.file_count_one` / `file_count_many`; Latin format_bytes
 //! B/KB/MB; 0 supporting files paints bytes only; fail closed when
 //! the skill dir cannot be walked; distinct from SkillsDetailChrome
-//! / SkillsUpdatedChrome; no allowed_tools / duplicate grouping
+//! / SkillsUpdatedChrome; no duplicate grouping
 //! this cut; composer `$` insert unchanged; wire ids stay English)
+//! plus Settings Skills selected-detail Allowed tools (same
+//! `SkillsAllowedToolsChrome` strings; English matches Waku
+//! `skills.allowed_tools`; EN Tools / zh-CN 工具 / ja ツール;
+//! YAML `allowed-tools:` plain / quoted scalar; fail closed when
+//! missing / empty / unfenced; distinct from SkillsDetailChrome /
+//! SkillsUpdatedChrome / SkillsFileCountChrome so Tools stays
+//! independently evolvable; no duplicate grouping this cut;
+//! composer `$` insert unchanged; wire ids stay English)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -4474,8 +4483,9 @@ const skills_section_chrome_ja: SkillsSectionChrome = .{
 /// Description / `/name` invoke line / path stay data. Contents
 /// value is supporting-file count · bytes (`SkillsFileCountChrome`
 /// + Latin B/KB/MB; `{skill_body}` stays a separate block).
-/// Updated lives in `SkillsUpdatedChrome`. No allowed_tools /
-/// duplicate grouping this cut. Composer `$` insert unchanged.
+/// Updated lives in `SkillsUpdatedChrome`. Allowed tools lives in
+/// `SkillsAllowedToolsChrome`. No duplicate grouping this cut.
+/// Composer `$` insert unchanged.
 /// Wire ids stay English.
 pub const SkillsDetailChrome = struct {
     no_description: []const u8,
@@ -4512,8 +4522,8 @@ const skills_detail_chrome_ja: SkillsDetailChrome = .{
 /// `updated_days`. Distinct from SkillsDetailChrome (Invoke /
 /// Location / Contents) so Updated stays independently evolvable.
 /// Templates keep Waku `%{count}` slots. Numbers stay Latin. Fail
-/// closed when SKILL.md mtime cannot be read. No allowed_tools /
-/// duplicate grouping this cut. Composer `$` insert unchanged.
+/// closed when SKILL.md mtime cannot be read. No duplicate
+/// grouping this cut. Composer `$` insert unchanged.
 /// Wire ids stay English.
 pub const SkillsUpdatedChrome = struct {
     detail_updated: []const u8,
@@ -4560,8 +4570,8 @@ pub const skills_updated_label_max: usize = 64;
 /// the count phrases stay independently evolvable. Templates keep
 /// Waku `%{count}` slots. Numbers stay Latin. Byte formatting is
 /// Latin data (`formatSkillBytes`), not this pack. Fail closed when
-/// the skill dir cannot be walked. No allowed_tools / duplicate
-/// grouping this cut. Composer `$` insert unchanged. Wire ids stay
+/// the skill dir cannot be walked. No duplicate grouping this cut.
+/// Composer `$` insert unchanged. Wire ids stay
 /// English.
 pub const SkillsFileCountChrome = struct {
     file_count_one: []const u8,
@@ -4581,6 +4591,31 @@ const skills_file_count_chrome_zh_cn: SkillsFileCountChrome = .{
 const skills_file_count_chrome_ja: SkillsFileCountChrome = .{
     .file_count_one = "補助ファイル 1 件",
     .file_count_many = "補助ファイル %{count} 件",
+};
+
+/// Settings Skills selected-detail Allowed tools label for the
+/// resolved locale. Same resolve path as SkillsDetailChrome /
+/// SkillsUpdatedChrome / SkillsFileCountChrome. English matches
+/// Waku `skills.allowed_tools`. Distinct from SkillsDetailChrome
+/// (Invoke / Location / Contents), SkillsUpdatedChrome, and
+/// SkillsFileCountChrome so Tools stays independently evolvable.
+/// YAML `allowed-tools:` value stays skill data. Fail closed when
+/// missing / empty / unfenced. No duplicate grouping this cut.
+/// Composer `$` insert unchanged. Wire ids stay English.
+pub const SkillsAllowedToolsChrome = struct {
+    allowed_tools: []const u8,
+};
+
+const skills_allowed_tools_chrome_en: SkillsAllowedToolsChrome = .{
+    .allowed_tools = "Tools",
+};
+
+const skills_allowed_tools_chrome_zh_cn: SkillsAllowedToolsChrome = .{
+    .allowed_tools = "工具",
+};
+
+const skills_allowed_tools_chrome_ja: SkillsAllowedToolsChrome = .{
+    .allowed_tools = "ツール",
 };
 
 /// Capped scratch for `formatSkillsContentsSummary`. Count phrase +
@@ -6058,6 +6093,21 @@ pub fn skillsFileCountChromeFor(preference: LanguagePreference, system_locale_id
         .simplified_chinese => skills_file_count_chrome_zh_cn,
         .japanese => skills_file_count_chrome_ja,
         .system, .english => skills_file_count_chrome_en,
+    };
+}
+
+/// Settings Skills selected-detail Allowed tools label for the
+/// resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env.
+/// Distinct from SkillsDetailChrome / SkillsUpdatedChrome /
+/// SkillsFileCountChrome so Tools stays independently evolvable.
+/// English matches Waku `skills.allowed_tools`. Wire ids stay
+/// English.
+pub fn skillsAllowedToolsChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsAllowedToolsChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_allowed_tools_chrome_zh_cn,
+        .japanese => skills_allowed_tools_chrome_ja,
+        .system, .english => skills_allowed_tools_chrome_en,
     };
 }
 
@@ -9907,6 +9957,27 @@ test "skillsFileCountChromeFor english default; zh and ja chrome; contents summa
     try testing.expectEqualStrings("1 个附属文件 · 12 B", formatSkillsContentsSummary(skillsFileCountChromeFor(.system, "zh_CN.UTF-8"), 1, 12, &buf));
     try testing.expectEqualStrings("補助ファイル 3 件 · 12 B", formatSkillsContentsSummary(skillsFileCountChromeFor(.system, "ja_JP.UTF-8"), 3, 12, &buf));
     try testing.expectEqualStrings("1 supporting file · 12 B", formatSkillsContentsSummary(skillsFileCountChromeFor(.english, "zh_CN.UTF-8"), 1, 12, &buf));
+}
+
+test "skillsAllowedToolsChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Tools", skillsAllowedToolsChromeFor(.english, "ja").allowed_tools);
+    try testing.expectEqualStrings("Tools", skillsAllowedToolsChromeFor(.english, "").allowed_tools);
+    try testing.expectEqualStrings("Tools", skillsAllowedToolsChromeFor(.system, "").allowed_tools);
+
+    try testing.expectEqualStrings("工具", skillsAllowedToolsChromeFor(.simplified_chinese, "").allowed_tools);
+    try testing.expectEqualStrings("ツール", skillsAllowedToolsChromeFor(.japanese, "").allowed_tools);
+
+    try testing.expectEqualStrings("工具", skillsAllowedToolsChromeFor(.system, "zh_CN.UTF-8").allowed_tools);
+    try testing.expectEqualStrings("ツール", skillsAllowedToolsChromeFor(.system, "ja_JP.UTF-8").allowed_tools);
+    try testing.expectEqualStrings("Tools", skillsAllowedToolsChromeFor(.english, "ja_JP.UTF-8").allowed_tools);
+    try testing.expectEqualStrings("Tools", skillsAllowedToolsChromeFor(.english, "zh_CN.UTF-8").allowed_tools);
+
+    try testing.expect(!std.mem.eql(u8, skillsAllowedToolsChromeFor(.english, "").allowed_tools, skillsDetailChromeFor(.english, "").detail_contents));
+    try testing.expect(!std.mem.eql(u8, skillsAllowedToolsChromeFor(.english, "").allowed_tools, skillsUpdatedChromeFor(.english, "").detail_updated));
+    try testing.expect(!std.mem.eql(u8, skillsAllowedToolsChromeFor(.english, "").allowed_tools, skillsFileCountChromeFor(.english, "").file_count_one));
+    try testing.expect(!std.mem.eql(u8, skillsAllowedToolsChromeFor(.simplified_chinese, "").allowed_tools, skillsDetailChromeFor(.simplified_chinese, "").detail_contents));
+    try testing.expect(!std.mem.eql(u8, skillsAllowedToolsChromeFor(.japanese, "").allowed_tools, skillsDetailChromeFor(.japanese, "").detail_contents));
 }
 
 test "skillsPathCopiedChromeFor english default; zh and ja chrome; english ignores ja LANG" {

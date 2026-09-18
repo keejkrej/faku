@@ -411,18 +411,24 @@
                       <text foreground="text_muted">{skill_detail_location}</text>
                       <text wrap="true">{skill_location}</text>
                     </column>
-                    <if test="{has_skill_updated}">
-                      <column gap="2">
-                        <text foreground="text_muted">{skill_detail_updated}</text>
-                        <text wrap="false">{skill_updated_label}</text>
-                      </column>
-                    </if>
                     <column gap="2">
                       <text foreground="text_muted">{skill_detail_contents}</text>
                       <if test="{has_skill_contents_summary}">
                         <text wrap="false" overflow="ellipsis">{skill_contents_summary}</text>
                       </if>
                     </column>
+                    <if test="{has_skill_updated}">
+                      <column gap="2">
+                        <text foreground="text_muted">{skill_detail_updated}</text>
+                        <text wrap="false">{skill_updated_label}</text>
+                      </column>
+                    </if>
+                    <if test="{has_skill_allowed_tools}">
+                      <column gap="2">
+                        <text foreground="text_muted">{skill_detail_allowed_tools}</text>
+                        <text wrap="false" overflow="ellipsis">{skill_allowed_tools}</text>
+                      </column>
+                    </if>
                     <if test="{has_skill_body}">
                       <text wrap="true">{skill_body}</text>
                     </if>
