@@ -148,7 +148,13 @@
 //! Waku GPUI `skills.section_user`; project section paints the
 //! project name; distinct from SkillsEmptyChrome / SkillsCountChrome
 //! / SkillsSelectChrome). Composer `$` insert / slash skill rows
-//! stay flat. app.zon already includes windows.
+//! stay flat. Selected-detail No description / Invoke / Location /
+//! Contents follow `i18n.SkillsDetailChrome` (distinct from
+//! SkillsEmptyChrome / SkillsSelectChrome / SkillsCountChrome /
+//! SkillsSectionChrome; description / `/name` / path / body stay
+//! data; no `detail_updated` / file_count / allowed_tools /
+//! duplicate grouping this cut). Composer `$` insert unchanged.
+//! app.zon already includes windows.
 //!
 //! Spawn/line/exit orchestration lives here. Tests do not need a live
 //! daemon or fx.
@@ -1783,6 +1789,36 @@ pub fn revealSelectedSkill(model: *Model, fx: *Effects) void {
     }
 }
 
+/// YAML `description:` for the selected Settings Skills row.
+/// Empty when nothing is selected or the field is missing.
+pub fn selectedSkillDescription(model: *const Model) []const u8 {
+    if (model.skill_selected_id == 0 or model.skill_selected_id > model.skill_count) return "";
+    return model.skill_store[model.skill_selected_id - 1].description();
+}
+
+/// `/` + selected skill name. Empty when nothing is selected.
+/// Name is skill data, not i18n.
+pub fn selectedSkillInvokeLine(model: *const Model, arena: std.mem.Allocator) []const u8 {
+    if (model.skill_selected_id == 0 or model.skill_selected_id > model.skill_count) return "";
+    const name = model.skill_store[model.skill_selected_id - 1].name();
+    var buf: [1 + max_skill_name]u8 = undefined;
+    const text = std.fmt.bufPrint(&buf, "/{s}", .{name}) catch return "";
+    return copyCaption(arena, text);
+}
+
+/// Selected-skill Location value. Prefers the absolute install
+/// parent from `selectedSkillAbsParent` (same join as Copy path /
+/// Enable/Disable / Delete) when it resolves; else the cached store
+/// path the list already shows. Empty when nothing is selected.
+pub fn selectedSkillLocation(model: *const Model, arena: std.mem.Allocator) []const u8 {
+    if (model.skill_selected_id == 0 or model.skill_selected_id > model.skill_count) return "";
+    var parent_buf: [model_exports.max_project_path + max_skill_path + 1]u8 = undefined;
+    if (selectedSkillAbsParent(model, &parent_buf)) |parent| {
+        return copyCaption(arena, parent);
+    }
+    return model.skill_store[model.skill_selected_id - 1].path();
+}
+
 /// Settings Skills Copy path. Writes the absolute skill parent
 /// directory (install dir, not `SKILL.md`) through Native
 /// `fx.writeClipboard` via `copy.copyText` / `copy_turn_key`. Fail
@@ -1929,6 +1965,16 @@ pub const select_placeholder = skills_select_chrome_en.select_placeholder;
 /// Matches Waku GPUI `skills.section_user`.
 const skills_section_chrome_en = i18n.skillsSectionChromeFor(.english, "");
 pub const section_user = skills_section_chrome_en.section_user;
+
+/// English defaults from `i18n.SkillsDetailChrome`. Distinct from
+/// SkillsEmptyChrome / SkillsSelectChrome / SkillsCountChrome /
+/// SkillsSectionChrome. Matches Waku `skills.no_description` /
+/// `detail_invoke` / `detail_location` / `detail_contents`.
+const skills_detail_chrome_en = i18n.skillsDetailChromeFor(.english, "");
+pub const no_description = skills_detail_chrome_en.no_description;
+pub const detail_invoke = skills_detail_chrome_en.detail_invoke;
+pub const detail_location = skills_detail_chrome_en.detail_location;
+pub const detail_contents = skills_detail_chrome_en.detail_contents;
 
 /// English defaults from `i18n.SkillsEnableChrome`. Distinct from
 /// Providers Enable / Disable.
@@ -2902,6 +2948,184 @@ test "skills_needs_select true only on Skills page with rows and no selection" {
     model.skills_filter_buffer.clear();
     try testing.expect(model.skills_needs_select());
     try testing.expectEqualStrings("Select a skill", model.skills_select_placeholder());
+}
+
+test "selected-detail chrome description vs no_description; invoke / location / contents; unselected empty" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    try testing.expectEqualStrings("No description", no_description);
+    try testing.expectEqualStrings("Invoke", detail_invoke);
+    try testing.expectEqualStrings("Location", detail_location);
+    try testing.expectEqualStrings("Contents", detail_contents);
+    try testing.expectEqualStrings("No description", i18n.skillsDetailChromeFor(.english, "").no_description);
+    try testing.expectEqualStrings("暂无描述", i18n.skillsDetailChromeFor(.simplified_chinese, "").no_description);
+    try testing.expectEqualStrings("説明なし", i18n.skillsDetailChromeFor(.japanese, "").no_description);
+    try testing.expectEqualStrings("Invoke", i18n.skillsDetailChromeFor(.english, "").detail_invoke);
+    try testing.expectEqualStrings("调用", i18n.skillsDetailChromeFor(.simplified_chinese, "").detail_invoke);
+    try testing.expectEqualStrings("呼び出し", i18n.skillsDetailChromeFor(.japanese, "").detail_invoke);
+    try testing.expectEqualStrings("Location", i18n.skillsDetailChromeFor(.english, "").detail_location);
+    try testing.expectEqualStrings("位置", i18n.skillsDetailChromeFor(.simplified_chinese, "").detail_location);
+    try testing.expectEqualStrings("場所", i18n.skillsDetailChromeFor(.japanese, "").detail_location);
+    try testing.expectEqualStrings("Contents", i18n.skillsDetailChromeFor(.english, "").detail_contents);
+    try testing.expectEqualStrings("内容", i18n.skillsDetailChromeFor(.simplified_chinese, "").detail_contents);
+    try testing.expectEqualStrings("内容", i18n.skillsDetailChromeFor(.japanese, "").detail_contents);
+
+    var model = Model{};
+    try testing.expect(!model.has_selected_skill());
+    try testing.expect(!model.has_skill_description());
+    try testing.expectEqualStrings("", model.skill_description());
+    try testing.expectEqualStrings("", model.skill_no_description());
+    try testing.expectEqualStrings("", model.skill_detail_invoke());
+    try testing.expectEqualStrings("", model.skill_invoke_line(arena));
+    try testing.expectEqualStrings("", model.skill_detail_location());
+    try testing.expectEqualStrings("", model.skill_location(arena));
+    try testing.expectEqualStrings("", model.skill_detail_contents());
+    try testing.expectEqualStrings("", selectedSkillDescription(&model));
+    try testing.expectEqualStrings("", selectedSkillInvokeLine(&model, arena));
+    try testing.expectEqualStrings("", selectedSkillLocation(&model, arena));
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-detail", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, root);
+
+    var with_dir_buf: [320]u8 = undefined;
+    const with_dir = try std.fmt.bufPrint(&with_dir_buf, "{s}/.cursor/skills/with-desc", .{root});
+    try std.Io.Dir.cwd().createDirPath(testing.io, with_dir);
+    var with_file_buf: [360]u8 = undefined;
+    const with_file = try std.fmt.bufPrint(&with_file_buf, "{s}/SKILL.md", .{with_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = with_file,
+        .data =
+        \\---
+        \\name: with-desc
+        \\description: Does the described thing.
+        \\---
+        \\
+        \\Body stays in the detail pane.
+        \\
+        ,
+    });
+    var bare_dir_buf: [320]u8 = undefined;
+    const bare_dir = try std.fmt.bufPrint(&bare_dir_buf, "{s}/.cursor/skills/bare", .{root});
+    try writeTestSkill(testing.io, bare_dir, "bare", "", false);
+    var user_dir_buf: [320]u8 = undefined;
+    const user_dir = try std.fmt.bufPrint(&user_dir_buf, "/tmp/faku-skills-detail-user-{s}/.fx/skills/from-home", .{tmp.sub_path});
+    try writeTestSkill(testing.io, user_dir, "from-home", "User skill body.", false);
+    var user_file_buf: [360]u8 = undefined;
+    const user_file = try std.fmt.bufPrint(&user_file_buf, "{s}/SKILL.md", .{user_dir});
+
+    model.store_io = testing.io;
+    model.setLastProjectPath(root);
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, root);
+    model.settings_page = .skills;
+    var stdout_buf: [512]u8 = undefined;
+    const stdout = try std.fmt.bufPrint(&stdout_buf, ".cursor/skills/with-desc/SKILL.md\n.cursor/skills/bare/SKILL.md\n{s}\n", .{user_file});
+    applyStdoutPaths(&model, stdout);
+    try testing.expectEqual(@as(u32, 3), cachedCount(&model));
+    try testing.expect(!model.has_selected_skill());
+    try testing.expect(model.skills_needs_select());
+    try testing.expectEqualStrings("Select a skill", model.skills_select_placeholder());
+    try testing.expectEqualStrings("", model.skill_no_description());
+    try testing.expectEqualStrings("", model.skill_detail_invoke());
+    try testing.expectEqualStrings("", model.skill_invoke_line(arena));
+    try testing.expectEqualStrings("", model.skill_detail_location());
+    try testing.expectEqualStrings("", model.skill_location(arena));
+    try testing.expectEqualStrings("", model.skill_detail_contents());
+    try testing.expect(!model.has_skill_body());
+    try testing.expectEqualStrings("", insertEmptyHint(&model));
+
+    selectSkill(&model, 1);
+    try testing.expect(model.has_selected_skill());
+    try testing.expect(!model.skills_needs_select());
+    try testing.expectEqualStrings("", model.skills_select_placeholder());
+    try testing.expect(model.has_skill_description());
+    try testing.expectEqualStrings("Does the described thing.", model.skill_description());
+    try testing.expectEqualStrings("", model.skill_no_description());
+    try testing.expectEqualStrings("Invoke", model.skill_detail_invoke());
+    try testing.expectEqualStrings("/with-desc", model.skill_invoke_line(arena));
+    try testing.expectEqualStrings("Location", model.skill_detail_location());
+    try testing.expectEqualStrings(with_dir, model.skill_location(arena));
+    try testing.expectEqualStrings("Contents", model.skill_detail_contents());
+    try testing.expect(model.has_skill_body());
+    try testing.expectEqualStrings("Body stays in the detail pane.", model.skill_body());
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("", model.skill_no_description());
+    try testing.expectEqualStrings("调用", model.skill_detail_invoke());
+    try testing.expectEqualStrings("位置", model.skill_detail_location());
+    try testing.expectEqualStrings("内容", model.skill_detail_contents());
+    try testing.expectEqualStrings("/with-desc", model.skill_invoke_line(arena));
+    try testing.expectEqualStrings("Does the described thing.", model.skill_description());
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("呼び出し", model.skill_detail_invoke());
+    try testing.expectEqualStrings("場所", model.skill_detail_location());
+    try testing.expectEqualStrings("内容", model.skill_detail_contents());
+    model.language_preference = .english;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("Invoke", model.skill_detail_invoke());
+    model.language_preference = .system;
+    try testing.expectEqualStrings("调用", model.skill_detail_invoke());
+    try testing.expectEqualStrings("暂无描述", i18n.skillsDetailChromeFor(.system, "zh_CN.UTF-8").no_description);
+    model.setSystemLocaleId("");
+    model.language_preference = .english;
+
+    selectSkill(&model, 2);
+    try testing.expect(model.has_selected_skill());
+    try testing.expect(!model.has_skill_description());
+    try testing.expectEqualStrings("", model.skill_description());
+    try testing.expectEqualStrings("No description", model.skill_no_description());
+    try testing.expectEqualStrings("/bare", model.skill_invoke_line(arena));
+    try testing.expectEqualStrings(bare_dir, model.skill_location(arena));
+    try testing.expectEqualStrings("Contents", model.skill_detail_contents());
+    try testing.expect(!model.has_skill_body());
+    try testing.expectEqualStrings("", model.skill_body());
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("暂无描述", model.skill_no_description());
+    try testing.expectEqualStrings("调用", model.skill_detail_invoke());
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("説明なし", model.skill_no_description());
+    try testing.expectEqualStrings("呼び出し", model.skill_detail_invoke());
+    model.language_preference = .english;
+
+    const saved_probe = model.skill_probe_path_len;
+    model.skill_probe_path_len = 0;
+    try testing.expectEqualStrings(".cursor/skills/bare/SKILL.md", model.skill_location(arena));
+    model.skill_probe_path_len = saved_probe;
+    try testing.expectEqualStrings(bare_dir, model.skill_location(arena));
+
+    selectSkill(&model, 3);
+    try testing.expectEqualStrings("/from-home", model.skill_invoke_line(arena));
+    try testing.expectEqualStrings(user_dir, model.skill_location(arena));
+    try testing.expect(model.has_skill_body());
+    try testing.expectEqualStrings("User skill body.", model.skill_body());
+    try testing.expect(!model.has_skill_description());
+    try testing.expectEqualStrings("No description", model.skill_no_description());
+
+    model.settings_page = .general;
+    try testing.expect(!model.has_selected_skill());
+    try testing.expectEqualStrings("", model.skill_no_description());
+    try testing.expectEqualStrings("", model.skill_detail_invoke());
+    try testing.expectEqualStrings("", model.skill_invoke_line(arena));
+    try testing.expectEqualStrings("", model.skill_detail_location());
+    try testing.expectEqualStrings("", model.skill_location(arena));
+    try testing.expectEqualStrings("", model.skill_detail_contents());
+    try testing.expect(!model.has_skill_body());
+    model.settings_page = .skills;
+    try testing.expect(model.has_selected_skill());
+    try testing.expectEqualStrings("/from-home", model.skill_invoke_line(arena));
+
+    model.skill_selected_id = 0;
+    try testing.expect(model.skills_needs_select());
+    try testing.expectEqualStrings("Select a skill", model.skills_select_placeholder());
+    try testing.expectEqualStrings("", model.skill_no_description());
+    try testing.expectEqualStrings("", model.skill_detail_invoke());
+    try testing.expectEqualStrings("", model.skill_invoke_line(arena));
+    try testing.expectEqualStrings("", insertEmptyHint(&model));
 }
 
 test "countCaption empty-filter counts, filter caption, emptyHint owns, disabled append" {
