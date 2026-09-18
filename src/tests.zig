@@ -16234,6 +16234,7 @@ test "settings Skills Copy path writes the absolute skill parent directory" {
     main.update(&model, .copy_skill_path, &fx);
     try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
     try testing.expectEqual(before, fx.pendingSpawnCount());
+    try testing.expectEqualStrings("", model.window_status());
 
     main.update(&model, .{ .select_skill = 1 }, &fx);
     try testing.expect(model.has_selected_skill());
@@ -16258,6 +16259,28 @@ test "settings Skills Copy path writes the absolute skill parent directory" {
     try testing.expectEqualStrings(skill_dir, written.text);
     try testing.expect(!std.mem.eql(u8, written.text, file_path));
     try testing.expect(!std.mem.endsWith(u8, written.text, "/SKILL.md"));
+    try testing.expectEqualStrings("Path copied", model.window_status());
+    try testing.expectEqualStrings(model.skill_path_copied_status(), model.window_status());
+    try testing.expectEqualStrings(skills.path_copied_status, model.window_status());
+    try testing.expectEqualStrings(i18n.skillsPathCopiedChromeFor(.english, "").path_copied, model.window_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Path copied");
+    try testing.expect(findByText(tree.root, .text, "已复制路径") == null);
+    try testing.expect(findByText(tree.root, .text, "パスをコピーしました") == null);
+
+    model.language_preference = .simplified_chinese;
+    main.update(&model, .copy_skill_path, &fx);
+    try testing.expectEqualStrings("已复制路径", model.window_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "已复制路径");
+    try testing.expect(findByText(tree.root, .text, "Path copied") == null);
+
+    model.language_preference = .japanese;
+    main.update(&model, .copy_skill_path, &fx);
+    try testing.expectEqualStrings("パスをコピーしました", model.window_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "パスをコピーしました");
+    try testing.expect(findByText(tree.root, .text, "Path copied") == null);
 }
 
 test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabled" {
