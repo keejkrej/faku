@@ -4676,10 +4676,11 @@ pub const Model = struct {
         return !hasSkillInsertMatch(model, query);
     }
 
-    /// Composer `$` insert empty. Same `i18n.SkillsEmptyChrome` as
-    /// Settings Skills empty (`skills_empty_hint`).
+    /// Composer `$` insert empty. Open a project / No skills found
+    /// only (`skills.insertEmptyHint`). Settings scanning / filter
+    /// no-match stay on `skills_empty_hint`.
     pub fn skills_insert_hint(model: *const Model) []const u8 {
-        return skills.emptyHint(model);
+        return skills.insertEmptyHint(model);
     }
 
     /// `@` mention card. Hidden when slash commands or `$` skills are
@@ -6010,20 +6011,13 @@ pub const Model = struct {
 
     pub fn skills_empty(model: *const Model) bool {
         if (model.settings_page != .skills) return false;
-        if (skills.emptyHint(model).len == 0) return false;
-        const query = std.mem.trim(u8, model.skills_filter(), " \t\r\n");
-        if (model.skill_count == 0) return true;
-        if (query.len == 0) return false;
-        var i: usize = 0;
-        while (i < model.skill_count) : (i += 1) {
-            if (skillRowMatches(&model.skill_store[i], query)) return false;
-        }
-        return true;
+        return skills.emptyHint(model).len != 0;
     }
 
     /// Settings Skills empty-state. Localized via
     /// `i18n.SkillsEmptyChrome`. Distinct from FilterChrome /
-    /// RightPanelChrome. Composer `$` insert reuses `skills_insert_hint`.
+    /// RightPanelChrome. Composer `$` insert reuses `skills_insert_hint`
+    /// (open_project / no_skills_found only).
     pub fn skills_empty_hint(model: *const Model) []const u8 {
         return skills.emptyHint(model);
     }

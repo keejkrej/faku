@@ -3743,6 +3743,7 @@ test "composer $ prefix lists cached SKILL.md; filters; click inserts $name; no 
     const after_first = fx.pendingSpawnCount();
     try testing.expect(model.skills_list_open());
     try testing.expect(model.skills_insert_empty());
+    try testing.expectEqualStrings("", model.skills_insert_hint());
     try testing.expectEqual(@as(usize, 0), model.skill_insert_rows(arena).len);
     try testing.expect(!model.commands_list_open());
     try testing.expect(!model.fx_spawn_live);
@@ -3789,6 +3790,8 @@ test "composer $ prefix lists cached SKILL.md; filters; click inserts $name; no 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "$z" } }, &fx);
     try testing.expectEqualStrings("$z", model.draft());
     try testing.expect(!model.skills_list_open());
+    try testing.expect(!model.skills_insert_empty());
+    try testing.expectEqualStrings("", model.skills_insert_hint());
     try testing.expectEqual(@as(usize, 0), model.skill_insert_rows(arena).len);
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "to-spec") == null);
@@ -27951,6 +27954,8 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skills_insert_hint}"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Open a project<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No skills found<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Scanning skill folders…<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No skills match your search<"));
 
     var model = boot.initialModel();
     try testing.expectEqualStrings("Open a project", model.skills_empty_hint());
@@ -27962,6 +27967,14 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expectEqualStrings(
         i18n.skillsEmptyChromeFor(.english, "").no_skills_found,
         skills.no_skills_found,
+    );
+    try testing.expectEqualStrings(
+        i18n.skillsEmptyChromeFor(.english, "").scanning,
+        skills.scanning,
+    );
+    try testing.expectEqualStrings(
+        i18n.skillsEmptyChromeFor(.english, "").no_matching,
+        skills.no_matching,
     );
 
     main.update(&model, .toggle_settings, &fx);
@@ -28063,6 +28076,67 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expectEqualStrings("スキルが見つかりません", model.skills_empty_hint());
     model.setSystemLocaleId("");
     try testing.expectEqualStrings("No skills found", model.skills_empty_hint());
+    try testing.expectEqualStrings("No skills found", model.skills_insert_hint());
+
+    model.skill_key = 1;
+    try testing.expect(skills.scanInFlight(&model));
+    try testing.expectEqualStrings("Scanning skill folders…", model.skills_empty_hint());
+    try testing.expectEqualStrings("", model.skills_insert_hint());
+    try testing.expect(model.skills_empty());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Scanning skill folders…");
+    try testing.expect(findByText(tree.root, .text, "No skills found") == null);
+    try testing.expect(findByText(tree.root, .text, "No skills match your search") == null);
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("正在扫描技能目录…", model.skills_empty_hint());
+    try testing.expectEqualStrings("", model.skills_insert_hint());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "正在扫描技能目录…");
+    try testing.expect(findByText(tree.root, .text, "Scanning skill folders…") == null);
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("スキルフォルダをスキャン中…", model.skills_empty_hint());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "スキルフォルダをスキャン中…");
+    model.language_preference = .english;
+    model.skill_key = 0;
+    try testing.expectEqualStrings("No skills found", model.skills_empty_hint());
+    try testing.expect(model.skills_empty());
+
+    skills.applyStdoutPaths(&model, ".cursor/skills/demo/SKILL.md\n");
+    try testing.expectEqual(@as(u32, 1), model.skill_count);
+    try testing.expectEqualStrings("", model.skills_empty_hint());
+    try testing.expectEqualStrings("", model.skills_insert_hint());
+    try testing.expect(!model.skills_empty());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "No skills found") == null);
+    try testing.expect(findByText(tree.root, .text, "No skills match your search") == null);
+    try testing.expect(findByText(tree.root, .text, "Scanning skill folders…") == null);
+
+    main.update(&model, .{ .skills_filter_edit = .{ .insert_text = "zzz" } }, &fx);
+    try testing.expectEqualStrings("No skills match your search", model.skills_empty_hint());
+    try testing.expectEqualStrings("", model.skills_insert_hint());
+    try testing.expect(model.skills_empty());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "No skills match your search");
+    try testing.expect(findByText(tree.root, .text, "No skills found") == null);
+    try testing.expect(findByText(tree.root, .text, "Scanning skill folders…") == null);
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("没有匹配的技能", model.skills_empty_hint());
+    try testing.expectEqualStrings("", model.skills_insert_hint());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "没有匹配的技能");
+    try testing.expect(findByText(tree.root, .text, "No skills match your search") == null);
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("検索に一致するスキルはありません", model.skills_empty_hint());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "検索に一致するスキルはありません");
+    model.language_preference = .english;
+    main.update(&model, .{ .skills_filter_edit = .clear }, &fx);
+    try testing.expectEqualStrings("", model.skills_empty_hint());
+    try testing.expect(!model.skills_empty());
+    main.update(&model, .{ .skills_filter_edit = .{ .insert_text = "demo" } }, &fx);
+    try testing.expectEqualStrings("", model.skills_empty_hint());
+    try testing.expect(!model.skills_empty());
 }
 
 test "Files preview toolbar chrome follows Appearance language" {

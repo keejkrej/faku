@@ -70,9 +70,10 @@
 //! slots. Guard: only remove when the path is non-empty, absolute,
 //! and looks like the selected skill's parent from cache — fail
 //! closed otherwise. Empty-state Open a
-//! project / No skills found follow `i18n.SkillsEmptyChrome`
+//! project / Scanning skill folders… / No skills found / No skills
+//! match your search follow `i18n.SkillsEmptyChrome`
 //! (distinct from FilterChrome / RightPanelChrome; composer `$`
-//! insert empty reuses the same hint). Enable / Disable / Disabled
+//! insert empty reuses Open a project / No skills found only). Enable / Disable / Disabled
 //! badge follow `i18n.SkillsEnableChrome` (distinct from
 //! ProvidersChrome). Enable/Disable rename-fail window_status
 //! Could not update skill. follows `i18n.SkillsEnableStatusChrome`
@@ -1601,7 +1602,9 @@ pub fn prepareSendPrompt(model: *Model, fx: *Effects, text: []const u8, out: []u
 /// through `skillsEmptyChrome` for the Appearance locale.
 const skills_empty_chrome_en = i18n.skillsEmptyChromeFor(.english, "");
 pub const open_project = skills_empty_chrome_en.open_project;
+pub const scanning = skills_empty_chrome_en.scanning;
 pub const no_skills_found = skills_empty_chrome_en.no_skills_found;
+pub const no_matching = skills_empty_chrome_en.no_matching;
 
 /// English defaults from `i18n.SkillsEnableChrome`. Distinct from
 /// Providers Enable / Disable.
@@ -1620,13 +1623,47 @@ fn skillsEmptyChrome(model: *const Model) i18n.SkillsEmptyChrome {
     return i18n.skillsEmptyChromeFor(model.language_preference, model.systemLocaleId());
 }
 
-/// Settings Skills empty hint and composer `$` insert empty. Localized
-/// via `i18n.SkillsEmptyChrome`. Empty while a scan is in flight.
+/// Settings Skills empty hint. Localized via `i18n.SkillsEmptyChrome`.
+/// Priority: no project → `open_project`; scan in flight → `scanning`
+/// (even when `skill_count == 0`); else no skills → `no_skills_found`;
+/// else a trimmed filter with no `skill_row` match → `no_matching`;
+/// else `""` (list shows rows). Composer `$` insert uses
+/// `insertEmptyHint` so scanning / no-match stay off that surface.
 pub fn emptyHint(model: *const Model) []const u8 {
     const chrome = skillsEmptyChrome(model);
     if (probePath(model).len == 0) return chrome.open_project;
+    if (scanInFlight(model)) return chrome.scanning;
+    if (model.skill_count == 0) return chrome.no_skills_found;
+    const query = std.mem.trim(u8, model.skills_filter_buffer.text(), " \t\r\n");
+    if (query.len != 0 and !anySkillRowMatches(model, query)) return chrome.no_matching;
+    return "";
+}
+
+/// Composer `$` insert empty. Same `i18n.SkillsEmptyChrome` pack, but
+/// only Open a project / No skills found / `""`. Settings scanning
+/// and filter no-match stay on `emptyHint` (this surface has no
+/// Skills filter).
+pub fn insertEmptyHint(model: *const Model) []const u8 {
+    const chrome = skillsEmptyChrome(model);
+    if (probePath(model).len == 0) return chrome.open_project;
     if (scanInFlight(model) and model.skill_count == 0) return "";
-    return chrome.no_skills_found;
+    if (model.skill_count == 0) return chrome.no_skills_found;
+    return "";
+}
+
+fn anySkillRowMatches(model: *const Model, query: []const u8) bool {
+    var i: usize = 0;
+    while (i < model.skill_count) : (i += 1) {
+        if (skillRowMatches(&model.skill_store[i], query)) return true;
+    }
+    return false;
+}
+
+fn skillRowMatches(skill: *const CachedSkill, query: []const u8) bool {
+    if (query.len == 0) return true;
+    return util.asciiContainsIgnoreCase(skill.name(), query) or
+        util.asciiContainsIgnoreCase(skill.path(), query) or
+        util.asciiContainsIgnoreCase(skill.description(), query);
 }
 
 test "argv is chdir script plus find SKILL.md skips; not file-mention walk" {
@@ -1848,16 +1885,20 @@ test "empty scan; list cap; parent folder name" {
     try std.testing.expectEqual(@as(u32, max_skills), cachedCount(&model));
 }
 
-test "emptyHint follows Appearance language; No skills found with a project" {
+test "emptyHint follows Appearance language; scanning and no-match vs No skills found" {
     const testing = std.testing;
     var model = Model{};
     try testing.expectEqualStrings("Open a project", emptyHint(&model));
     try testing.expectEqualStrings(open_project, emptyHint(&model));
+    try testing.expectEqualStrings("Open a project", insertEmptyHint(&model));
     try testing.expectEqualStrings("Open a project", i18n.skillsEmptyChromeFor(.english, "").open_project);
+    try testing.expectEqualStrings("Scanning skill folders…", scanning);
     try testing.expectEqualStrings("No skills found", no_skills_found);
+    try testing.expectEqualStrings("No skills match your search", no_matching);
 
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("打开项目", emptyHint(&model));
+    try testing.expectEqualStrings("打开项目", insertEmptyHint(&model));
     model.language_preference = .japanese;
     try testing.expectEqualStrings("プロジェクトを開く", emptyHint(&model));
     model.language_preference = .english;
@@ -1879,8 +1920,10 @@ test "emptyHint follows Appearance language; No skills found with a project" {
     model.setLastProjectPath(root);
     model.language_preference = .english;
     try testing.expectEqualStrings("No skills found", emptyHint(&model));
+    try testing.expectEqualStrings("No skills found", insertEmptyHint(&model));
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("未找到技能", emptyHint(&model));
+    try testing.expectEqualStrings("未找到技能", insertEmptyHint(&model));
     model.language_preference = .japanese;
     try testing.expectEqualStrings("スキルが見つかりません", emptyHint(&model));
     model.language_preference = .english;
@@ -1890,8 +1933,42 @@ test "emptyHint follows Appearance language; No skills found with a project" {
     try testing.expectEqualStrings("未找到技能", emptyHint(&model));
     model.setSystemLocaleId("ja_JP.UTF-8");
     try testing.expectEqualStrings("スキルが見つかりません", emptyHint(&model));
+    model.setSystemLocaleId("");
+    model.language_preference = .english;
     model.skill_key = 1;
+    try testing.expect(scanInFlight(&model));
+    try testing.expectEqualStrings("Scanning skill folders…", emptyHint(&model));
+    try testing.expectEqualStrings("", insertEmptyHint(&model));
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("正在扫描技能目录…", emptyHint(&model));
+    try testing.expectEqualStrings("", insertEmptyHint(&model));
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("スキルフォルダをスキャン中…", emptyHint(&model));
+    model.language_preference = .english;
+    model.skill_key = 0;
+    try testing.expectEqualStrings("No skills found", emptyHint(&model));
+    try testing.expectEqualStrings("No skills found", insertEmptyHint(&model));
+
+    applyStdoutPaths(&model, "./.cursor/skills/demo/SKILL.md\n");
+    try testing.expectEqual(@as(u32, 1), cachedCount(&model));
     try testing.expectEqualStrings("", emptyHint(&model));
+    try testing.expectEqualStrings("", insertEmptyHint(&model));
+    model.skills_filter_buffer.apply(.{ .insert_text = "zzz" });
+    try testing.expectEqualStrings("No skills match your search", emptyHint(&model));
+    try testing.expectEqualStrings("", insertEmptyHint(&model));
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("没有匹配的技能", emptyHint(&model));
+    try testing.expectEqualStrings("", insertEmptyHint(&model));
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("検索に一致するスキルはありません", emptyHint(&model));
+    model.language_preference = .english;
+    model.skills_filter_buffer.clear();
+    try testing.expectEqualStrings("", emptyHint(&model));
+    model.skills_filter_buffer.apply(.{ .insert_text = "demo" });
+    try testing.expectEqualStrings("", emptyHint(&model));
+    model.skill_key = 1;
+    try testing.expectEqualStrings("Scanning skill folders…", emptyHint(&model));
+    try testing.expectEqualStrings("", insertEmptyHint(&model));
 }
 
 test "hydrate name from SKILL.md frontmatter in a temp project" {
