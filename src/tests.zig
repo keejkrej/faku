@@ -28540,7 +28540,7 @@ test "Settings Skills empty chrome follows Appearance language" {
     main.update(&model, .{ .skills_filter_edit = .{ .insert_text = "demo" } }, &fx);
     try testing.expectEqualStrings("", model.skills_empty_hint());
     try testing.expect(!model.skills_empty());
-    try testing.expectEqualStrings("1 skill", model.skills_count_caption(arena));
+    try testing.expectEqualStrings("1 of 1 shown", model.skills_count_caption(arena));
     skills.applyStdoutPaths(&model, ".cursor/skills/other/SKILL.md\n");
     try testing.expectEqual(@as(u32, 2), model.skill_count);
     try testing.expectEqualStrings("1 of 2 shown", model.skills_count_caption(arena));
