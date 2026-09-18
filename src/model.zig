@@ -6359,6 +6359,43 @@ pub const Model = struct {
         return skills.selectedSkillDuplicateBadge(model, arena);
     }
 
+    /// Settings Skills selected-detail header name. Grouped primary
+    /// CachedSkill name (skill data, not i18n). Empty when nothing
+    /// is selected.
+    pub fn skill_name(model: *const Model) []const u8 {
+        if (!model.has_selected_skill()) return "";
+        return skills.selectedSkillName(model);
+    }
+
+    /// Settings Skills selected-detail Disabled badge when the
+    /// selected primary is disabled. Reuses
+    /// `i18n.SkillsEnableChrome.disabled` (same string as the list
+    /// badge). Fail closed when enabled or unselected.
+    pub fn has_skill_disabled_badge(model: *const Model) bool {
+        return model.has_selected_skill() and !model.skill_enabled();
+    }
+
+    /// Localized Disabled badge. Empty when unselected or enabled.
+    pub fn skill_disabled_badge(model: *const Model) []const u8 {
+        if (!model.has_skill_disabled_badge()) return "";
+        return model.skillsEnableChrome().disabled;
+    }
+
+    /// Settings Skills selected-detail muted sources · scope
+    /// caption. Fail closed when unselected or the formatted
+    /// caption is empty.
+    pub fn has_skill_scope_caption(model: *const Model) bool {
+        return model.has_selected_skill() and skills.hasSelectedSkillScopeCaption(model);
+    }
+
+    /// Localized sources · scope caption (`i18n.SkillsScopeChrome`
+    /// plus unique `SkillsSourceChrome` labels). Empty when
+    /// unselected or fail-closed empty.
+    pub fn skill_scope_caption(model: *const Model, arena: std.mem.Allocator) []const u8 {
+        if (!model.has_skill_scope_caption()) return "";
+        return skills.selectedSkillScopeCaption(model, arena);
+    }
+
     pub fn skill_detail_contents(model: *const Model) []const u8 {
         if (!model.has_selected_skill()) return "";
         return model.skillsDetailChrome().detail_contents;
