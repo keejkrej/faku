@@ -373,14 +373,17 @@ pub const RightPanelFileRow = struct {
 /// Settings Skills row. `id` is a 1-based index into the runtime
 /// `SKILL.md` cache so Native `select_skill:{k.id}` /
 /// `insert_skill:{sk.id}` never binds 0 and a filtered click still
-/// targets that path, not a neighbor. `disabled` / `disabled_label`
-/// gate the Settings list Disabled badge (`SKILL.md.disabled`);
-/// composer `$` insert rows stay enabled-only so those fields stay
-/// false / empty there.
+/// targets that path, not a neighbor. `description` /
+/// `has_description` are YAML `description:` skill data (not i18n);
+/// empty when missing. `disabled` / `disabled_label` gate the Settings
+/// list Disabled badge (`SKILL.md.disabled`); composer `$` insert
+/// rows stay enabled-only so those fields stay false / empty there.
 pub const SkillRow = struct {
     id: u32,
     name: []const u8,
     path: []const u8,
+    description: []const u8 = "",
+    has_description: bool = false,
     selected: bool = false,
     disabled: bool = false,
     disabled_label: []const u8 = "",
@@ -4246,11 +4249,12 @@ pub const Model = struct {
                 if (!commandNameStartsWith(name, filter)) continue;
             }
             const slash = std.fmt.allocPrint(arena, "/{s}", .{name}) catch continue;
+            const description = model.skill_store[skill_i].description();
             out[i] = .{
                 .id = skills.slashCommandId(skill_i),
                 .slash_name = slash,
-                .description = "",
-                .has_description = false,
+                .description = description,
+                .has_description = description.len > 0,
                 .selected = false,
             };
             i += 1;
@@ -4616,8 +4620,8 @@ pub const Model = struct {
 
     /// Composer `$` skill card. Hidden when slash commands are open, the
     /// caret-at-end parser sees no `$` query, Esc dismissed the current
-    /// draft, or a non-empty filter has no name/path matches. Empty
-    /// cache while the find is in flight still opens so the empty hint
+    /// draft, or a non-empty filter has no name/path/description matches.
+    /// Empty cache while the find is in flight still opens so the empty hint
     /// can show.
     pub fn skills_list_open(model: *const Model) bool {
         if (model.autocomplete_dismissed) return false;
@@ -4644,12 +4648,7 @@ pub const Model = struct {
         while (i < model.skill_count) : (i += 1) {
             if (!model.skill_store[i].enabled) continue;
             if (!skillRowMatches(&model.skill_store[i], query)) continue;
-            out[n] = .{
-                .id = skills.skillId(i),
-                .name = model.skill_store[i].name(),
-                .path = model.skill_store[i].path(),
-                .selected = false,
-            };
+            out[n] = skillRowFor(model, i, false);
             n += 1;
         }
         const highlight = model.clampedAutocompleteHighlight(n);
@@ -5989,15 +5988,7 @@ pub const Model = struct {
         while (i < model.skill_count) : (i += 1) {
             if (!skillRowMatches(&model.skill_store[i], query)) continue;
             const id = skills.skillId(i);
-            const disabled = !model.skill_store[i].enabled;
-            out[n] = .{
-                .id = id,
-                .name = model.skill_store[i].name(),
-                .path = model.skill_store[i].path(),
-                .selected = model.skill_selected_id == id,
-                .disabled = disabled,
-                .disabled_label = if (disabled) model.skillsEnableChrome().disabled else "",
-            };
+            out[n] = skillRowFor(model, i, model.skill_selected_id == id);
             n += 1;
         }
         return out;
@@ -8970,7 +8961,25 @@ fn hasSkillInsertMatch(model: *const Model, query: []const u8) bool {
 
 fn skillRowMatches(skill: *const skills.CachedSkill, query: []const u8) bool {
     if (query.len == 0) return true;
-    return util.asciiContainsIgnoreCase(skill.name(), query) or util.asciiContainsIgnoreCase(skill.path(), query);
+    return util.asciiContainsIgnoreCase(skill.name(), query) or
+        util.asciiContainsIgnoreCase(skill.path(), query) or
+        util.asciiContainsIgnoreCase(skill.description(), query);
+}
+
+fn skillRowFor(model: *const Model, index: usize, selected: bool) SkillRow {
+    const skill = &model.skill_store[index];
+    const description = skill.description();
+    const disabled = !skill.enabled;
+    return .{
+        .id = skills.skillId(index),
+        .name = skill.name(),
+        .path = skill.path(),
+        .description = description,
+        .has_description = description.len > 0,
+        .selected = selected,
+        .disabled = disabled,
+        .disabled_label = if (disabled) model.skillsEnableChrome().disabled else "",
+    };
 }
 
 fn gitBranchPickerRowMatches(name: []const u8, query: []const u8) bool {
