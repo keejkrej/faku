@@ -16002,6 +16002,7 @@ test "settings Skills lists SKILL.md name, description, and path; select shows b
     try testing.expect(findByText(tree.root, .text, "Just now") == null);
     try testing.expect(findByText(tree.root, .text, "Tools") == null);
     try testing.expect(findByText(tree.root, .text, "Bash, Read") == null);
+    try testing.expect(findByText(tree.root, .text, "Cursor · in faku-skills-ui") == null);
 
     main.update(&model, .{ .select_skill = 1 }, &fx);
     try testing.expectEqual(@as(u32, 1), model.skill_selected_id);
@@ -16026,6 +16027,11 @@ test "settings Skills lists SKILL.md name, description, and path; select shows b
         try testing.expectEqualStrings(skill_dir, locs[0].path);
     }
     try testing.expect(!model.has_skill_duplicate_badge());
+    try testing.expectEqualStrings("demo-skill", model.skill_name());
+    try testing.expect(!model.has_skill_disabled_badge());
+    try testing.expectEqualStrings("", model.skill_disabled_badge());
+    try testing.expect(model.has_skill_scope_caption());
+    try testing.expectEqualStrings("Cursor · in faku-skills-ui", model.skill_scope_caption(arena));
     try testing.expectEqualStrings("Contents", model.skill_detail_contents());
     try testing.expect(model.has_skill_body());
     try testing.expect(model.has_skill_updated());
@@ -16056,6 +16062,9 @@ test "settings Skills lists SKILL.md name, description, and path; select shows b
     _ = try expectByText(tree.root, .text, "Contents");
     _ = try expectByText(tree.root, .text, "Tools");
     _ = try expectByText(tree.root, .text, "Bash, Read");
+    _ = try expectByText(tree.root, .text, "demo-skill");
+    _ = try expectByText(tree.root, .text, "Cursor · in faku-skills-ui");
+    try testing.expect(findByText(tree.root, .text, "available in every project") == null);
     try testing.expect(findByText(tree.root, .text, "1 supporting file") == null);
     try testing.expect(findByText(tree.root, .text, "Select a skill") == null);
     try testing.expect(findByText(tree.root, .text, "No description") == null);
@@ -16441,6 +16450,10 @@ test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabl
     main.update(&model, .{ .select_skill = 1 }, &fx);
     try testing.expect(!model.skill_enabled());
     try testing.expectEqualStrings(skills.enable_label, model.skill_enable_label());
+    try testing.expect(model.has_skill_disabled_badge());
+    try testing.expectEqualStrings(skills.disabled_badge, model.skill_disabled_badge());
+    try testing.expectEqualStrings("off-skill", model.skill_name());
+    try testing.expect(model.has_skill_scope_caption());
     tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, skills.enable_label, .toggle_skill_enabled);
     _ = try expectButtonMsg(tree, skills.delete_label, .arm_skill_delete);
@@ -28062,6 +28075,11 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{loc.path}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{has_skill_duplicate_badge}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_duplicate_badge}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_name}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{has_skill_disabled_badge}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_disabled_badge}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{has_skill_scope_caption}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_scope_caption}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{has_skill_updated}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_detail_updated}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_updated_label}"));
@@ -28090,6 +28108,9 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">1 supporting file<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">%{count} supporting files<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Tools<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">available in every project<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">in %{project}<"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">All skills<"));
 
     var model = boot.initialModel();
     try testing.expectEqualStrings("Open a project", model.skills_empty_hint());
@@ -28364,6 +28385,10 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expect(!model.has_skill_allowed_tools());
     try testing.expectEqualStrings("", model.skill_detail_allowed_tools());
     try testing.expectEqualStrings("", model.skill_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_name());
+    try testing.expect(!model.has_skill_scope_caption());
+    try testing.expectEqualStrings("", model.skill_scope_caption(arena));
+    try testing.expect(findByText(tree.root, .text, "Cursor · in faku-skills-empty-i18n") == null);
 
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("选择一个技能", model.skills_select_placeholder());
@@ -28410,6 +28435,9 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expect(!model.has_skill_allowed_tools());
     try testing.expectEqualStrings("", model.skill_detail_allowed_tools());
     try testing.expectEqualStrings("", model.skill_allowed_tools());
+    try testing.expectEqualStrings("demo", model.skill_name());
+    try testing.expect(model.has_skill_scope_caption());
+    try testing.expectEqualStrings("Cursor · in faku-skills-empty-i18n", model.skill_scope_caption(arena));
     try testing.expectEqualStrings(
         i18n.skillsDetailChromeFor(.english, "").no_description,
         model.skill_no_description(),
@@ -28423,6 +28451,7 @@ test "Settings Skills empty chrome follows Appearance language" {
     _ = try expectByText(tree.root, .text, "/demo");
     _ = try expectByText(tree.root, .text, "Location");
     _ = try expectByText(tree.root, .text, "Contents");
+    _ = try expectByText(tree.root, .text, "Cursor · in faku-skills-empty-i18n");
     try testing.expect(findByText(tree.root, .text, "Updated") == null);
     try testing.expect(findByText(tree.root, .text, "Just now") == null);
     try testing.expect(findByText(tree.root, .text, "1 supporting file") == null);
@@ -28435,6 +28464,7 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expectEqualStrings("调用", model.skill_detail_invoke());
     try testing.expectEqualStrings("位置", model.skill_detail_location());
     try testing.expectEqualStrings("内容", model.skill_detail_contents());
+    try testing.expectEqualStrings("Cursor · 位于 faku-skills-empty-i18n", model.skill_scope_caption(arena));
     try testing.expectEqualStrings("", model.skill_detail_updated());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "暂无描述");
@@ -28449,6 +28479,7 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expectEqualStrings("呼び出し", model.skill_detail_invoke());
     try testing.expectEqualStrings("場所", model.skill_detail_location());
     try testing.expectEqualStrings("内容", model.skill_detail_contents());
+    try testing.expectEqualStrings("Cursor · faku-skills-empty-i18n 内", model.skill_scope_caption(arena));
     try testing.expectEqualStrings("", model.skill_detail_updated());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "説明なし");

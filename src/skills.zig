@@ -163,7 +163,13 @@
 //! a single install still uses SkillsDetailChrome Location.
 //! Cross-scope same name shows `i18n.SkillsDuplicateChrome`
 //! (`has_skill_duplicate_badge` fail-closed when duplicates==0).
-//! Enable / Disable / Delete / Open / Reveal / Copy path operate on
+//! Selected-detail header paints the grouped primary name, optional
+//! Disabled badge (`i18n.SkillsEnableChrome.disabled`), and a muted
+//! sources · scope caption (`i18n.SkillsScopeChrome`; unique
+//! `SkillsSourceChrome` labels in Waku user-root / `collectGroupIndices`
+//! order; project-relative primary uses `scope_in_project` with
+//! `sectionProjectLabel`, else `scope_user_detail`;
+//! `has_skill_scope_caption` fail-closed). Enable / Disable / Delete / Open / Reveal / Copy path operate on
 //! the primary install this cut. Composer `$` insert / slash skill
 //! rows stay flat (ungrouped).
 //! app.zon already includes windows.
@@ -2173,6 +2179,14 @@ const skills_duplicate_chrome_en = i18n.skillsDuplicateChromeFor(.english, "");
 pub const duplicate_one = skills_duplicate_chrome_en.duplicate_one;
 pub const duplicate_many = skills_duplicate_chrome_en.duplicate_many;
 
+/// English defaults from `i18n.SkillsScopeChrome`. Distinct from
+/// SkillsDetailChrome / SkillsSourceChrome / SkillsSectionChrome /
+/// SkillsDuplicateChrome. Matches Waku `skills.scope_user_detail` /
+/// `scope_in_project`.
+const skills_scope_chrome_en = i18n.skillsScopeChromeFor(.english, "");
+pub const scope_user_detail = skills_scope_chrome_en.scope_user_detail;
+pub const scope_in_project = skills_scope_chrome_en.scope_in_project;
+
 /// English defaults from `i18n.SkillsEnableChrome`. Distinct from
 /// Providers Enable / Disable.
 const skills_enable_chrome_en = i18n.skillsEnableChromeFor(.english, "");
@@ -2516,6 +2530,72 @@ pub fn selectedSkillLocationRows(model: *const Model, arena: std.mem.Allocator) 
         };
     }
     return out;
+}
+
+/// Selected grouped primary name. Empty when nothing is selected.
+pub fn selectedSkillName(model: *const Model) []const u8 {
+    if (model.skill_selected_id == 0 or model.skill_selected_id > model.skill_count) return "";
+    return model.skill_store[model.skill_selected_id - 1].name();
+}
+
+const skill_source_kind_count = @typeInfo(SkillSourceKind).@"enum".fields.len;
+
+/// Unique install-source labels for the selected group, in Waku
+/// user-root / `collectGroupIndices` order, joined with Latin ` · `.
+/// Unknown kinds are omitted (fail closed). Empty when unselected
+/// or every install is unknown.
+pub fn writeSelectedSkillSourcesLabel(model: *const Model, buf: []u8) []const u8 {
+    if (model.skill_selected_id == 0 or model.skill_selected_id > model.skill_count) return "";
+    var idxs: [max_skill_installs]usize = undefined;
+    const n = collectGroupIndices(model, model.skill_selected_id - 1, &idxs);
+    if (n == 0) return "";
+    const source_chrome = i18n.skillsSourceChromeFor(model.language_preference, model.systemLocaleId());
+    var seen = [_]bool{false} ** skill_source_kind_count;
+    var out: usize = 0;
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        const kind = skillSourceKind(model.skill_store[idxs[i]].path());
+        if (kind == .unknown) continue;
+        const bit = @intFromEnum(kind);
+        if (seen[bit]) continue;
+        seen[bit] = true;
+        const label = skillSourceLabel(kind, source_chrome, "");
+        if (label.len == 0) continue;
+        if (out > 0) {
+            const sep = " · ";
+            if (out + sep.len > buf.len) return "";
+            @memcpy(buf[out .. out + sep.len], sep);
+            out += sep.len;
+        }
+        if (out + label.len > buf.len) return "";
+        @memcpy(buf[out .. out + label.len], label);
+        out += label.len;
+    }
+    return buf[0..out];
+}
+
+/// Selected-detail muted sources · scope caption. Project-relative
+/// primary uses `scope_in_project` + `sectionProjectLabel`; absolute
+/// / user uses `scope_user_detail`. Empty sources paints scope
+/// alone. Empty when unselected or format overflow.
+pub fn writeSelectedSkillScopeCaption(model: *const Model, buf: []u8) []const u8 {
+    if (model.skill_selected_id == 0 or model.skill_selected_id > model.skill_count) return "";
+    var sources_buf: [i18n.skills_scope_caption_max]u8 = undefined;
+    const sources = writeSelectedSkillSourcesLabel(model, &sources_buf);
+    const chrome = i18n.skillsScopeChromeFor(model.language_preference, model.systemLocaleId());
+    const in_project = !isAbsoluteSkillPath(model.skill_store[model.skill_selected_id - 1].path());
+    const project = if (in_project) sectionProjectLabel(model) else "";
+    return i18n.formatSkillsScopeCaption(chrome, sources, in_project, project, buf);
+}
+
+pub fn selectedSkillScopeCaption(model: *const Model, arena: std.mem.Allocator) []const u8 {
+    var buf: [i18n.skills_scope_caption_max]u8 = undefined;
+    return copyCaption(arena, writeSelectedSkillScopeCaption(model, &buf));
+}
+
+pub fn hasSelectedSkillScopeCaption(model: *const Model) bool {
+    var buf: [i18n.skills_scope_caption_max]u8 = undefined;
+    return writeSelectedSkillScopeCaption(model, &buf).len > 0;
 }
 
 test "argv is packed chdir plus find SKILL.md then user-root slots; not file-mention walk" {
@@ -3443,6 +3523,11 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expect(!model.has_skill_allowed_tools());
     try testing.expectEqualStrings("", model.skill_detail_allowed_tools());
     try testing.expectEqualStrings("", model.skill_allowed_tools());
+    try testing.expectEqualStrings("", model.skill_name());
+    try testing.expect(!model.has_skill_disabled_badge());
+    try testing.expectEqualStrings("", model.skill_disabled_badge());
+    try testing.expect(!model.has_skill_scope_caption());
+    try testing.expectEqualStrings("", model.skill_scope_caption(arena));
     try testing.expectEqualStrings("1 supporting file", i18n.skillsFileCountChromeFor(.english, "").file_count_one);
     try testing.expectEqualStrings("%{count} supporting files", i18n.skillsFileCountChromeFor(.english, "").file_count_many);
     try testing.expectEqualStrings("1 个附属文件", i18n.skillsFileCountChromeFor(.simplified_chinese, "").file_count_one);
@@ -3513,6 +3598,10 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expect(model.has_selected_skill());
     try testing.expect(!model.skills_needs_select());
     try testing.expectEqualStrings("", model.skills_select_placeholder());
+    try testing.expectEqualStrings("with-desc", model.skill_name());
+    try testing.expect(!model.has_skill_disabled_badge());
+    try testing.expect(model.has_skill_scope_caption());
+    try testing.expectEqualStrings("Cursor · in faku-skills-detail", model.skill_scope_caption(arena));
     try testing.expect(model.has_skill_description());
     try testing.expectEqualStrings("Does the described thing.", model.skill_description());
     try testing.expectEqualStrings("", model.skill_no_description());
@@ -3610,6 +3699,8 @@ test "selected-detail chrome description vs no_description; invoke / location / 
 
     selectSkill(&model, 3);
     try testing.expectEqualStrings("/from-home", model.skill_invoke_line(arena));
+    try testing.expectEqualStrings("from-home", model.skill_name());
+    try testing.expectEqualStrings("fx · available in every project", model.skill_scope_caption(arena));
     try testing.expectEqualStrings(user_dir, model.skill_location(arena));
     try testing.expect(model.has_skill_body());
     try testing.expectEqualStrings("User skill body.", model.skill_body());
@@ -5252,6 +5343,102 @@ test "skill_rows same name project and user stay two rows; duplicate badge EN/zh
         try testing.expectEqualStrings("demo", rows[1].name);
         try testing.expectEqualStrings("solo", rows[2].name);
     }
+}
+
+test "selected-detail header name plus sources · scope caption; project vs user; multi-source join" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    try testing.expectEqualStrings("available in every project", scope_user_detail);
+    try testing.expectEqualStrings("in %{project}", scope_in_project);
+    try testing.expectEqualStrings("available in every project", i18n.skillsScopeChromeFor(.english, "").scope_user_detail);
+    try testing.expectEqualStrings("在所有项目中可用", i18n.skillsScopeChromeFor(.simplified_chinese, "").scope_user_detail);
+    try testing.expectEqualStrings("すべてのプロジェクトで利用可能", i18n.skillsScopeChromeFor(.japanese, "").scope_user_detail);
+    try testing.expectEqualStrings("in %{project}", i18n.skillsScopeChromeFor(.english, "").scope_in_project);
+    try testing.expectEqualStrings("位于 %{project}", i18n.skillsScopeChromeFor(.simplified_chinese, "").scope_in_project);
+    try testing.expectEqualStrings("%{project} 内", i18n.skillsScopeChromeFor(.japanese, "").scope_in_project);
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-scope", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, root);
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setLastProjectPath(root);
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, root);
+    model.settings_page = .skills;
+    try testing.expectEqualStrings("", model.skill_name());
+    try testing.expect(!model.has_skill_scope_caption());
+    try testing.expectEqualStrings("", model.skill_scope_caption(arena));
+    try testing.expect(!model.has_skill_disabled_badge());
+
+    applyStdoutPaths(&model,
+        ".cursor/skills/demo/SKILL.md\n/home/me/.agents/skills/demo/SKILL.md\n/home/me/.cursor/skills/demo/SKILL.md\n/home/me/.config/agents/skills/demo/SKILL.md\n/home/me/.fx/skills/solo/SKILL.md\n/tmp/unrelated/orphan/SKILL.md\n",
+    );
+    try testing.expectEqual(@as(u32, 6), cachedCount(&model));
+
+    selectSkill(&model, skillId(0));
+    try testing.expectEqualStrings("demo", model.skill_name());
+    try testing.expectEqualStrings("demo", selectedSkillName(&model));
+    try testing.expect(model.has_skill_scope_caption());
+    try testing.expectEqualStrings("Cursor · in faku-skills-scope", model.skill_scope_caption(arena));
+    try testing.expect(!model.has_skill_disabled_badge());
+    try testing.expectEqualStrings("", model.skill_disabled_badge());
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("Cursor · 位于 faku-skills-scope", model.skill_scope_caption(arena));
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("Cursor · faku-skills-scope 内", model.skill_scope_caption(arena));
+    model.language_preference = .english;
+
+    selectSkill(&model, skillId(1));
+    try testing.expectEqualStrings("demo", model.skill_name());
+    try testing.expectEqualStrings("Shared · Cursor · available in every project", model.skill_scope_caption(arena));
+    {
+        var sources_buf: [i18n.skills_scope_caption_max]u8 = undefined;
+        try testing.expectEqualStrings("Shared · Cursor", writeSelectedSkillSourcesLabel(&model, &sources_buf));
+    }
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("共享 · Cursor · 在所有项目中可用", model.skill_scope_caption(arena));
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("共有 · Cursor · すべてのプロジェクトで利用可能", model.skill_scope_caption(arena));
+    model.language_preference = .english;
+
+    selectSkill(&model, skillId(4));
+    try testing.expectEqualStrings("solo", model.skill_name());
+    try testing.expectEqualStrings("fx · available in every project", model.skill_scope_caption(arena));
+
+    selectSkill(&model, skillId(5));
+    try testing.expectEqualStrings("orphan", model.skill_name());
+    try testing.expectEqualStrings("available in every project", model.skill_scope_caption(arena));
+    {
+        var sources_buf: [i18n.skills_scope_caption_max]u8 = undefined;
+        try testing.expectEqualStrings("", writeSelectedSkillSourcesLabel(&model, &sources_buf));
+    }
+
+    selectSkill(&model, skillId(1));
+    model.skill_store[1].enabled = false;
+    model.skill_store[2].enabled = false;
+    model.skill_store[3].enabled = false;
+    try testing.expect(model.has_skill_disabled_badge());
+    try testing.expectEqualStrings(disabled_badge, model.skill_disabled_badge());
+    try testing.expectEqualStrings("Disabled", model.skill_disabled_badge());
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("已禁用", model.skill_disabled_badge());
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("無効", model.skill_disabled_badge());
+    model.language_preference = .english;
+
+    model.settings_page = .general;
+    try testing.expectEqualStrings("", model.skill_name());
+    try testing.expect(!model.has_skill_scope_caption());
+    try testing.expect(!model.has_skill_disabled_badge());
+    try testing.expectEqualStrings("", model.skill_disabled_badge());
 }
 
 test "applyCatalog keeps every install; Settings folds; insert stays flat" {

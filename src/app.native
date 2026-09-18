@@ -384,6 +384,17 @@
                   <text foreground="text_muted">{skills_select_placeholder}</text>
                 </if>
                 <if test="{has_selected_skill}">
+                  <column gap="2">
+                    <row gap="8" cross="center">
+                      <text wrap="false" overflow="ellipsis">{skill_name}</text>
+                      <if test="{has_skill_disabled_badge}">
+                        <text wrap="false" overflow="ellipsis" foreground="text_muted">{skill_disabled_badge}</text>
+                      </if>
+                    </row>
+                    <if test="{has_skill_scope_caption}">
+                      <text wrap="true" foreground="text_muted">{skill_scope_caption}</text>
+                    </if>
+                  </column>
                   <row gap="8" cross="center">
                     <button variant="ghost" size="sm" selected="{skill_enabled}" on-press="toggle_skill_enabled">{skill_enable_label}</button>
                     <if test="{skill_delete_arming}">

@@ -473,6 +473,15 @@
 //! SkillsDetailChrome / SkillsSourceChrome so the badge stays
 //! independently evolvable; composer `$` insert / slash skill
 //! rows stay flat; wire ids stay English)
+//! plus Settings Skills selected-detail sources · scope caption
+//! (same `SkillsScopeChrome` strings; English matches Waku
+//! `skills.scope_user_detail` / `scope_in_project`; `%{project}`
+//! is the probe basename else `project`; unique source labels
+//! join with Latin ` · ` in Waku user-root order; distinct from
+//! SkillsDetailChrome / SkillsSourceChrome / SkillsSectionChrome /
+//! SkillsDuplicateChrome so the caption stays independently
+//! evolvable; composer `$` insert / slash skill rows stay flat;
+//! wire ids stay English)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -4503,7 +4512,8 @@ const skills_section_chrome_ja: SkillsSectionChrome = .{
 /// `SkillsAllowedToolsChrome`. Settings list folds same-name
 /// installs within a scope; selected-detail multi-location source
 /// labels live in `SkillsSourceChrome`; cross-scope duplicate
-/// badge lives in `SkillsDuplicateChrome`. Composer `$` insert /
+/// badge lives in `SkillsDuplicateChrome`; selected-detail
+/// sources · scope caption lives in `SkillsScopeChrome`. Composer `$` insert /
 /// slash skill rows stay flat.
 /// Wire ids stay English.
 pub const SkillsDetailChrome = struct {
@@ -4719,6 +4729,40 @@ const skills_duplicate_chrome_ja: SkillsDuplicateChrome = .{
 /// Capped scratch for `formatSkillsDuplicateBadge`. EN / zh-CN / ja
 /// stay short; Latin `{d}` count digits stay bounded.
 pub const skills_duplicate_badge_max: usize = 160;
+
+/// Settings Skills selected-detail sources · scope caption for the
+/// resolved locale. Same resolve path as SkillsDetailChrome /
+/// SkillsSourceChrome. English matches Waku `skills.scope_user_detail`
+/// / `scope_in_project`. Distinct from SkillsDetailChrome /
+/// SkillsSourceChrome / SkillsSectionChrome / SkillsDuplicateChrome
+/// so the caption stays independently evolvable. `scope_in_project`
+/// keeps the Waku `%{project}` slot (probe basename, else
+/// `project`). Source labels stay on `SkillsSourceChrome` and join
+/// with Latin ` · `. Composer `$` insert / slash skill rows stay
+/// flat. Wire ids stay English.
+pub const SkillsScopeChrome = struct {
+    scope_user_detail: []const u8,
+    scope_in_project: []const u8,
+};
+
+const skills_scope_chrome_en: SkillsScopeChrome = .{
+    .scope_user_detail = "available in every project",
+    .scope_in_project = "in %{project}",
+};
+
+const skills_scope_chrome_zh_cn: SkillsScopeChrome = .{
+    .scope_user_detail = "在所有项目中可用",
+    .scope_in_project = "位于 %{project}",
+};
+
+const skills_scope_chrome_ja: SkillsScopeChrome = .{
+    .scope_user_detail = "すべてのプロジェクトで利用可能",
+    .scope_in_project = "%{project} 内",
+};
+
+/// Capped scratch for `formatSkillsScopeCaption`. Source labels +
+/// ` · ` + scope stay short; `%{project}` is a probe basename.
+pub const skills_scope_caption_max: usize = 256;
 
 /// Capped scratch for `formatSkillsContentsSummary`. Count phrase +
 /// ` · ` + Latin B/KB/MB stay short in every locale.
@@ -6254,6 +6298,57 @@ pub fn formatSkillsDuplicateBadge(chrome: SkillsDuplicateChrome, count: usize, b
     return formatSkillsPlaceholders(chrome.duplicate_many, &.{.{ .name = "count", .value = count }}, buf);
 }
 
+/// Settings Skills selected-detail sources · scope caption for the
+/// resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env.
+/// Distinct from SkillsDetailChrome / SkillsSourceChrome /
+/// SkillsSectionChrome / SkillsDuplicateChrome so the caption stays
+/// independently evolvable. English matches Waku
+/// `skills.scope_user_detail` / `scope_in_project`. Wire ids stay
+/// English.
+pub fn skillsScopeChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsScopeChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_scope_chrome_zh_cn,
+        .japanese => skills_scope_chrome_ja,
+        .system, .english => skills_scope_chrome_en,
+    };
+}
+
+/// Waku `skills.scope_in_project` with `%{project}` replaced by the
+/// probe basename (else `project`). Overflow returns `""`.
+pub fn formatSkillsScopeInProject(chrome: SkillsScopeChrome, project: []const u8, buf: []u8) []const u8 {
+    return formatSkillsNamedText(chrome.scope_in_project, "project", project, buf);
+}
+
+/// Join unique source labels with the scope caption using Latin
+/// ` · `. Empty sources paints scope alone. Empty scope fail-closed
+/// paints sources alone (or `""` when both are empty). Overflow
+/// returns `""`.
+pub fn formatSkillsScopeCaption(
+    chrome: SkillsScopeChrome,
+    sources: []const u8,
+    in_project: bool,
+    project: []const u8,
+    buf: []u8,
+) []const u8 {
+    var scope_buf: [skills_scope_caption_max]u8 = undefined;
+    const scope = if (in_project)
+        formatSkillsScopeInProject(chrome, project, &scope_buf)
+    else
+        chrome.scope_user_detail;
+    if (sources.len == 0) {
+        if (scope.len == 0 or scope.len > buf.len) return "";
+        @memcpy(buf[0..scope.len], scope);
+        return buf[0..scope.len];
+    }
+    if (scope.len == 0) {
+        if (sources.len > buf.len) return "";
+        @memcpy(buf[0..sources.len], sources);
+        return buf[0..sources.len];
+    }
+    return std.fmt.bufPrint(buf, "{s} · {s}", .{ sources, scope }) catch "";
+}
+
 /// Waku `format_bytes`: Latin B / KB / MB. `<1024` → `{n} B`;
 /// `<1MiB` → `{:.1} KB`; else `{:.1} MB`. Not i18n.
 pub fn formatSkillBytes(bytes: u64, buf: []u8) []const u8 {
@@ -6338,6 +6433,38 @@ fn formatSkillsPlaceholders(template: []const u8, vars: []const SkillsCountPlace
                     out += n;
                     if (n < raw.len) return buf[0..out];
                 }
+                i = end + 1;
+                continue;
+            }
+        }
+        buf[out] = template[i];
+        out += 1;
+        i += 1;
+    }
+    return buf[0..out];
+}
+
+/// Substitute one Waku `%{name}` slot with a text value. Overflow
+/// fail-closed returns `""`. Unknown slots copy as-is.
+fn formatSkillsNamedText(template: []const u8, name: []const u8, value: []const u8, buf: []u8) []const u8 {
+    var out: usize = 0;
+    var i: usize = 0;
+    while (i < template.len) {
+        if (out >= buf.len) return "";
+        if (template[i] == '%' and i + 1 < template.len and template[i + 1] == '{') {
+            if (std.mem.indexOfScalarPos(u8, template, i + 2, '}')) |end| {
+                const slot = template[i + 2 .. end];
+                if (std.mem.eql(u8, slot, name)) {
+                    if (out + value.len > buf.len) return "";
+                    @memcpy(buf[out .. out + value.len], value);
+                    out += value.len;
+                    i = end + 1;
+                    continue;
+                }
+                const raw = template[i .. end + 1];
+                if (out + raw.len > buf.len) return "";
+                @memcpy(buf[out .. out + raw.len], raw);
+                out += raw.len;
                 i = end + 1;
                 continue;
             }
@@ -10215,6 +10342,64 @@ test "skillsDuplicateChromeFor english default; zh and ja chrome; latin count; e
     try testing.expectEqualStrings(
         "同名のスキルが他の 4 か所にもあります — 最も限定的な場所にあるスキルが優先されます",
         formatSkillsDuplicateBadge(skillsDuplicateChromeFor(.japanese, ""), 4, &buf),
+    );
+}
+
+test "skillsScopeChromeFor english default; zh and ja chrome; project vs user caption; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("available in every project", skillsScopeChromeFor(.english, "ja").scope_user_detail);
+    try testing.expectEqualStrings("in %{project}", skillsScopeChromeFor(.english, "").scope_in_project);
+    try testing.expectEqualStrings("available in every project", skillsScopeChromeFor(.system, "").scope_user_detail);
+
+    try testing.expectEqualStrings("在所有项目中可用", skillsScopeChromeFor(.simplified_chinese, "").scope_user_detail);
+    try testing.expectEqualStrings("位于 %{project}", skillsScopeChromeFor(.simplified_chinese, "").scope_in_project);
+    try testing.expectEqualStrings("すべてのプロジェクトで利用可能", skillsScopeChromeFor(.japanese, "").scope_user_detail);
+    try testing.expectEqualStrings("%{project} 内", skillsScopeChromeFor(.japanese, "").scope_in_project);
+
+    try testing.expectEqualStrings("在所有项目中可用", skillsScopeChromeFor(.system, "zh_CN.UTF-8").scope_user_detail);
+    try testing.expectEqualStrings("すべてのプロジェクトで利用可能", skillsScopeChromeFor(.system, "ja_JP.UTF-8").scope_user_detail);
+    try testing.expectEqualStrings("available in every project", skillsScopeChromeFor(.english, "ja_JP.UTF-8").scope_user_detail);
+    try testing.expectEqualStrings("in %{project}", skillsScopeChromeFor(.english, "zh_CN.UTF-8").scope_in_project);
+
+    try testing.expect(!std.mem.eql(u8, skillsScopeChromeFor(.english, "").scope_user_detail, skillsDetailChromeFor(.english, "").detail_location));
+    try testing.expect(!std.mem.eql(u8, skillsScopeChromeFor(.english, "").scope_user_detail, skillsSourceChromeFor(.english, "").source_shared));
+    try testing.expect(!std.mem.eql(u8, skillsScopeChromeFor(.english, "").scope_in_project, skillsSectionChromeFor(.english, "").section_user));
+    try testing.expect(!std.mem.eql(u8, skillsScopeChromeFor(.english, "").scope_user_detail, skillsDuplicateChromeFor(.english, "").duplicate_one));
+    try testing.expect(!std.mem.eql(u8, skillsScopeChromeFor(.simplified_chinese, "").scope_user_detail, skillsSourceChromeFor(.simplified_chinese, "").source_shared));
+    try testing.expect(!std.mem.eql(u8, skillsScopeChromeFor(.japanese, "").scope_user_detail, skillsSourceChromeFor(.japanese, "").source_shared));
+
+    var buf: [skills_scope_caption_max]u8 = undefined;
+    try testing.expectEqualStrings("in faku", formatSkillsScopeInProject(skillsScopeChromeFor(.english, ""), "faku", &buf));
+    try testing.expectEqualStrings("位于 faku", formatSkillsScopeInProject(skillsScopeChromeFor(.simplified_chinese, ""), "faku", &buf));
+    try testing.expectEqualStrings("faku 内", formatSkillsScopeInProject(skillsScopeChromeFor(.japanese, ""), "faku", &buf));
+
+    try testing.expectEqualStrings(
+        "available in every project",
+        formatSkillsScopeCaption(skillsScopeChromeFor(.english, ""), "", false, "faku", &buf),
+    );
+    try testing.expectEqualStrings(
+        "Cursor · available in every project",
+        formatSkillsScopeCaption(skillsScopeChromeFor(.english, ""), "Cursor", false, "faku", &buf),
+    );
+    try testing.expectEqualStrings(
+        "Shared · Cursor · in faku",
+        formatSkillsScopeCaption(skillsScopeChromeFor(.english, ""), "Shared · Cursor", true, "faku", &buf),
+    );
+    try testing.expectEqualStrings(
+        "Cursor · 位于 faku",
+        formatSkillsScopeCaption(skillsScopeChromeFor(.simplified_chinese, ""), "Cursor", true, "faku", &buf),
+    );
+    try testing.expectEqualStrings(
+        "共有 · faku 内",
+        formatSkillsScopeCaption(skillsScopeChromeFor(.japanese, ""), "共有", true, "faku", &buf),
+    );
+    try testing.expectEqualStrings(
+        "Cursor · in project",
+        formatSkillsScopeCaption(skillsScopeChromeFor(.english, ""), "Cursor", true, "project", &buf),
+    );
+    try testing.expectEqualStrings(
+        "in project",
+        formatSkillsScopeCaption(skillsScopeChromeFor(.english, ""), "", true, "project", &buf),
     );
 }
 
