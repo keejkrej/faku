@@ -15993,6 +15993,10 @@ test "settings Skills lists SKILL.md name, description, and path; select shows b
     _ = try expectByText(tree.root, .text, "Use this skill.");
     _ = try expectButtonMsg(tree, skills.disable_label, .toggle_skill_enabled);
     _ = try expectButtonMsg(tree, skills.delete_label, .arm_skill_delete);
+    _ = try expectButtonMsg(tree, model.skill_open_in_editor_label(), .open_skill_in_editor);
+    try testing.expectEqualStrings("Open in editor", model.skill_open_in_editor_label());
+    try testing.expectEqualStrings(model.file_preview_open_in_editor_label(), model.skill_open_in_editor_label());
+    try testing.expectEqualStrings(i18n.filePreviewChromeFor(.english, "").open_in_editor, model.skill_open_in_editor_label());
     try testing.expect(findByText(tree.root, .text, skills.disabled_badge) == null);
     try testing.expect(findByText(tree.root, .text, skills.confirm_delete_label) == null);
 
@@ -16024,6 +16028,74 @@ test "settings Skills lists SKILL.md name, description, and path; select shows b
     main.update(&model, .set_settings_page_general, &fx);
     try testing.expect(!model.skill_delete_arming);
     try testing.expect(model.settings_page_general());
+}
+
+test "settings Skills Open in editor queues host editor argv at the absolute skill file" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&dir_buf, "/tmp/faku-skills-open-editor-{s}", .{tmp.sub_path});
+    var skill_dir_buf: [320]u8 = undefined;
+    const skill_dir = try std.fmt.bufPrint(&skill_dir_buf, "{s}/.cursor/skills/demo", .{project});
+    try std.Io.Dir.cwd().createDirPath(testing.io, skill_dir);
+    var file_buf: [360]u8 = undefined;
+    const file_path = try std.fmt.bufPrint(&file_buf, "{s}/SKILL.md", .{skill_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = file_path,
+        .data =
+        \\---
+        \\name: demo-skill
+        \\---
+        \\
+        \\Use this skill.
+        \\
+        ,
+    });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("skills open editor", .fx);
+    model.selected = id;
+    model.sessionById(id).?.setProjectPath(project);
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_skills, &fx);
+    skills.applyStdoutPaths(&model, ".cursor/skills/demo/SKILL.md\n");
+    try testing.expect(model.has_selected_skill() == false);
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Open in editor") == null);
+
+    const before = fx.pendingSpawnCount();
+    main.update(&model, .open_skill_in_editor, &fx);
+    try testing.expectEqual(before, fx.pendingSpawnCount());
+    try testing.expect(findOpenEditorSpawn(&fx) == null);
+    try testing.expect(!model.open_editor_live);
+
+    main.update(&model, .{ .select_skill = 1 }, &fx);
+    try testing.expect(model.has_selected_skill());
+    var abs_buf: [model_exports.max_project_path + skills.max_skill_path + 1]u8 = undefined;
+    const abs = skills.selectedSkillAbsPath(&model, &abs_buf).?;
+    try testing.expectEqualStrings(file_path, abs);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Open in editor", .open_skill_in_editor);
+
+    main.update(&model, .open_skill_in_editor, &fx);
+    const spawn = findOpenEditorSpawn(&fx) orelse return error.MissingOpenEditorSpawn;
+    try testing.expect(open_editor.isEditorArgv(spawn.argv));
+    try testing.expectEqual(sidecar_keys.open_editor_key, spawn.key);
+    const path_slot: usize = if (spawn.argv.len == 4) 3 else 1;
+    try testing.expectEqualStrings(file_path, spawn.argv[path_slot]);
+    try testing.expect(std.mem.endsWith(u8, spawn.argv[path_slot], "/SKILL.md"));
 }
 
 test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabled" {
@@ -16088,10 +16160,13 @@ test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabl
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_delete_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_confirm_delete_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_delete_idle}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"open_skill_in_editor\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skill_open_in_editor_label}"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"toggle_skill_enabled\">Disable</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Disabled</text>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"arm_skill_delete\">Delete</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"confirm_skill_delete\">Confirm delete</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"open_skill_in_editor\">Open in editor</button>"));
 
     main.update(&model, .toggle_settings, &fx);
     main.update(&model, .set_settings_page_skills, &fx);
@@ -16112,6 +16187,7 @@ test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabl
     tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, skills.enable_label, .toggle_skill_enabled);
     _ = try expectButtonMsg(tree, skills.delete_label, .arm_skill_delete);
+    _ = try expectButtonMsg(tree, "Open in editor", .open_skill_in_editor);
     _ = try expectByText(tree.root, .text, "Hidden from insert.");
 
     main.update(&model, .toggle_skill_enabled, &fx);
@@ -16131,11 +16207,13 @@ test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabl
     _ = try expectByText(tree.root, .text, "已禁用");
     _ = try expectButtonMsg(tree, "启用", .toggle_skill_enabled);
     _ = try expectButtonMsg(tree, "删除", .arm_skill_delete);
+    _ = try expectButtonMsg(tree, "在编辑器中打开", .open_skill_in_editor);
     model.language_preference = .japanese;
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "無効");
     _ = try expectButtonMsg(tree, "有効", .toggle_skill_enabled);
     _ = try expectButtonMsg(tree, "削除", .arm_skill_delete);
+    _ = try expectButtonMsg(tree, "エディターで開く", .open_skill_in_editor);
     model.language_preference = .english;
 
     main.update(&model, .toggle_settings, &fx);
