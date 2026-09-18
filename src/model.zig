@@ -1510,6 +1510,11 @@ pub const Model = struct {
     skill_supporting_files: usize = 0,
     skill_total_bytes: u64 = 0,
     skill_contents_valid: bool = false,
+    /// Selected skill YAML `allowed-tools:` value. Runtime-only;
+    /// copied at `loadBody`. Cap `skills.max_skill_allowed_tools`.
+    /// Fail closed (no Tools row) when missing / empty / unfenced.
+    skill_allowed_tools_storage: [skills.max_skill_allowed_tools]u8 = [_]u8{0} ** skills.max_skill_allowed_tools,
+    skill_allowed_tools_len: usize = 0,
     project_edit_active: bool = false,
     project_edit_buffer: canvas.TextBuffer(max_project_path) = .{},
     git_branch_create_buffer: canvas.TextBuffer(git_branch.max_git_branch) = .{},
@@ -2375,6 +2380,8 @@ pub const Model = struct {
         "skill_supporting_files",
         "skill_total_bytes",
         "skill_contents_valid",
+        "skill_allowed_tools_storage",
+        "skill_allowed_tools_len",
         "applySkillsFilter",
         "project_edit_buffer",
         "git_branch_search_buffer",
@@ -5727,6 +5734,10 @@ pub const Model = struct {
         return i18n.skillsUpdatedChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn skillsAllowedToolsChrome(model: *const Model) i18n.SkillsAllowedToolsChrome {
+        return i18n.skillsAllowedToolsChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn skillsEmptyRichChrome(model: *const Model) i18n.SkillsEmptyRichChrome {
         return i18n.skillsEmptyRichChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6360,6 +6371,31 @@ pub const Model = struct {
     pub fn skill_updated_label(model: *const Model, arena: std.mem.Allocator) []const u8 {
         if (!model.has_skill_updated()) return "";
         return skills.selectedSkillUpdatedLabel(model, arena);
+    }
+
+    /// Settings Skills selected-detail Allowed tools row when YAML
+    /// `allowed-tools:` is non-empty. Distinct from Contents /
+    /// Updated. Fail closed when missing / empty / unfenced.
+    pub fn has_skill_allowed_tools(model: *const Model) bool {
+        return model.has_selected_skill() and model.skill_allowed_tools_len > 0;
+    }
+
+    /// Settings Skills selected-detail Allowed tools label.
+    /// Localized via `i18n.SkillsAllowedToolsChrome`. Distinct from
+    /// SkillsDetailChrome / SkillsUpdatedChrome /
+    /// SkillsFileCountChrome. Empty when unselected or when the
+    /// YAML field is missing so the markup can hide the row.
+    pub fn skill_detail_allowed_tools(model: *const Model) []const u8 {
+        if (!model.has_skill_allowed_tools()) return "";
+        return model.skillsAllowedToolsChrome().allowed_tools;
+    }
+
+    /// Settings Skills selected-detail Allowed tools value (YAML
+    /// `allowed-tools:` scalar). Skill data, not i18n. Empty when
+    /// unselected or when the field is missing / empty / unfenced.
+    pub fn skill_allowed_tools(model: *const Model) []const u8 {
+        if (!model.has_skill_allowed_tools()) return "";
+        return model.skill_allowed_tools_storage[0..model.skill_allowed_tools_len];
     }
 
     pub fn applySkillsFilter(model: *Model, edit: canvas.TextInputEvent) void {
