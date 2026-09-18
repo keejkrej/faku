@@ -675,6 +675,10 @@ pub const Msg = union(enum) {
     /// `open_editor.startOpenEditorAt` sidecar as Files preview.
     /// `on-press` stays `open_skill_in_editor`.
     open_skill_in_editor,
+    /// Settings Skills detail: Reveal the selected skill in the OS
+    /// file manager. Same `reveal_folder.startRevealPath` sidecar as
+    /// markdown outside-project links. `on-press` stays `reveal_skill`.
+    reveal_skill,
     select_provider: u32,
     /// Settings Providers: toggle persisted `disabled_providers` for that row.
     toggle_provider_enabled: u32,
@@ -6085,6 +6089,14 @@ pub const Model = struct {
     /// `open_skill_in_editor`.
     pub fn skill_open_in_editor_label(model: *const Model) []const u8 {
         return model.filePreviewChrome().open_in_editor;
+    }
+
+    /// Settings Skills detail Reveal. Reuses
+    /// `i18n.ComposerProjectChrome.reveal_folder` (same EN Reveal
+    /// folder as composer project-row). Distinct from
+    /// `reveal_folder_label`. `on-press` stays `reveal_skill`.
+    pub fn skill_reveal_label(model: *const Model) []const u8 {
+        return model.composerProjectChrome().reveal_folder;
     }
 
     pub fn skill_body(model: *const Model) []const u8 {
