@@ -28178,6 +28178,12 @@ test "Settings search chrome filters nav tabs by keywords; empty query shows all
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_nav_skills_visible}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_nav_usage_visible}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_nav_computer_use_visible}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "icon=\"settings\" selected=\"{settings_page_general}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "icon=\"app:appearance\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "icon=\"app:bot\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "icon=\"app:package\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "icon=\"app:chart-column\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "icon=\"app:cursor-spark\"") != null);
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Search Settings\""));
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "set_settings_page_daemon") == null);
 

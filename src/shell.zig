@@ -3,7 +3,8 @@
 //!
 //! `shell_scene` is the single-window chromeless shell (`hidden_inset_tall`)
 //! that `UiApp.create` receives. `registerIcons` installs one table:
-//! minimize / maximize / stop / lock / globe plus the Material
+//! minimize / maximize / stop / lock / globe / appearance / bot /
+//! package / chart-column / cursor-spark plus the Material
 //! file-type subset so markup `icon="app:minimize"` and bound
 //! `app:zig` / `app:rust` / `app:ruby` / … resolve. Callers import this
 //! module directly (`shell.shell_scene` / `shell.registerIcons` /
@@ -77,16 +78,43 @@ const lock_icon = canvas.svg_icon.parseComptime(@embedFile("icons/lock.svg"));
 /// as lock.
 const globe_icon = canvas.svg_icon.parseComptime(@embedFile("icons/globe.svg"));
 
+/// Settings Appearance (Waku `icons/appearance.svg`). Native has no
+/// built-in half-moon appearance glyph.
+const appearance_icon = canvas.svg_icon.parseComptime(@embedFile("icons/appearance.svg"));
+
+/// Settings Providers (Waku `icons/bot.svg`). Native has no built-in
+/// bot glyph.
+const bot_icon = canvas.svg_icon.parseComptime(@embedFile("icons/bot.svg"));
+
+/// Settings Skills (Waku `icons/package.svg`). Native has no built-in
+/// package glyph.
+const package_icon = canvas.svg_icon.parseComptime(@embedFile("icons/package.svg"));
+
+/// Settings Usage (Waku `icons/chart-column.svg`). Native has no
+/// built-in chart-column glyph.
+const chart_column_icon = canvas.svg_icon.parseComptime(@embedFile("icons/chart-column.svg"));
+
+/// Settings Computer Use (Waku `icons/cursor-spark.svg`). Native has
+/// no built-in cursor-spark glyph.
+const cursor_spark_icon = canvas.svg_icon.parseComptime(@embedFile("icons/cursor-spark.svg"));
+
 /// One table feeds boot registration and the model contract so chrome
 /// `icon="app:minimize"` / `app:maximize` / `app:stop` / `app:lock` /
-/// `app:globe` and Files/Diff/`@` `app:zig` / `app:rust` / … are
-/// verified against what `registerIcons` installs.
+/// `app:globe` / `app:appearance` / `app:bot` / `app:package` /
+/// `app:chart-column` / `app:cursor-spark` and Files/Diff/`@`
+/// `app:zig` / `app:rust` / … are verified against what
+/// `registerIcons` installs.
 const chrome_icons = [_]canvas.icons.Entry{
     .{ .name = "minimize", .icon = &minimize_icon },
     .{ .name = "maximize", .icon = &maximize_icon },
     .{ .name = "stop", .icon = &stop_icon },
     .{ .name = "lock", .icon = &lock_icon },
     .{ .name = "globe", .icon = &globe_icon },
+    .{ .name = "appearance", .icon = &appearance_icon },
+    .{ .name = "bot", .icon = &bot_icon },
+    .{ .name = "package", .icon = &package_icon },
+    .{ .name = "chart-column", .icon = &chart_column_icon },
+    .{ .name = "cursor-spark", .icon = &cursor_spark_icon },
 };
 pub const app_icons = chrome_icons ++ file_type_icons.app_icons;
 
@@ -116,6 +144,11 @@ test "registerIcons resolves chrome and file-type app names" {
     try std.testing.expect(canvas.icons.resolve("app:settings") != null);
     try std.testing.expect(canvas.icons.resolve("app:certificate") != null);
     try std.testing.expect(canvas.icons.resolve("app:lock") != null);
+    try std.testing.expect(canvas.icons.resolve("app:appearance") != null);
+    try std.testing.expect(canvas.icons.resolve("app:bot") != null);
+    try std.testing.expect(canvas.icons.resolve("app:package") != null);
+    try std.testing.expect(canvas.icons.resolve("app:chart-column") != null);
+    try std.testing.expect(canvas.icons.resolve("app:cursor-spark") != null);
     try std.testing.expect(canvas.icons.resolve("app:lockfile") != null);
     try std.testing.expect(canvas.icons.resolve("app:exe") != null);
     try std.testing.expect(canvas.icons.resolve("app:nginx") != null);
@@ -147,13 +180,18 @@ test "registerIcons resolves chrome and file-type app names" {
 
 test "app_icons names and shell window" {
     try std.testing.expectEqual(@as(usize, chrome_icons.len + file_type_icons.app_icons.len), app_icons.len);
-    try std.testing.expectEqual(@as(usize, 5), chrome_icons.len);
+    try std.testing.expectEqual(@as(usize, 10), chrome_icons.len);
     try std.testing.expectEqualStrings("minimize", app_icons[0].name);
     try std.testing.expectEqualStrings("maximize", app_icons[1].name);
     try std.testing.expectEqualStrings("stop", app_icons[2].name);
     try std.testing.expectEqualStrings("lock", app_icons[3].name);
     try std.testing.expectEqualStrings("globe", app_icons[4].name);
-    try std.testing.expectEqualStrings("zig", app_icons[5].name);
+    try std.testing.expectEqualStrings("appearance", app_icons[5].name);
+    try std.testing.expectEqualStrings("bot", app_icons[6].name);
+    try std.testing.expectEqualStrings("package", app_icons[7].name);
+    try std.testing.expectEqualStrings("chart-column", app_icons[8].name);
+    try std.testing.expectEqualStrings("cursor-spark", app_icons[9].name);
+    try std.testing.expectEqualStrings("zig", app_icons[10].name);
     try std.testing.expectEqualStrings("file", app_icons[app_icons.len - 1].name);
     try std.testing.expectEqual(@as(usize, 1), shell_scene.windows.len);
     try std.testing.expectEqualStrings(main_window_label, shell_scene.windows[0].label);
