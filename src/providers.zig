@@ -47,8 +47,10 @@
 //! only, never auto-runs; not fx.sh). fx Available copies
 //! `fx login` the same way — convenience copy, not auth-state detection
 //! or OAuth UI. Other missing CLIs get a muted PATH hint only (no
-//! invented install URLs). Status / Enable / Apply / Copy / First-party
-//! follow `i18n.ProvidersChrome`. Detail transport notes, fx login notes,
+//! invented install URLs). Status / Apply / Copy / First-party
+//! follow `i18n.ProvidersChrome`. Enable %{name} / Disable %{name}
+//! chip follows `i18n.ProvidersEnableNamedChrome` (short Enable /
+//! Disable stay for non-button uses). Detail transport notes, fx login notes,
 //! the other-CLI PATH hint, and `Binary:` / `Path:` prefixes follow
 //! `i18n.ProvidersDetailChrome`. Coding agents card title /
 //! description / Checked … caption follow
@@ -61,8 +63,8 @@
 //! long-lived RPC (steer / follow_up / session resume); Claude ACP; `--continue`; circular GPUI gauge;
 //! LiteLLM rate-table; T3 layered Usage chart; amend/force and
 //! remote `--track` over daemon (local already). Provider binary-path
-//! override / version badge / model_count / expand chevron / Enable
-//! %{name} named toggles / moving Refresh into the card stay out.
+//! override / version badge / model_count / expand chevron /
+//! moving Refresh into the card stay out.
 //! Disabling does not
 //! move unstarted drafts / last_provider (Faku new sessions stay fx;
 //! drafts.json has no provider).
@@ -142,6 +144,13 @@ pub const other_install_hint = providers_detail_chrome_en.other_install_hint;
 pub const enable_label = providers_chrome_en.enable;
 pub const disable_label = providers_chrome_en.disable;
 
+/// English defaults from `i18n.ProvidersEnableNamedChrome`. Distinct
+/// from ProvidersChrome Enable / Disable. Named Enable %{name} /
+/// Disable %{name} is the Settings row chip.
+const providers_enable_named_chrome_en = i18n.providersEnableNamedChromeFor(.english, "");
+pub const enable_named_template = providers_enable_named_chrome_en.enable_named;
+pub const disable_named_template = providers_enable_named_chrome_en.disable_named;
+
 /// Settings Providers row. `id` is 1-based `@intFromEnum(ProviderId)`
 /// so Native `select_provider:{p.id}` / `toggle_provider_enabled:{p.id}`
 /// never bind 0.
@@ -156,6 +165,10 @@ pub const ProviderRow = struct {
     /// Settings Enable/Disable chip: persisted `!disabled_providers`
     /// only. Not the `providerEnabled` gate (that also ANDs installed).
     enabled: bool = true,
+    /// Named Enable %{name} / Disable %{name} via
+    /// `i18n.ProvidersEnableNamedChrome`. Arena-owned when built
+    /// through `rowFor` / `rows`. Distinct from short Enable /
+    /// Disable (`enable_label` / `disable_label` constants).
     enable_label: []const u8 = disable_label,
     /// First-party badge. Empty on non-fx rows; markup gates on
     /// `first_party`. Localized via `i18n.ProvidersChrome`.
@@ -223,7 +236,29 @@ pub fn binaryFor(model: *const Model, id: protocol.ProviderId) []const u8 {
     return id.defaultBinary();
 }
 
-pub fn rowFor(model: *const Model, id: protocol.ProviderId) ProviderRow {
+fn copyNamed(arena: std.mem.Allocator, text: []const u8) []const u8 {
+    if (text.len == 0) return "";
+    const out = arena.alloc(u8, text.len) catch return "";
+    @memcpy(out, text);
+    return out;
+}
+
+/// Named Enable %{name} / Disable %{name} for a catalog row.
+/// Localized via `i18n.ProvidersEnableNamedChrome`. Distinct from
+/// ProvidersChrome Enable / Disable. Empty name still paints.
+/// Writes through `arena` like Skills `enableLabel`.
+pub fn enableLabelFor(model: *const Model, id: protocol.ProviderId, arena: std.mem.Allocator) []const u8 {
+    const named = i18n.providersEnableNamedChromeFor(model.language_preference, model.systemLocaleId());
+    const enabled = !model.disabled_providers[@intFromEnum(id)];
+    var buf: [i18n.providers_enable_named_max]u8 = undefined;
+    const text = i18n.formatProvidersEnableNamed(named, enabled, id.wireName(), &buf);
+    return copyNamed(arena, text);
+}
+
+/// `arena` owns `enable_label` (named Enable %{name} / Disable
+/// %{name}). Callers of `rows` pass the Native frame arena. Tests
+/// pass an ArenaAllocator (or any allocator that outlives the row).
+pub fn rowFor(model: *const Model, id: protocol.ProviderId, arena: std.mem.Allocator) ProviderRow {
     const binary = binaryFor(model, id);
     const rid = rowId(id);
     const enabled = !model.disabled_providers[@intFromEnum(id)];
@@ -237,7 +272,7 @@ pub fn rowFor(model: *const Model, id: protocol.ProviderId) ProviderRow {
         .first_party = id == .fx,
         .selected = model.provider_selected_id == rid,
         .enabled = enabled,
-        .enable_label = if (enabled) pack.disable else pack.enable,
+        .enable_label = enableLabelFor(model, id, arena),
         .first_party_label = if (id == .fx) pack.first_party else "",
     };
 }
@@ -247,7 +282,7 @@ pub fn rows(model: *const Model, arena: std.mem.Allocator) []const ProviderRow {
     const tags = std.meta.tags(protocol.ProviderId);
     const out = arena.alloc(ProviderRow, tags.len) catch return &.{};
     for (tags, 0..) |id, i| {
-        out[i] = rowFor(model, id);
+        out[i] = rowFor(model, id, arena);
     }
     return out;
 }
@@ -417,6 +452,9 @@ test "catalog lists every ProviderId; fx is row 1" {
 }
 
 test "fx status from model fields without spawning; non-fx defaults Not found" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
     var model = Model{};
     try std.testing.expectEqualStrings(missing_status, statusFor(&model, .fx));
     try std.testing.expectEqualStrings("fx", binaryFor(&model, .fx));
@@ -438,15 +476,18 @@ test "fx status from model fields without spawning; non-fx defaults Not found" {
     try std.testing.expectEqualStrings("/tmp/faku-fx", binaryFor(&model, .fx));
     try std.testing.expectEqualStrings(missing_status, statusFor(&model, .claude));
 
-    const fx_row = rowFor(&model, .fx);
+    const fx_row = rowFor(&model, .fx, arena);
     try std.testing.expect(fx_row.first_party);
     try std.testing.expectEqualStrings(first_party_label, fx_row.first_party_label);
     try std.testing.expectEqualStrings(available_status, fx_row.status);
-    try std.testing.expect(!rowFor(&model, .claude).first_party);
-    try std.testing.expectEqualStrings("", rowFor(&model, .claude).first_party_label);
+    try std.testing.expect(!rowFor(&model, .claude, arena).first_party);
+    try std.testing.expectEqualStrings("", rowFor(&model, .claude, arena).first_party_label);
 }
 
 test "non-fx success exit is Available; non-zero is Not found; fx stays on fx_available" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
     var model = Model{};
     cli_probe.handleCliProbeExit(&model, .{
         .key = cli_probe.probeKey(.claude),
@@ -466,8 +507,8 @@ test "non-fx success exit is Available; non-zero is Not found; fx stays on fx_av
 
     model.fx_available = true;
     try std.testing.expectEqualStrings(available_status, statusFor(&model, .fx));
-    try std.testing.expectEqualStrings(available_status, rowFor(&model, .claude).status);
-    try std.testing.expectEqualStrings(missing_status, rowFor(&model, .codex).status);
+    try std.testing.expectEqualStrings(available_status, rowFor(&model, .claude, arena).status);
+    try std.testing.expectEqualStrings(missing_status, rowFor(&model, .codex, arena).status);
 }
 
 test "selectProvider; detail names binary, fx path, probe status, and one-shot acp-proxy" {
@@ -798,12 +839,14 @@ test "initFx queues fx --help and every non-fx PATH --help probe; startProbes is
 }
 
 test "rows empty off the Providers page" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
     var model = Model{};
-    const off = rows(&model, std.testing.allocator);
+    const off = rows(&model, arena);
     try std.testing.expectEqual(@as(usize, 0), off.len);
     model.settings_page = .providers;
-    const on = rows(&model, std.testing.allocator);
-    defer std.testing.allocator.free(on);
+    const on = rows(&model, arena);
     try std.testing.expectEqual(catalogLen(), on.len);
     try std.testing.expectEqualStrings("fx", on[0].name);
     try std.testing.expect(on[0].first_party);
@@ -812,7 +855,9 @@ test "rows empty off the Providers page" {
     try std.testing.expectEqualStrings("claude", on[1].binary);
     try std.testing.expect(on[0].enabled);
     try std.testing.expect(on[1].enabled);
-    try std.testing.expectEqualStrings(disable_label, on[0].enable_label);
+    try std.testing.expectEqualStrings("Disable fx", on[0].enable_label);
+    try std.testing.expect(!std.mem.eql(u8, on[0].enable_label, disable_label));
+    try std.testing.expectEqualStrings("Disable claude", on[1].enable_label);
 }
 
 test "copy command strings are the verified keejkrej/fx install / login commands" {
@@ -935,38 +980,43 @@ test "copyFxInstall / copyFxLogin write verified commands; wrong state is a no-o
 }
 
 test "providerEnabled is not-disabled AND probe-installed; chip is disable-flag-only" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
     var model = Model{};
     try std.testing.expect(!providerEnabled(&model, .claude));
     try std.testing.expect(!providerEnabled(&model, .grok));
     try std.testing.expect(!providerEnabled(&model, .fx));
-    try std.testing.expect(rowFor(&model, .claude).enabled);
-    try std.testing.expectEqualStrings(disable_label, rowFor(&model, .claude).enable_label);
-    try std.testing.expect(rowFor(&model, .fx).enabled);
+    try std.testing.expect(rowFor(&model, .claude, arena).enabled);
+    try std.testing.expectEqualStrings("Disable claude", rowFor(&model, .claude, arena).enable_label);
+    try std.testing.expect(!std.mem.eql(u8, rowFor(&model, .claude, arena).enable_label, disable_label));
+    try std.testing.expect(rowFor(&model, .fx, arena).enabled);
 
     model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
     try std.testing.expect(providerEnabled(&model, .claude));
-    try std.testing.expect(rowFor(&model, .claude).enabled);
+    try std.testing.expect(rowFor(&model, .claude, arena).enabled);
     try std.testing.expect(!providerEnabled(&model, .grok));
-    try std.testing.expect(rowFor(&model, .grok).enabled);
+    try std.testing.expect(rowFor(&model, .grok, arena).enabled);
 
     setProviderEnabled(&model, .claude, false);
     try std.testing.expect(!providerEnabled(&model, .claude));
-    try std.testing.expect(!rowFor(&model, .claude).enabled);
-    try std.testing.expectEqualStrings(enable_label, rowFor(&model, .claude).enable_label);
+    try std.testing.expect(!rowFor(&model, .claude, arena).enabled);
+    try std.testing.expectEqualStrings("Enable claude", rowFor(&model, .claude, arena).enable_label);
+    try std.testing.expect(!std.mem.eql(u8, rowFor(&model, .claude, arena).enable_label, enable_label));
     try std.testing.expect(!providerEnabled(&model, .grok));
-    try std.testing.expect(rowFor(&model, .grok).enabled);
+    try std.testing.expect(rowFor(&model, .grok, arena).enabled);
 
     setProviderEnabled(&model, .claude, true);
     try std.testing.expect(providerEnabled(&model, .claude));
     try std.testing.expect(!model.disabled_providers[@intFromEnum(protocol.ProviderId.claude)]);
-    try std.testing.expect(rowFor(&model, .claude).enabled);
-    try std.testing.expectEqualStrings(disable_label, rowFor(&model, .claude).enable_label);
+    try std.testing.expect(rowFor(&model, .claude, arena).enabled);
+    try std.testing.expectEqualStrings("Disable claude", rowFor(&model, .claude, arena).enable_label);
 
     model.cli_available[@intFromEnum(protocol.ProviderId.grok)] = true;
     try std.testing.expect(providerEnabled(&model, .grok));
     try std.testing.expect(toggleProviderEnabled(&model, rowId(.grok)));
     try std.testing.expect(!providerEnabled(&model, .grok));
-    try std.testing.expect(!rowFor(&model, .grok).enabled);
+    try std.testing.expect(!rowFor(&model, .grok, arena).enabled);
     try std.testing.expect(toggleProviderEnabled(&model, rowId(.grok)));
     try std.testing.expect(providerEnabled(&model, .grok));
     try std.testing.expect(!toggleProviderEnabled(&model, 0));
@@ -974,42 +1024,46 @@ test "providerEnabled is not-disabled AND probe-installed; chip is disable-flag-
 
     model.fx_available = true;
     try std.testing.expect(providerEnabled(&model, .fx));
-    try std.testing.expect(rowFor(&model, .fx).enabled);
+    try std.testing.expect(rowFor(&model, .fx, arena).enabled);
     setProviderEnabled(&model, .fx, false);
     try std.testing.expect(!providerEnabled(&model, .fx));
-    try std.testing.expect(!rowFor(&model, .fx).enabled);
-    try std.testing.expectEqualStrings(enable_label, rowFor(&model, .fx).enable_label);
+    try std.testing.expect(!rowFor(&model, .fx, arena).enabled);
+    try std.testing.expectEqualStrings("Enable fx", rowFor(&model, .fx, arena).enable_label);
 }
 
 test "statusFor / rowFor english default matches former copy; zh-CN / ja localize status enable_label first_party" {
     const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
     var model = Model{};
     try testing.expectEqualStrings("Not found", statusFor(&model, .fx));
     try testing.expectEqualStrings("Not found", statusFor(&model, .claude));
     try testing.expectEqualStrings(missing_status, statusFor(&model, .fx));
-    try testing.expectEqualStrings("Disable", rowFor(&model, .fx).enable_label);
-    try testing.expectEqualStrings(disable_label, rowFor(&model, .fx).enable_label);
-    try testing.expectEqualStrings("First-party default", rowFor(&model, .fx).first_party_label);
-    try testing.expectEqualStrings(first_party_label, rowFor(&model, .fx).first_party_label);
-    try testing.expectEqualStrings("", rowFor(&model, .claude).first_party_label);
-    try testing.expectEqualStrings("fx", rowFor(&model, .fx).name);
-    try testing.expectEqualStrings("claude", rowFor(&model, .claude).name);
+    try testing.expectEqualStrings("Disable fx", rowFor(&model, .fx, arena).enable_label);
+    try testing.expect(!std.mem.eql(u8, rowFor(&model, .fx, arena).enable_label, disable_label));
+    try testing.expectEqualStrings("First-party default", rowFor(&model, .fx, arena).first_party_label);
+    try testing.expectEqualStrings(first_party_label, rowFor(&model, .fx, arena).first_party_label);
+    try testing.expectEqualStrings("", rowFor(&model, .claude, arena).first_party_label);
+    try testing.expectEqualStrings("fx", rowFor(&model, .fx, arena).name);
+    try testing.expectEqualStrings("claude", rowFor(&model, .claude, arena).name);
 
     model.fx_available = true;
     try testing.expectEqualStrings("Available", statusFor(&model, .fx));
     try testing.expectEqualStrings(available_status, statusFor(&model, .fx));
     setProviderEnabled(&model, .fx, false);
-    try testing.expectEqualStrings("Enable", rowFor(&model, .fx).enable_label);
-    try testing.expectEqualStrings(enable_label, rowFor(&model, .fx).enable_label);
+    try testing.expectEqualStrings("Enable fx", rowFor(&model, .fx, arena).enable_label);
+    try testing.expect(!std.mem.eql(u8, rowFor(&model, .fx, arena).enable_label, enable_label));
 
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("可用", statusFor(&model, .fx));
     try testing.expectEqualStrings("未找到", statusFor(&model, .claude));
-    try testing.expectEqualStrings("启用", rowFor(&model, .fx).enable_label);
-    try testing.expectEqualStrings("禁用", rowFor(&model, .claude).enable_label);
-    try testing.expectEqualStrings("第一方默认", rowFor(&model, .fx).first_party_label);
-    try testing.expectEqualStrings("fx", rowFor(&model, .fx).name);
-    try testing.expectEqualStrings("claude", rowFor(&model, .claude).name);
+    try testing.expectEqualStrings("启用fx", rowFor(&model, .fx, arena).enable_label);
+    try testing.expectEqualStrings("禁用claude", rowFor(&model, .claude, arena).enable_label);
+    try testing.expect(!std.mem.eql(u8, rowFor(&model, .claude, arena).enable_label, i18n.skillsEnableNamedChromeFor(.simplified_chinese, "").disable_named));
+    try testing.expectEqualStrings("第一方默认", rowFor(&model, .fx, arena).first_party_label);
+    try testing.expectEqualStrings("fx", rowFor(&model, .fx, arena).name);
+    try testing.expectEqualStrings("claude", rowFor(&model, .claude, arena).name);
     selectProvider(&model, rowId(.fx));
     const zh_detail = detailText(&model, testing.allocator);
     defer if (zh_detail.len > 0) testing.allocator.free(zh_detail);
@@ -1022,11 +1076,11 @@ test "statusFor / rowFor english default matches former copy; zh-CN / ja localiz
     setProviderEnabled(&model, .fx, true);
     try testing.expectEqualStrings("利用可能", statusFor(&model, .fx));
     try testing.expectEqualStrings("見つかりません", statusFor(&model, .claude));
-    try testing.expectEqualStrings("無効", rowFor(&model, .fx).enable_label);
-    try testing.expectEqualStrings("無効", rowFor(&model, .claude).enable_label);
-    try testing.expectEqualStrings("ファーストパーティ既定", rowFor(&model, .fx).first_party_label);
+    try testing.expectEqualStrings("fx を無効にする", rowFor(&model, .fx, arena).enable_label);
+    try testing.expectEqualStrings("claude を無効にする", rowFor(&model, .claude, arena).enable_label);
+    try testing.expectEqualStrings("ファーストパーティ既定", rowFor(&model, .fx, arena).first_party_label);
     setProviderEnabled(&model, .claude, false);
-    try testing.expectEqualStrings("有効", rowFor(&model, .claude).enable_label);
+    try testing.expectEqualStrings("claude を有効にする", rowFor(&model, .claude, arena).enable_label);
     const ja_detail = detailText(&model, testing.allocator);
     defer if (ja_detail.len > 0) testing.allocator.free(ja_detail);
     try testing.expect(std.mem.indexOf(u8, ja_detail, "ファーストパーティ既定") != null);
@@ -1043,21 +1097,96 @@ test "statusFor / rowFor english default matches former copy; zh-CN / ja localiz
     model.setSystemLocaleId("ja_JP.UTF-8");
     try testing.expectEqualStrings("Available", statusFor(&model, .fx));
     try testing.expectEqualStrings("Not found", statusFor(&model, .claude));
-    try testing.expectEqualStrings("Disable", rowFor(&model, .fx).enable_label);
-    try testing.expectEqualStrings("First-party default", rowFor(&model, .fx).first_party_label);
+    try testing.expectEqualStrings("Disable fx", rowFor(&model, .fx, arena).enable_label);
+    try testing.expectEqualStrings("First-party default", rowFor(&model, .fx, arena).first_party_label);
 
     model.language_preference = .system;
     model.setSystemLocaleId("zh_CN.UTF-8");
     try testing.expectEqualStrings("可用", statusFor(&model, .fx));
     try testing.expectEqualStrings("未找到", statusFor(&model, .claude));
-    try testing.expectEqualStrings("禁用", rowFor(&model, .fx).enable_label);
-    try testing.expectEqualStrings("第一方默认", rowFor(&model, .fx).first_party_label);
+    try testing.expectEqualStrings("禁用fx", rowFor(&model, .fx, arena).enable_label);
+    try testing.expectEqualStrings("第一方默认", rowFor(&model, .fx, arena).first_party_label);
 
     model.setSystemLocaleId("ja_JP.UTF-8");
     try testing.expectEqualStrings("利用可能", statusFor(&model, .fx));
     try testing.expectEqualStrings("見つかりません", statusFor(&model, .claude));
-    try testing.expectEqualStrings("無効", rowFor(&model, .fx).enable_label);
-    try testing.expectEqualStrings("ファーストパーティ既定", rowFor(&model, .fx).first_party_label);
+    try testing.expectEqualStrings("fx を無効にする", rowFor(&model, .fx, arena).enable_label);
+    try testing.expectEqualStrings("ファーストパーティ既定", rowFor(&model, .fx, arena).first_party_label);
+}
+
+test "enableLabelFor formats Enable %{name} / Disable %{name}; empty name still paints" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    try testing.expectEqualStrings("Enable %{name}", enable_named_template);
+    try testing.expectEqualStrings("Disable %{name}", disable_named_template);
+    try testing.expect(!std.mem.eql(u8, enable_named_template, enable_label));
+    try testing.expect(!std.mem.eql(u8, disable_named_template, disable_label));
+    try testing.expectEqualStrings(enable_named_template, i18n.skillsEnableNamedChromeFor(.english, "").enable_named);
+    try testing.expect(!std.mem.eql(
+        u8,
+        i18n.providersEnableNamedChromeFor(.simplified_chinese, "").disable_named,
+        i18n.skillsEnableNamedChromeFor(.simplified_chinese, "").disable_named,
+    ));
+
+    var model = Model{};
+    try testing.expectEqualStrings("Disable fx", enableLabelFor(&model, .fx, arena));
+    try testing.expectEqualStrings("Disable claude", enableLabelFor(&model, .claude, arena));
+    {
+        var buf: [i18n.providers_enable_named_max]u8 = undefined;
+        try testing.expectEqualStrings(
+            i18n.formatProvidersEnableNamed(i18n.providersEnableNamedChromeFor(.english, ""), true, "fx", &buf),
+            enableLabelFor(&model, .fx, arena),
+        );
+        try testing.expectEqualStrings("Enable ", i18n.formatProvidersEnableNamed(
+            i18n.providersEnableNamedChromeFor(.english, ""),
+            false,
+            "",
+            &buf,
+        ));
+    }
+    try testing.expect(!std.mem.eql(u8, enableLabelFor(&model, .fx, arena), disable_label));
+    try testing.expect(!std.mem.eql(u8, enableLabelFor(&model, .fx, arena), i18n.providersChromeFor(.english, "").disable));
+
+    setProviderEnabled(&model, .claude, false);
+    try testing.expectEqualStrings("Enable claude", enableLabelFor(&model, .claude, arena));
+    try testing.expect(!std.mem.eql(u8, enableLabelFor(&model, .claude, arena), enable_label));
+    try testing.expect(!std.mem.eql(u8, enableLabelFor(&model, .claude, arena), i18n.providersChromeFor(.english, "").enable));
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("启用claude", enableLabelFor(&model, .claude, arena));
+    setProviderEnabled(&model, .fx, true);
+    try testing.expectEqualStrings("禁用fx", enableLabelFor(&model, .fx, arena));
+    {
+        var skills_buf: [i18n.skills_enable_named_max]u8 = undefined;
+        try testing.expect(!std.mem.eql(u8, enableLabelFor(&model, .fx, arena), i18n.formatSkillsEnableNamed(
+            i18n.skillsEnableNamedChromeFor(.simplified_chinese, ""),
+            true,
+            "fx",
+            &skills_buf,
+        )));
+        try testing.expectEqualStrings("停用fx", i18n.formatSkillsEnableNamed(
+            i18n.skillsEnableNamedChromeFor(.simplified_chinese, ""),
+            true,
+            "fx",
+            &skills_buf,
+        ));
+    }
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("fx を無効にする", enableLabelFor(&model, .fx, arena));
+    try testing.expectEqualStrings("claude を有効にする", enableLabelFor(&model, .claude, arena));
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Enable claude", enableLabelFor(&model, .claude, arena));
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("启用claude", enableLabelFor(&model, .claude, arena));
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("claude を有効にする", enableLabelFor(&model, .claude, arena));
 }
 
 test "detailText english default matches former Binary/Path prefixes; zh-CN / ja localize prefixes; english ignores LANG" {
