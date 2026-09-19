@@ -430,6 +430,19 @@ pub fn handleSetSettingsPageComputerUse(model: *Model, fx: *Effects) void {
     store.persistSettingsIfPossible(model);
 }
 
+/// Settings General Share anonymous usage data chip. Closes
+/// switcher / palette / Settings effort picker like other Settings
+/// General overlays, then flips `analytics_enabled` and merge-writes
+/// extras. Preference + UI only; no telemetry this cut.
+pub fn handleToggleAnalyticsEnabled(model: *Model) void {
+    session_switcher.closeSwitcher(model);
+    if (model.palette_open) model.closePalette();
+    model.closeSettingsEffortPicker();
+    model.closeSkillsSourcePicker();
+    model.analytics_enabled = !model.analytics_enabled;
+    store.persistSettingsIfPossible(model);
+}
+
 fn leaveUsagePage(model: *Model) void {
     if (model.settings_page != .usage) return;
     usage_history.leaveUsage(model);
