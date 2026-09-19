@@ -16577,6 +16577,60 @@ test "skills delete fail window_status follows Appearance language" {
     try testing.expectEqualStrings("スキルを削除できませんでした。", model.skill_delete_failed_status());
 }
 
+test "skills delete success window_status follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Moved “%{name}” to the Trash"));
+    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "{window_status}"));
+    try testing.expectEqualStrings(
+        "Moved “%{name}” to the Trash",
+        skills.deleted_toast_template,
+    );
+
+    var model = Model{};
+    var buf: [i18n.skills_deleted_toast_max]u8 = undefined;
+    try testing.expectEqualStrings("Moved “demo” to the Trash", model.skill_deleted_status("demo", &buf));
+    try testing.expectEqualStrings(
+        i18n.formatSkillsDeletedToast(i18n.skillsDeletedToastChromeFor(.english, ""), "demo", &buf),
+        model.skill_deleted_status("demo", &buf),
+    );
+    try testing.expect(!std.mem.eql(u8, model.skill_deleted_status("demo", &buf), model.skill_delete_failed_status()));
+    try testing.expect(!std.mem.eql(u8, model.skill_deleted_status("demo", &buf), model.skill_path_copied_status()));
+
+    model.setWindowStatus(model.skill_deleted_status("demo", &buf));
+    try testing.expectEqualStrings("Moved “demo” to the Trash", model.window_status());
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Moved “demo” to the Trash");
+    try testing.expect(findByText(tree.root, .text, "Could not delete skill.") == null);
+    try testing.expect(findByText(tree.root, .text, "已将“demo”移到废纸篓") == null);
+
+    model.language_preference = .simplified_chinese;
+    model.setWindowStatus(model.skill_deleted_status("demo", &buf));
+    try testing.expectEqualStrings("已将“demo”移到废纸篓", model.window_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "已将“demo”移到废纸篓");
+    try testing.expect(findByText(tree.root, .text, "Moved “demo” to the Trash") == null);
+
+    model.language_preference = .japanese;
+    model.setWindowStatus(model.skill_deleted_status("demo", &buf));
+    try testing.expectEqualStrings("「demo」をゴミ箱に移動しました", model.window_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "「demo」をゴミ箱に移動しました");
+    try testing.expect(findByText(tree.root, .text, "Moved “demo” to the Trash") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Moved “demo” to the Trash", model.skill_deleted_status("demo", &buf));
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("已将“demo”移到废纸篓", model.skill_deleted_status("demo", &buf));
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("「demo」をゴミ箱に移動しました", model.skill_deleted_status("demo", &buf));
+}
+
 test "skills enable fail window_status follows Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

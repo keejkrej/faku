@@ -106,7 +106,11 @@
 //! SkillsEmptyChrome). Delete miss / remove-fail window_status
 //! Could not delete skill. follows `i18n.SkillsTrashStatusChrome`
 //! (distinct from SkillsTrashChrome Delete / Confirm delete).
-//! Daemon `trashSkills` is best-effort; the fallback is a
+//! Delete success window_status Moved “%{name}” to the Trash
+//! follows `i18n.SkillsDeletedToastChrome` (distinct from
+//! SkillsTrashChrome / SkillsTrashStatusChrome /
+//! SkillsPathCopiedChrome; `%{name}` is captured from `skill_store`
+//! before `skill_selected_id = 0`). Daemon `trashSkills` is best-effort; the fallback is a
 //! permanent directory remove, not OS Trash. First-cut Open in
 //! editor for the selected skill calls
 //! `open_editor.startOpenEditorAt` at the absolute `SKILL.md` /
@@ -136,7 +140,12 @@
 //! `skill_path_copied_status`). Label reuses
 //! `i18n.ComposerProjectChrome.copy_path` via
 //! Model `skill_copy_path_label`. Not Reveal, not Open in editor,
-//! not a daemon method. Not a Native FS API. Unselected-detail
+//! not a daemon method. Delete success (daemon `trashSkills` ack
+//! or permanent-remove exit 0) sets window_status Moved
+//! “%{name}” to the Trash (`i18n.SkillsDeletedToastChrome.deleted_toast`
+//! via Model `skill_deleted_status`; name from cache before clear;
+//! Faku has no OS Trash crate on the fallback — chrome still
+//! matches Waku `skills.deleted_toast`). Not a Native FS API. Unselected-detail
 //! Select a skill follows `i18n.SkillsSelectChrome` (distinct from
 //! SkillsEmptyChrome; muted Native text when the list has rows and
 //! none is selected). Count / filter caption follows
@@ -275,6 +284,12 @@ pub const could_not_delete_status = i18n.skillsTrashStatusChromeFor(.english, ""
 /// via Model `skill_path_copied_status`. Distinct from
 /// ComposerProjectChrome Copy path.
 pub const path_copied_status = i18n.skillsPathCopiedChromeFor(.english, "").path_copied;
+/// English default template for Delete success window_status.
+/// Localized copy lives on `i18n.SkillsDeletedToastChrome.deleted_toast`
+/// via Model `skill_deleted_status` (`%{name}` substituted). Distinct
+/// from SkillsTrashStatusChrome Could not delete skill. and from
+/// SkillsPathCopiedChrome Path copied.
+pub const deleted_toast_template = i18n.skillsDeletedToastChromeFor(.english, "").deleted_toast;
 
 pub const sh_bin = file_mention.sh_bin;
 pub const find_bin = file_mention.find_bin;
@@ -1574,15 +1589,16 @@ pub fn applyTrashSkillsLine(model: *Model, line: native_sdk.EffectLine) void {
     model.skill_trash_ok = true;
 }
 
-/// Ok Ack then clear arming and `refresh`. Unknown-command / parse
-/// miss / sidecar fail fall back to today's permanent directory
-/// remove using the stored skill dir.
+/// Ok Ack then set deleted-toast window_status, clear arming, and
+/// `refresh`. Unknown-command / parse miss / sidecar fail fall back
+/// to today's permanent directory remove using the stored skill dir.
 pub fn handleTrashSkillsExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     if (exit.key != model.daemon_trash_skills_key or model.daemon_trash_skills_key == 0) return;
     model.daemon_trash_skills_key = 0;
     const ok = model.skill_trash_ok;
     model.skill_trash_ok = false;
     if (ok) {
+        applyDeletedToast(model);
         clearDeleteArming(model);
         model.skill_selected_id = 0;
         clearSelectedSkillBody(model);
@@ -1596,6 +1612,11 @@ pub fn handleTrashSkillsExit(model: *Model, fx: *Effects, exit: native_sdk.Effec
     spawnRemove(model, fx);
 }
 
+/// Permanent directory remove settled. Exit 0 paints the same
+/// Waku `skills.deleted_toast` as a daemon `trashSkills` ack
+/// (Faku has no OS Trash crate on this fallback; chrome still
+/// matches Settings Skills parity). Non-zero / cancelled keeps
+/// Could not delete skill.
 pub fn handleRemoveExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     if (exit.key != model.skill_remove_key or model.skill_remove_key == 0) return;
     model.skill_remove_key = 0;
@@ -1604,6 +1625,7 @@ pub fn handleRemoveExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
         failTrash(model);
         return;
     }
+    applyDeletedToast(model);
     clearDeleteArming(model);
     model.skill_selected_id = 0;
     clearSelectedSkillBody(model);
@@ -1612,6 +1634,15 @@ pub fn handleRemoveExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
 
 fn failTrash(model: *Model) void {
     model.setWindowStatus(model.skill_delete_failed_status());
+}
+
+/// Capture the selected skill name from cache, then set
+/// window_status to the localized deleted toast. Call before
+/// `skill_selected_id = 0` / body clear / `refresh` (refresh
+/// `clearCache`s the store). Empty name still paints.
+fn applyDeletedToast(model: *Model) void {
+    var buf: [i18n.skills_deleted_toast_max]u8 = undefined;
+    model.setWindowStatus(model.skill_deleted_status(selectedSkillName(model), &buf));
 }
 
 fn failEnable(model: *Model) void {
@@ -5077,6 +5108,54 @@ test "skill_path_copied_status equals SkillsPathCopiedChrome path_copied" {
     try std.testing.expectEqualStrings("パスをコピーしました", model.skill_path_copied_status());
 }
 
+test "skill_deleted_status formats %{name} from SkillsDeletedToastChrome" {
+    var model = Model{};
+    var buf: [i18n.skills_deleted_toast_max]u8 = undefined;
+    try std.testing.expectEqualStrings(deleted_toast_template, i18n.skillsDeletedToastChromeFor(.english, "").deleted_toast);
+    try std.testing.expectEqualStrings(
+        "Moved “demo” to the Trash",
+        model.skill_deleted_status("demo", &buf),
+    );
+    try std.testing.expectEqualStrings(
+        i18n.formatSkillsDeletedToast(i18n.skillsDeletedToastChromeFor(.english, ""), "demo", &buf),
+        model.skill_deleted_status("demo", &buf),
+    );
+    try std.testing.expect(!std.mem.eql(u8, model.skill_deleted_status("demo", &buf), model.skill_delete_failed_status()));
+    try std.testing.expect(!std.mem.eql(u8, model.skill_deleted_status("demo", &buf), model.skill_path_copied_status()));
+    try std.testing.expectEqualStrings(
+        "Moved “” to the Trash",
+        model.skill_deleted_status("", &buf),
+    );
+
+    model.language_preference = .simplified_chinese;
+    try std.testing.expectEqualStrings(
+        "已将“demo”移到废纸篓",
+        model.skill_deleted_status("demo", &buf),
+    );
+    model.language_preference = .japanese;
+    try std.testing.expectEqualStrings(
+        "「demo」をゴミ箱に移動しました",
+        model.skill_deleted_status("demo", &buf),
+    );
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try std.testing.expectEqualStrings(
+        "Moved “demo” to the Trash",
+        model.skill_deleted_status("demo", &buf),
+    );
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try std.testing.expectEqualStrings(
+        "已将“demo”移到废纸篓",
+        model.skill_deleted_status("demo", &buf),
+    );
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try std.testing.expectEqualStrings(
+        "「demo」をゴミ箱に移動しました",
+        model.skill_deleted_status("demo", &buf),
+    );
+}
+
 test "composer $ insert lists enabled skills only" {
     const testing = std.testing;
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
@@ -6435,6 +6514,19 @@ test "trashSkills ack refreshes; unknown-command falls back to remove; no setSki
     try testing.expect(!model.skill_delete_arming);
     try testing.expectEqual(@as(u64, 0), model.skill_remove_key);
     try testing.expectEqual(@as(u32, 0), cachedCount(&model));
+    try testing.expectEqualStrings("Moved “trash-me” to the Trash", model.window_status());
+    {
+        var toast_buf: [i18n.skills_deleted_toast_max]u8 = undefined;
+        try testing.expectEqualStrings(
+            model.skill_deleted_status("trash-me", &toast_buf),
+            model.window_status(),
+        );
+        try testing.expectEqualStrings(
+            i18n.formatSkillsDeletedToast(i18n.skillsDeletedToastChromeFor(.english, ""), "trash-me", &toast_buf),
+            model.window_status(),
+        );
+    }
+    try testing.expect(!std.mem.eql(u8, could_not_delete_status, model.window_status()));
     const reload = pendingSpawnKey(&fx, model.daemon_load_skills_key) orelse return error.MissingLoadSkillsAfterTrashAck;
     try testing.expect(std.mem.indexOf(u8, reload.stdin, "\"type\":\"loadSkills\"") != null);
     try testing.expect(std.mem.indexOf(u8, reload.stdin, "\"type\":\"setSkillsEnabled\"") == null);
@@ -6563,6 +6655,156 @@ test "Delete miss / remove-fail window_status follows Appearance language" {
     model.skill_remove_key = skills_remove_key_first;
     handleRemoveExit(&model, &fx, .{ .key = skills_remove_key_first, .reason = .exited, .code = 1 });
     try testing.expectEqualStrings("スキルを削除できませんでした。", model.window_status());
+}
+
+test "permanent remove success sets deleted toast; fail path stays Could not delete skill" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-remove-ok", .{tmp.sub_path[0..]});
+    var skill_dir_buf: [256]u8 = undefined;
+    const skill_dir = try std.fmt.bufPrint(&skill_dir_buf, "{s}/skills/demo", .{root});
+    try std.Io.Dir.cwd().createDirPath(testing.io, skill_dir);
+    var file_buf: [256]u8 = undefined;
+    const file_path = try std.fmt.bufPrint(&file_buf, "{s}/SKILL.md", .{skill_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = file_path,
+        .data =
+        \\---
+        \\name: trash-me
+        \\---
+        \\
+        \\Body
+        \\
+        ,
+    });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, root);
+    applyStdoutPaths(&model, "skills/demo/SKILL.md\n");
+    selectSkill(&model, 1);
+    try testing.expectEqualStrings("trash-me", selectedSkillName(&model));
+    armSkillDelete(&model);
+
+    model.skill_remove_key = skills_remove_key_first;
+    handleRemoveExit(&model, &fx, .{ .key = skills_remove_key_first, .reason = .exited, .code = 0 });
+    try testing.expectEqual(@as(u64, 0), model.skill_remove_key);
+    try testing.expectEqual(@as(u32, 0), cachedCount(&model));
+    try testing.expectEqualStrings("Moved “trash-me” to the Trash", model.window_status());
+    {
+        var toast_buf: [i18n.skills_deleted_toast_max]u8 = undefined;
+        try testing.expectEqualStrings(
+            model.skill_deleted_status("trash-me", &toast_buf),
+            model.window_status(),
+        );
+    }
+    try testing.expect(!std.mem.eql(u8, could_not_delete_status, model.window_status()));
+    try testing.expect(!model.skill_delete_arming);
+    try testing.expectEqual(@as(u32, 0), model.skill_selected_id);
+
+    applyStdoutPaths(&model, "skills/demo/SKILL.md\n");
+    selectSkill(&model, 1);
+    model.skill_remove_key = skills_remove_key_first + 1;
+    handleRemoveExit(&model, &fx, .{ .key = skills_remove_key_first + 1, .reason = .exited, .code = 1 });
+    try testing.expectEqualStrings(could_not_delete_status, model.window_status());
+    try testing.expectEqualStrings(model.skill_delete_failed_status(), model.window_status());
+    try testing.expectEqual(@as(u32, 1), cachedCount(&model));
+}
+
+test "deleted toast follows Appearance language on trash ack and remove success" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-deleted-i18n", .{tmp.sub_path[0..]});
+    var skill_dir_buf: [256]u8 = undefined;
+    const skill_dir = try std.fmt.bufPrint(&skill_dir_buf, "{s}/skills/demo", .{root});
+    try std.Io.Dir.cwd().createDirPath(testing.io, skill_dir);
+    var file_buf: [256]u8 = undefined;
+    const file_path = try std.fmt.bufPrint(&file_buf, "{s}/SKILL.md", .{skill_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = file_path,
+        .data =
+        \\---
+        \\name: trash-me
+        \\---
+        \\
+        \\Body
+        \\
+        ,
+    });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("skills deleted i18n", .fx);
+    model.selected = id;
+    model.sessionById(id).?.setProjectPath(root);
+    writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, root);
+    applyStdoutPaths(&model, "skills/demo/SKILL.md\n");
+    selectSkill(&model, 1);
+    armSkillDelete(&model);
+    confirmSkillDelete(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_trash_skills_key) orelse return error.MissingTrashSkillsAck;
+    const ack_key = sidecar.key;
+    applyTrashSkillsLine(&model, .{ .key = ack_key, .line = trash_skills_ack_line });
+    handleTrashSkillsExit(&model, &fx, .{ .key = ack_key, .reason = .exited, .code = 0 });
+    try testing.expectEqualStrings("Moved “trash-me” to the Trash", model.window_status());
+
+    applyStdoutPaths(&model, "skills/demo/SKILL.md\n");
+    selectSkill(&model, 1);
+    model.language_preference = .simplified_chinese;
+    model.skill_remove_key = skills_remove_key_first;
+    handleRemoveExit(&model, &fx, .{ .key = skills_remove_key_first, .reason = .exited, .code = 0 });
+    try testing.expectEqualStrings("已将“trash-me”移到废纸篓", model.window_status());
+    {
+        var toast_buf: [i18n.skills_deleted_toast_max]u8 = undefined;
+        try testing.expectEqualStrings(
+            i18n.formatSkillsDeletedToast(i18n.skillsDeletedToastChromeFor(.simplified_chinese, ""), "trash-me", &toast_buf),
+            model.window_status(),
+        );
+    }
+
+    applyStdoutPaths(&model, "skills/demo/SKILL.md\n");
+    selectSkill(&model, 1);
+    model.language_preference = .japanese;
+    model.skill_remove_key = skills_remove_key_first + 1;
+    handleRemoveExit(&model, &fx, .{ .key = skills_remove_key_first + 1, .reason = .exited, .code = 0 });
+    try testing.expectEqualStrings("「trash-me」をゴミ箱に移動しました", model.window_status());
+
+    applyStdoutPaths(&model, "skills/demo/SKILL.md\n");
+    selectSkill(&model, 1);
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    model.skill_remove_key = skills_remove_key_first + 2;
+    handleRemoveExit(&model, &fx, .{ .key = skills_remove_key_first + 2, .reason = .exited, .code = 0 });
+    try testing.expectEqualStrings("Moved “trash-me” to the Trash", model.window_status());
+
+    applyStdoutPaths(&model, "skills/demo/SKILL.md\n");
+    selectSkill(&model, 1);
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    model.skill_remove_key = skills_remove_key_first + 3;
+    handleRemoveExit(&model, &fx, .{ .key = skills_remove_key_first + 3, .reason = .exited, .code = 0 });
+    try testing.expectEqualStrings("已将“trash-me”移到废纸篓", model.window_status());
+
+    applyStdoutPaths(&model, "skills/demo/SKILL.md\n");
+    selectSkill(&model, 1);
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    model.skill_remove_key = skills_remove_key_first + 4;
+    handleRemoveExit(&model, &fx, .{ .key = skills_remove_key_first + 4, .reason = .exited, .code = 0 });
+    try testing.expectEqualStrings("「trash-me」をゴミ箱に移動しました", model.window_status());
 }
 
 test "Enable/Disable rename-fail window_status follows Appearance language" {
