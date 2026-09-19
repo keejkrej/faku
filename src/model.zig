@@ -631,6 +631,11 @@ pub const Msg = union(enum) {
     set_settings_page_skills,
     set_settings_page_usage,
     set_settings_page_computer_use,
+    /// Settings General Share anonymous usage data chip. Flips
+    /// persisted `analytics_enabled` (default true). Preference + UI
+    /// only; no telemetry backend this cut. `on-press` stays
+    /// `toggle_analytics_enabled`.
+    toggle_analytics_enabled,
     set_usage_view_daily,
     set_usage_view_monthly,
     set_usage_view_projects,
@@ -1406,6 +1411,12 @@ pub const Model = struct {
     /// `sessions.json` extras. Missing / unknown / null → false.
     /// Settings open still closes the meter and persists false.
     usage_meter_open: bool = false,
+    /// Settings General Share anonymous usage data. Persists as
+    /// `analytics_enabled` on `sessions.json` extras (JSON boolean;
+    /// missing / unknown / null → true, Waku `default_analytics_enabled`).
+    /// Preference + UI only this cut: toggling persists and reloads;
+    /// no telemetry / PostHog / network.
+    analytics_enabled: bool = true,
     /// First-cut daemon plan-usage map (four runtime slots: Claude /
     /// Codex / OpenCode / Grok). Not a HashMap. Each slot holds the
     /// snapshot plus per-provider `checked_at` / `stale` / `pending_key`
@@ -5654,6 +5665,10 @@ pub const Model = struct {
         return i18n.localByDefaultChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn anonymousUsageChrome(model: *const Model) i18n.AnonymousUsageChrome {
+        return i18n.anonymousUsageChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn composerChrome(model: *const Model) i18n.ComposerChrome {
         return i18n.composerChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -7708,6 +7723,20 @@ pub const Model = struct {
     /// Display-only; not `settings.local_by_default_web_description`.
     pub fn local_by_default_description(model: *const Model) []const u8 {
         return model.localByDefaultChrome().description;
+    }
+
+    /// Settings General Share anonymous usage data card title.
+    /// Distinct from `LocalByDefaultChrome`. English matches Waku
+    /// `settings.share_anonymous_usage_data`.
+    pub fn anonymous_usage_title(model: *const Model) []const u8 {
+        return model.anonymousUsageChrome().title;
+    }
+
+    /// Settings General Share anonymous usage data card description.
+    /// Faku-adapted Waku `settings.share_anonymous_usage_data_description`.
+    /// Preference + UI only; persist key is `analytics_enabled`.
+    pub fn anonymous_usage_description(model: *const Model) []const u8 {
+        return model.anonymousUsageChrome().description;
     }
 
     /// Runtime-only muted status on the Review card (Comparing… /

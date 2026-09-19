@@ -227,6 +227,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .set_settings_page_skills => settings_actions.handleSetSettingsPageSkills(model, fx),
         .set_settings_page_usage => settings_actions.handleSetSettingsPageUsage(model, fx),
         .set_settings_page_computer_use => settings_actions.handleSetSettingsPageComputerUse(model, fx),
+        .toggle_analytics_enabled => settings_actions.handleToggleAnalyticsEnabled(model),
         .set_usage_view_daily => settings_actions.handleSetUsageViewDaily(model, fx),
         .set_usage_view_monthly => settings_actions.handleSetUsageViewMonthly(model, fx),
         .set_usage_view_projects => settings_actions.handleSetUsageViewProjects(model, fx),

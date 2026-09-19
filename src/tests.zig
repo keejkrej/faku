@@ -31929,6 +31929,10 @@ test "Settings General Local by default card follows Appearance language" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{local_by_default_title}") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{local_by_default_title}").? <
         std.mem.indexOf(u8, main.app_markup, "{settings_default_model_label}").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{local_by_default_title}").? <
+        std.mem.indexOf(u8, main.app_markup, "{anonymous_usage_title}").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{anonymous_usage_title}").? <
+        std.mem.indexOf(u8, main.app_markup, "{settings_default_model_label}").?);
 
     var model = boot.initialModel();
     try testing.expectEqualStrings("Local by default", model.local_by_default_title());
@@ -32018,6 +32022,139 @@ test "Settings General Local by default card follows Appearance language" {
     _ = try expectByText(tree.root, .text, "プロジェクト、会話、設定はこのコンピュータに保存されます");
     try testing.expect(findByText(tree.root, .text, "Local by default") == null);
     try testing.expect(findByText(tree.root, .text, "默认存储在本地") == null);
+}
+
+test "Settings General Share anonymous usage data card follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{anonymous_usage_title}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{anonymous_usage_description}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<span weight=\"bold\">{anonymous_usage_title}</span>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "selected=\"{analytics_enabled}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"toggle_analytics_enabled\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "wrap=\"true\" foreground=\"text_muted\">{anonymous_usage_description}</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Share anonymous usage data</"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Help improve Faku by sharing feature usage"));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "posthog") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{local_by_default_title}").? <
+        std.mem.indexOf(u8, main.app_markup, "{anonymous_usage_title}").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{anonymous_usage_title}").? <
+        std.mem.indexOf(u8, main.app_markup, "{settings_default_model_label}").?);
+
+    var model = boot.initialModel();
+    try testing.expect(model.analytics_enabled);
+    try testing.expectEqualStrings("Share anonymous usage data", model.anonymous_usage_title());
+    try testing.expectEqualStrings(
+        "Help improve Faku by sharing feature usage and reliability data. Prompts, responses, project names, file paths, and other personal data are never included",
+        model.anonymous_usage_description(),
+    );
+    try testing.expectEqualStrings(i18n.anonymousUsageChromeFor(.english, "").title, model.anonymous_usage_title());
+    try testing.expectEqualStrings(i18n.anonymousUsageChromeFor(.english, "").description, model.anonymous_usage_description());
+    try testing.expect(!std.mem.eql(u8, model.anonymous_usage_title(), model.local_by_default_title()));
+    try testing.expect(!std.mem.eql(u8, model.anonymous_usage_description(), model.local_by_default_description()));
+    try testing.expect(!std.mem.eql(u8, model.anonymous_usage_title(), model.settings_default_model_label()));
+    try testing.expect(!std.mem.eql(u8, model.anonymous_usage_title(), model.computer_use_title()));
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_open);
+    try testing.expect(model.settings_page_general());
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Share anonymous usage data");
+    _ = try expectByText(tree.root, .text, "Help improve Faku by sharing feature usage and reliability data. Prompts, responses, project names, file paths, and other personal data are never included");
+    _ = try expectByText(tree.root, .text, "Local by default");
+    _ = try expectByText(tree.root, .text, "Default model");
+    const en_btn = try expectButtonMsg(tree, "Share anonymous usage data", .toggle_analytics_enabled);
+    try testing.expect(en_btn.state.selected);
+    try testing.expect(findByText(tree.root, .text, "分享匿名使用数据") == null);
+    try testing.expect(findByText(tree.root, .text, "匿名の使用状況データを共有") == null);
+
+    model.switcher_open = true;
+    model.settings_effort_picker_open = true;
+    main.update(&model, .toggle_analytics_enabled, &fx);
+    try testing.expect(!model.analytics_enabled);
+    try testing.expect(!model.switcher_open);
+    try testing.expect(!model.settings_effort_picker_open);
+    tree = try buildTree(arena, &model);
+    const off_btn = try expectButtonMsg(tree, "Share anonymous usage data", .toggle_analytics_enabled);
+    try testing.expect(!off_btn.state.selected);
+
+    main.update(&model, .toggle_analytics_enabled, &fx);
+    try testing.expect(model.analytics_enabled);
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Share anonymous usage data", .toggle_analytics_enabled)).state.selected);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("分享匿名使用数据", model.anonymous_usage_title());
+    try testing.expectEqualStrings(
+        "分享功能使用情况和可靠性数据，帮助改进 Faku。不会包含提示词、回复、项目名称、文件路径等个人信息",
+        model.anonymous_usage_description(),
+    );
+    try testing.expectEqualStrings(i18n.anonymousUsageChromeFor(.simplified_chinese, "").title, model.anonymous_usage_title());
+    try testing.expectEqualStrings(i18n.anonymousUsageChromeFor(.simplified_chinese, "").description, model.anonymous_usage_description());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "分享匿名使用数据");
+    _ = try expectByText(tree.root, .text, "分享功能使用情况和可靠性数据，帮助改进 Faku。不会包含提示词、回复、项目名称、文件路径等个人信息");
+    _ = try expectByText(tree.root, .text, "默认存储在本地");
+    _ = try expectButtonMsg(tree, "分享匿名使用数据", .toggle_analytics_enabled);
+    try testing.expect(findByText(tree.root, .text, "Share anonymous usage data") == null);
+    try testing.expect(findByText(tree.root, .text, "Help improve Faku by sharing feature usage") == null);
+    try testing.expect(findByText(tree.root, .text, "匿名の使用状況データを共有") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("匿名の使用状況データを共有", model.anonymous_usage_title());
+    try testing.expectEqualStrings(
+        "機能の利用状況と信頼性に関するデータを共有して、Faku の改善にご協力ください。プロンプト、回答、プロジェクト名、ファイルパスなどの個人データは一切含まれません",
+        model.anonymous_usage_description(),
+    );
+    try testing.expectEqualStrings(i18n.anonymousUsageChromeFor(.japanese, "").title, model.anonymous_usage_title());
+    try testing.expectEqualStrings(i18n.anonymousUsageChromeFor(.japanese, "").description, model.anonymous_usage_description());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "匿名の使用状況データを共有");
+    _ = try expectByText(tree.root, .text, "機能の利用状況と信頼性に関するデータを共有して、Faku の改善にご協力ください。プロンプト、回答、プロジェクト名、ファイルパスなどの個人データは一切含まれません");
+    _ = try expectByText(tree.root, .text, "デフォルトでローカルに保存");
+    _ = try expectButtonMsg(tree, "匿名の使用状況データを共有", .toggle_analytics_enabled);
+    try testing.expect(findByText(tree.root, .text, "Share anonymous usage data") == null);
+    try testing.expect(findByText(tree.root, .text, "分享匿名使用数据") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Share anonymous usage data", model.anonymous_usage_title());
+    try testing.expectEqualStrings(
+        "Help improve Faku by sharing feature usage and reliability data. Prompts, responses, project names, file paths, and other personal data are never included",
+        model.anonymous_usage_description(),
+    );
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Share anonymous usage data");
+    try testing.expect(findByText(tree.root, .text, "匿名の使用状況データを共有") == null);
+    try testing.expect(findByText(tree.root, .text, "分享匿名使用数据") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("分享匿名使用数据", model.anonymous_usage_title());
+    try testing.expectEqualStrings(
+        "分享功能使用情况和可靠性数据，帮助改进 Faku。不会包含提示词、回复、项目名称、文件路径等个人信息",
+        model.anonymous_usage_description(),
+    );
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "分享匿名使用数据");
+    try testing.expect(findByText(tree.root, .text, "Share anonymous usage data") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("匿名の使用状況データを共有", model.anonymous_usage_title());
+    try testing.expectEqualStrings(
+        "機能の利用状況と信頼性に関するデータを共有して、Faku の改善にご協力ください。プロンプト、回答、プロジェクト名、ファイルパスなどの個人データは一切含まれません",
+        model.anonymous_usage_description(),
+    );
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "匿名の使用状況データを共有");
+    try testing.expect(findByText(tree.root, .text, "Share anonymous usage data") == null);
+    try testing.expect(findByText(tree.root, .text, "分享匿名使用数据") == null);
 }
 
 test "Composer Image path and Status chrome follow Appearance language" {

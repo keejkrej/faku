@@ -174,6 +174,13 @@
 //! persist key; distinct from `SettingsGeneralChrome` /
 //! `ComputerUseChrome` / `DaemonAddressChrome` so packs stay
 //! independently evolvable)
+//! plus Settings General Share anonymous usage data title +
+//! description (same `AnonymousUsageChrome` strings; English
+//! matches Waku `settings.share_anonymous_usage_data` title and
+//! Faku-adapted description; persist key `analytics_enabled`;
+//! preference + UI only, no telemetry backend this cut; distinct
+//! from `LocalByDefaultChrome` / `SettingsGeneralChrome` so packs
+//! stay independently evolvable)
 //! plus composer Image path placeholder, Pick image button,
 //! Attach image a11y, Clear image a11y, Attached image a11y,
 //! Goal Status picker placeholder / empty label, and Commands
@@ -703,7 +710,13 @@
 //! `settings.local_by_default` / `settings.local_by_default_description`;
 //! not `settings.local_by_default_web_description`; display-only, no
 //! persist key; distinct from `SettingsGeneralChrome` /
-//! `ComputerUseChrome` / `DaemonAddressChrome`). Composer Image path `on-input`
+//! `ComputerUseChrome` / `DaemonAddressChrome`). Settings General
+//! Share anonymous usage data title + description follow the
+//! resolved locale this cut (same `AnonymousUsageChrome` strings;
+//! persist key `analytics_enabled`; `on-press` stays English
+//! `toggle_analytics_enabled`; preference + UI only, no telemetry
+//! backend this cut; distinct from `LocalByDefaultChrome` /
+//! `SettingsGeneralChrome`). Composer Image path `on-input`
 //! stays English (`image_path_edit`); Goal Status picker `on-press`
 //! stays English (`toggle_goal_status_picker` / `pick_goal_status`); Pick image / Attach
 //! image `on-press` stays English (`pick_image`); Clear image
@@ -2647,6 +2660,36 @@ const local_by_default_chrome_zh_cn: LocalByDefaultChrome = .{
 const local_by_default_chrome_ja: LocalByDefaultChrome = .{
     .title = "デフォルトでローカルに保存",
     .description = "プロジェクト、会話、設定はこのコンピュータに保存されます",
+};
+
+/// Settings General Share anonymous usage data title + description
+/// for the resolved locale. Same resolve path as LocalByDefaultChrome.
+/// English title matches Waku `settings.share_anonymous_usage_data`.
+/// English description is Faku-adapted Waku
+/// `settings.share_anonymous_usage_data_description` (says Faku, not
+/// Waku). First-cut preference + UI only: persist `analytics_enabled`
+/// (default true); no telemetry / PostHog / network this cut.
+/// Distinct from `LocalByDefaultChrome` / `SettingsGeneralChrome` /
+/// `ComputerUseChrome` / `DaemonAddressChrome` so packs stay
+/// independently evolvable.
+pub const AnonymousUsageChrome = struct {
+    title: []const u8,
+    description: []const u8,
+};
+
+const anonymous_usage_chrome_en: AnonymousUsageChrome = .{
+    .title = "Share anonymous usage data",
+    .description = "Help improve Faku by sharing feature usage and reliability data. Prompts, responses, project names, file paths, and other personal data are never included",
+};
+
+const anonymous_usage_chrome_zh_cn: AnonymousUsageChrome = .{
+    .title = "分享匿名使用数据",
+    .description = "分享功能使用情况和可靠性数据，帮助改进 Faku。不会包含提示词、回复、项目名称、文件路径等个人信息",
+};
+
+const anonymous_usage_chrome_ja: AnonymousUsageChrome = .{
+    .title = "匿名の使用状況データを共有",
+    .description = "機能の利用状況と信頼性に関するデータを共有して、Faku の改善にご協力ください。プロンプト、回答、プロジェクト名、ファイルパスなどの個人データは一切含まれません",
 };
 
 /// OS folder-dialog prompt and missing-picker status for the resolved
@@ -5769,6 +5812,22 @@ pub fn localByDefaultChromeFor(preference: LanguagePreference, system_locale_id:
     };
 }
 
+/// Settings General Share anonymous usage data title + description
+/// for the resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. English
+/// title matches Waku `settings.share_anonymous_usage_data`. English
+/// description is Faku-adapted (says Faku, not Waku). Distinct from
+/// `localByDefaultChromeFor` / `settingsGeneralChromeFor` so packs
+/// stay independently evolvable. Preference + UI only; no telemetry
+/// backend this cut.
+pub fn anonymousUsageChromeFor(preference: LanguagePreference, system_locale_id: []const u8) AnonymousUsageChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => anonymous_usage_chrome_zh_cn,
+        .japanese => anonymous_usage_chrome_ja,
+        .system, .english => anonymous_usage_chrome_en,
+    };
+}
+
 /// OS folder-dialog prompt and missing-picker status for the resolved
 /// locale. Callers pass Model `language_preference` +
 /// `system_locale_id`; this file does not read process env. Wire ids /
@@ -8642,6 +8701,40 @@ test "localByDefaultChromeFor english default; zh and ja chrome; english ignores
     try testing.expectEqualStrings("デフォルトでローカルに保存", localByDefaultChromeFor(.system, "ja_JP.UTF-8").title);
     try testing.expectEqualStrings("Local by default", localByDefaultChromeFor(.english, "ja_JP.UTF-8").title);
     try testing.expectEqualStrings("Local by default", localByDefaultChromeFor(.english, "zh_CN.UTF-8").title);
+}
+
+test "anonymousUsageChromeFor english default; zh and ja chrome; distinct from localByDefault" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Share anonymous usage data", anonymousUsageChromeFor(.english, "ja").title);
+    try testing.expectEqualStrings(
+        "Help improve Faku by sharing feature usage and reliability data. Prompts, responses, project names, file paths, and other personal data are never included",
+        anonymousUsageChromeFor(.english, "").description,
+    );
+    try testing.expectEqualStrings("Share anonymous usage data", anonymousUsageChromeFor(.system, "").title);
+    try testing.expectEqualStrings("分享匿名使用数据", anonymousUsageChromeFor(.simplified_chinese, "").title);
+    try testing.expectEqualStrings(
+        "分享功能使用情况和可靠性数据，帮助改进 Faku。不会包含提示词、回复、项目名称、文件路径等个人信息",
+        anonymousUsageChromeFor(.simplified_chinese, "").description,
+    );
+    try testing.expectEqualStrings("匿名の使用状況データを共有", anonymousUsageChromeFor(.japanese, "").title);
+    try testing.expectEqualStrings(
+        "機能の利用状況と信頼性に関するデータを共有して、Faku の改善にご協力ください。プロンプト、回答、プロジェクト名、ファイルパスなどの個人データは一切含まれません",
+        anonymousUsageChromeFor(.japanese, "").description,
+    );
+    try testing.expectEqualStrings("分享匿名使用数据", anonymousUsageChromeFor(.system, "zh_CN.UTF-8").title);
+    try testing.expectEqualStrings("匿名の使用状況データを共有", anonymousUsageChromeFor(.system, "ja_JP.UTF-8").title);
+    try testing.expectEqualStrings("Share anonymous usage data", anonymousUsageChromeFor(.english, "ja_JP.UTF-8").title);
+    try testing.expectEqualStrings("Share anonymous usage data", anonymousUsageChromeFor(.english, "zh_CN.UTF-8").title);
+    try testing.expect(!std.mem.eql(u8, anonymousUsageChromeFor(.english, "").title, localByDefaultChromeFor(.english, "").title));
+    try testing.expect(!std.mem.eql(u8, anonymousUsageChromeFor(.english, "").description, localByDefaultChromeFor(.english, "").description));
+    try testing.expect(!std.mem.eql(u8, anonymousUsageChromeFor(.simplified_chinese, "").title, localByDefaultChromeFor(.simplified_chinese, "").title));
+    try testing.expect(!std.mem.eql(u8, anonymousUsageChromeFor(.japanese, "").title, localByDefaultChromeFor(.japanese, "").title));
+    try testing.expect(std.mem.indexOf(u8, anonymousUsageChromeFor(.english, "").description, "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, anonymousUsageChromeFor(.english, "").description, "Waku") == null);
+    try testing.expect(std.mem.indexOf(u8, anonymousUsageChromeFor(.simplified_chinese, "").description, "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, anonymousUsageChromeFor(.simplified_chinese, "").description, "Waku") == null);
+    try testing.expect(std.mem.indexOf(u8, anonymousUsageChromeFor(.japanese, "").description, "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, anonymousUsageChromeFor(.japanese, "").description, "Waku") == null);
 }
 
 test "osFolderDialogChromeFor english default; zh and ja chrome; english ignores ja LANG" {
