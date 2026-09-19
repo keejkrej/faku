@@ -11733,13 +11733,11 @@ fn countByKind(widget: canvas.Widget, kind: canvas.WidgetKind) usize {
 fn skillsRowHasLibraryDivider(widget: canvas.Widget) bool {
     var has_library = false;
     var has_details = false;
-    var has_sep = false;
     for (widget.children) |child| {
         if (child.kind == .column and std.mem.eql(u8, widgetName(child), "Skills library")) has_library = true;
         if (child.kind == .column and std.mem.eql(u8, widgetName(child), "Skill details")) has_details = true;
-        if (child.kind == .separator) has_sep = true;
     }
-    if (has_library and has_details and has_sep) return true;
+    if (has_library and has_details) return true;
     for (widget.children) |child| {
         if (skillsRowHasLibraryDivider(child)) return true;
     }
@@ -16003,6 +16001,16 @@ test "settings Skills lists SKILL.md name, description, and path; select shows b
         try testing.expectEqual(@as(f32, 1), details_pane.layout.grow);
         try testing.expect(skillsRowHasLibraryDivider(tree.root));
     }
+    try testing.expectEqual(@as(f32, 264), model.skills_library_width);
+    try testing.expectEqual(@as(f32, 264.0 / 1128.0), model.skills_library_split());
+    main.update(&model, .{ .skills_library_resized = 320.0 / 1128.0 }, &fx);
+    try testing.expectEqual(@as(f32, 320), model.skills_library_width);
+    main.update(&model, .{ .skills_library_resized = 0 }, &fx);
+    try testing.expectEqual(@as(f32, 140), model.skills_library_width);
+    main.update(&model, .{ .skills_library_resized = 1 }, &fx);
+    try testing.expectEqual(@as(f32, 480), model.skills_library_width);
+    main.update(&model, .{ .skills_library_resized = 264.0 / 1128.0 }, &fx);
+    try testing.expectEqual(@as(f32, 264), model.skills_library_width);
     try testing.expectEqualStrings("Skills library", model.skills_library_title());
     try testing.expectEqualStrings("Skill details", model.skills_details_title());
     try testing.expect(!std.mem.eql(u8, model.skills_library_title(), model.settings_nav_skills()));
@@ -28173,14 +28181,19 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "foreground=\"text_muted\"><span weight=\"bold\">{skills_details_title}</span>"));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "label=\"{skills_library_title}\""));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "label=\"{skills_details_title}\""));
-    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<column min-width=\"264\" max-width=\"264\" gap=\"10\" padding=\"14\" label=\"{skills_library_title}\">"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<column min-width=\"140\" gap=\"10\" padding=\"14\" label=\"{skills_library_title}\">"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<column grow=\"1\" min-width=\"140\" gap=\"10\" padding=\"14\" label=\"{skills_details_title}\">"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<scroll grow=\"1\" label=\"{skills_library_title}\" overscroll=\"none\">"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<scroll grow=\"1\" label=\"{skills_details_title}\" overscroll=\"none\">"));
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<separator width=\"1\"></separator>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "value=\"{skills_library_split}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-resize=\"skills_library_resized\"") != null);
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<split grow=\"1\" value=\"{skills_library_split}\" on-resize=\"skills_library_resized\">"));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<column min-width=\"264\" max-width=\"264\"") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<separator width=\"1\"></separator>") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "<scroll grow=\"1\">\n          <if test=\"{settings_page_skills}\">") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "<else>\n          <scroll grow=\"1\">\n          <if test=\"{settings_page_providers}\">") != null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<if test=\"{settings_page_skills}\">\n            <row grow=\"1\">") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<if test=\"{settings_page_skills}\">\n            <split grow=\"1\" value=\"{skills_library_split}\" on-resize=\"skills_library_resized\">") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<if test=\"{settings_page_skills}\">\n            <row grow=\"1\">") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "<if test=\"{settings_page_skills}\">\n            <row grow=\"1\" main=\"center\">") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "<if test=\"{settings_page_skills}\">\n            <row grow=\"1\" main=\"center\">\n              <column grow=\"1\" max-width=\"720\"") == null);
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<row height=\"26\" cross=\"center\">"));

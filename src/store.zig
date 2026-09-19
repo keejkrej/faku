@@ -18,12 +18,15 @@
 //! `sidebar_collapsed` and `sidebar_width` so reboot restores the rail,
 //! plus `right_panel_open` / `right_panel_width` /
 //! `right_panel_file_tree_width` / `right_panel_diff_file_list_width` /
+//! `skills_library_width` /
 //! `right_panel_tab` / `browser_url` / `browser_slots` / `browser_histories` /
 //! `browser_active` / `terminal_slots` / `terminal_active`
 //! for the first-cut Files + Diff +
 //! Browser + Terminal + Background pane (default closed; Waku file-tree
 //! 184px; nested Files-tree and Diff file-list widths are u32 pixels,
-//! missing or 0 keep Model 184 then FILE_TREE clamp; Diff open may
+//! missing or 0 keep Model 184 then FILE_TREE clamp; Skills library
+//! width is u32 pixels, missing or 0 keep Model 264 then Skills
+//! library clamp; Diff open may
 //! persist Waku `REVIEW_INITIAL_WIDTH` 820; tab is
 //! `files` / `diff` / `browser` / `terminal` / `background`, missing or
 //! unknown → `files`; Browser address-bar draft URL is the **active**
@@ -416,6 +419,7 @@ pub fn persistIfPossible(model: *Model, session_id: u32, fx: *main.Effects) void
 /// Merge-only write of layout extras (`sidebar_collapsed`,
 /// `sidebar_width`, `right_panel_open`, `right_panel_width`,
 /// `right_panel_file_tree_width`, `right_panel_diff_file_list_width`,
+/// `skills_library_width`,
 /// `right_panel_tab`, `browser_url`, `browser_slots`, `browser_histories`,
 /// `browser_active`, `terminal_slots`, `terminal_active`) plus
 /// remembered `new_task`.
@@ -507,6 +511,7 @@ fn applySidebarExtras(document: *Document, model: *const Model) void {
     document.right_panel_width = model.rightPanelWidthPixels();
     document.right_panel_file_tree_width = model.rightPanelFileTreeWidthPixels();
     document.right_panel_diff_file_list_width = model.rightPanelDiffFileListWidthPixels();
+    document.skills_library_width = model.skillsLibraryWidthPixels();
     document.right_panel_tab = model.right_panel_tab;
     document.browser_url = model.browser_url();
     document.browser_slots = persistedSlotsFromModel(model);
@@ -1102,6 +1107,7 @@ const Document = struct {
     right_panel_width: u32 = 0,
     right_panel_file_tree_width: u32 = 0,
     right_panel_diff_file_list_width: u32 = 0,
+    skills_library_width: u32 = 0,
     right_panel_tab: right_panel.Tab = .files,
     browser_url: []const u8 = "",
     browser_slots: [browser_pane.max_sessions]browser_pane.PersistedSlot = [_]browser_pane.PersistedSlot{.{}} ** browser_pane.max_sessions,
@@ -1150,6 +1156,7 @@ const Document = struct {
             .right_panel_width = model.rightPanelWidthPixels(),
             .right_panel_file_tree_width = model.rightPanelFileTreeWidthPixels(),
             .right_panel_diff_file_list_width = model.rightPanelDiffFileListWidthPixels(),
+            .skills_library_width = model.skillsLibraryWidthPixels(),
             .right_panel_tab = model.right_panel_tab,
             .browser_url = model.browser_url(),
             .browser_slots = persistedSlotsFromModel(model),
@@ -1254,6 +1261,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     right_panel.applyPersisted(model, document.right_panel_open, document.right_panel_tab, document.right_panel_width);
     model.applyRightPanelFileTreeWidth(document.right_panel_file_tree_width);
     model.applyRightPanelDiffFileListWidth(document.right_panel_diff_file_list_width);
+    model.applySkillsLibraryWidth(document.skills_library_width);
     applyPersistedBrowser(model, document);
     applyPersistedTerminal(model, document);
     model.syncSidebarSplit();
@@ -1582,6 +1590,7 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .right_panel_width = jsonUint(obj.get("right_panel_width")) orelse 0,
         .right_panel_file_tree_width = jsonUint(obj.get("right_panel_file_tree_width")) orelse 0,
         .right_panel_diff_file_list_width = jsonUint(obj.get("right_panel_diff_file_list_width")) orelse 0,
+        .skills_library_width = jsonUint(obj.get("skills_library_width")) orelse 0,
         .right_panel_tab = right_panel.Tab.fromPersist(jsonString(obj.get("right_panel_tab")) orelse ""),
         .browser_url = persistedBrowserUrl(jsonString(obj.get("browser_url")) orelse ""),
         .browser_slots = parsed_slots.slots,
@@ -2165,6 +2174,8 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
     try appendUint(&out, allocator, document.right_panel_file_tree_width);
     try out.appendSlice(allocator, ",\"right_panel_diff_file_list_width\":");
     try appendUint(&out, allocator, document.right_panel_diff_file_list_width);
+    try out.appendSlice(allocator, ",\"skills_library_width\":");
+    try appendUint(&out, allocator, document.skills_library_width);
     try out.appendSlice(allocator, ",\"right_panel_tab\":");
     try appendJsonString(&out, allocator, document.right_panel_tab.persistName());
     try out.appendSlice(allocator, ",\"browser_url\":");
@@ -2913,6 +2924,7 @@ test "Background tab persists; selected row and output are not written to sessio
     try testing.expect(std.mem.indexOf(u8, bytes, "right_panel_file_preview") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_file_tree_width\":184") != null);
     try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_diff_file_list_width\":184") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"skills_library_width\":264") != null);
     try testing.expect(std.mem.indexOf(u8, bytes, "background_work") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "Agent turn") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "Running") == null);
@@ -2997,6 +3009,74 @@ test "nested Files tree and Diff file-list widths reload from document extras" {
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&clamped, allocator, io));
     try testing.expectEqual(@as(f32, 360), clamped.right_panel_file_tree_width);
     try testing.expectEqual(@as(f32, 140), clamped.right_panel_diff_file_list_width);
+}
+
+test "Skills library width reloads from document extras; missing or 0 keep 264" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("skills library width later", .fx);
+    _ = source.appendTurn(id, .user, "remember skills library width");
+    try saveSession(&source, id, allocator, io);
+
+    try testing.expectEqual(@as(u32, 264), source.skillsLibraryWidthPixels());
+    source.skills_library_width = 320;
+    persistLayoutIfPossible(&source);
+    try testing.expectEqual(@as(u32, 320), source.skillsLibraryWidthPixels());
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = catalogPath(dir, &path_buf).?;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(max_document_bytes));
+    defer allocator.free(bytes);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"skills_library_width\":320") != null);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = io;
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqual(@as(f32, 320), loaded.skills_library_width);
+    try testing.expectEqual(@as(u32, 320), loaded.skillsLibraryWidthPixels());
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var missing = Model{};
+    missing.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&missing, allocator, io));
+    try testing.expectEqual(@as(f32, 264), missing.skills_library_width);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"skills_library_width":0,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var zeroed = Model{};
+    zeroed.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&zeroed, allocator, io));
+    try testing.expectEqual(@as(f32, 264), zeroed.skills_library_width);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"skills_library_width":100,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var clamped_low = Model{};
+    clamped_low.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&clamped_low, allocator, io));
+    try testing.expectEqual(@as(f32, 140), clamped_low.skills_library_width);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"skills_library_width":500,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var clamped_high = Model{};
+    clamped_high.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&clamped_high, allocator, io));
+    try testing.expectEqual(@as(f32, 480), clamped_high.skills_library_width);
 }
 
 test "right_panel_tab round-trips each value; missing or unknown loads as files" {

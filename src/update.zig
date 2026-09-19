@@ -280,6 +280,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .open_skill_in_editor => settings_actions.handleOpenSkillInEditor(model, fx),
         .reveal_skill => settings_actions.handleRevealSkill(model, fx),
         .copy_skill_path => settings_actions.handleCopySkillPath(model, fx),
+        .skills_library_resized => |fraction| {
+            model.applySkillsLibraryResize(fraction);
+            store.persistLayoutIfPossible(model);
+        },
         .select_provider => |id| settings_actions.handleSelectProvider(model, id),
         .toggle_provider_enabled => |id| settings_actions.handleToggleProviderEnabled(model, id),
         .apply_session_provider => settings_actions.handleApplySessionProvider(model, fx),
