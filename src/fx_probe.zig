@@ -7,7 +7,9 @@
 //! `update.zig`. Probe order is `$HOME/.fx/bin/fx`
 //! `--help` (keejkrej/fx default), leftover `~/.local/bin/fx --help`
 //! (not advertised), then `fx --help` (PATH). Settings → Providers
-//! Refresh calls `restartFxProbe`.
+//! Refresh calls `restartFxProbe`. Handled `--help` exits stamp
+//! `provider_detection_checked_at_ms` (`now_ms`; last exit wins).
+//! Cancelled exits do not stamp.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -71,6 +73,7 @@ pub fn handleFxProbeExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExi
     if (exit.key != fx_probe_key) return;
     // Cancel (Providers Refresh) must not chain to the PATH probe.
     if (exit.reason != .exited) return;
+    model.provider_detection_checked_at_ms = model.now_ms;
     if (exit.code == 0) {
         model.fx_available = true;
         return;
@@ -143,4 +146,24 @@ test "restartFxProbe resets started and queues --help" {
     const spawn = fx.pendingSpawnAt(0).?;
     try testing.expectEqual(fx_probe_key, spawn.key);
     try testing.expect(isFxProbeArgv(spawn.argv));
+}
+
+test "handleFxProbeExit stamps now_ms; cancel is ignored" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.now_ms = 99_000;
+    handleFxProbeExit(&model, &fx, .{ .key = fx_probe_key, .reason = .exited, .code = 0 });
+    try testing.expect(model.fx_available);
+    try testing.expectEqual(@as(i64, 99_000), model.provider_detection_checked_at_ms);
+
+    model.now_ms = 100_000;
+    handleFxProbeExit(&model, &fx, .{ .key = fx_probe_key, .reason = .rejected, .code = 0 });
+    try testing.expectEqual(@as(i64, 99_000), model.provider_detection_checked_at_ms);
+
+    handleFxProbeExit(&model, &fx, .{ .key = 601, .reason = .exited, .code = 0 });
+    try testing.expectEqual(@as(i64, 99_000), model.provider_detection_checked_at_ms);
 }

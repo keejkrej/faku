@@ -1531,6 +1531,10 @@ pub const Model = struct {
     system_locale_id_len: usize = 0,
     /// Runtime-only selected Providers row (1-based). Not persisted.
     provider_selected_id: u32 = 0,
+    /// Runtime-only last PATH `--help` probe exit stamp (`now_ms`).
+    /// Not persisted on `sessions.json`. 0 hides the Providers
+    /// Coding agents Checked … caption (boot / Refresh mid-flight).
+    provider_detection_checked_at_ms: i64 = 0,
     /// Runtime-only Ctrl-Tab overlay. Not persisted to sessions.json.
     switcher_open: bool = false,
     switcher_ids: [switcher_cap]u32 = [_]u32{0} ** switcher_cap,
@@ -2431,6 +2435,7 @@ pub const Model = struct {
         "usageCostQualityChrome",
         "providersChrome",
         "providersDetailChrome",
+        "providersCodingAgentsChrome",
         "skillsEnableChrome",
         "skillsEnableStatusChrome",
         "skillsTrashChrome",
@@ -2444,6 +2449,7 @@ pub const Model = struct {
         "systemLocaleId",
         "disabled_providers",
         "provider_selected_id",
+        "provider_detection_checked_at_ms",
         "settings_search_buffer",
         "applySettingsSearch",
         "visibleSettingsNavPages",
@@ -5422,6 +5428,46 @@ pub const Model = struct {
         return model.providersChrome().copy_login;
     }
 
+    /// Settings Providers Coding agents card title. Distinct from
+    /// `settings_page_heading` / `settings_nav_providers` /
+    /// `Chrome.providers`. Refresh stays the header button.
+    pub fn providers_coding_agents_title(model: *const Model) []const u8 {
+        return model.providersCodingAgentsChrome().coding_agents;
+    }
+
+    /// Settings Providers Coding agents card description.
+    /// Faku-adapted Waku `providers.description`. Distinct from
+    /// `ProvidersDetailChrome`.
+    pub fn providers_coding_agents_description(model: *const Model) []const u8 {
+        return model.providersCodingAgentsChrome().description;
+    }
+
+    /// True when Providers paints the relative Checked … caption.
+    /// Hidden while the stamp is 0 (boot / Refresh mid-flight) or
+    /// when Settings is not on Providers.
+    pub fn has_provider_detection_checked(model: *const Model) bool {
+        return model.settings_page == .providers and model.provider_detection_checked_at_ms != 0;
+    }
+
+    /// Settings Providers Coding agents relative Checked … caption
+    /// (just now / Nm ago / Nh ago). Localized via
+    /// `i18n.ProvidersCodingAgentsChrome`. Empty when the stamp is
+    /// 0 or Settings is not on Providers so the markup can hide it.
+    pub fn provider_detection_checked_label(model: *const Model, arena: std.mem.Allocator) []const u8 {
+        if (!model.has_provider_detection_checked()) return "";
+        var buf: [i18n.providers_detection_checked_label_max]u8 = undefined;
+        const text = i18n.formatProvidersDetectionChecked(
+            model.providersCodingAgentsChrome(),
+            model.provider_detection_checked_at_ms,
+            model.now_ms,
+            &buf,
+        );
+        if (text.len == 0) return "";
+        const out = arena.alloc(u8, text.len) catch return "";
+        @memcpy(out, text);
+        return out;
+    }
+
     /// Composer goal-row Refresh goal. `on-press` stays
     /// `goal_refresh`. Distinct from Settings Refresh and from
     /// plan-meter Refresh.
@@ -5902,6 +5948,10 @@ pub const Model = struct {
 
     fn providersDetailChrome(model: *const Model) i18n.ProvidersDetailChrome {
         return i18n.providersDetailChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn providersCodingAgentsChrome(model: *const Model) i18n.ProvidersCodingAgentsChrome {
+        return i18n.providersCodingAgentsChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     fn skillsSelectChrome(model: *const Model) i18n.SkillsSelectChrome {

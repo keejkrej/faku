@@ -13,7 +13,10 @@
 //! Spawn key is `cli_probe_key_first + @intFromEnum(id)` so claude=601
 //! … kimi=608. fx (enum 0) is unused on this band. Distinct from
 //! fx_probe_key (3), fx_ask_key (2), daemon (4+), fx_spawn (64+),
-//! skills scan (530+) / rename (580+). Refresh cancels the same fixed key per id.
+//! skills scan (530+) / rename (580+). Refresh cancels the same fixed
+//! key per id. Handled `--help` exits stamp
+//! `provider_detection_checked_at_ms` (`now_ms`; last exit wins).
+//! Cancelled exits do not stamp.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -100,6 +103,7 @@ pub fn handleCliProbeExit(model: *Model, exit: native_sdk.EffectExit) void {
     const index = @intFromEnum(id);
     // Cancel (Providers Refresh) must not paint a cancelled spawn.
     if (exit.reason != .exited) return;
+    model.provider_detection_checked_at_ms = model.now_ms;
     model.cli_available[index] = exit.code == 0;
 }
 
@@ -173,23 +177,30 @@ test "success exit is Available; non-zero and missing are Not found; cancel is i
     fx.executor = .fake;
 
     var model = Model{};
+    model.now_ms = 42_000;
     startCliProbes(&model, &fx);
 
     handleCliProbeExit(&model, .{ .key = probeKey(.claude), .reason = .exited, .code = 0 });
     try testing.expect(model.cli_available[@intFromEnum(protocol.ProviderId.claude)]);
+    try testing.expectEqual(@as(i64, 42_000), model.provider_detection_checked_at_ms);
 
     handleCliProbeExit(&model, .{ .key = probeKey(.codex), .reason = .exited, .code = 1 });
     try testing.expect(!model.cli_available[@intFromEnum(protocol.ProviderId.codex)]);
+    try testing.expectEqual(@as(i64, 42_000), model.provider_detection_checked_at_ms);
 
     handleCliProbeExit(&model, .{ .key = probeKey(.amp), .reason = .exited, .code = 127 });
     try testing.expect(!model.cli_available[@intFromEnum(protocol.ProviderId.amp)]);
+    try testing.expectEqual(@as(i64, 42_000), model.provider_detection_checked_at_ms);
 
     model.cli_available[@intFromEnum(protocol.ProviderId.grok)] = true;
+    model.provider_detection_checked_at_ms = 42_000;
     handleCliProbeExit(&model, .{ .key = probeKey(.grok), .reason = .rejected, .code = 0 });
     try testing.expect(model.cli_available[@intFromEnum(protocol.ProviderId.grok)]);
+    try testing.expectEqual(@as(i64, 42_000), model.provider_detection_checked_at_ms);
 
     handleCliProbeExit(&model, .{ .key = fx_probe.fx_probe_key, .reason = .exited, .code = 0 });
     try testing.expect(!model.cli_available[0]);
+    try testing.expectEqual(@as(i64, 42_000), model.provider_detection_checked_at_ms);
 }
 
 test "restartCliProbes requeues every non-fx probe and leaves fx_probe_key unused" {

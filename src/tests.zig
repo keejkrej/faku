@@ -16760,6 +16760,11 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     _ = try expectButtonMsg(tree, "Refresh", .refresh_providers);
     try testing.expect(findByText(tree.root, .text, "Default model") == null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "Search skills…") == null);
+    _ = try expectByText(tree.root, .text, "Coding agents");
+    _ = try expectByText(tree.root, .text, i18n.providersCodingAgentsChromeFor(.english, "").description);
+    try testing.expect(!model.has_provider_detection_checked());
+    try testing.expectEqualStrings("", model.provider_detection_checked_label(arena));
+    try testing.expect(findByText(tree.root, .text, "Checked just now") == null);
 
     const fx_row = try expectByText(tree.root, .list_item, "fx");
     try testing.expectEqual(Msg{ .select_provider = 1 }, tree.msgForPointer(fx_row.id, .up).?);
@@ -16932,6 +16937,136 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
     try testing.expect(findByText(tree.root, .list_item, "fx") == null);
     try testing.expect(findByText(tree.root, .text, "Default model") == null);
     _ = try expectByText(tree.root, .button, "Send");
+}
+
+test "Settings Providers Coding agents card follows Appearance language; Checked caption stamps on probe exit and hides on Refresh" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{providers_coding_agents_title}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{providers_coding_agents_description}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{has_provider_detection_checked}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{provider_detection_checked_label}"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Coding agents</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Checked just now</text>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"refresh_providers\""));
+
+    var model = boot.initialModel();
+    try testing.expectEqualStrings("Coding agents", model.providers_coding_agents_title());
+    try testing.expectEqualStrings(
+        i18n.providersCodingAgentsChromeFor(.english, "").description,
+        model.providers_coding_agents_description(),
+    );
+    try testing.expectEqualStrings(i18n.providersCodingAgentsChromeFor(.english, "").coding_agents, model.providers_coding_agents_title());
+    try testing.expect(!std.mem.eql(u8, model.providers_coding_agents_title(), model.settings_nav_providers()));
+    try testing.expect(!std.mem.eql(u8, model.providers_coding_agents_title(), model.settings_page_heading()));
+    try testing.expect(!model.has_provider_detection_checked());
+    try testing.expectEqualStrings("", model.provider_detection_checked_label(arena));
+    try testing.expect(std.mem.indexOf(u8, model.providers_coding_agents_description(), "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, model.providers_coding_agents_description(), "Waku") == null);
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_providers, &fx);
+    try testing.expect(model.settings_page_providers());
+    try testing.expectEqual(@as(i64, 0), model.provider_detection_checked_at_ms);
+    try testing.expect(!model.has_provider_detection_checked());
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Coding agents");
+    _ = try expectByText(tree.root, .text, model.providers_coding_agents_description());
+    _ = try expectButtonMsg(tree, "Refresh", .refresh_providers);
+    try testing.expect(findByText(tree.root, .text, "Checked just now") == null);
+    try testing.expect(findByText(tree.root, .text, "编程智能体") == null);
+    try testing.expect(findByText(tree.root, .text, "コーディングエージェント") == null);
+
+    const claude_spawn = findCliProbeSpawn(&fx, .claude) orelse return error.MissingClaudeProbe;
+    try fx.feedExit(claude_spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(model.cli_available[@intFromEnum(protocol.ProviderId.claude)]);
+    try testing.expect(model.provider_detection_checked_at_ms != 0);
+    try testing.expect(model.has_provider_detection_checked());
+    try testing.expectEqualStrings("Checked just now", model.provider_detection_checked_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Checked just now");
+    _ = try expectByText(tree.root, .text, "Coding agents");
+    _ = try expectButtonMsg(tree, "Refresh", .refresh_providers);
+
+    const stamp = model.provider_detection_checked_at_ms;
+    model.now_ms = stamp + 90_000;
+    try testing.expectEqualStrings("Checked 1m ago", model.provider_detection_checked_label(arena));
+    model.now_ms = stamp + 3_600_000;
+    try testing.expectEqualStrings("Checked 1h ago", model.provider_detection_checked_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Checked 1h ago");
+
+    main.update(&model, .set_settings_page_appearance, &fx);
+    try testing.expect(!model.has_provider_detection_checked());
+    try testing.expectEqualStrings("", model.provider_detection_checked_label(arena));
+    try testing.expectEqual(stamp, model.provider_detection_checked_at_ms);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "Coding agents") == null);
+    try testing.expect(findByText(tree.root, .text, "Checked 1h ago") == null);
+    try testing.expect(findByText(tree.root, .text, "Checked just now") == null);
+
+    main.update(&model, .set_settings_page_providers, &fx);
+    try testing.expect(model.has_provider_detection_checked());
+    main.update(&model, .refresh_providers, &fx);
+    try testing.expectEqual(@as(i64, 0), model.provider_detection_checked_at_ms);
+    try testing.expect(!model.has_provider_detection_checked());
+    try testing.expectEqualStrings("", model.provider_detection_checked_label(arena));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Coding agents");
+    _ = try expectButtonMsg(tree, "Refresh", .refresh_providers);
+    try testing.expect(findByText(tree.root, .text, "Checked just now") == null);
+    try testing.expect(findByText(tree.root, .text, "Checked 1h ago") == null);
+    try testing.expect(findByText(tree.root, .text, "Checked 1m ago") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("编程智能体", model.providers_coding_agents_title());
+    try testing.expectEqualStrings(
+        i18n.providersCodingAgentsChromeFor(.simplified_chinese, "").description,
+        model.providers_coding_agents_description(),
+    );
+    try testing.expect(std.mem.indexOf(u8, model.providers_coding_agents_description(), "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, model.providers_coding_agents_description(), "Waku") == null);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "编程智能体");
+    _ = try expectByText(tree.root, .text, model.providers_coding_agents_description());
+    try testing.expect(findByText(tree.root, .text, "Coding agents") == null);
+    try testing.expect(findByText(tree.root, .text, "コーディングエージェント") == null);
+    _ = try expectButtonMsg(tree, "刷新", .refresh_providers);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("コーディングエージェント", model.providers_coding_agents_title());
+    try testing.expectEqualStrings(
+        i18n.providersCodingAgentsChromeFor(.japanese, "").description,
+        model.providers_coding_agents_description(),
+    );
+    try testing.expect(std.mem.indexOf(u8, model.providers_coding_agents_description(), "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, model.providers_coding_agents_description(), "Waku") == null);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "コーディングエージェント");
+    _ = try expectByText(tree.root, .text, model.providers_coding_agents_description());
+    try testing.expect(findByText(tree.root, .text, "Coding agents") == null);
+    try testing.expect(findByText(tree.root, .text, "编程智能体") == null);
+    _ = try expectButtonMsg(tree, "更新", .refresh_providers);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Coding agents", model.providers_coding_agents_title());
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("编程智能体", model.providers_coding_agents_title());
+    try testing.expectEqualStrings(
+        i18n.providersCodingAgentsChromeFor(.system, "zh_CN.UTF-8").description,
+        model.providers_coding_agents_description(),
+    );
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("コーディングエージェント", model.providers_coding_agents_title());
 }
 
 test "settings Providers Use for this session applies to selected session and persists" {

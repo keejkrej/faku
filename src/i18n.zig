@@ -393,6 +393,15 @@
 //! strings; distinct from `ProvidersChrome` so status / Enable /
 //! Apply stay independently evolvable; wire names / binary paths /
 //! install/login commands stay English)
+//! plus Settings Providers Coding agents card title / description /
+//! Checked … caption (same `ProvidersCodingAgentsChrome` strings;
+//! English matches Waku `providers.coding_agents` /
+//! `providers.description` / `providers.checked_*` with product
+//! name Faku, not Waku; distinct from `ProvidersChrome` /
+//! `ProvidersDetailChrome` / `SettingsRefreshChrome` /
+//! `Chrome.providers` so the card stays independently evolvable;
+//! Refresh stays the header `SettingsRefreshChrome` button;
+//! wire ids / on-press stay English)
 //! plus Settings Skills empty-state Open a project / Scanning
 //! skill folders… / No skills found / No skills match your search
 //! (same `SkillsEmptyChrome` strings; distinct from
@@ -4605,6 +4614,54 @@ const providers_detail_chrome_ja: ProvidersDetailChrome = .{
     .path_prefix = "パス:",
 };
 
+/// Settings Providers Coding agents card title, description, and
+/// relative Checked … caption for the resolved locale. Same resolve
+/// path as ProvidersChrome. English title/checked match Waku
+/// `providers.coding_agents` / `providers.checked_just_now` /
+/// `providers.checked_minutes_ago` / `providers.checked_hours_ago`.
+/// Description is Faku-adapted Waku `providers.description` (says
+/// Faku, not Waku). Distinct from `ProvidersChrome` /
+/// `ProvidersDetailChrome` / `SettingsRefreshChrome` /
+/// `Chrome.providers` so the card stays independently evolvable.
+/// Refresh stays the Settings header button. Wire ids / on-press
+/// stay English. Templates keep Waku `%{count}` slots; Latin `{d}m`
+/// / `{d}h` in English, locale-natural zh-CN / ja forms.
+pub const ProvidersCodingAgentsChrome = struct {
+    coding_agents: []const u8,
+    description: []const u8,
+    checked_just_now: []const u8,
+    checked_minutes_ago: []const u8,
+    checked_hours_ago: []const u8,
+};
+
+const providers_coding_agents_chrome_en: ProvidersCodingAgentsChrome = .{
+    .coding_agents = "Coding agents",
+    .description = "Faku drives agent CLIs installed on this computer. Install or sign in with each agent's own CLI, then refresh",
+    .checked_just_now = "Checked just now",
+    .checked_minutes_ago = "Checked %{count}m ago",
+    .checked_hours_ago = "Checked %{count}h ago",
+};
+
+const providers_coding_agents_chrome_zh_cn: ProvidersCodingAgentsChrome = .{
+    .coding_agents = "编程智能体",
+    .description = "Faku 调用安装在这台电脑上的智能体命令行工具。请先安装相应工具或完成登录，然后刷新",
+    .checked_just_now = "刚刚检查过",
+    .checked_minutes_ago = "%{count} 分钟前检查过",
+    .checked_hours_ago = "%{count} 小时前检查过",
+};
+
+const providers_coding_agents_chrome_ja: ProvidersCodingAgentsChrome = .{
+    .coding_agents = "コーディングエージェント",
+    .description = "Faku はこのコンピュータにインストールされたエージェントの CLI を使用します。各エージェントの CLI をインストールするかログインしてから、更新してください",
+    .checked_just_now = "たった今確認済み",
+    .checked_minutes_ago = "%{count} 分前に確認済み",
+    .checked_hours_ago = "%{count} 時間前に確認済み",
+};
+
+/// Capped scratch for `formatProvidersDetectionChecked`. Integer
+/// minutes / hours stay Latin; templates are short in every locale.
+pub const providers_detection_checked_label_max: usize = 64;
+
 /// Settings Skills empty-state Open a project / Scanning skill
 /// folders… / No skills found / No skills match your search for
 /// the resolved locale. Same resolve path as ProvidersDetailChrome.
@@ -6729,6 +6786,46 @@ pub fn providersDetailChromeFor(preference: LanguagePreference, system_locale_id
         .japanese => providers_detail_chrome_ja,
         .system, .english => providers_detail_chrome_en,
     };
+}
+
+/// Settings Providers Coding agents card title / description /
+/// Checked … caption for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does not
+/// read process env. Distinct from ProvidersChrome /
+/// ProvidersDetailChrome / SettingsRefreshChrome / Chrome.providers
+/// so the card stays independently evolvable. English description
+/// says Faku, not Waku. Wire ids / on-press stay English.
+pub fn providersCodingAgentsChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ProvidersCodingAgentsChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => providers_coding_agents_chrome_zh_cn,
+        .japanese => providers_coding_agents_chrome_ja,
+        .system, .english => providers_coding_agents_chrome_en,
+    };
+}
+
+/// Waku `detection_checked_label` buckets from a runtime stamp in
+/// milliseconds (`model.now_ms`). Callers inject `now_ms` so tests
+/// pin buckets. Floor division like Waku. Numbers stay Latin.
+/// Stamp 0 → empty. Future / equal stamp → just now. `<90s` just
+/// now; `<3600s` minutes (`seconds/60`); else hours (`seconds/3600`).
+pub fn formatProvidersDetectionChecked(
+    chrome: ProvidersCodingAgentsChrome,
+    checked_at_ms: i64,
+    now_ms: i64,
+    buf: []u8,
+) []const u8 {
+    if (checked_at_ms == 0) return "";
+    const elapsed_ms: i64 = if (now_ms > checked_at_ms) now_ms - checked_at_ms else 0;
+    const elapsed_s: i64 = @divTrunc(elapsed_ms, 1000);
+    if (elapsed_s < 90) {
+        if (chrome.checked_just_now.len > buf.len) return "";
+        @memcpy(buf[0..chrome.checked_just_now.len], chrome.checked_just_now);
+        return buf[0..chrome.checked_just_now.len];
+    }
+    const template = if (elapsed_s < 3600) chrome.checked_minutes_ago else chrome.checked_hours_ago;
+    const unit: i64 = if (elapsed_s < 3600) 60 else 3600;
+    const count: usize = @intCast(@divTrunc(elapsed_s, unit));
+    return formatSkillsPlaceholders(template, &.{.{ .name = "count", .value = count }}, buf);
 }
 
 /// Settings Skills empty-state Open a project / Scanning skill
@@ -10836,6 +10933,82 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("Optional: fx login grok / fx login codex (no Gateway required).", providersDetailChromeFor(.english, "zh_CN.UTF-8").fx_login_codex_note);
     try testing.expectEqualStrings("Binary:", providersDetailChromeFor(.english, "ja_JP.UTF-8").binary_prefix);
     try testing.expectEqualStrings("Path:", providersDetailChromeFor(.english, "zh_CN.UTF-8").path_prefix);
+}
+
+test "providersCodingAgentsChromeFor english default; zh and ja chrome; Faku not Waku; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Coding agents", providersCodingAgentsChromeFor(.english, "ja").coding_agents);
+    try testing.expectEqualStrings(
+        "Faku drives agent CLIs installed on this computer. Install or sign in with each agent's own CLI, then refresh",
+        providersCodingAgentsChromeFor(.english, "").description,
+    );
+    try testing.expectEqualStrings("Checked just now", providersCodingAgentsChromeFor(.english, "").checked_just_now);
+    try testing.expectEqualStrings("Checked %{count}m ago", providersCodingAgentsChromeFor(.english, "").checked_minutes_ago);
+    try testing.expectEqualStrings("Checked %{count}h ago", providersCodingAgentsChromeFor(.english, "").checked_hours_ago);
+    try testing.expectEqualStrings("Coding agents", providersCodingAgentsChromeFor(.system, "").coding_agents);
+    try testing.expectEqualStrings("Checked just now", providersCodingAgentsChromeFor(.system, "").checked_just_now);
+
+    try testing.expectEqualStrings("编程智能体", providersCodingAgentsChromeFor(.simplified_chinese, "").coding_agents);
+    try testing.expectEqualStrings(
+        "Faku 调用安装在这台电脑上的智能体命令行工具。请先安装相应工具或完成登录，然后刷新",
+        providersCodingAgentsChromeFor(.simplified_chinese, "").description,
+    );
+    try testing.expectEqualStrings("刚刚检查过", providersCodingAgentsChromeFor(.simplified_chinese, "").checked_just_now);
+    try testing.expectEqualStrings("%{count} 分钟前检查过", providersCodingAgentsChromeFor(.simplified_chinese, "").checked_minutes_ago);
+    try testing.expectEqualStrings("%{count} 小时前检查过", providersCodingAgentsChromeFor(.simplified_chinese, "").checked_hours_ago);
+    try testing.expectEqualStrings("コーディングエージェント", providersCodingAgentsChromeFor(.japanese, "").coding_agents);
+    try testing.expectEqualStrings(
+        "Faku はこのコンピュータにインストールされたエージェントの CLI を使用します。各エージェントの CLI をインストールするかログインしてから、更新してください",
+        providersCodingAgentsChromeFor(.japanese, "").description,
+    );
+    try testing.expectEqualStrings("たった今確認済み", providersCodingAgentsChromeFor(.japanese, "").checked_just_now);
+    try testing.expectEqualStrings("%{count} 分前に確認済み", providersCodingAgentsChromeFor(.japanese, "").checked_minutes_ago);
+    try testing.expectEqualStrings("%{count} 時間前に確認済み", providersCodingAgentsChromeFor(.japanese, "").checked_hours_ago);
+
+    try testing.expectEqualStrings("编程智能体", providersCodingAgentsChromeFor(.system, "zh_CN.UTF-8").coding_agents);
+    try testing.expectEqualStrings("刚刚检查过", providersCodingAgentsChromeFor(.system, "zh_CN.UTF-8").checked_just_now);
+    try testing.expectEqualStrings("%{count} 分钟前检查过", providersCodingAgentsChromeFor(.system, "zh_CN.UTF-8").checked_minutes_ago);
+    try testing.expectEqualStrings("コーディングエージェント", providersCodingAgentsChromeFor(.system, "ja_JP.UTF-8").coding_agents);
+    try testing.expectEqualStrings("たった今確認済み", providersCodingAgentsChromeFor(.system, "ja_JP.UTF-8").checked_just_now);
+    try testing.expectEqualStrings("%{count} 分前に確認済み", providersCodingAgentsChromeFor(.system, "ja_JP.UTF-8").checked_minutes_ago);
+    try testing.expectEqualStrings("Coding agents", providersCodingAgentsChromeFor(.english, "ja_JP.UTF-8").coding_agents);
+    try testing.expectEqualStrings("Checked just now", providersCodingAgentsChromeFor(.english, "zh_CN.UTF-8").checked_just_now);
+    try testing.expectEqualStrings("Checked %{count}m ago", providersCodingAgentsChromeFor(.english, "ja_JP.UTF-8").checked_minutes_ago);
+    try testing.expectEqualStrings("Checked %{count}h ago", providersCodingAgentsChromeFor(.english, "zh_CN.UTF-8").checked_hours_ago);
+
+    try testing.expect(!std.mem.eql(u8, providersCodingAgentsChromeFor(.english, "").coding_agents, chromeFor(.english, "").providers));
+    try testing.expect(!std.mem.eql(u8, providersCodingAgentsChromeFor(.english, "").coding_agents, providersChromeFor(.english, "").available));
+    try testing.expect(!std.mem.eql(u8, providersCodingAgentsChromeFor(.english, "").checked_just_now, settingsRefreshChromeFor(.english, "").refresh));
+    try testing.expect(!std.mem.eql(u8, providersCodingAgentsChromeFor(.simplified_chinese, "").coding_agents, chromeFor(.simplified_chinese, "").providers));
+    try testing.expect(!std.mem.eql(u8, providersCodingAgentsChromeFor(.japanese, "").coding_agents, chromeFor(.japanese, "").providers));
+
+    try testing.expect(std.mem.indexOf(u8, providersCodingAgentsChromeFor(.english, "").description, "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, providersCodingAgentsChromeFor(.english, "").description, "Waku") == null);
+    try testing.expect(std.mem.indexOf(u8, providersCodingAgentsChromeFor(.simplified_chinese, "").description, "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, providersCodingAgentsChromeFor(.simplified_chinese, "").description, "Waku") == null);
+    try testing.expect(std.mem.indexOf(u8, providersCodingAgentsChromeFor(.japanese, "").description, "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, providersCodingAgentsChromeFor(.japanese, "").description, "Waku") == null);
+
+    const stamp: i64 = 1_700_000_000_000;
+    var buf: [providers_detection_checked_label_max]u8 = undefined;
+    try testing.expectEqualStrings("", formatProvidersDetectionChecked(providersCodingAgentsChromeFor(.english, ""), 0, stamp, &buf));
+    try testing.expectEqualStrings("Checked just now", formatProvidersDetectionChecked(providersCodingAgentsChromeFor(.english, ""), stamp, stamp, &buf));
+    try testing.expectEqualStrings("Checked just now", formatProvidersDetectionChecked(providersCodingAgentsChromeFor(.english, ""), stamp, stamp + 89_999, &buf));
+    try testing.expectEqualStrings("Checked just now", formatProvidersDetectionChecked(providersCodingAgentsChromeFor(.english, ""), stamp + 10_000, stamp, &buf));
+    try testing.expectEqualStrings("Checked 1m ago", formatProvidersDetectionChecked(providersCodingAgentsChromeFor(.english, ""), stamp, stamp + 90_000, &buf));
+    try testing.expectEqualStrings("Checked 59m ago", formatProvidersDetectionChecked(providersCodingAgentsChromeFor(.english, ""), stamp, stamp + 3_599_000, &buf));
+    try testing.expectEqualStrings("Checked 1h ago", formatProvidersDetectionChecked(providersCodingAgentsChromeFor(.english, ""), stamp, stamp + 3_600_000, &buf));
+    try testing.expectEqualStrings("Checked 2h ago", formatProvidersDetectionChecked(providersCodingAgentsChromeFor(.english, ""), stamp, stamp + 7_200_000, &buf));
+
+    try testing.expectEqualStrings("刚刚检查过", formatProvidersDetectionChecked(providersCodingAgentsChromeFor(.simplified_chinese, ""), stamp, stamp + 1_000, &buf));
+    try testing.expectEqualStrings("5 分钟前检查过", formatProvidersDetectionChecked(providersCodingAgentsChromeFor(.simplified_chinese, ""), stamp, stamp + 300_000, &buf));
+    try testing.expectEqualStrings("2 小时前检查过", formatProvidersDetectionChecked(providersCodingAgentsChromeFor(.simplified_chinese, ""), stamp, stamp + 7_200_000, &buf));
+    try testing.expectEqualStrings("たった今確認済み", formatProvidersDetectionChecked(providersCodingAgentsChromeFor(.japanese, ""), stamp, stamp, &buf));
+    try testing.expectEqualStrings("5 分前に確認済み", formatProvidersDetectionChecked(providersCodingAgentsChromeFor(.japanese, ""), stamp, stamp + 300_000, &buf));
+    try testing.expectEqualStrings("2 時間前に確認済み", formatProvidersDetectionChecked(providersCodingAgentsChromeFor(.japanese, ""), stamp, stamp + 7_200_000, &buf));
+    try testing.expectEqualStrings("刚刚检查过", formatProvidersDetectionChecked(providersCodingAgentsChromeFor(.system, "zh_CN.UTF-8"), stamp, stamp, &buf));
+    try testing.expectEqualStrings("5 分前に確認済み", formatProvidersDetectionChecked(providersCodingAgentsChromeFor(.system, "ja_JP.UTF-8"), stamp, stamp + 300_000, &buf));
+    try testing.expectEqualStrings("Checked just now", formatProvidersDetectionChecked(providersCodingAgentsChromeFor(.english, "zh_CN.UTF-8"), stamp, stamp, &buf));
 }
 
 test "skillsEmptyChromeFor english default; zh and ja chrome; english ignores ja LANG" {
