@@ -502,6 +502,15 @@
             <row grow="1" main="center">
               <column grow="1" max-width="720" gap="10" padding="14">
                 <text><span weight="bold">{settings_page_heading}</span></text>
+                <card size="sm" padding="10">
+                  <column gap="8">
+                    <text><span weight="bold">{providers_coding_agents_title}</span></text>
+                    <text wrap="true" foreground="text_muted">{providers_coding_agents_description}</text>
+                    <if test="{has_provider_detection_checked}">
+                      <text wrap="true" foreground="text_muted">{provider_detection_checked_label}</text>
+                    </if>
+                  </column>
+                </card>
                 <for each="provider_rows" key="id" as="p">
                   <list-item height="52" padding="8" gap="4" cross="center" selected="{p.selected}" on-press="select_provider:{p.id}" label="{p.name}">
                     <column gap="2" grow="1">

@@ -50,13 +50,20 @@
 //! invented install URLs). Status / Enable / Apply / Copy / First-party
 //! follow `i18n.ProvidersChrome`. Detail transport notes, fx login notes,
 //! the other-CLI PATH hint, and `Binary:` / `Path:` prefixes follow
-//! `i18n.ProvidersDetailChrome`. Tests do not
+//! `i18n.ProvidersDetailChrome`. Coding agents card title /
+//! description / Checked … caption follow
+//! `i18n.ProvidersCodingAgentsChrome` (Faku-adapted Waku
+//! `providers.description`; Refresh stays the Settings header
+//! button). Tests do not
 //! need a live daemon or any real CLI install.
 //!
 //! Leftovers: full onboarding / OAuth / auto-install; Pi ACP /
 //! long-lived RPC (steer / follow_up / session resume); Claude ACP; `--continue`; circular GPUI gauge;
 //! LiteLLM rate-table; T3 layered Usage chart; amend/force and
-//! remote `--track` over daemon (local already). Disabling does not
+//! remote `--track` over daemon (local already). Provider binary-path
+//! override / version badge / model_count / expand chevron / Enable
+//! %{name} named toggles / moving Refresh into the card stay out.
+//! Disabling does not
 //! move unstarted drafts / last_provider (Faku new sessions stay fx;
 //! drafts.json has no provider).
 //! Claude print-mode stream-json (later Sends pass documented
@@ -379,7 +386,10 @@ pub fn startProbes(model: *Model, fx: *Effects) void {
 }
 
 /// Re-run fx `--help` and every non-fx PATH `--help` probe.
+/// Clears the Coding agents Checked … stamp so the caption hides
+/// while probes are in flight (Waku hides Checked while `checking`).
 pub fn refresh(model: *Model, fx: *Effects) void {
+    model.provider_detection_checked_at_ms = 0;
     fx_probe.restartFxProbe(model, fx);
     cli_probe.restartCliProbes(model, fx);
 }
@@ -704,9 +714,11 @@ test "refresh queues fx_probe_key and every non-fx PATH --help probe" {
     model.fx_probe_started = true;
     model.fx_available = true;
     model.setFxPath("/tmp/faku-fx");
+    model.provider_detection_checked_at_ms = 12_345;
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 
     refresh(&model, &fx);
+    try testing.expectEqual(@as(i64, 0), model.provider_detection_checked_at_ms);
     try testing.expect(model.fx_probe_started);
     var saw_fx = false;
     var cli_n: usize = 0;
