@@ -521,12 +521,13 @@
 //! `SkillsPaneChrome` strings; English matches Waku
 //! `skills.library` / `skills.details`; EN Skills library /
 //! Skill details / zh-CN 技能库 / 技能详情 / ja スキルライブラリ /
-//! スキルの詳細; muted/bold Native text above the stacked
-//! library block and above the detail block; distinct from
+//! スキルの詳細; muted/bold Native pane headers plus Native
+//! `label=` a11y (Waku `aria-label`); this cut ships first-cut
+//! side-by-side (264 library | grow details), still not Waku
+//! GPUI virtualized list quirks; distinct from
 //! SkillsSectionChrome User / SkillsSelectChrome Select a skill /
 //! SkillsDetailChrome / SkillsEmptyChrome / SkillsCountChrome /
-//! Chrome.skills / StructuralRegionChrome; not a side-by-side
-//! two-pane layout; wire ids stay English)
+//! Chrome.skills / StructuralRegionChrome; wire ids stay English)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -4917,9 +4918,10 @@ const skills_copy_path_chrome_ja: SkillsCopyPathChrome = .{
 /// skill), SkillsDetailChrome (No description / Invoke / …),
 /// SkillsEmptyChrome, SkillsCountChrome, Chrome.skills (nav), and
 /// StructuralRegionChrome so the pane titles stay independently
-/// evolvable. Painted as muted/bold Native text above the stacked
-/// library block and above the detail block; not a side-by-side
-/// two-pane layout. Wire ids stay English.
+/// evolvable. Painted as muted/bold Native pane headers plus Native
+/// `label=` a11y on each column (Waku `aria-label`); this cut ships
+/// first-cut side-by-side (264 library | grow details), still not
+/// Waku GPUI virtualized list quirks. Wire ids stay English.
 pub const SkillsPaneChrome = struct {
     library: []const u8,
     details: []const u8,

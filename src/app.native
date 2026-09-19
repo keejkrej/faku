@@ -339,8 +339,8 @@
         <separator />
         <scroll grow="1">
           <if test="{settings_page_skills}">
-            <row grow="1" main="center">
-              <column grow="1" max-width="720" gap="10" padding="14">
+            <row grow="1">
+              <column min-width="264" max-width="264" gap="10" padding="14" label="{skills_library_title}">
                 <text foreground="text_muted"><span weight="bold">{skills_library_title}</span></text>
                 <stack>
                   <select on-press="toggle_skills_source_picker">{skills_source_filter_label}</select>
@@ -391,6 +391,8 @@
                     </list-item>
                   </else>
                 </for>
+              </column>
+              <column grow="1" min-width="140" gap="10" padding="14" label="{skills_details_title}">
                 <text foreground="text_muted"><span weight="bold">{skills_details_title}</span></text>
                 <if test="{skills_needs_select}">
                   <text foreground="text_muted">{skills_select_placeholder}</text>

@@ -171,11 +171,13 @@
 //! unfiltered by source. Settings Skills library / details pane
 //! titles follow `i18n.SkillsPaneChrome` (`library` / `details`;
 //! English matches Waku `skills.library` / `skills.details`;
-//! muted/bold Native text above the stacked library block and
-//! above the detail block; distinct from SkillsSectionChrome User /
+//! muted/bold Native pane headers plus Native `label=` a11y
+//! (Waku `aria-label`); this cut ships first-cut side-by-side
+//! (264 library | grow details), still not Waku GPUI virtualized
+//! list quirks; distinct from SkillsSectionChrome User /
 //! SkillsSelectChrome Select a skill / SkillsDetailChrome /
 //! SkillsEmptyChrome / SkillsCountChrome / Chrome.skills /
-//! StructuralRegionChrome; not a side-by-side two-pane layout).
+//! StructuralRegionChrome).
 //! Settings Skills library section headers follow
 //! `i18n.SkillsSectionChrome` (`section_user` only; English matches
 //! Waku GPUI `skills.section_user`; project section paints the

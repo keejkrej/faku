@@ -6252,7 +6252,7 @@ pub const Model = struct {
     /// `i18n.SkillsPaneChrome`. English matches Waku `skills.library`.
     /// Distinct from SkillsSectionChrome User, Chrome.skills nav,
     /// SkillsSelectChrome, and StructuralRegionChrome. Muted/bold
-    /// Native text above the source filter / filter field / list.
+    /// Native pane header and `label=` a11y on the 264 library column.
     pub fn skills_library_title(model: *const Model) []const u8 {
         return model.skillsPaneChrome().library;
     }
@@ -6261,7 +6261,7 @@ pub const Model = struct {
     /// `i18n.SkillsPaneChrome`. English matches Waku `skills.details`.
     /// Distinct from SkillsSelectChrome Select a skill,
     /// SkillsDetailChrome, and StructuralRegionChrome. Muted/bold
-    /// Native text above the unselected placeholder or selected skill.
+    /// Native pane header and `label=` a11y on the grow details column.
     pub fn skills_details_title(model: *const Model) []const u8 {
         return model.skillsPaneChrome().details;
     }
