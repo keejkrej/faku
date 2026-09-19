@@ -14435,7 +14435,7 @@ test "settings General and Skills pages switch; Skills empty without a project" 
     try testing.expect(findByText(tree.root, .text, "Language") == null);
     try testing.expect(findByText(tree.root, .text, "Context window") == null);
     try testing.expect(findByText(tree.root, .text, "Unavailable") == null);
-    try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Search skills…") == null);
     try testing.expect(findByText(tree.root, .button, "Refresh") == null);
     try testing.expect(findByText(tree.root, .text, "Open a project") == null);
     try testing.expect(findByText(tree.root, .list_item, "fx") == null);
@@ -14457,7 +14457,7 @@ test "settings General and Skills pages switch; Skills empty without a project" 
     try testing.expect(skills_on.state.selected);
     _ = try expectButtonMsg(tree, "Refresh", .refresh_skills);
     try testing.expect(findByText(tree.root, .text, "Default model") == null);
-    try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Search skills…") != null);
     _ = try expectByText(tree.root, .text, "Open a project");
     try testing.expect(findByText(tree.root, .list_item, "fx") == null);
     try testing.expect(findByText(tree.root, .text, "Catalog id only") == null);
@@ -14466,7 +14466,7 @@ test "settings General and Skills pages switch; Skills empty without a project" 
     try testing.expect(model.settings_page_general());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Default model");
-    try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Search skills…") == null);
 
     main.update(&model, .toggle_settings, &fx);
     try testing.expect(!model.settings_open);
@@ -14531,7 +14531,7 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     try testing.expect((try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance)).state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "General", .set_settings_page_general)).state.selected);
     try testing.expect(findByText(tree.root, .text, "Default model") == null);
-    try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Search skills…") == null);
     try testing.expect(findByText(tree.root, .list_item, "fx") == null);
     try testing.expect(findByText(tree.root, .button, "Refresh") == null);
     try testing.expect(findByText(tree.root, .text, "Context window") == null);
@@ -14911,7 +14911,7 @@ test "settings Usage tab sits after Skills; local context and thread-goal labels
     try testing.expect(findByText(tree.root, .text, "Default model") == null);
     try testing.expect(findByText(tree.root, .text, "Theme") == null);
     try testing.expect(findByText(tree.root, .text, "Language") == null);
-    try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Search skills…") == null);
     try testing.expect(findByText(tree.root, .list_item, "fx") == null);
     _ = try expectButtonMsg(tree, "Refresh", .refresh_usage_history);
     _ = try expectByText(tree.root, .text, "port waku to zig");
@@ -15853,7 +15853,7 @@ test "settings Computer Use tab sits after Usage; Unavailable, Off, empty apps" 
     try testing.expect(findByText(tree.root, .text, "Theme") == null);
     try testing.expect(findByText(tree.root, .text, "Language") == null);
     try testing.expect(findByText(tree.root, .text, "Context window") == null);
-    try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Search skills…") == null);
     try testing.expect(findByText(tree.root, .list_item, "fx") == null);
     try testing.expect(findByText(tree.root, .button, "Refresh") == null);
     try testing.expect(findByText(tree.root, .button, "Grant access") == null);
@@ -16749,7 +16749,7 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     try testing.expect(!(try expectButtonMsg(tree, "Computer Use", .set_settings_page_computer_use)).state.selected);
     _ = try expectButtonMsg(tree, "Refresh", .refresh_providers);
     try testing.expect(findByText(tree.root, .text, "Default model") == null);
-    try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Search skills…") == null);
 
     const fx_row = try expectByText(tree.root, .list_item, "fx");
     try testing.expectEqual(Msg{ .select_provider = 1 }, tree.msgForPointer(fx_row.id, .up).?);
@@ -27939,7 +27939,7 @@ test "Environment menu chrome follows Appearance language" {
     try testing.expectEqualStrings("Background", model.environment_background_section_label());
 }
 
-test "Settings Skills filter and Usage Projects filter chrome follow Appearance language" {
+test "Settings Skills search and Usage Projects filter chrome follow Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -27948,7 +27948,7 @@ test "Settings Skills filter and Usage Projects filter chrome follow Appearance 
     defer fx.deinit();
     fx.executor = .fake;
 
-    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"{skills_filter_placeholder}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"{skills_search_placeholder}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"{usage_project_filter_placeholder}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{usage_project_filter_label}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{no_project_usage_label}"));
@@ -27956,13 +27956,16 @@ test "Settings Skills filter and Usage Projects filter chrome follow Appearance 
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-input=\"skills_filter_edit\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-input=\"usage_project_filter_edit\"") != null);
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Filter skills\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Search skills…\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Filter projects\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Filter projects\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No project usage<"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">No matching projects<"));
 
     var model = boot.initialModel();
-    try testing.expectEqualStrings("Filter skills", model.skills_filter_placeholder());
+    try testing.expectEqualStrings("Search skills…", model.skills_search_placeholder());
+    try testing.expectEqualStrings(i18n.skillsSearchChromeFor(.english, "").search, model.skills_search_placeholder());
+    try testing.expect(!std.mem.eql(u8, i18n.filterChromeFor(.english, "").filter_skills, model.skills_search_placeholder()));
     try testing.expectEqualStrings("Filter projects", model.usage_project_filter_placeholder());
     try testing.expectEqualStrings("Filter projects", model.usage_project_filter_label());
     try testing.expectEqualStrings("No project usage", model.no_project_usage_label());
@@ -27972,8 +27975,8 @@ test "Settings Skills filter and Usage Projects filter chrome follow Appearance 
     main.update(&model, .set_settings_page_skills, &fx);
     try testing.expect(model.settings_page_skills());
     var tree = try buildTree(arena, &model);
-    try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") != null);
-    try testing.expect(findByPlaceholder(tree.root, .text_field, "筛选技能") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Search skills…") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "搜索技能…") == null);
 
     main.update(&model, .{ .skills_filter_edit = .{ .insert_text = "foo" } }, &fx);
     try testing.expectEqualStrings("foo", model.skills_filter());
@@ -27981,51 +27984,61 @@ test "Settings Skills filter and Usage Projects filter chrome follow Appearance 
     try testing.expectEqualStrings("", model.skills_filter());
 
     model.language_preference = .simplified_chinese;
-    try testing.expectEqualStrings("筛选技能", model.skills_filter_placeholder());
+    try testing.expectEqualStrings("搜索技能…", model.skills_search_placeholder());
+    try testing.expectEqualStrings(i18n.skillsSearchChromeFor(.simplified_chinese, "").search, model.skills_search_placeholder());
+    try testing.expect(!std.mem.eql(u8, i18n.filterChromeFor(.simplified_chinese, "").filter_skills, model.skills_search_placeholder()));
     try testing.expectEqualStrings("筛选项目", model.usage_project_filter_placeholder());
     try testing.expectEqualStrings("筛选项目", model.usage_project_filter_label());
     try testing.expectEqualStrings("没有项目用量", model.no_project_usage_label());
     try testing.expectEqualStrings("没有匹配的项目", model.no_matching_projects_label());
     tree = try buildTree(arena, &model);
-    try testing.expect(findByPlaceholder(tree.root, .text_field, "筛选技能") != null);
-    try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "搜索技能…") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Search skills…") == null);
 
     model.language_preference = .japanese;
-    try testing.expectEqualStrings("スキルを絞り込む", model.skills_filter_placeholder());
+    try testing.expectEqualStrings("スキルを検索…", model.skills_search_placeholder());
+    try testing.expectEqualStrings(i18n.skillsSearchChromeFor(.japanese, "").search, model.skills_search_placeholder());
+    try testing.expect(!std.mem.eql(u8, i18n.filterChromeFor(.japanese, "").filter_skills, model.skills_search_placeholder()));
     try testing.expectEqualStrings("プロジェクトを絞り込む", model.usage_project_filter_placeholder());
     try testing.expectEqualStrings("プロジェクトを絞り込む", model.usage_project_filter_label());
     try testing.expectEqualStrings("プロジェクトの使用量はありません", model.no_project_usage_label());
     try testing.expectEqualStrings("一致するプロジェクトはありません", model.no_matching_projects_label());
     tree = try buildTree(arena, &model);
-    try testing.expect(findByPlaceholder(tree.root, .text_field, "スキルを絞り込む") != null);
-    try testing.expect(findByPlaceholder(tree.root, .text_field, "筛选技能") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "スキルを検索…") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "搜索技能…") == null);
 
     model.language_preference = .english;
     model.setSystemLocaleId("ja_JP.UTF-8");
-    try testing.expectEqualStrings("Filter skills", model.skills_filter_placeholder());
+    try testing.expectEqualStrings("Search skills…", model.skills_search_placeholder());
+    try testing.expectEqualStrings(i18n.skillsSearchChromeFor(.english, "").search, model.skills_search_placeholder());
+    try testing.expect(!std.mem.eql(u8, i18n.filterChromeFor(.english, "").filter_skills, model.skills_search_placeholder()));
     try testing.expectEqualStrings("Filter projects", model.usage_project_filter_placeholder());
     try testing.expectEqualStrings("Filter projects", model.usage_project_filter_label());
     try testing.expectEqualStrings("No project usage", model.no_project_usage_label());
     try testing.expectEqualStrings("No matching projects", model.no_matching_projects_label());
     tree = try buildTree(arena, &model);
-    try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") != null);
-    try testing.expect(findByPlaceholder(tree.root, .text_field, "スキルを絞り込む") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Search skills…") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "スキルを検索…") == null);
 
     model.language_preference = .system;
     model.setSystemLocaleId("zh_CN.UTF-8");
-    try testing.expectEqualStrings("筛选技能", model.skills_filter_placeholder());
+    try testing.expectEqualStrings("搜索技能…", model.skills_search_placeholder());
+    try testing.expectEqualStrings(i18n.skillsSearchChromeFor(.simplified_chinese, "").search, model.skills_search_placeholder());
     try testing.expectEqualStrings("筛选项目", model.usage_project_filter_placeholder());
     try testing.expectEqualStrings("筛选项目", model.usage_project_filter_label());
     try testing.expectEqualStrings("没有项目用量", model.no_project_usage_label());
     try testing.expectEqualStrings("没有匹配的项目", model.no_matching_projects_label());
     model.setSystemLocaleId("ja_JP.UTF-8");
-    try testing.expectEqualStrings("スキルを絞り込む", model.skills_filter_placeholder());
+    try testing.expectEqualStrings("スキルを検索…", model.skills_search_placeholder());
+    try testing.expectEqualStrings(i18n.skillsSearchChromeFor(.japanese, "").search, model.skills_search_placeholder());
     try testing.expectEqualStrings("プロジェクトを絞り込む", model.usage_project_filter_placeholder());
     try testing.expectEqualStrings("プロジェクトを絞り込む", model.usage_project_filter_label());
     try testing.expectEqualStrings("プロジェクトの使用量はありません", model.no_project_usage_label());
     try testing.expectEqualStrings("一致するプロジェクトはありません", model.no_matching_projects_label());
     model.setSystemLocaleId("");
-    try testing.expectEqualStrings("Filter skills", model.skills_filter_placeholder());
+    try testing.expectEqualStrings("Search skills…", model.skills_search_placeholder());
+    try testing.expectEqualStrings(i18n.skillsSearchChromeFor(.english, "").search, model.skills_search_placeholder());
+    try testing.expect(!std.mem.eql(u8, i18n.filterChromeFor(.english, "").filter_skills, model.skills_search_placeholder()));
     try testing.expectEqualStrings("Filter projects", model.usage_project_filter_placeholder());
     try testing.expectEqualStrings("Filter projects", model.usage_project_filter_label());
     try testing.expectEqualStrings("No project usage", model.no_project_usage_label());

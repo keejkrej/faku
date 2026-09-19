@@ -173,11 +173,16 @@
 //! English matches Waku `skills.library` / `skills.details`;
 //! muted/bold Native pane headers plus Native `label=` a11y
 //! (Waku `aria-label`); this cut ships first-cut side-by-side
-//! (264 library | grow details), still not Waku GPUI virtualized
-//! list quirks; distinct from SkillsSectionChrome User /
-//! SkillsSelectChrome Select a skill / SkillsDetailChrome /
-//! SkillsEmptyChrome / SkillsCountChrome / Chrome.skills /
-//! StructuralRegionChrome).
+//! (264 library | grow details) with per-pane scroll + 1px library
+//! divider, still not resizable `<split>`, still not Waku GPUI
+//! virtualized list quirks / sticky / edge fades; distinct from
+//! SkillsSectionChrome User / SkillsSelectChrome Select a skill /
+//! SkillsDetailChrome / SkillsEmptyChrome / SkillsCountChrome /
+//! Chrome.skills / StructuralRegionChrome). Settings Skills filter
+//! placeholder follows `i18n.SkillsSearchChrome` (`search`; English
+//! matches Waku `skills.search`; Model `skills_search_placeholder`;
+//! distinct from FilterChrome so Usage Projects filter stays
+//! independently evolvable).
 //! Settings Skills library section headers follow
 //! `i18n.SkillsSectionChrome` (`section_user` only; English matches
 //! Waku GPUI `skills.section_user`; project section paints the
@@ -4978,6 +4983,32 @@ test "revealSelectedSkill fails closed with no selection or unresolved path" {
     try std.testing.expect(fx.pendingSpawnAt(0) == null);
     try std.testing.expect(!model.reveal_folder_live);
     try std.testing.expectEqualStrings("", model.window_status());
+}
+
+test "skills_search_placeholder equals SkillsSearchChrome search" {
+    var model = Model{};
+    try std.testing.expectEqualStrings(
+        i18n.skillsSearchChromeFor(.english, "").search,
+        model.skills_search_placeholder(),
+    );
+    try std.testing.expectEqualStrings("Search skills…", model.skills_search_placeholder());
+    try std.testing.expectEqualStrings("Filter skills", i18n.filterChromeFor(.english, "").filter_skills);
+    try std.testing.expect(!std.mem.eql(u8, i18n.filterChromeFor(.english, "").filter_skills, model.skills_search_placeholder()));
+    try std.testing.expect(!std.mem.eql(u8, i18n.filterChromeFor(.english, "").filter_projects, model.skills_search_placeholder()));
+    model.language_preference = .simplified_chinese;
+    try std.testing.expectEqualStrings(
+        i18n.skillsSearchChromeFor(.simplified_chinese, "").search,
+        model.skills_search_placeholder(),
+    );
+    try std.testing.expectEqualStrings("搜索技能…", model.skills_search_placeholder());
+    try std.testing.expect(!std.mem.eql(u8, i18n.filterChromeFor(.simplified_chinese, "").filter_skills, model.skills_search_placeholder()));
+    model.language_preference = .japanese;
+    try std.testing.expectEqualStrings(
+        i18n.skillsSearchChromeFor(.japanese, "").search,
+        model.skills_search_placeholder(),
+    );
+    try std.testing.expectEqualStrings("スキルを検索…", model.skills_search_placeholder());
+    try std.testing.expect(!std.mem.eql(u8, i18n.filterChromeFor(.japanese, "").filter_skills, model.skills_search_placeholder()));
 }
 
 test "skill_reveal_label equals SkillsRevealChrome reveal" {
