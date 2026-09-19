@@ -5370,6 +5370,31 @@ pub const Model = struct {
         return model.settings_page == .computer_use;
     }
 
+    /// Settings content page title. Waku `render_settings_content`
+    /// paints this above the body for every page except Skills.
+    /// Localized via `i18n.Chrome` page fields (same strings as
+    /// `settings_nav_*`). Distinct getter from `settings_title` /
+    /// `settings_nav_*`. Skills is a mail-style split with no
+    /// page title.
+    pub fn settings_page_heading(model: *const Model) []const u8 {
+        const chrome = model.settingsChrome();
+        return switch (model.settings_page) {
+            .general => chrome.general,
+            .appearance => chrome.appearance,
+            .providers => chrome.providers,
+            .usage => chrome.usage,
+            .computer_use => chrome.computer_use,
+            .skills => "",
+        };
+    }
+
+    /// True when Settings content paints a page title. Skills
+    /// omits the heading. Settings open is implied by the markup
+    /// parent; follows `settings_page_*` (no `settings_open` gate).
+    pub fn has_settings_page_heading(model: *const Model) bool {
+        return model.settings_page != .skills;
+    }
+
     /// Settings Providers / Skills / Usage Refresh. One string is
     /// shared by all three Settings pages. `on-press` stays
     /// `refresh_providers` / `refresh_skills` /
@@ -5425,9 +5450,10 @@ pub const Model = struct {
         return model.goalActionChrome().clear_goal;
     }
 
-    /// Settings Computer Use page title. Wording matches
-    /// `settings_nav_computer_use` but stays a dedicated getter so the
-    /// page title does not couple to Settings nav.
+    /// Settings Computer Use pack title. Wording matches
+    /// `settings_nav_computer_use` / `settings_page_heading` but stays
+    /// a dedicated getter so `ComputerUseChrome` does not couple to
+    /// Settings nav. Content page heading is `settings_page_heading`.
     pub fn computer_use_title(model: *const Model) []const u8 {
         return model.computerUseChrome().title;
     }
