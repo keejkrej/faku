@@ -337,8 +337,7 @@
           </if>
         </row>
         <separator />
-        <scroll grow="1">
-          <if test="{settings_page_skills}">
+        <if test="{settings_page_skills}">
             <row grow="1">
               <column min-width="264" max-width="264" gap="10" padding="14" label="{skills_library_title}">
                 <text foreground="text_muted"><span weight="bold">{skills_library_title}</span></text>
@@ -353,45 +352,51 @@
                   </if>
                 </stack>
                 <text-field text="{skills_filter}" placeholder="{skills_filter_placeholder}" on-input="skills_filter_edit" />
-                <if test="{has_skills_count_caption}">
-                  <text foreground="text_muted">{skills_count_caption}</text>
-                </if>
-                <if test="{skills_empty}">
-                  <if test="{skills_empty_rich}">
-                    <column gap="4">
-                      <text>{skills_empty_title}</text>
-                      <text wrap="true" foreground="text_muted">{skills_empty_description}</text>
-                    </column>
-                  </if>
-                  <else>
-                    <text foreground="text_muted">{skills_empty_hint}</text>
-                  </else>
-                </if>
-                <for each="skill_rows" key="id" as="k">
-                  <if test="{k.is_header}">
-                    <row height="28" cross="center" padding="4" gap="8">
-                      <text foreground="text_muted"><span weight="bold">{k.name}</span></text>
-                      <text wrap="false" overflow="ellipsis" foreground="text_muted">{k.count}</text>
-                    </row>
-                  </if>
-                  <else>
-                    <list-item height="56" padding="8" gap="4" cross="center" selected="{k.selected}" on-press="select_skill:{k.id}" label="{k.name}">
-                      <column gap="2" grow="1">
-                        <row gap="8" cross="center">
-                          <text wrap="false" overflow="ellipsis">{k.name}</text>
-                          <if test="{k.disabled}">
-                            <text wrap="false" overflow="ellipsis" foreground="text_muted">{k.disabled_label}</text>
-                          </if>
-                        </row>
-                        <if test="{k.has_description}">
-                          <text wrap="false" overflow="ellipsis" foreground="text_muted">{k.description}</text>
-                        </if>
-                        <text wrap="false" overflow="ellipsis" foreground="text_muted">{k.path}</text>
+                <scroll grow="1" label="{skills_library_title}" overscroll="none">
+                  <if test="{skills_empty}">
+                    <if test="{skills_empty_rich}">
+                      <column gap="4">
+                        <text>{skills_empty_title}</text>
+                        <text wrap="true" foreground="text_muted">{skills_empty_description}</text>
                       </column>
-                    </list-item>
-                  </else>
-                </for>
+                    </if>
+                    <else>
+                      <text foreground="text_muted">{skills_empty_hint}</text>
+                    </else>
+                  </if>
+                  <for each="skill_rows" key="id" as="k">
+                    <if test="{k.is_header}">
+                      <row height="28" cross="center" padding="4" gap="8">
+                        <text foreground="text_muted"><span weight="bold">{k.name}</span></text>
+                        <text wrap="false" overflow="ellipsis" foreground="text_muted">{k.count}</text>
+                      </row>
+                    </if>
+                    <else>
+                      <list-item height="56" padding="8" gap="4" cross="center" selected="{k.selected}" on-press="select_skill:{k.id}" label="{k.name}">
+                        <column gap="2" grow="1">
+                          <row gap="8" cross="center">
+                            <text wrap="false" overflow="ellipsis">{k.name}</text>
+                            <if test="{k.disabled}">
+                              <text wrap="false" overflow="ellipsis" foreground="text_muted">{k.disabled_label}</text>
+                            </if>
+                          </row>
+                          <if test="{k.has_description}">
+                            <text wrap="false" overflow="ellipsis" foreground="text_muted">{k.description}</text>
+                          </if>
+                          <text wrap="false" overflow="ellipsis" foreground="text_muted">{k.path}</text>
+                        </column>
+                      </list-item>
+                    </else>
+                  </for>
+                </scroll>
+                <if test="{has_skills_count_caption}">
+                  <separator />
+                  <row height="26" cross="center">
+                    <text foreground="text_muted">{skills_count_caption}</text>
+                  </row>
+                </if>
               </column>
+              <separator width="1"></separator>
               <column grow="1" min-width="140" gap="10" padding="14" label="{skills_details_title}">
                 <text foreground="text_muted"><span weight="bold">{skills_details_title}</span></text>
                 <if test="{skills_needs_select}">
@@ -421,56 +426,61 @@
                     <button variant="ghost" size="sm" on-press="reveal_skill">{skill_reveal_label}</button>
                     <button variant="ghost" size="sm" on-press="copy_skill_path">{skill_copy_path_label}</button>
                   </row>
-                  <column gap="6">
-                    <if test="{has_skill_description}">
-                      <text wrap="true">{skill_description}</text>
-                    </if>
-                    <else>
-                      <text wrap="true" foreground="text_muted">{skill_no_description}</text>
-                    </else>
-                    <column gap="2">
-                      <text foreground="text_muted">{skill_detail_invoke}</text>
-                      <text wrap="false" overflow="ellipsis">{skill_invoke_line}</text>
-                    </column>
-                    <for each="skill_location_rows" key="id" as="loc">
+                </if>
+                <scroll grow="1" label="{skills_details_title}" overscroll="none">
+                  <if test="{has_selected_skill}">
+                    <column gap="6">
+                      <if test="{has_skill_description}">
+                        <text wrap="true">{skill_description}</text>
+                      </if>
+                      <else>
+                        <text wrap="true" foreground="text_muted">{skill_no_description}</text>
+                      </else>
                       <column gap="2">
-                        <text foreground="text_muted">{loc.label}</text>
-                        <text wrap="true">{loc.path}</text>
+                        <text foreground="text_muted">{skill_detail_invoke}</text>
+                        <text wrap="false" overflow="ellipsis">{skill_invoke_line}</text>
                       </column>
-                    </for>
-                    <column gap="2">
-                      <text foreground="text_muted">{skill_detail_contents}</text>
-                      <if test="{has_skill_contents_summary}">
-                        <text wrap="false" overflow="ellipsis">{skill_contents_summary}</text>
+                      <for each="skill_location_rows" key="id" as="loc">
+                        <column gap="2">
+                          <text foreground="text_muted">{loc.label}</text>
+                          <text wrap="true">{loc.path}</text>
+                        </column>
+                      </for>
+                      <column gap="2">
+                        <text foreground="text_muted">{skill_detail_contents}</text>
+                        <if test="{has_skill_contents_summary}">
+                          <text wrap="false" overflow="ellipsis">{skill_contents_summary}</text>
+                        </if>
+                      </column>
+                      <if test="{has_skill_updated}">
+                        <column gap="2">
+                          <text foreground="text_muted">{skill_detail_updated}</text>
+                          <text wrap="false">{skill_updated_label}</text>
+                        </column>
+                      </if>
+                      <if test="{has_skill_allowed_tools}">
+                        <column gap="2">
+                          <text foreground="text_muted">{skill_detail_allowed_tools}</text>
+                          <text wrap="false" overflow="ellipsis">{skill_allowed_tools}</text>
+                        </column>
+                      </if>
+                      <if test="{has_skill_duplicate_badge}">
+                        <text wrap="true" foreground="destructive">{skill_duplicate_badge}</text>
+                      </if>
+                      <if test="{has_skill_body}">
+                        <text wrap="true">{skill_body}</text>
                       </if>
                     </column>
-                    <if test="{has_skill_updated}">
-                      <column gap="2">
-                        <text foreground="text_muted">{skill_detail_updated}</text>
-                        <text wrap="false">{skill_updated_label}</text>
-                      </column>
-                    </if>
-                    <if test="{has_skill_allowed_tools}">
-                      <column gap="2">
-                        <text foreground="text_muted">{skill_detail_allowed_tools}</text>
-                        <text wrap="false" overflow="ellipsis">{skill_allowed_tools}</text>
-                      </column>
-                    </if>
-                    <if test="{has_skill_duplicate_badge}">
-                      <text wrap="true" foreground="destructive">{skill_duplicate_badge}</text>
-                    </if>
-                    <if test="{has_skill_body}">
-                      <text wrap="true">{skill_body}</text>
-                    </if>
-                  </column>
-                </if>
-                <if test="{has_window_status}">
-                  <text wrap="true" foreground="text_muted">{window_status}</text>
-                </if>
+                  </if>
+                  <if test="{has_window_status}">
+                    <text wrap="true" foreground="text_muted">{window_status}</text>
+                  </if>
+                </scroll>
               </column>
             </row>
           </if>
           <else>
+          <scroll grow="1">
           <if test="{settings_page_providers}">
             <row grow="1" main="center">
               <column grow="1" max-width="720" gap="10" padding="14">
@@ -973,8 +983,8 @@
           </else>
           </else>
           </else>
+          </scroll>
           </else>
-        </scroll>
       </if>
       <else>
       <row height="48" padding="14" gap="10" cross="center" window-drag="true" label="{toolbar_label}">
