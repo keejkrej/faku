@@ -65,7 +65,8 @@
 //! `CLAUDE_CONFIG_DIR` is set and absolute, else `$HOME/.claude/skills`;
 //! `$HOME/.codex/skills`; `$HOME/.config/opencode/skills`;
 //! `$HOME/.cursor/skills`; `$HOME/.fx/skills`; `$HOME/.pi/agent/skills`;
-//! `$HOME/.omp/agent/skills`; `$HOME/.config/agents/skills`.
+//! `$HOME/.omp/agent/skills`; `$HOME/.config/agents/skills` (Amp,
+//! Waku Amp provider root — not Shared; `.agents/skills` stays Shared).
 //! `HOME` / `USERPROFILE` / `CLAUDE_CONFIG_DIR` via Zig std process
 //! env (same class as locale env). Windows home prefers
 //! `USERPROFILE`. Daemon `loadSkills` still replaces `skill_store`
@@ -163,7 +164,7 @@
 //! a trimmed text query or a source filter uses `N of M shown`).
 //! Settings Skills source filter follows Waku `skills.filter_all`
 //! (`i18n.SkillsFilterAllChrome`; All skills chip, then Shared /
-//! Claude / Codex / Cursor / fx / OpenCode / Pi / OMP from
+//! Claude / Codex / Cursor / fx / OpenCode / Pi / OMP / Amp from
 //! `SkillSourceKind` skipping `unknown`; a grouped skill stays
 //! visible when any same-scope install lives under that source
 //! tree). Composer `$` insert / slash skill rows stay flat and
@@ -2508,6 +2509,7 @@ pub const SkillSourceKind = enum {
     fx,
     pi,
     omp,
+    amp,
     unknown,
 };
 
@@ -2527,8 +2529,11 @@ fn hasSkillRootSegment(path: []const u8, segment: []const u8) bool {
     return false;
 }
 
+/// `.config/agents/skills` is Amp (Waku Amp provider root);
+/// `.agents/skills` is Shared. Check the Amp root first so a
+/// substring of `.agents/skills` cannot steal it.
 pub fn skillSourceKind(path: []const u8) SkillSourceKind {
-    if (hasSkillRootSegment(path, ".config/agents/skills")) return .shared;
+    if (hasSkillRootSegment(path, ".config/agents/skills")) return .amp;
     if (hasSkillRootSegment(path, ".config/opencode/skills")) return .opencode;
     if (hasSkillRootSegment(path, ".pi/agent/skills")) return .pi;
     if (hasSkillRootSegment(path, ".omp/agent/skills")) return .omp;
@@ -2550,6 +2555,7 @@ pub fn skillSourceLabel(kind: SkillSourceKind, chrome: i18n.SkillsSourceChrome, 
         .fx => chrome.source_fx,
         .pi => chrome.source_pi,
         .omp => chrome.source_omp,
+        .amp => chrome.source_amp,
         .unknown => fallback_location,
     };
 }
@@ -2557,8 +2563,8 @@ pub fn skillSourceLabel(kind: SkillSourceKind, chrome: i18n.SkillsSourceChrome, 
 /// Wire ids for `pick_skills_source:{id}`. `all` clears the filter.
 pub const source_filter_all_id = "all";
 
-/// Menu order matches Waku's Shared / Claude / Codex / Cursor / fx /
-/// OpenCode / Pi / OMP chip list. `unknown` is skipped.
+/// Menu order matches Waku skills_page.rs: Shared / Claude / Codex /
+/// Cursor / fx / OpenCode / Pi / OhMyPi / Amp. `unknown` is skipped.
 pub const source_filter_kinds = [_]SkillSourceKind{
     .shared,
     .claude,
@@ -2568,6 +2574,7 @@ pub const source_filter_kinds = [_]SkillSourceKind{
     .opencode,
     .pi,
     .omp,
+    .amp,
 };
 
 pub fn skillSourceKindId(kind: SkillSourceKind) []const u8 {
@@ -2580,6 +2587,7 @@ pub fn skillSourceKindId(kind: SkillSourceKind) []const u8 {
         .opencode => "opencode",
         .pi => "pi",
         .omp => "omp",
+        .amp => "amp",
         .unknown => "",
     };
 }
@@ -5560,7 +5568,7 @@ test "skill_rows folds same-name user installs; multi-location source labels; in
     const arena = arena_state.allocator();
 
     try testing.expectEqual(SkillSourceKind.shared, skillSourceKind("/home/me/.agents/skills/demo/SKILL.md"));
-    try testing.expectEqual(SkillSourceKind.shared, skillSourceKind("/home/me/.config/agents/skills/demo/SKILL.md"));
+    try testing.expectEqual(SkillSourceKind.amp, skillSourceKind("/home/me/.config/agents/skills/demo/SKILL.md"));
     try testing.expectEqual(SkillSourceKind.claude, skillSourceKind("/home/me/.claude/skills/demo/SKILL.md"));
     try testing.expectEqual(SkillSourceKind.codex, skillSourceKind("/home/me/.codex/skills/demo/SKILL.md"));
     try testing.expectEqual(SkillSourceKind.opencode, skillSourceKind("/home/me/.config/opencode/skills/demo/SKILL.md"));
@@ -5575,8 +5583,8 @@ test "skill_rows folds same-name user installs; multi-location source labels; in
 
     var model = Model{};
     model.settings_page = .skills;
-    applyStdoutPaths(&model, "/home/me/.agents/skills/demo/SKILL.md\n/home/me/.cursor/skills/demo/SKILL.md\n/home/me/.fx/skills/other/SKILL.md\n");
-    try testing.expectEqual(@as(u32, 3), cachedCount(&model));
+    applyStdoutPaths(&model, "/home/me/.agents/skills/demo/SKILL.md\n/home/me/.cursor/skills/demo/SKILL.md\n/home/me/.config/agents/skills/demo/SKILL.md\n/home/me/.fx/skills/other/SKILL.md\n");
+    try testing.expectEqual(@as(u32, 4), cachedCount(&model));
     {
         const rows = model.skill_rows(arena);
         try testing.expectEqual(@as(usize, 3), rows.len);
@@ -5594,25 +5602,30 @@ test "skill_rows folds same-name user installs; multi-location source labels; in
     try testing.expectEqualStrings("", model.skill_duplicate_badge(arena));
     {
         const locs = model.skill_location_rows(arena);
-        try testing.expectEqual(@as(usize, 2), locs.len);
+        try testing.expectEqual(@as(usize, 3), locs.len);
         try testing.expectEqualStrings(source_shared, locs[0].label);
         try testing.expect(std.mem.endsWith(u8, locs[0].path, "/.agents/skills/demo") or std.mem.endsWith(u8, locs[0].path, ".agents/skills/demo"));
         try testing.expectEqualStrings("Cursor", locs[1].label);
         try testing.expect(std.mem.endsWith(u8, locs[1].path, "/.cursor/skills/demo") or std.mem.endsWith(u8, locs[1].path, ".cursor/skills/demo"));
+        try testing.expectEqualStrings("Amp", locs[2].label);
+        try testing.expect(std.mem.endsWith(u8, locs[2].path, "/.config/agents/skills/demo") or std.mem.endsWith(u8, locs[2].path, ".config/agents/skills/demo"));
     }
 
     model.draft_buffer.set("$");
     {
         const rows = model.skill_insert_rows(arena);
-        try testing.expectEqual(@as(usize, 3), rows.len);
+        try testing.expectEqual(@as(usize, 4), rows.len);
         try testing.expect(!rows[0].is_header);
         try testing.expect(!rows[1].is_header);
         try testing.expect(!rows[2].is_header);
+        try testing.expect(!rows[3].is_header);
         try testing.expectEqualStrings("demo", rows[0].name);
         try testing.expectEqualStrings("/home/me/.agents/skills/demo/SKILL.md", rows[0].path);
         try testing.expectEqualStrings("demo", rows[1].name);
         try testing.expectEqualStrings("/home/me/.cursor/skills/demo/SKILL.md", rows[1].path);
-        try testing.expectEqualStrings("other", rows[2].name);
+        try testing.expectEqualStrings("demo", rows[2].name);
+        try testing.expectEqualStrings("/home/me/.config/agents/skills/demo/SKILL.md", rows[2].path);
+        try testing.expectEqualStrings("other", rows[3].name);
     }
 }
 
@@ -5636,24 +5649,27 @@ test "source filter All skills; claude hides groups with no Claude install; any-
     model.store_io = testing.io;
     model.setLastProjectPath(root);
     model.settings_page = .skills;
-    applyStdoutPaths(&model, "/home/me/.agents/skills/demo/SKILL.md\n/home/me/.claude/skills/demo/SKILL.md\n/home/me/.fx/skills/other/SKILL.md\n/home/me/.codex/skills/solo/SKILL.md\n");
-    try testing.expectEqual(@as(u32, 4), cachedCount(&model));
+    applyStdoutPaths(&model, "/home/me/.agents/skills/demo/SKILL.md\n/home/me/.claude/skills/demo/SKILL.md\n/home/me/.fx/skills/other/SKILL.md\n/home/me/.codex/skills/solo/SKILL.md\n/home/me/.config/agents/skills/amp-only/SKILL.md\n");
+    try testing.expectEqual(@as(u32, 5), cachedCount(&model));
     try testing.expectEqualStrings(filter_all, sourceFilterLabel(&model));
     try testing.expect(groupedSkillHasSource(&model, 0, .shared));
     try testing.expect(groupedSkillHasSource(&model, 0, .claude));
     try testing.expect(!groupedSkillHasSource(&model, 0, .fx));
     try testing.expect(groupedSkillHasSource(&model, 2, .fx));
     try testing.expect(!groupedSkillHasSource(&model, 2, .claude));
+    try testing.expect(groupedSkillHasSource(&model, 4, .amp));
+    try testing.expect(!groupedSkillHasSource(&model, 4, .shared));
     {
         const rows = model.skill_rows(arena);
-        try testing.expectEqual(@as(usize, 4), rows.len);
+        try testing.expectEqual(@as(usize, 5), rows.len);
         try testing.expect(rows[0].is_header);
-        try testing.expectEqualStrings("3", rows[0].count);
+        try testing.expectEqualStrings("4", rows[0].count);
         try testing.expectEqualStrings("demo", rows[1].name);
         try testing.expectEqualStrings("other", rows[2].name);
         try testing.expectEqualStrings("solo", rows[3].name);
+        try testing.expectEqualStrings("amp-only", rows[4].name);
     }
-    try testing.expectEqualStrings("4 skills", countCaption(&model, arena));
+    try testing.expectEqualStrings("5 skills", countCaption(&model, arena));
 
     const picker = sourcePickerRows(&model, arena);
     try testing.expectEqual(@as(usize, 1 + source_filter_kinds.len), picker.len);
@@ -5673,6 +5689,13 @@ test "source filter All skills; claude hides groups with no Claude install; any-
     try testing.expectEqualStrings("fx · 1", picker[5].label);
     try testing.expectEqualStrings("opencode", picker[6].id);
     try testing.expectEqualStrings("OpenCode", picker[6].label);
+    try testing.expectEqualStrings("pi", picker[7].id);
+    try testing.expectEqualStrings("Pi", picker[7].label);
+    try testing.expectEqualStrings("omp", picker[8].id);
+    try testing.expectEqualStrings("OMP", picker[8].label);
+    try testing.expectEqualStrings("amp", picker[9].id);
+    try testing.expectEqualStrings("Amp · 1", picker[9].label);
+    try testing.expect(!picker[9].selected);
 
     model.skills_source_picker_open = true;
     pickSourceFilter(&model, "claude");
@@ -5688,17 +5711,17 @@ test "source filter All skills; claude hides groups with no Claude install; any-
         try testing.expectEqual(skillId(0), rows[1].id);
     }
     try testing.expectEqualStrings("", emptyHint(&model));
-    try testing.expectEqualStrings("1 of 4 shown", countCaption(&model, arena));
+    try testing.expectEqualStrings("1 of 5 shown", countCaption(&model, arena));
     try testing.expect(hasCountCaption(&model));
 
     model.language_preference = .simplified_chinese;
-    try testing.expectEqualStrings("显示 1 / 4 个", countCaption(&model, arena));
+    try testing.expectEqualStrings("显示 1 / 5 个", countCaption(&model, arena));
     try testing.expectEqualStrings("Claude", sourceFilterLabel(&model));
     model.skills_source_filter = null;
     try testing.expectEqualStrings("全部技能", sourceFilterLabel(&model));
     model.skills_source_filter = .claude;
     model.language_preference = .japanese;
-    try testing.expectEqualStrings("4 件中 1 件を表示", countCaption(&model, arena));
+    try testing.expectEqualStrings("5 件中 1 件を表示", countCaption(&model, arena));
     try testing.expectEqualStrings("Claude", sourceFilterLabel(&model));
     model.skills_source_filter = null;
     try testing.expectEqualStrings("すべてのスキル", sourceFilterLabel(&model));
@@ -5708,14 +5731,33 @@ test "source filter All skills; claude hides groups with no Claude install; any-
     model.draft_buffer.set("$");
     {
         const rows = model.skill_insert_rows(arena);
-        try testing.expectEqual(@as(usize, 4), rows.len);
+        try testing.expectEqual(@as(usize, 5), rows.len);
         try testing.expectEqualStrings("demo", rows[0].name);
         try testing.expectEqualStrings("/home/me/.agents/skills/demo/SKILL.md", rows[0].path);
         try testing.expectEqualStrings("demo", rows[1].name);
         try testing.expectEqualStrings("/home/me/.claude/skills/demo/SKILL.md", rows[1].path);
         try testing.expectEqualStrings("other", rows[2].name);
         try testing.expectEqualStrings("solo", rows[3].name);
+        try testing.expectEqualStrings("amp-only", rows[4].name);
     }
+
+    pickSourceFilter(&model, "amp");
+    try testing.expectEqual(SkillSourceKind.amp, model.skills_source_filter.?);
+    try testing.expectEqualStrings("Amp", sourceFilterLabel(&model));
+    {
+        const rows = model.skill_rows(arena);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expect(rows[0].is_header);
+        try testing.expectEqualStrings("1", rows[0].count);
+        try testing.expectEqualStrings("amp-only", rows[1].name);
+        try testing.expectEqual(skillId(4), rows[1].id);
+    }
+    try testing.expectEqualStrings("1 of 5 shown", countCaption(&model, arena));
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("Amp", sourceFilterLabel(&model));
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("Amp", sourceFilterLabel(&model));
+    model.language_preference = .english;
 
     pickSourceFilter(&model, "pi");
     try testing.expectEqual(SkillSourceKind.pi, model.skills_source_filter.?);
@@ -5729,14 +5771,14 @@ test "source filter All skills; claude hides groups with no Claude install; any-
     try testing.expect(!model.skills_source_picker_open);
     try testing.expectEqual(@as(?SkillSourceKind, null), model.skills_source_filter);
     try testing.expectEqualStrings(filter_all, sourceFilterLabel(&model));
-    try testing.expectEqual(@as(usize, 4), model.skill_rows(arena).len);
+    try testing.expectEqual(@as(usize, 5), model.skill_rows(arena).len);
 
     model.skills_source_filter = .codex;
     model.skills_source_picker_open = true;
     leavePage(&model, &fx);
     try testing.expect(!model.skills_source_picker_open);
     try testing.expectEqual(SkillSourceKind.codex, model.skills_source_filter.?);
-    try testing.expectEqual(@as(u32, 4), cachedCount(&model));
+    try testing.expectEqual(@as(u32, 5), cachedCount(&model));
 
     model.skills_source_picker_open = true;
     close(&model, &fx);
@@ -5878,16 +5920,23 @@ test "selected-detail header name plus sources · scope caption; project vs user
 
     selectSkill(&model, skillId(1));
     try testing.expectEqualStrings("demo", model.skill_name());
-    try testing.expectEqualStrings("Shared · Cursor · available in every project", model.skill_scope_caption(arena));
+    try testing.expectEqualStrings("Shared · Cursor · Amp · available in every project", model.skill_scope_caption(arena));
     {
         var sources_buf: [i18n.skills_scope_caption_max]u8 = undefined;
-        try testing.expectEqualStrings("Shared · Cursor", writeSelectedSkillSourcesLabel(&model, &sources_buf));
+        try testing.expectEqualStrings("Shared · Cursor · Amp", writeSelectedSkillSourcesLabel(&model, &sources_buf));
+    }
+    {
+        const locs = model.skill_location_rows(arena);
+        try testing.expectEqual(@as(usize, 3), locs.len);
+        try testing.expectEqualStrings(source_shared, locs[0].label);
+        try testing.expectEqualStrings("Cursor", locs[1].label);
+        try testing.expectEqualStrings("Amp", locs[2].label);
     }
 
     model.language_preference = .simplified_chinese;
-    try testing.expectEqualStrings("共享 · Cursor · 在所有项目中可用", model.skill_scope_caption(arena));
+    try testing.expectEqualStrings("共享 · Cursor · Amp · 在所有项目中可用", model.skill_scope_caption(arena));
     model.language_preference = .japanese;
-    try testing.expectEqualStrings("共有 · Cursor · すべてのプロジェクトで利用可能", model.skill_scope_caption(arena));
+    try testing.expectEqualStrings("共有 · Cursor · Amp · すべてのプロジェクトで利用可能", model.skill_scope_caption(arena));
     model.language_preference = .english;
 
     selectSkill(&model, skillId(4));

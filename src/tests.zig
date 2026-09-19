@@ -28742,6 +28742,7 @@ test "Settings Skills source filter chip lists All skills then sources; pick and
     }
     _ = try expectByText(tree.root, .menu_item, "fx · 1");
     _ = try expectByText(tree.root, .menu_item, "Cursor");
+    _ = try expectByText(tree.root, .menu_item, "Amp");
     try testing.expect(findByText(tree.root, .menu_item, "unknown") == null);
 
     main.update(&model, tree.msgForPointer(claude.id, .up).?, &fx);
