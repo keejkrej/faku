@@ -46,6 +46,7 @@ test {
     _ = @import("lines.zig");
     _ = @import("fx_probe.zig");
     _ = @import("cli_probe.zig");
+    _ = @import("cli_version.zig");
     _ = @import("palette_run.zig");
     _ = @import("persist.zig");
     _ = @import("session_actions.zig");

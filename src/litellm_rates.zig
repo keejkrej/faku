@@ -595,9 +595,10 @@ fn testStoreDir(tmp: *const std.testing.TmpDir, buffer: []u8) ![]const u8 {
     return std.fmt.bufPrint(buffer, ".zig-cache/tmp/{s}/faku-rates", .{tmp.sub_path[0..]});
 }
 
-test "litellm_rates_key sits above cli_probe and is unused by OS sidecars" {
+test "litellm_rates_key sits above cli_probe / cli_version and is unused by OS sidecars" {
     try std.testing.expectEqual(@as(u64, 650), litellm_rates_key);
     try std.testing.expect(litellm_rates_key > git_keys.cli_probe_key_first + 8);
+    try std.testing.expect(litellm_rates_key > git_keys.cli_version_key_first + 8);
     try std.testing.expect(litellm_rates_key != 25);
     try std.testing.expect(litellm_rates_key != 31);
 }

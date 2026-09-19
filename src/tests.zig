@@ -45,6 +45,7 @@ const litellm_rates = @import("litellm_rates.zig");
 const fx_probe = @import("fx_probe.zig");
 const sidecar_lines = @import("lines.zig");
 const cli_probe = @import("cli_probe.zig");
+const cli_version = @import("cli_version.zig");
 const keys = @import("keys.zig");
 const switcher = @import("switcher.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
@@ -6314,6 +6315,13 @@ fn findCliProbeSpawn(fx: *Effects, id: protocol.ProviderId) ?@TypeOf(fx.pendingS
     const spawn = findPendingSpawnKey(fx, cli_probe.probeKey(id)) orelse return null;
     if (spawn.argv.len != 2) return null;
     if (!std.mem.eql(u8, spawn.argv[1], cli_probe.help_flag)) return null;
+    return spawn;
+}
+
+fn findCliVersionSpawn(fx: *Effects, id: protocol.ProviderId) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    const spawn = findPendingSpawnKey(fx, cli_version.versionKey(id)) orelse return null;
+    if (spawn.argv.len != 2) return null;
+    if (!std.mem.eql(u8, spawn.argv[1], cli_version.version_flag)) return null;
     return spawn;
 }
 
@@ -37786,6 +37794,76 @@ test "Settings Providers expand chevron + binary override persist; captions; pro
     tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "fx の設定を隠す", .{ .toggle_provider_expanded = 1 });
     try testing.expect(findByText(tree.root, .text, "Binary path") == null);
+}
+
+test "Settings Providers version badge paints v{version} when --version parse succeeds; Not found has none; Refresh clears" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{p.has_version}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{p.version}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "mono=\"true\""));
+    try testing.expect(cli_version.versionKey(.claude) != cli_probe.probeKey(.claude));
+    try testing.expect(cli_version.versionKey(.fx) != fx_probe.fx_probe_key);
+
+    var model = boot.initialModel();
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_providers, &fx);
+    try testing.expect(model.settings_page_providers());
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "v2.1.24") == null);
+    try testing.expect(findByText(tree.root, .text, "v0.45.0") == null);
+
+    const claude_help = findCliProbeSpawn(&fx, .claude) orelse return error.MissingClaudeHelp;
+    try fx.feedExit(claude_help.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(model.cli_available[@intFromEnum(protocol.ProviderId.claude)]);
+    const claude_version = findCliVersionSpawn(&fx, .claude) orelse return error.MissingClaudeVersion;
+    try testing.expectEqualStrings("claude", claude_version.argv[0]);
+    try testing.expectEqualStrings(cli_version.version_flag, claude_version.argv[1]);
+    try testing.expect(!providers.rowFor(&model, .claude, arena).has_version);
+
+    try fx.feedOutput(claude_version.key, "2.1.24 (Claude Code)\n");
+    try fx.feedExit(claude_version.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(providers.rowFor(&model, .claude, arena).has_version);
+    try testing.expectEqualStrings("v2.1.24", providers.rowFor(&model, .claude, arena).version);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "v2.1.24");
+    _ = try expectByText(tree.root, .list_item, "claude");
+
+    const cursor_help = findCliProbeSpawn(&fx, .cursor) orelse return error.MissingCursorHelp;
+    try fx.feedExit(cursor_help.key, 127);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.cli_available[@intFromEnum(protocol.ProviderId.cursor)]);
+    try testing.expect(findCliVersionSpawn(&fx, .cursor) == null);
+    try testing.expect(!providers.rowFor(&model, .cursor, arena).has_version);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "v2025.09.12-4f8d8e2") == null);
+
+    main.update(&model, .refresh_providers, &fx);
+    try testing.expect(!providers.rowFor(&model, .claude, arena).has_version);
+    try testing.expectEqualStrings("", cli_version.providerVersion(&model, .claude));
+    try testing.expect(findCliVersionSpawn(&fx, .claude) == null);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "v2.1.24") == null);
+
+    const claude_help2 = findCliProbeSpawn(&fx, .claude) orelse return error.MissingClaudeHelpRefresh;
+    try fx.feedExit(claude_help2.key, 0);
+    drainEffects(&model, &fx);
+    const claude_version2 = findCliVersionSpawn(&fx, .claude) orelse return error.MissingClaudeVersionRefresh;
+    try fx.feedOutput(claude_version2.key, "not a version");
+    try fx.feedExit(claude_version2.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!providers.rowFor(&model, .claude, arena).has_version);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "v2.1.24") == null);
 }
 
 test "Settings Providers fx_login_note fx_login_codex_note other_install_hint follow Appearance language" {

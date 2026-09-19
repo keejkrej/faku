@@ -523,6 +523,9 @@
                       <column gap="2" grow="1">
                         <row gap="8" cross="center">
                           <text wrap="false" overflow="ellipsis">{p.name}</text>
+                          <if test="{p.has_version}">
+                            <text wrap="false" overflow="ellipsis" foreground="text_muted"><span mono="true">{p.version}</span></text>
+                          </if>
                           <if test="{p.first_party}">
                             <text wrap="false" overflow="ellipsis" foreground="text_muted">{p.first_party_label}</text>
                           </if>

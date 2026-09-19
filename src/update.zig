@@ -25,6 +25,7 @@ const effect_keys = @import("effect_keys.zig");
 const sidecar_lines = @import("lines.zig");
 const fx_probe = @import("fx_probe.zig");
 const cli_probe = @import("cli_probe.zig");
+const cli_version = @import("cli_version.zig");
 const palette_run = @import("palette_run.zig");
 const persist = @import("persist.zig");
 const session_actions = @import("session_actions.zig");
@@ -660,7 +661,8 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .fx_line => |line| sidecar_lines.handleFxLine(model, fx, line),
         .fx_exit => |exit| sidecar_lines.handleFxExit(model, fx, exit),
         .fx_probe_exit => |exit| fx_probe.handleFxProbeExit(model, fx, exit),
-        .cli_probe_exit => |exit| cli_probe.handleCliProbeExit(model, exit),
+        .cli_probe_exit => |exit| cli_probe.handleCliProbeExit(model, fx, exit),
+        .cli_version_exit => |exit| cli_version.handleCliVersionExit(model, exit),
     }
     // Waku-parity 100ms Background render cache. Piggybacks
     // `now_ms` (stamped above) and this update tick / fx_line
