@@ -389,20 +389,26 @@
 //! / `ComposerProjectChrome` so Files preview Open in editor and
 //! composer Open in Editor stay independently evolvable; on-press
 //! stays `open_skill_in_editor`; wire ids stay English)
-//! plus Settings Skills Reveal (reuses
-//! `ComposerProjectChrome.reveal_folder` via a distinct Model getter;
-//! same EN Reveal folder as composer project-row; on-press stays
-//! `reveal_skill`; wire ids stay English)
-//! plus Settings Skills Copy path (reuses
-//! `ComposerProjectChrome.copy_path` via a distinct Model getter;
-//! same EN Copy path as composer project-row; on-press stays
+//! plus Settings Skills Reveal (same
+//! `SkillsRevealChrome` strings; English matches Waku
+//! `skills.reveal`; EN Show in File Manager / zh-CN 在文件管理器中显示 /
+//! ja ファイルマネージャーで表示; distinct from
+//! `ComposerProjectChrome.reveal_folder` so composer Reveal folder
+//! stays independently evolvable; on-press stays `reveal_skill`;
+//! wire ids stay English)
+//! plus Settings Skills Copy path (same
+//! `SkillsCopyPathChrome` strings; English matches Waku
+//! `skills.copy_path`; EN Copy Path / zh-CN 复制路径 / ja パスをコピー;
+//! distinct from `ComposerProjectChrome.copy_path` so composer Copy
+//! path stays independently evolvable; on-press stays
 //! `copy_skill_path`; wire ids stay English)
 //! plus Settings Skills Copy path success window_status Path copied
 //! (same `SkillsPathCopiedChrome` strings; distinct from
-//! `ComposerProjectChrome.copy_path` so the toast stays independently
-//! evolvable; on-press stays `copy_skill_path`; fail closed with no
-//! selection / empty / unresolved path does not write clipboard or
-//! set window_status; wire ids stay English)
+//! `SkillsCopyPathChrome.copy_path` / `ComposerProjectChrome.copy_path`
+//! so the toast stays independently evolvable; on-press stays
+//! `copy_skill_path`; fail closed with no selection / empty /
+//! unresolved path does not write clipboard or set window_status;
+//! wire ids stay English)
 //! plus Settings Skills Delete success window_status Moved
 //! “%{name}” to the Trash (same `SkillsDeletedToastChrome` strings;
 //! English matches Waku `skills.deleted_toast`; distinct from
@@ -561,10 +567,10 @@
 //! (label uses `SkillsOpenFileChrome.open_file` via a distinct
 //! Model getter).
 //! Skills Reveal `on-press` stays `reveal_skill`
-//! (label reuses `ComposerProjectChrome.reveal_folder` via a distinct
+//! (label uses `SkillsRevealChrome.reveal` via a distinct
 //! Model getter).
 //! Skills Copy path `on-press` stays `copy_skill_path`
-//! (label reuses `ComposerProjectChrome.copy_path` via a distinct
+//! (label uses `SkillsCopyPathChrome.copy_path` via a distinct
 //! Model getter; success window_status Path copied uses
 //! `SkillsPathCopiedChrome.path_copied` via Model
 //! `skill_path_copied_status`).
@@ -1479,9 +1485,9 @@ const right_panel_chrome_ja: RightPanelChrome = .{
 /// duplicated here). Wire ids / on-press stay English. English matches
 /// the former hardcoded composer buttons. Distinct from palette
 /// `Open project in Editor` / `Reveal project folder` / `Copy project path`.
-/// Settings Skills Reveal reuses `reveal_folder` via a distinct Model
-/// getter (`skill_reveal_label`). Settings Skills Copy path reuses
-/// `copy_path` via a distinct Model getter (`skill_copy_path_label`).
+/// Settings Skills Reveal lives in `SkillsRevealChrome` (Waku
+/// `skills.reveal`), not here. Settings Skills Copy path lives in
+/// `SkillsCopyPathChrome` (Waku `skills.copy_path`), not here.
 /// Copy path success window_status Path copied lives in
 /// `SkillsPathCopiedChrome`, not here.
 pub const ComposerProjectChrome = struct {
@@ -4848,6 +4854,50 @@ const skills_open_file_chrome_ja: SkillsOpenFileChrome = .{
     .open_file = "SKILL.md を開く",
 };
 
+/// Settings Skills selected-detail Reveal for the resolved locale.
+/// Same resolve path as SkillsOpenFileChrome /
+/// SkillsPathCopiedChrome. English matches Waku `skills.reveal`.
+/// Distinct from ComposerProjectChrome `reveal_folder` (composer
+/// Reveal folder) so that pack stays independently evolvable. Wire
+/// ids / on-press stay English (`reveal_skill`).
+pub const SkillsRevealChrome = struct {
+    reveal: []const u8,
+};
+
+const skills_reveal_chrome_en: SkillsRevealChrome = .{
+    .reveal = "Show in File Manager",
+};
+
+const skills_reveal_chrome_zh_cn: SkillsRevealChrome = .{
+    .reveal = "在文件管理器中显示",
+};
+
+const skills_reveal_chrome_ja: SkillsRevealChrome = .{
+    .reveal = "ファイルマネージャーで表示",
+};
+
+/// Settings Skills selected-detail Copy Path for the resolved
+/// locale. Same resolve path as SkillsOpenFileChrome /
+/// SkillsRevealChrome. English matches Waku `skills.copy_path`
+/// (capital-P Path, distinct from composer Copy path). Distinct from
+/// ComposerProjectChrome `copy_path` so that pack stays independently
+/// evolvable. Wire ids / on-press stay English (`copy_skill_path`).
+pub const SkillsCopyPathChrome = struct {
+    copy_path: []const u8,
+};
+
+const skills_copy_path_chrome_en: SkillsCopyPathChrome = .{
+    .copy_path = "Copy Path",
+};
+
+const skills_copy_path_chrome_zh_cn: SkillsCopyPathChrome = .{
+    .copy_path = "复制路径",
+};
+
+const skills_copy_path_chrome_ja: SkillsCopyPathChrome = .{
+    .copy_path = "パスをコピー",
+};
+
 /// Settings Skills library / details pane titles for the resolved
 /// locale. Same resolve path as SkillsFilterAllChrome /
 /// SkillsSectionChrome / SkillsSelectChrome. English matches Waku
@@ -4892,9 +4942,10 @@ pub const skills_count_caption_max: usize = 96;
 /// Settings Skills Copy path success window_status Path copied for
 /// the resolved locale. Same resolve path as SkillsEmptyChrome /
 /// SkillsCountChrome / SkillsEnableStatusChrome. English matches
-/// Waku `skills.path_copied`. Distinct from ComposerProjectChrome
-/// `copy_path` (the button label) so the toast stays independently
-/// evolvable. Fail closed with no selection / empty / unresolved
+/// Waku `skills.path_copied`. Distinct from SkillsCopyPathChrome
+/// `copy_path` (the button label) and ComposerProjectChrome
+/// `copy_path` so the toast stays independently evolvable. Fail
+/// closed with no selection / empty / unresolved
 /// path does not write clipboard or set window_status. Wire ids /
 /// on-press stay English (`copy_skill_path`).
 pub const SkillsPathCopiedChrome = struct {
@@ -6490,6 +6541,35 @@ pub fn skillsOpenFileChromeFor(preference: LanguagePreference, system_locale_id:
     };
 }
 
+/// Settings Skills selected-detail Reveal for the resolved locale.
+/// Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env.
+/// Distinct from ComposerProjectChrome so composer Reveal folder
+/// stays independently evolvable. English matches Waku
+/// `skills.reveal`. Wire ids / on-press stay English (`reveal_skill`).
+pub fn skillsRevealChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsRevealChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_reveal_chrome_zh_cn,
+        .japanese => skills_reveal_chrome_ja,
+        .system, .english => skills_reveal_chrome_en,
+    };
+}
+
+/// Settings Skills selected-detail Copy Path for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env.
+/// Distinct from ComposerProjectChrome so composer Copy path stays
+/// independently evolvable. English matches Waku `skills.copy_path`
+/// (capital-P Path). Wire ids / on-press stay English
+/// (`copy_skill_path`).
+pub fn skillsCopyPathChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsCopyPathChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_copy_path_chrome_zh_cn,
+        .japanese => skills_copy_path_chrome_ja,
+        .system, .english => skills_copy_path_chrome_en,
+    };
+}
+
 /// Settings Skills library / details pane titles for the resolved
 /// locale. Callers pass Model `language_preference` +
 /// `system_locale_id`; this file does not read process env.
@@ -6591,9 +6671,9 @@ pub fn formatSkillsContentsSummary(
 /// Settings Skills Copy path success window_status Path copied for
 /// the resolved locale. Callers pass Model `language_preference` +
 /// `system_locale_id`; this file does not read process env. Distinct
-/// from ComposerProjectChrome `copy_path` so the button label and
-/// the toast stay independently evolvable. Wire ids / on-press stay
-/// English (`copy_skill_path`).
+/// from SkillsCopyPathChrome / ComposerProjectChrome `copy_path` so
+/// the button labels and the toast stay independently evolvable.
+/// Wire ids / on-press stay English (`copy_skill_path`).
 pub fn skillsPathCopiedChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsPathCopiedChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => skills_path_copied_chrome_zh_cn,
@@ -10661,6 +10741,44 @@ test "skillsOpenFileChromeFor english default; zh and ja chrome; english ignores
     try testing.expect(!std.mem.eql(u8, skillsOpenFileChromeFor(.english, "").open_file, composerProjectChromeFor(.english, "").open_in_editor));
     try testing.expect(!std.mem.eql(u8, skillsOpenFileChromeFor(.simplified_chinese, "").open_file, composerProjectChromeFor(.simplified_chinese, "").open_in_editor));
     try testing.expect(!std.mem.eql(u8, skillsOpenFileChromeFor(.japanese, "").open_file, composerProjectChromeFor(.japanese, "").open_in_editor));
+}
+
+test "skillsRevealChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Show in File Manager", skillsRevealChromeFor(.english, "ja").reveal);
+    try testing.expectEqualStrings("Show in File Manager", skillsRevealChromeFor(.english, "").reveal);
+    try testing.expectEqualStrings("Show in File Manager", skillsRevealChromeFor(.system, "").reveal);
+
+    try testing.expectEqualStrings("在文件管理器中显示", skillsRevealChromeFor(.simplified_chinese, "").reveal);
+    try testing.expectEqualStrings("ファイルマネージャーで表示", skillsRevealChromeFor(.japanese, "").reveal);
+
+    try testing.expectEqualStrings("在文件管理器中显示", skillsRevealChromeFor(.system, "zh_CN.UTF-8").reveal);
+    try testing.expectEqualStrings("ファイルマネージャーで表示", skillsRevealChromeFor(.system, "ja_JP.UTF-8").reveal);
+    try testing.expectEqualStrings("Show in File Manager", skillsRevealChromeFor(.english, "ja_JP.UTF-8").reveal);
+    try testing.expectEqualStrings("Show in File Manager", skillsRevealChromeFor(.english, "zh_CN.UTF-8").reveal);
+
+    try testing.expect(!std.mem.eql(u8, skillsRevealChromeFor(.english, "").reveal, composerProjectChromeFor(.english, "").reveal_folder));
+    try testing.expect(!std.mem.eql(u8, skillsRevealChromeFor(.simplified_chinese, "").reveal, composerProjectChromeFor(.simplified_chinese, "").reveal_folder));
+    try testing.expect(!std.mem.eql(u8, skillsRevealChromeFor(.japanese, "").reveal, composerProjectChromeFor(.japanese, "").reveal_folder));
+}
+
+test "skillsCopyPathChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Copy Path", skillsCopyPathChromeFor(.english, "ja").copy_path);
+    try testing.expectEqualStrings("Copy Path", skillsCopyPathChromeFor(.english, "").copy_path);
+    try testing.expectEqualStrings("Copy Path", skillsCopyPathChromeFor(.system, "").copy_path);
+
+    try testing.expectEqualStrings("复制路径", skillsCopyPathChromeFor(.simplified_chinese, "").copy_path);
+    try testing.expectEqualStrings("パスをコピー", skillsCopyPathChromeFor(.japanese, "").copy_path);
+
+    try testing.expectEqualStrings("复制路径", skillsCopyPathChromeFor(.system, "zh_CN.UTF-8").copy_path);
+    try testing.expectEqualStrings("パスをコピー", skillsCopyPathChromeFor(.system, "ja_JP.UTF-8").copy_path);
+    try testing.expectEqualStrings("Copy Path", skillsCopyPathChromeFor(.english, "ja_JP.UTF-8").copy_path);
+    try testing.expectEqualStrings("Copy Path", skillsCopyPathChromeFor(.english, "zh_CN.UTF-8").copy_path);
+
+    try testing.expect(!std.mem.eql(u8, skillsCopyPathChromeFor(.english, "").copy_path, composerProjectChromeFor(.english, "").copy_path));
+    try testing.expectEqualStrings("Copy path", composerProjectChromeFor(.english, "").copy_path);
+    try testing.expectEqualStrings("Reveal folder", composerProjectChromeFor(.english, "").reveal_folder);
 }
 
 test "skillsPaneChromeFor english default; zh and ja chrome; english ignores ja LANG" {

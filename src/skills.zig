@@ -126,9 +126,11 @@
 //! `selectedSkillAbsPath` (parent directory via Finder / xdg-open /
 //! explorer — same sidecar as composer Reveal folder). Fail closed
 //! with no selection / empty / unresolved path (no spawn).
-//! `.missing_bin` paints `hostMissingStatusFor`. Label reuses
-//! `i18n.ComposerProjectChrome.reveal_folder` via Model
-//! `skill_reveal_label`. Not Open in editor, not a daemon method.
+//! `.missing_bin` paints `hostMissingStatusFor`. Label follows
+//! `i18n.SkillsRevealChrome.reveal` via Model
+//! `skill_reveal_label` (English matches Waku `skills.reveal`;
+//! distinct from ComposerProjectChrome Reveal folder). Not Open in
+//! editor, not a daemon method.
 //! First-cut Copy path for the selected skill writes the absolute
 //! skill parent directory (install dir, not `SKILL.md`) through
 //! Native `fx.writeClipboard` via `copy.copyText` / `copy_turn_key`.
@@ -137,9 +139,11 @@
 //! selection / empty / unresolved path (no clipboard write, no
 //! window_status, no crash). Successful write sets window_status
 //! Path copied (`i18n.SkillsPathCopiedChrome.path_copied` via Model
-//! `skill_path_copied_status`). Label reuses
-//! `i18n.ComposerProjectChrome.copy_path` via
-//! Model `skill_copy_path_label`. Not Reveal, not Open in editor,
+//! `skill_path_copied_status`). Label follows
+//! `i18n.SkillsCopyPathChrome.copy_path` via
+//! Model `skill_copy_path_label` (English matches Waku
+//! `skills.copy_path`; distinct from ComposerProjectChrome Copy
+//! path). Not Reveal, not Open in editor,
 //! not a daemon method. Delete success (daemon `trashSkills` ack
 //! or permanent-remove exit 0) sets window_status Moved
 //! “%{name}” to the Trash (`i18n.SkillsDeletedToastChrome.deleted_toast`
@@ -282,7 +286,8 @@ pub const could_not_delete_status = i18n.skillsTrashStatusChromeFor(.english, ""
 /// English default for Copy path success window_status.
 /// Localized copy lives on `i18n.SkillsPathCopiedChrome.path_copied`
 /// via Model `skill_path_copied_status`. Distinct from
-/// ComposerProjectChrome Copy path.
+/// SkillsCopyPathChrome Copy Path and ComposerProjectChrome Copy
+/// path.
 pub const path_copied_status = i18n.skillsPathCopiedChromeFor(.english, "").path_copied;
 /// English default template for Delete success window_status.
 /// Localized copy lives on `i18n.SkillsDeletedToastChrome.deleted_toast`
@@ -4939,23 +4944,30 @@ test "revealSelectedSkill fails closed with no selection or unresolved path" {
     try std.testing.expectEqualStrings("", model.window_status());
 }
 
-test "skill_reveal_label equals composerProjectChrome reveal_folder" {
+test "skill_reveal_label equals SkillsRevealChrome reveal" {
     var model = Model{};
     try std.testing.expectEqualStrings(
-        i18n.composerProjectChromeFor(.english, "").reveal_folder,
+        i18n.skillsRevealChromeFor(.english, "").reveal,
         model.skill_reveal_label(),
     );
-    try std.testing.expectEqualStrings(model.reveal_folder_label(), model.skill_reveal_label());
+    try std.testing.expectEqualStrings("Show in File Manager", model.skill_reveal_label());
+    try std.testing.expectEqualStrings("Reveal folder", model.reveal_folder_label());
+    try std.testing.expect(!std.mem.eql(u8, model.reveal_folder_label(), model.skill_reveal_label()));
+    try std.testing.expect(!std.mem.eql(u8, i18n.composerProjectChromeFor(.english, "").reveal_folder, model.skill_reveal_label()));
     model.language_preference = .simplified_chinese;
     try std.testing.expectEqualStrings(
-        i18n.composerProjectChromeFor(.simplified_chinese, "").reveal_folder,
+        i18n.skillsRevealChromeFor(.simplified_chinese, "").reveal,
         model.skill_reveal_label(),
     );
+    try std.testing.expectEqualStrings("在文件管理器中显示", model.skill_reveal_label());
+    try std.testing.expect(!std.mem.eql(u8, model.reveal_folder_label(), model.skill_reveal_label()));
     model.language_preference = .japanese;
     try std.testing.expectEqualStrings(
-        i18n.composerProjectChromeFor(.japanese, "").reveal_folder,
+        i18n.skillsRevealChromeFor(.japanese, "").reveal,
         model.skill_reveal_label(),
     );
+    try std.testing.expectEqualStrings("ファイルマネージャーで表示", model.skill_reveal_label());
+    try std.testing.expect(!std.mem.eql(u8, model.reveal_folder_label(), model.skill_reveal_label()));
 }
 
 test "copySelectedSkillPath queues writeClipboard with the absolute skill parent directory" {
@@ -5056,25 +5068,28 @@ test "copySelectedSkillPath fails closed with no selection or unresolved path" {
     try std.testing.expectEqualStrings("", model.window_status());
 }
 
-test "skill_copy_path_label equals composerProjectChrome copy_path" {
+test "skill_copy_path_label equals SkillsCopyPathChrome copy_path" {
     var model = Model{};
     try std.testing.expectEqualStrings(
-        i18n.composerProjectChromeFor(.english, "").copy_path,
+        i18n.skillsCopyPathChromeFor(.english, "").copy_path,
         model.skill_copy_path_label(),
     );
-    try std.testing.expectEqualStrings(model.copy_path_label(), model.skill_copy_path_label());
+    try std.testing.expectEqualStrings("Copy Path", model.skill_copy_path_label());
+    try std.testing.expectEqualStrings("Copy path", model.copy_path_label());
+    try std.testing.expect(!std.mem.eql(u8, model.copy_path_label(), model.skill_copy_path_label()));
+    try std.testing.expect(!std.mem.eql(u8, i18n.composerProjectChromeFor(.english, "").copy_path, model.skill_copy_path_label()));
     model.language_preference = .simplified_chinese;
     try std.testing.expectEqualStrings(
-        i18n.composerProjectChromeFor(.simplified_chinese, "").copy_path,
+        i18n.skillsCopyPathChromeFor(.simplified_chinese, "").copy_path,
         model.skill_copy_path_label(),
     );
-    try std.testing.expectEqualStrings(model.copy_path_label(), model.skill_copy_path_label());
+    try std.testing.expectEqualStrings("复制路径", model.skill_copy_path_label());
     model.language_preference = .japanese;
     try std.testing.expectEqualStrings(
-        i18n.composerProjectChromeFor(.japanese, "").copy_path,
+        i18n.skillsCopyPathChromeFor(.japanese, "").copy_path,
         model.skill_copy_path_label(),
     );
-    try std.testing.expectEqualStrings(model.copy_path_label(), model.skill_copy_path_label());
+    try std.testing.expectEqualStrings("パスをコピー", model.skill_copy_path_label());
 }
 
 test "skill_path_copied_status equals SkillsPathCopiedChrome path_copied" {

@@ -5807,6 +5807,14 @@ pub const Model = struct {
         return i18n.skillsOpenFileChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn skillsRevealChrome(model: *const Model) i18n.SkillsRevealChrome {
+        return i18n.skillsRevealChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn skillsCopyPathChrome(model: *const Model) i18n.SkillsCopyPathChrome {
+        return i18n.skillsCopyPathChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn skillsPaneChrome(model: *const Model) i18n.SkillsPaneChrome {
         return i18n.skillsPaneChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6334,21 +6342,22 @@ pub const Model = struct {
         return model.skillsOpenFileChrome().open_file;
     }
 
-    /// Settings Skills detail Reveal. Reuses
-    /// `i18n.ComposerProjectChrome.reveal_folder` (same EN Reveal
-    /// folder as composer project-row). Distinct from
-    /// `reveal_folder_label`. `on-press` stays `reveal_skill`.
+    /// Settings Skills detail Reveal. Localized via
+    /// `i18n.SkillsRevealChrome`. English matches Waku
+    /// `skills.reveal`. Distinct from composer
+    /// `reveal_folder_label` (`ComposerProjectChrome`). `on-press`
+    /// stays `reveal_skill`.
     pub fn skill_reveal_label(model: *const Model) []const u8 {
-        return model.composerProjectChrome().reveal_folder;
+        return model.skillsRevealChrome().reveal;
     }
 
-    /// Settings Skills detail Copy path. Reuses
-    /// `i18n.ComposerProjectChrome.copy_path` (same EN Copy path as
-    /// composer project-row). Distinct from composer
-    /// `copy_path_label` and palette Copy project path. `on-press`
-    /// stays `copy_skill_path`.
+    /// Settings Skills detail Copy Path. Localized via
+    /// `i18n.SkillsCopyPathChrome`. English matches Waku
+    /// `skills.copy_path` (capital-P Path). Distinct from composer
+    /// `copy_path_label` (`ComposerProjectChrome`) and palette Copy
+    /// project path. `on-press` stays `copy_skill_path`.
     pub fn skill_copy_path_label(model: *const Model) []const u8 {
-        return model.composerProjectChrome().copy_path;
+        return model.skillsCopyPathChrome().copy_path;
     }
 
     /// Settings Skills Copy path success window_status Path copied.
