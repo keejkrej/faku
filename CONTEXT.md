@@ -1548,10 +1548,15 @@ clear; daemon `trashSkills` ack and permanent-remove fallback share this
 chrome — Faku has no OS Trash crate on the fallback; distinct from
 `i18n.SkillsTrashChrome` / `i18n.SkillsTrashStatusChrome` /
 `i18n.SkillsPathCopiedChrome`).
-Enable / Disable chip and Disabled badge follow the resolved
+Enable %{name} / Disable %{name} chip follows the resolved
 locale this cut (same
-`i18n.SkillsEnableChrome` strings; distinct from
-`i18n.ProvidersChrome`; on-press stays `toggle_skill_enabled`).
+`i18n.SkillsEnableNamedChrome` strings; Waku `skills.enable_named` /
+`skills.disable_named`; EN Enable %{name} / Disable %{name} / zh-CN
+启用%{name} / 停用%{name} / ja %{name} を有効にする / %{name} を無効にする;
+distinct from `i18n.SkillsEnableChrome` Enable / Disable / Disabled
+badge and from `i18n.ProvidersChrome`; empty name still paints;
+on-press stays `toggle_skill_enabled`).
+Disabled badge follows `i18n.SkillsEnableChrome.disabled` (unchanged).
 Enable/Disable rename-fail window_status Could not update skill. follow
 the resolved locale this cut (same `i18n.SkillsEnableStatusChrome`
 strings; distinct from `i18n.SkillsEnableChrome` Enable / Disable /
@@ -1767,6 +1772,7 @@ Honest gaps this cut does not implement:
   This cut ships Settings Skills source filter (`i18n.SkillsFilterAllChrome`; Waku `skills.filter_all`; All skills chip default, then Shared / Claude / Codex / Cursor / fx / OpenCode / Pi / OMP from `SkillSourceKind` skipping `unknown`; a grouped skill stays visible when any same-scope install lives under that source; caption uses `N of M shown` when a text query or source filter is set; source-only empty match reuses `no_matching`; composer `$` insert / slash skill rows stay flat and unfiltered by source).
   This cut ships Settings Skills library / details pane titles (`i18n.SkillsPaneChrome`; Waku `skills.library` / `skills.details`; EN Skills library / Skill details / zh-CN 技能库 / 技能详情 / ja スキルライブラリ / スキルの詳細; muted/bold Native text above the stacked library block and above the detail block; distinct from SkillsSectionChrome User / SkillsSelectChrome Select a skill / SkillsDetailChrome / SkillsEmptyChrome / SkillsCountChrome / Chrome.skills / StructuralRegionChrome; not a side-by-side two-pane layout).
   This cut ships Settings Skills deleted_toast (`i18n.SkillsDeletedToastChrome.deleted_toast`; Waku `skills.deleted_toast`; EN Moved “%{name}” to the Trash / zh-CN 已将“%{name}”移到废纸篓 / ja 「%{name}」をゴミ箱に移動しました; daemon `trashSkills` ack and permanent-remove fallback; fail still Could not delete skill.; distinct from SkillsTrashChrome / SkillsTrashStatusChrome / SkillsPathCopiedChrome).
+  This cut ships Settings Skills Enable %{name} / Disable %{name} (`i18n.SkillsEnableNamedChrome`; Waku `skills.enable_named` / `skills.disable_named`; EN Enable %{name} / Disable %{name} / zh-CN 启用%{name} / 停用%{name} / ja %{name} を有効にする / %{name} を無効にする; Disabled badge stays `i18n.SkillsEnableChrome.disabled`; empty name still paints; distinct from SkillsEnableChrome Enable / Disable and from ProvidersChrome; on-press stays `toggle_skill_enabled`).
   This cut ships local user skill roots on that User section without a daemon (Waku `user_skill_locations` that exist; `$HOME/.fx/skills` included; not Claude plugin `installed_plugins.json` roots; list rows stay path-labeled; selected-detail source labels ship with duplicate grouping).
   In-flight
   rename / `setSkillsEnabled` / `trashSkills` fail closed.

@@ -16015,7 +16015,7 @@ test "settings Skills lists SKILL.md name, description, and path; select shows b
     try testing.expectEqualStrings("Use this skill.", model.skill_body());
     try testing.expect(model.has_selected_skill());
     try testing.expect(model.skill_enabled());
-    try testing.expectEqualStrings(skills.disable_label, model.skill_enable_label());
+    try testing.expectEqualStrings("Disable demo-skill", model.skill_enable_label(arena));
     try testing.expectEqualStrings(skills.delete_label, model.skill_delete_label());
     try testing.expectEqualStrings(skills.confirm_delete_label, model.skill_confirm_delete_label());
     try testing.expect(!model.skill_delete_arming);
@@ -16076,7 +16076,7 @@ test "settings Skills lists SKILL.md name, description, and path; select shows b
     try testing.expect(findByText(tree.root, .text, "No description") == null);
     _ = try expectByText(tree.root, .text, "Skills library");
     _ = try expectByText(tree.root, .text, "Skill details");
-    _ = try expectButtonMsg(tree, skills.disable_label, .toggle_skill_enabled);
+    _ = try expectButtonMsg(tree, "Disable demo-skill", .toggle_skill_enabled);
     _ = try expectButtonMsg(tree, skills.delete_label, .arm_skill_delete);
     _ = try expectButtonMsg(tree, model.skill_open_file_label(), .open_skill_in_editor);
     _ = try expectButtonMsg(tree, model.skill_reveal_label(), .reveal_skill);
@@ -16461,13 +16461,13 @@ test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabl
 
     main.update(&model, .{ .select_skill = 1 }, &fx);
     try testing.expect(!model.skill_enabled());
-    try testing.expectEqualStrings(skills.enable_label, model.skill_enable_label());
+    try testing.expectEqualStrings("Enable off-skill", model.skill_enable_label(arena));
     try testing.expect(model.has_skill_disabled_badge());
     try testing.expectEqualStrings(skills.disabled_badge, model.skill_disabled_badge());
     try testing.expectEqualStrings("off-skill", model.skill_name());
     try testing.expect(model.has_skill_scope_caption());
     tree = try buildTree(arena, &model);
-    _ = try expectButtonMsg(tree, skills.enable_label, .toggle_skill_enabled);
+    _ = try expectButtonMsg(tree, "Enable off-skill", .toggle_skill_enabled);
     _ = try expectButtonMsg(tree, skills.delete_label, .arm_skill_delete);
     _ = try expectButtonMsg(tree, "Open SKILL.md", .open_skill_in_editor);
     _ = try expectButtonMsg(tree, "Show in File Manager", .reveal_skill);
@@ -16489,7 +16489,7 @@ test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabl
     model.language_preference = .simplified_chinese;
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "已禁用");
-    _ = try expectButtonMsg(tree, "启用", .toggle_skill_enabled);
+    _ = try expectButtonMsg(tree, "启用off-skill", .toggle_skill_enabled);
     _ = try expectButtonMsg(tree, "删除", .arm_skill_delete);
     _ = try expectButtonMsg(tree, "打开 SKILL.md", .open_skill_in_editor);
     _ = try expectButtonMsg(tree, "在文件管理器中显示", .reveal_skill);
@@ -16497,7 +16497,7 @@ test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabl
     model.language_preference = .japanese;
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "無効");
-    _ = try expectButtonMsg(tree, "有効", .toggle_skill_enabled);
+    _ = try expectButtonMsg(tree, "off-skill を有効にする", .toggle_skill_enabled);
     _ = try expectButtonMsg(tree, "削除", .arm_skill_delete);
     _ = try expectButtonMsg(tree, "SKILL.md を開く", .open_skill_in_editor);
     _ = try expectButtonMsg(tree, "ファイルマネージャーで表示", .reveal_skill);
@@ -16646,7 +16646,7 @@ test "skills enable fail window_status follows Appearance language" {
     try testing.expectEqualStrings(skills.could_not_update_status, model.skill_enable_failed_status());
     try testing.expectEqualStrings(i18n.skillsEnableStatusChromeFor(.english, "").enable_failed, model.skill_enable_failed_status());
     try testing.expect(!std.mem.eql(u8, model.skill_enable_failed_status(), model.skill_delete_failed_status()));
-    try testing.expect(!std.mem.eql(u8, model.skill_enable_failed_status(), model.skill_enable_label()));
+    try testing.expect(!std.mem.eql(u8, model.skill_enable_failed_status(), model.skill_enable_label(arena)));
 
     model.setWindowStatus(model.skill_enable_failed_status());
     try testing.expectEqualStrings("Could not update skill.", model.window_status());

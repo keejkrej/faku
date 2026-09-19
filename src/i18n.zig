@@ -363,11 +363,18 @@
 //! `SkillsEmptyChrome` so the single-line hints stay independently
 //! evolvable; composer `$` insert empty unchanged; wire ids stay
 //! English)
-//! plus Settings Skills Enable / Disable chip and Disabled badge
-//! (same `SkillsEnableChrome` strings; distinct from
+//! plus Settings Skills Disabled badge (same `SkillsEnableChrome`
+//! strings; Enable / Disable stay for non-button uses; distinct from
 //! `ProvidersChrome` Enable / Disable so Skills enable stays
-//! independently evolvable; on-press stays `toggle_skill_enabled`;
-//! wire ids stay English)
+//! independently evolvable; wire ids stay English)
+//! plus Settings Skills Enable %{name} / Disable %{name} chip
+//! (same `SkillsEnableNamedChrome` strings; English matches Waku
+//! `skills.enable_named` / `skills.disable_named`; EN Enable %{name}
+//! / Disable %{name} / zh-CN 启用%{name} / 停用%{name} / ja
+//! `%{name} を有効にする` / `%{name} を無効にする`; distinct from
+//! `SkillsEnableChrome` Enable / Disable / Disabled badge and from
+//! `ProvidersChrome`; empty name still paints; on-press stays
+//! `toggle_skill_enabled`; wire ids stay English)
 //! plus Settings Skills Enable/Disable rename-fail window_status
 //! Could not update skill. (same `SkillsEnableStatusChrome` strings;
 //! distinct from `SkillsEnableChrome` Enable / Disable / Disabled
@@ -4964,11 +4971,12 @@ const skills_path_copied_chrome_ja: SkillsPathCopiedChrome = .{
     .path_copied = "パスをコピーしました",
 };
 
-/// Settings Skills Enable / Disable chip and Disabled list badge for
-/// the resolved locale. Same resolve path as SkillsEmptyChrome.
-/// Distinct from ProvidersChrome Enable / Disable so Skills enable
-/// stays independently evolvable. Wire ids / on-press stay English
-/// (`toggle_skill_enabled`).
+/// Settings Skills Disabled list/detail badge (and leftover Enable /
+/// Disable strings for non-button uses) for the resolved locale. Same
+/// resolve path as SkillsEmptyChrome. Distinct from ProvidersChrome
+/// Enable / Disable and from SkillsEnableNamedChrome Enable %{name} /
+/// Disable %{name} so packs stay independently evolvable. Wire ids
+/// stay English.
 pub const SkillsEnableChrome = struct {
     enable: []const u8,
     disable: []const u8,
@@ -4991,6 +4999,39 @@ const skills_enable_chrome_ja: SkillsEnableChrome = .{
     .enable = "有効",
     .disable = "無効",
     .disabled = "無効",
+};
+
+/// Capped scratch for `formatSkillsEnableNamed`. Template +
+/// `max_skill_name` (64) stay short in every locale (same class as
+/// `skills_deleted_toast_max`).
+pub const skills_enable_named_max: usize = 160;
+
+/// Settings Skills Enable %{name} / Disable %{name} chip for the
+/// resolved locale. Same resolve path as SkillsEnableChrome.
+/// English matches Waku `skills.enable_named` / `skills.disable_named`.
+/// Distinct from SkillsEnableChrome Enable / Disable / Disabled badge
+/// and from ProvidersChrome Enable / Disable so the named chip stays
+/// independently evolvable. zh-CN disable is 停用, not 禁用. Empty
+/// name still paints (empty `%{name}` substitution). Wire ids /
+/// on-press stay English (`toggle_skill_enabled`).
+pub const SkillsEnableNamedChrome = struct {
+    enable_named: []const u8,
+    disable_named: []const u8,
+};
+
+const skills_enable_named_chrome_en: SkillsEnableNamedChrome = .{
+    .enable_named = "Enable %{name}",
+    .disable_named = "Disable %{name}",
+};
+
+const skills_enable_named_chrome_zh_cn: SkillsEnableNamedChrome = .{
+    .enable_named = "启用%{name}",
+    .disable_named = "停用%{name}",
+};
+
+const skills_enable_named_chrome_ja: SkillsEnableNamedChrome = .{
+    .enable_named = "%{name} を有効にする",
+    .disable_named = "%{name} を無効にする",
 };
 
 /// Settings Skills Enable/Disable rename-fail window_status Could
@@ -6595,6 +6636,22 @@ pub fn formatSkillsDeletedToast(chrome: SkillsDeletedToastChrome, name: []const 
     return formatSkillsNamedText(chrome.deleted_toast, "name", name, buf);
 }
 
+/// Waku `skills.enable_named` / `skills.disable_named` with `%{name}`
+/// replaced by the cached skill name. `enabled` true uses
+/// `disable_named` (the chip turns the skill off); else
+/// `enable_named`. Same class as `formatSkillsDeletedToast`. Overflow
+/// returns `""`. Empty name still substitutes (paints the template
+/// around an empty slot).
+pub fn formatSkillsEnableNamed(
+    chrome: SkillsEnableNamedChrome,
+    enabled: bool,
+    name: []const u8,
+    buf: []u8,
+) []const u8 {
+    const template = if (enabled) chrome.disable_named else chrome.enable_named;
+    return formatSkillsNamedText(template, "name", name, buf);
+}
+
 /// Waku `skills.scope_in_project` with `%{project}` replaced by the
 /// probe basename (else `project`). Overflow returns `""`.
 pub fn formatSkillsScopeInProject(chrome: SkillsScopeChrome, project: []const u8, buf: []u8) []const u8 {
@@ -6786,17 +6843,31 @@ pub fn formatSkillsFilterCaption(chrome: SkillsCountChrome, shown: usize, total:
     }, buf);
 }
 
-/// Settings Skills Enable / Disable chip and Disabled badge for the
-/// resolved locale. Callers pass Model `language_preference` +
-/// `system_locale_id`; this file does not read process env. Distinct
-/// from ProvidersChrome so Providers Enable / Disable stay
-/// independently evolvable. Wire ids / on-press stay English
-/// (`toggle_skill_enabled`).
+/// Settings Skills Disabled badge (and leftover Enable / Disable
+/// strings) for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does not
+/// read process env. Distinct from ProvidersChrome and from
+/// SkillsEnableNamedChrome. Wire ids stay English.
 pub fn skillsEnableChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsEnableChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => skills_enable_chrome_zh_cn,
         .japanese => skills_enable_chrome_ja,
         .system, .english => skills_enable_chrome_en,
+    };
+}
+
+/// Settings Skills Enable %{name} / Disable %{name} chip for the
+/// resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from SkillsEnableChrome Enable / Disable / Disabled badge and from
+/// ProvidersChrome. English matches Waku `skills.enable_named` /
+/// `skills.disable_named`. Wire ids / on-press stay English
+/// (`toggle_skill_enabled`).
+pub fn skillsEnableNamedChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsEnableNamedChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_enable_named_chrome_zh_cn,
+        .japanese => skills_enable_named_chrome_ja,
+        .system, .english => skills_enable_named_chrome_en,
     };
 }
 
@@ -10880,6 +10951,95 @@ test "skillsEnableChromeFor english default; zh and ja chrome; english ignores j
     try testing.expectEqualStrings("Enable", skillsEnableChromeFor(.english, "ja_JP.UTF-8").enable);
     try testing.expectEqualStrings("Disabled", skillsEnableChromeFor(.english, "zh_CN.UTF-8").disabled);
     try testing.expectEqualStrings("Disable", skillsEnableChromeFor(.english, "").disable);
+}
+
+test "skillsEnableNamedChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Enable %{name}", skillsEnableNamedChromeFor(.english, "ja").enable_named);
+    try testing.expectEqualStrings("Disable %{name}", skillsEnableNamedChromeFor(.english, "").disable_named);
+    try testing.expectEqualStrings("Enable %{name}", skillsEnableNamedChromeFor(.system, "").enable_named);
+    try testing.expectEqualStrings("Disable %{name}", skillsEnableNamedChromeFor(.system, "").disable_named);
+
+    try testing.expectEqualStrings("启用%{name}", skillsEnableNamedChromeFor(.simplified_chinese, "").enable_named);
+    try testing.expectEqualStrings("停用%{name}", skillsEnableNamedChromeFor(.simplified_chinese, "").disable_named);
+    try testing.expectEqualStrings("%{name} を有効にする", skillsEnableNamedChromeFor(.japanese, "").enable_named);
+    try testing.expectEqualStrings("%{name} を無効にする", skillsEnableNamedChromeFor(.japanese, "").disable_named);
+
+    try testing.expectEqualStrings("启用%{name}", skillsEnableNamedChromeFor(.system, "zh_CN.UTF-8").enable_named);
+    try testing.expectEqualStrings("停用%{name}", skillsEnableNamedChromeFor(.system, "zh_CN.UTF-8").disable_named);
+    try testing.expectEqualStrings("%{name} を有効にする", skillsEnableNamedChromeFor(.system, "ja_JP.UTF-8").enable_named);
+    try testing.expectEqualStrings("%{name} を無効にする", skillsEnableNamedChromeFor(.system, "ja_JP.UTF-8").disable_named);
+    try testing.expectEqualStrings("Enable %{name}", skillsEnableNamedChromeFor(.english, "ja_JP.UTF-8").enable_named);
+    try testing.expectEqualStrings("Disable %{name}", skillsEnableNamedChromeFor(.english, "zh_CN.UTF-8").disable_named);
+
+    try testing.expect(!std.mem.eql(u8, skillsEnableNamedChromeFor(.english, "").enable_named, skillsEnableChromeFor(.english, "").enable));
+    try testing.expect(!std.mem.eql(u8, skillsEnableNamedChromeFor(.english, "").disable_named, skillsEnableChromeFor(.english, "").disable));
+    try testing.expect(!std.mem.eql(u8, skillsEnableNamedChromeFor(.english, "").enable_named, providersChromeFor(.english, "").enable));
+    try testing.expect(!std.mem.eql(u8, skillsEnableNamedChromeFor(.english, "").disable_named, providersChromeFor(.english, "").disable));
+    try testing.expect(!std.mem.eql(u8, skillsEnableNamedChromeFor(.simplified_chinese, "").enable_named, skillsEnableChromeFor(.simplified_chinese, "").enable));
+    try testing.expect(!std.mem.eql(u8, skillsEnableNamedChromeFor(.simplified_chinese, "").disable_named, skillsEnableChromeFor(.simplified_chinese, "").disable));
+    try testing.expect(!std.mem.eql(u8, skillsEnableNamedChromeFor(.simplified_chinese, "").disable_named, providersChromeFor(.simplified_chinese, "").disable));
+    try testing.expect(!std.mem.eql(u8, skillsEnableNamedChromeFor(.japanese, "").enable_named, skillsEnableChromeFor(.japanese, "").enable));
+    try testing.expect(!std.mem.eql(u8, skillsEnableNamedChromeFor(.japanese, "").disable_named, skillsEnableChromeFor(.japanese, "").disable));
+    try testing.expect(!std.mem.eql(u8, skillsEnableNamedChromeFor(.japanese, "").enable_named, providersChromeFor(.japanese, "").enable));
+}
+
+test "formatSkillsEnableNamed substitutes %{name}; empty name still paints" {
+    const testing = std.testing;
+    var buf: [skills_enable_named_max]u8 = undefined;
+    try testing.expectEqualStrings(
+        "Enable demo",
+        formatSkillsEnableNamed(skillsEnableNamedChromeFor(.english, ""), false, "demo", &buf),
+    );
+    try testing.expectEqualStrings(
+        "Disable demo",
+        formatSkillsEnableNamed(skillsEnableNamedChromeFor(.english, ""), true, "demo", &buf),
+    );
+    try testing.expectEqualStrings(
+        "启用demo",
+        formatSkillsEnableNamed(skillsEnableNamedChromeFor(.simplified_chinese, ""), false, "demo", &buf),
+    );
+    try testing.expectEqualStrings(
+        "停用demo",
+        formatSkillsEnableNamed(skillsEnableNamedChromeFor(.simplified_chinese, ""), true, "demo", &buf),
+    );
+    try testing.expectEqualStrings(
+        "demo を有効にする",
+        formatSkillsEnableNamed(skillsEnableNamedChromeFor(.japanese, ""), false, "demo", &buf),
+    );
+    try testing.expectEqualStrings(
+        "demo を無効にする",
+        formatSkillsEnableNamed(skillsEnableNamedChromeFor(.japanese, ""), true, "demo", &buf),
+    );
+    try testing.expectEqualStrings(
+        "Enable ",
+        formatSkillsEnableNamed(skillsEnableNamedChromeFor(.english, ""), false, "", &buf),
+    );
+    try testing.expectEqualStrings(
+        "Disable ",
+        formatSkillsEnableNamed(skillsEnableNamedChromeFor(.english, ""), true, "", &buf),
+    );
+    try testing.expectEqualStrings(
+        "启用",
+        formatSkillsEnableNamed(skillsEnableNamedChromeFor(.simplified_chinese, ""), false, "", &buf),
+    );
+    try testing.expectEqualStrings(
+        "停用",
+        formatSkillsEnableNamed(skillsEnableNamedChromeFor(.simplified_chinese, ""), true, "", &buf),
+    );
+    try testing.expectEqualStrings(
+        " を有効にする",
+        formatSkillsEnableNamed(skillsEnableNamedChromeFor(.japanese, ""), false, "", &buf),
+    );
+    try testing.expectEqualStrings(
+        " を無効にする",
+        formatSkillsEnableNamed(skillsEnableNamedChromeFor(.japanese, ""), true, "", &buf),
+    );
+    var tiny: [8]u8 = undefined;
+    try testing.expectEqualStrings(
+        "",
+        formatSkillsEnableNamed(skillsEnableNamedChromeFor(.english, ""), false, "demo", &tiny),
+    );
 }
 
 test "skillsTrashChromeFor english default; zh and ja chrome; english ignores ja LANG" {
