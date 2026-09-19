@@ -28295,12 +28295,14 @@ test "Settings Skills empty chrome follows Appearance language" {
     _ = try expectByText(tree.root, .text, "Open a project");
     _ = try expectByText(tree.root, .text, "Skills library");
     _ = try expectByText(tree.root, .text, "Skill details");
-    const library_pane = try expectByText(tree.root, .column, "Skills library");
-    _ = try expectByText(library_pane, .scroll_view, "Skills library");
-    const details_pane = try expectByText(tree.root, .column, "Skill details");
-    _ = try expectByText(details_pane, .scroll_view, "Skill details");
-    try testing.expectEqual(@as(f32, 1), details_pane.layout.grow);
-    try testing.expect(skillsRowHasLibraryDivider(tree.root));
+    {
+        const library_pane = try expectByText(tree.root, .column, "Skills library");
+        _ = try expectByText(library_pane, .scroll_view, "Skills library");
+        const details_pane = try expectByText(tree.root, .column, "Skill details");
+        _ = try expectByText(details_pane, .scroll_view, "Skill details");
+        try testing.expectEqual(@as(f32, 1), details_pane.layout.grow);
+        try testing.expect(skillsRowHasLibraryDivider(tree.root));
+    }
     try testing.expect(findByText(tree.root, .text, "No skills found") == null);
     try testing.expect(findByText(tree.root, .text, "No skills yet") == null);
     try testing.expect(findByText(tree.root, .text, "打开项目") == null);
