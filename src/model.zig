@@ -6122,7 +6122,7 @@ pub const Model = struct {
     }
 
     /// Settings Skills source-filter menu: All skills, then Shared /
-    /// Claude / Codex / Cursor / fx / OpenCode / Pi / OMP. Optional
+    /// Claude / Codex / Cursor / fx / OpenCode / Pi / OMP / Amp. Optional
     /// `Label · {count}` when count > 0. Wire ids stay English.
     pub fn skills_source_picker_rows(model: *const Model, arena: std.mem.Allocator) []const ChipPickerRow {
         return skills.sourcePickerRows(model, arena);

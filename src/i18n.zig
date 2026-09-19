@@ -4711,6 +4711,7 @@ pub const SkillsSourceChrome = struct {
     source_fx: []const u8,
     source_pi: []const u8,
     source_omp: []const u8,
+    source_amp: []const u8,
 };
 
 const skills_source_chrome_en: SkillsSourceChrome = .{
@@ -4722,6 +4723,7 @@ const skills_source_chrome_en: SkillsSourceChrome = .{
     .source_fx = "fx",
     .source_pi = "Pi",
     .source_omp = "OMP",
+    .source_amp = "Amp",
 };
 
 const skills_source_chrome_zh_cn: SkillsSourceChrome = .{
@@ -4733,6 +4735,7 @@ const skills_source_chrome_zh_cn: SkillsSourceChrome = .{
     .source_fx = "fx",
     .source_pi = "Pi",
     .source_omp = "OMP",
+    .source_amp = "Amp",
 };
 
 const skills_source_chrome_ja: SkillsSourceChrome = .{
@@ -4744,6 +4747,7 @@ const skills_source_chrome_ja: SkillsSourceChrome = .{
     .source_fx = "fx",
     .source_pi = "Pi",
     .source_omp = "OMP",
+    .source_amp = "Amp",
 };
 
 /// Settings Skills selected-detail cross-scope duplicate badge for
@@ -10630,11 +10634,14 @@ test "skillsSourceChromeFor english default; zh and ja Shared; provider shorts s
     try testing.expectEqualStrings("fx", skillsSourceChromeFor(.english, "").source_fx);
     try testing.expectEqualStrings("Pi", skillsSourceChromeFor(.english, "").source_pi);
     try testing.expectEqualStrings("OMP", skillsSourceChromeFor(.english, "").source_omp);
+    try testing.expectEqualStrings("Amp", skillsSourceChromeFor(.english, "").source_amp);
 
     try testing.expectEqualStrings("共享", skillsSourceChromeFor(.simplified_chinese, "").source_shared);
     try testing.expectEqualStrings("共有", skillsSourceChromeFor(.japanese, "").source_shared);
     try testing.expectEqualStrings("Cursor", skillsSourceChromeFor(.simplified_chinese, "").source_cursor);
     try testing.expectEqualStrings("OpenCode", skillsSourceChromeFor(.japanese, "").source_opencode);
+    try testing.expectEqualStrings("Amp", skillsSourceChromeFor(.simplified_chinese, "").source_amp);
+    try testing.expectEqualStrings("Amp", skillsSourceChromeFor(.japanese, "").source_amp);
 
     try testing.expectEqualStrings("共享", skillsSourceChromeFor(.system, "zh_CN.UTF-8").source_shared);
     try testing.expectEqualStrings("共有", skillsSourceChromeFor(.system, "ja_JP.UTF-8").source_shared);
