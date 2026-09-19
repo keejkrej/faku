@@ -314,6 +314,7 @@
     <column grow="1" min-width="360">
       <if test="{settings_open}">
         <row height="48" padding="14" gap="10" cross="center" window-drag="true" label="{toolbar_label}">
+          <button variant="ghost" size="icon" icon="chevron-left" label="{settings_back_label}" on-press="close_settings"></button>
           <text>{settings_title}</text>
           <spacer grow="1" />
         </row>

@@ -63,6 +63,10 @@
 //! English matches Waku `settings.search` / `settings.*_keywords`
 //! with daemon-connection words folded into General; no Daemon page
 //! pack; distinct from `SkillsSearchChrome` / `FilterChrome`) plus
+//! Settings chrome Back a11y (same `SettingsBackChrome` strings;
+//! EN Back / zh-CN 返回 / ja 戻る; distinct from
+//! `SidebarHistoryChrome` / `BrowserToolbarChrome` so packs stay
+//! independently evolvable; `on-press` stays `close_settings`) plus
 //! Settings Usage Projects
 //! search-field placeholder + a11y label and empty-state No project
 //! usage / No matching projects (same `FilterChrome` strings;
@@ -587,6 +591,11 @@
 //! distinct from `SkillsSearchChrome` / `FilterChrome`; Model
 //! getters `settings_search_placeholder` / nav `*_visible`; wire
 //! ids / on-input stay English `settings_search_edit`)
+//! plus Settings chrome Back a11y (same `SettingsBackChrome`
+//! strings; EN Back / zh-CN 返回 / ja 戻る; distinct from
+//! `SidebarHistoryChrome` / `BrowserToolbarChrome`; Model getter
+//! `settings_back_label`; wire ids / on-press stay English
+//! `close_settings`)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -5232,6 +5241,29 @@ const settings_search_chrome_ja: SettingsSearchChrome = .{
     .computer_use_keywords = "コンピュータ 操作 コンピュータ使用 画面収録 アクセシビリティ アプリ 制御 codex",
 };
 
+/// Settings header Back a11y for the resolved locale. Same resolve
+/// path as SettingsSearchChrome. EN Back matches common Waku /
+/// desktop `settings.back`. Distinct from `SidebarHistoryChrome`
+/// / `BrowserToolbarChrome` so Settings vs sidebar history vs
+/// Browser stay independently evolvable (same display string OK).
+/// Wire ids / on-press stay English (`close_settings`). Does not
+/// open Settings.
+pub const SettingsBackChrome = struct {
+    back: []const u8,
+};
+
+const settings_back_chrome_en: SettingsBackChrome = .{
+    .back = "Back",
+};
+
+const settings_back_chrome_zh_cn: SettingsBackChrome = .{
+    .back = "返回",
+};
+
+const settings_back_chrome_ja: SettingsBackChrome = .{
+    .back = "戻る",
+};
+
 /// Capped scratch for `formatSkillsContentsSummary`. Count phrase +
 /// ` · ` + Latin B/KB/MB stay short in every locale.
 pub const skills_contents_summary_max: usize = 96;
@@ -7018,6 +7050,20 @@ pub fn settingsSearchChromeFor(preference: LanguagePreference, system_locale_id:
         .simplified_chinese => settings_search_chrome_zh_cn,
         .japanese => settings_search_chrome_ja,
         .system, .english => settings_search_chrome_en,
+    };
+}
+
+/// Settings header Back a11y for the resolved locale. Callers pass
+/// Model `language_preference` + `system_locale_id`; this file does
+/// not read process env. Distinct from SidebarHistoryChrome /
+/// BrowserToolbarChrome so Settings Back stays independently
+/// evolvable. EN Back / zh-CN 返回 / ja 戻る. Wire ids / on-press
+/// stay English (`close_settings`).
+pub fn settingsBackChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SettingsBackChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => settings_back_chrome_zh_cn,
+        .japanese => settings_back_chrome_ja,
+        .system, .english => settings_back_chrome_en,
     };
 }
 
@@ -11543,6 +11589,29 @@ test "settingsSearchChromeFor english default; zh and ja chrome; keywords; disti
     try testing.expect(std.mem.indexOf(u8, settingsSearchChromeFor(.english, "").general_keywords, "websocket") != null);
     try testing.expect(std.mem.indexOf(u8, settingsSearchChromeFor(.simplified_chinese, "").providers_keywords, "提供商") != null);
     try testing.expect(std.mem.indexOf(u8, settingsSearchChromeFor(.japanese, "").usage_keywords, "使用量") != null);
+}
+
+test "settingsBackChromeFor english default; zh and ja chrome; distinct pack from sidebar and browser Back" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Back", settingsBackChromeFor(.english, "ja").back);
+    try testing.expectEqualStrings("Back", settingsBackChromeFor(.english, "").back);
+    try testing.expectEqualStrings("Back", settingsBackChromeFor(.system, "").back);
+
+    try testing.expectEqualStrings("返回", settingsBackChromeFor(.simplified_chinese, "").back);
+    try testing.expectEqualStrings("戻る", settingsBackChromeFor(.japanese, "").back);
+
+    try testing.expectEqualStrings("返回", settingsBackChromeFor(.system, "zh_CN.UTF-8").back);
+    try testing.expectEqualStrings("戻る", settingsBackChromeFor(.system, "ja_JP.UTF-8").back);
+    try testing.expectEqualStrings("Back", settingsBackChromeFor(.english, "ja_JP.UTF-8").back);
+    try testing.expectEqualStrings("Back", settingsBackChromeFor(.english, "zh_CN.UTF-8").back);
+
+    try testing.expectEqualStrings("Back", sidebarHistoryChromeFor(.english, "").back);
+    try testing.expectEqualStrings("Back", browserToolbarChromeFor(.english, "").back);
+    try testing.expectEqualStrings(settingsBackChromeFor(.english, "").back, sidebarHistoryChromeFor(.english, "").back);
+    try testing.expectEqualStrings(settingsBackChromeFor(.english, "").back, browserToolbarChromeFor(.english, "").back);
+    try testing.expectEqualStrings(settingsBackChromeFor(.simplified_chinese, "").back, sidebarHistoryChromeFor(.simplified_chinese, "").back);
+    try testing.expectEqualStrings(settingsBackChromeFor(.japanese, "").back, sidebarHistoryChromeFor(.japanese, "").back);
+    try testing.expect(!std.mem.eql(u8, settingsBackChromeFor(.english, "").back, settingsSearchChromeFor(.english, "").search));
 }
 
 test "skillsPathCopiedChromeFor english default; zh and ja chrome; english ignores ja LANG" {

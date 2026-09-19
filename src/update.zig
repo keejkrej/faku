@@ -210,6 +210,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .switcher_pick => |id| session_switcher.pickSwitcher(model, fx, id),
         .stop => settings_actions.handleStop(model, fx),
         .toggle_settings => settings_actions.handleToggleSettings(model, fx),
+        .close_settings => settings_actions.handleCloseSettings(model, fx),
         .settings_model_edit => |edit| settings_actions.handleSettingsModelEdit(model, edit),
         .settings_project_edit => |edit| settings_actions.handleSettingsProjectEdit(model, edit),
         .settings_daemon_edit => |edit| settings_actions.handleSettingsDaemonEdit(model, edit),

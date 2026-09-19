@@ -1090,7 +1090,12 @@ persisted on `sessions.json`). No Daemon nav page this cut;
 daemon-connection words fold into General keywords (Faku keeps
 daemon address on General). Selected page content may remain
 visible when its tab is filtered out. Arrow-key cycle through
-filtered pages is out of this cut. Composer chrome flags
+filtered pages, nav-tab icons, and a Daemon hosting page stay out
+of this cut. Settings header Back ships (`i18n.SettingsBackChrome`;
+EN Back / zh-CN 返回 / ja 戻る; ghost chevron-left before the
+title; `close_settings` → `closeSettings`; clears the search
+buffer like other close paths; distinct from
+`i18n.SidebarHistoryChrome` / `i18n.BrowserToolbarChrome`). Composer chrome flags
 `usage_meter_open` and `commands_open` persist on that same extras bag
 (JSON booleans; missing / unknown / null → false). Share anonymous
 usage data persists as `analytics_enabled` (JSON boolean; missing /
@@ -1175,7 +1180,8 @@ Chinese; `ja` / `ja-*` → Japanese; else English, including
 `zh-hant` / `zh-tw`). Native has no locale / NSLocale API this cut.
 Preference persists as `language_preference` (`system` / `english` /
 `simplified-chinese` / `japanese`). Missing or unknown loads as System.
-Resolved locale re-labels Settings chrome (title, nav, Appearance Theme
+Resolved locale re-labels Settings chrome (title, header Back,
+nav, Appearance Theme
 / UI font size / Code font size / Language, theme chips, OS caption), the sidebar Settings gear a11y
 (same `i18n.Chrome.settings`; distinct Model getter from `settings_title`),
 first-cut sidebar date-bucket
@@ -1264,7 +1270,13 @@ matches Waku `settings.search` / `settings.*_keywords`; EN Search
 Settings / zh-CN 搜索设置 / ja 設定を検索; General keywords fold
 daemon-connection words; no Daemon page pack; distinct from
 `i18n.SkillsSearchChrome` / `i18n.FilterChrome`; wire ids / on-input
-/ typed query stay English). Settings Skills filter
+/ typed query stay English). Settings chrome Back a11y follows the
+resolved locale this cut (same `i18n.SettingsBackChrome` strings;
+EN Back / zh-CN 返回 / ja 戻る; `on-press` stays `close_settings`
+→ `closeSettings`; clears the search buffer like other close
+paths; distinct from `i18n.SidebarHistoryChrome` /
+`i18n.BrowserToolbarChrome` so packs stay independently
+evolvable). Settings Skills filter
 placeholder follows the resolved locale this cut (same
 `i18n.SkillsSearchChrome` strings; English matches Waku
 `skills.search`; EN Search skills… / zh-CN 搜索技能… / ja スキルを検索…;
@@ -1835,6 +1847,7 @@ Honest gaps this cut does not implement:
   This cut ships Settings Skills source filter (`i18n.SkillsFilterAllChrome`; Waku `skills.filter_all`; All skills chip default, then Shared / Claude / Codex / Cursor / fx / OpenCode / Pi / OMP / Amp from `SkillSourceKind` skipping `unknown`; a grouped skill stays visible when any same-scope install lives under that source; caption uses `N of M shown` when a text query or source filter is set; source-only empty match reuses `no_matching`; composer `$` insert / slash skill rows stay flat and unfiltered by source).
   This cut ships Settings Skills library / details pane titles (`i18n.SkillsPaneChrome`; Waku `skills.library` / `skills.details`; EN Skills library / Skill details / zh-CN 技能库 / 技能详情 / ja スキルライブラリ / スキルの詳細; muted/bold Native pane headers plus Native `label=` a11y (Waku `aria-label`); this cut ships Native resizable `<split>` library | details (default library 264 = Waku `SKILLS_LIST_WIDTH`; details min-width 140; library width persists on `sessions.json` extras `skills_library_width`; Native `<split>` paints the divider) with per-pane scroll, still not Waku GPUI virtualized list quirks / sticky / edge fades; distinct from SkillsSectionChrome User / SkillsSelectChrome Select a skill / SkillsDetailChrome / SkillsEmptyChrome / SkillsCountChrome / Chrome.skills / StructuralRegionChrome).
   This cut ships Settings chrome Search Settings (`i18n.SettingsSearchChrome`; Waku `settings.search` + `settings.*_keywords`; EN Search Settings / zh-CN 搜索设置 / ja 設定を検索; runtime-only trim + ASCII case-insensitive contains against per-page keywords; empty query shows every nav tab; no Daemon page pack — daemon-connection words fold into General; selected page content may stay visible when its tab is filtered out; distinct from SkillsSearchChrome / FilterChrome; `on-input` stays `settings_search_edit`).
+  This cut ships Settings chrome Back (`i18n.SettingsBackChrome`; EN Back / zh-CN 返回 / ja 戻る; ghost chevron-left before the Settings title; `close_settings` → `closeSettings`; clears the search buffer like other close paths; distinct from SidebarHistoryChrome / BrowserToolbarChrome; remaining #602 leftovers stay out: arrow-key cycle, nav icons, Daemon hosting page).
   This cut ships Settings Skills filter placeholder (`i18n.SkillsSearchChrome`; Waku `skills.search`; EN Search skills… / zh-CN 搜索技能… / ja スキルを検索…; distinct from `i18n.FilterChrome` so Usage Projects filter stays independently evolvable).
   This cut ships Settings Skills deleted_toast (`i18n.SkillsDeletedToastChrome.deleted_toast`; Waku `skills.deleted_toast`; EN Moved “%{name}” to the Trash / zh-CN 已将“%{name}”移到废纸篓 / ja 「%{name}」をゴミ箱に移動しました; daemon `trashSkills` ack and permanent-remove fallback; fail still Could not delete skill.; distinct from SkillsTrashChrome / SkillsTrashStatusChrome / SkillsPathCopiedChrome).
   This cut ships Settings Skills Enable %{name} / Disable %{name} (`i18n.SkillsEnableNamedChrome`; Waku `skills.enable_named` / `skills.disable_named`; EN Enable %{name} / Disable %{name} / zh-CN 启用%{name} / 停用%{name} / ja %{name} を有効にする / %{name} を無効にする; Disabled badge stays `i18n.SkillsEnableChrome.disabled`; empty name still paints; distinct from SkillsEnableChrome Enable / Disable and from ProvidersChrome; on-press stays `toggle_skill_enabled`).
