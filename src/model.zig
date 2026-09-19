@@ -636,6 +636,11 @@ pub const Msg = union(enum) {
     /// only; no telemetry backend this cut. `on-press` stays
     /// `toggle_analytics_enabled`.
     toggle_analytics_enabled,
+    /// Settings General Render math expressions chip. Flips
+    /// persisted `render_math` (default true). Preference + UI
+    /// only; Native `<markdown>` has no math flag this cut.
+    /// `on-press` stays `toggle_render_math`.
+    toggle_render_math,
     set_usage_view_daily,
     set_usage_view_monthly,
     set_usage_view_projects,
@@ -1417,6 +1422,13 @@ pub const Model = struct {
     /// Preference + UI only this cut: toggling persists and reloads;
     /// no telemetry / PostHog / network.
     analytics_enabled: bool = true,
+    /// Settings General Render math expressions. Persists as
+    /// `render_math` on `sessions.json` extras (JSON boolean;
+    /// missing / unknown / null → true, Waku `default_render_math()`).
+    /// Preference + UI only this cut: toggling persists and reloads;
+    /// Native `<markdown>` has no math flag; transcript / file-preview
+    /// markdown stays current Native render; off does not strip LaTeX.
+    render_math: bool = true,
     /// First-cut daemon plan-usage map (four runtime slots: Claude /
     /// Codex / OpenCode / Grok). Not a HashMap. Each slot holds the
     /// snapshot plus per-provider `checked_at` / `stale` / `pending_key`
@@ -5669,6 +5681,10 @@ pub const Model = struct {
         return i18n.anonymousUsageChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn renderMathChrome(model: *const Model) i18n.RenderMathChrome {
+        return i18n.renderMathChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn composerChrome(model: *const Model) i18n.ComposerChrome {
         return i18n.composerChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -7737,6 +7753,20 @@ pub const Model = struct {
     /// Preference + UI only; persist key is `analytics_enabled`.
     pub fn anonymous_usage_description(model: *const Model) []const u8 {
         return model.anonymousUsageChrome().description;
+    }
+
+    /// Settings General Render math expressions card title.
+    /// Distinct from `AnonymousUsageChrome` / `LocalByDefaultChrome`.
+    /// English matches Waku `settings.render_math`.
+    pub fn render_math_title(model: *const Model) []const u8 {
+        return model.renderMathChrome().title;
+    }
+
+    /// Settings General Render math expressions card description.
+    /// English matches Waku `settings.render_math_description`.
+    /// Preference + UI only; persist key is `render_math`.
+    pub fn render_math_description(model: *const Model) []const u8 {
+        return model.renderMathChrome().description;
     }
 
     /// Runtime-only muted status on the Review card (Comparing… /

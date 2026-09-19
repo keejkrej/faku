@@ -443,6 +443,20 @@ pub fn handleToggleAnalyticsEnabled(model: *Model) void {
     store.persistSettingsIfPossible(model);
 }
 
+/// Settings General Render math expressions chip. Closes
+/// switcher / palette / Settings effort picker like other Settings
+/// General overlays, then flips `render_math` and merge-writes
+/// extras. Preference + UI only; Native `<markdown>` has no math
+/// flag this cut.
+pub fn handleToggleRenderMath(model: *Model) void {
+    session_switcher.closeSwitcher(model);
+    if (model.palette_open) model.closePalette();
+    model.closeSettingsEffortPicker();
+    model.closeSkillsSourcePicker();
+    model.render_math = !model.render_math;
+    store.persistSettingsIfPossible(model);
+}
+
 fn leaveUsagePage(model: *Model) void {
     if (model.settings_page != .usage) return;
     usage_history.leaveUsage(model);

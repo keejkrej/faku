@@ -181,6 +181,13 @@
 //! preference + UI only, no telemetry backend this cut; distinct
 //! from `LocalByDefaultChrome` / `SettingsGeneralChrome` so packs
 //! stay independently evolvable)
+//! plus Settings General Render math expressions title +
+//! description (same `RenderMathChrome` strings; English
+//! matches Waku `settings.render_math` / `settings.render_math_description`;
+//! persist key `render_math`; default true; preference + UI
+//! only, no KaTeX / Native math flag this cut; distinct from
+//! `AnonymousUsageChrome` / `LocalByDefaultChrome` /
+//! `SettingsGeneralChrome` so packs stay independently evolvable)
 //! plus composer Image path placeholder, Pick image button,
 //! Attach image a11y, Clear image a11y, Attached image a11y,
 //! Goal Status picker placeholder / empty label, and Commands
@@ -716,6 +723,12 @@
 //! persist key `analytics_enabled`; `on-press` stays English
 //! `toggle_analytics_enabled`; preference + UI only, no telemetry
 //! backend this cut; distinct from `LocalByDefaultChrome` /
+//! `SettingsGeneralChrome`). Settings General Render math
+//! expressions title + description follow the resolved locale
+//! this cut (same `RenderMathChrome` strings; persist key
+//! `render_math`; `on-press` stays English `toggle_render_math`;
+//! preference + UI only, no KaTeX / Native math flag this cut;
+//! distinct from `AnonymousUsageChrome` / `LocalByDefaultChrome` /
 //! `SettingsGeneralChrome`). Composer Image path `on-input`
 //! stays English (`image_path_edit`); Goal Status picker `on-press`
 //! stays English (`toggle_goal_status_picker` / `pick_goal_status`); Pick image / Attach
@@ -2690,6 +2703,35 @@ const anonymous_usage_chrome_zh_cn: AnonymousUsageChrome = .{
 const anonymous_usage_chrome_ja: AnonymousUsageChrome = .{
     .title = "匿名の使用状況データを共有",
     .description = "機能の利用状況と信頼性に関するデータを共有して、Faku の改善にご協力ください。プロンプト、回答、プロジェクト名、ファイルパスなどの個人データは一切含まれません",
+};
+
+/// Settings General Render math expressions title + description
+/// for the resolved locale. Same resolve path as AnonymousUsageChrome.
+/// English matches Waku `settings.render_math` /
+/// `settings.render_math_description`. First-cut preference + UI
+/// only: persist `render_math` (default true); Native `<markdown>`
+/// has no math flag this cut. Distinct from `AnonymousUsageChrome` /
+/// `LocalByDefaultChrome` / `SettingsGeneralChrome` /
+/// `ComputerUseChrome` / `DaemonAddressChrome` so packs stay
+/// independently evolvable.
+pub const RenderMathChrome = struct {
+    title: []const u8,
+    description: []const u8,
+};
+
+const render_math_chrome_en: RenderMathChrome = .{
+    .title = "Render math expressions",
+    .description = "Show formatted math in Markdown. Turn off to show LaTeX source.",
+};
+
+const render_math_chrome_zh_cn: RenderMathChrome = .{
+    .title = "渲染数学公式",
+    .description = "在 Markdown 中显示排版后的公式。关闭后显示 LaTeX 源码。",
+};
+
+const render_math_chrome_ja: RenderMathChrome = .{
+    .title = "数式を描画",
+    .description = "Markdown の数式を整形して表示します。オフにすると LaTeX ソースを表示します。",
 };
 
 /// OS folder-dialog prompt and missing-picker status for the resolved
@@ -5828,6 +5870,22 @@ pub fn anonymousUsageChromeFor(preference: LanguagePreference, system_locale_id:
     };
 }
 
+/// Settings General Render math expressions title + description
+/// for the resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. English
+/// matches Waku `settings.render_math` /
+/// `settings.render_math_description`. Distinct from
+/// `anonymousUsageChromeFor` / `localByDefaultChromeFor` /
+/// `settingsGeneralChromeFor` so packs stay independently evolvable.
+/// Preference + UI only; no KaTeX / Native math flag this cut.
+pub fn renderMathChromeFor(preference: LanguagePreference, system_locale_id: []const u8) RenderMathChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => render_math_chrome_zh_cn,
+        .japanese => render_math_chrome_ja,
+        .system, .english => render_math_chrome_en,
+    };
+}
+
 /// OS folder-dialog prompt and missing-picker status for the resolved
 /// locale. Callers pass Model `language_preference` +
 /// `system_locale_id`; this file does not read process env. Wire ids /
@@ -8735,6 +8793,38 @@ test "anonymousUsageChromeFor english default; zh and ja chrome; distinct from l
     try testing.expect(std.mem.indexOf(u8, anonymousUsageChromeFor(.simplified_chinese, "").description, "Waku") == null);
     try testing.expect(std.mem.indexOf(u8, anonymousUsageChromeFor(.japanese, "").description, "Faku") != null);
     try testing.expect(std.mem.indexOf(u8, anonymousUsageChromeFor(.japanese, "").description, "Waku") == null);
+}
+
+test "renderMathChromeFor english default; zh and ja chrome; distinct from anonymousUsage and localByDefault" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Render math expressions", renderMathChromeFor(.english, "ja").title);
+    try testing.expectEqualStrings(
+        "Show formatted math in Markdown. Turn off to show LaTeX source.",
+        renderMathChromeFor(.english, "").description,
+    );
+    try testing.expectEqualStrings("Render math expressions", renderMathChromeFor(.system, "").title);
+    try testing.expectEqualStrings("渲染数学公式", renderMathChromeFor(.simplified_chinese, "").title);
+    try testing.expectEqualStrings(
+        "在 Markdown 中显示排版后的公式。关闭后显示 LaTeX 源码。",
+        renderMathChromeFor(.simplified_chinese, "").description,
+    );
+    try testing.expectEqualStrings("数式を描画", renderMathChromeFor(.japanese, "").title);
+    try testing.expectEqualStrings(
+        "Markdown の数式を整形して表示します。オフにすると LaTeX ソースを表示します。",
+        renderMathChromeFor(.japanese, "").description,
+    );
+    try testing.expectEqualStrings("渲染数学公式", renderMathChromeFor(.system, "zh_CN.UTF-8").title);
+    try testing.expectEqualStrings("数式を描画", renderMathChromeFor(.system, "ja_JP.UTF-8").title);
+    try testing.expectEqualStrings("Render math expressions", renderMathChromeFor(.english, "ja_JP.UTF-8").title);
+    try testing.expectEqualStrings("Render math expressions", renderMathChromeFor(.english, "zh_CN.UTF-8").title);
+    try testing.expect(!std.mem.eql(u8, renderMathChromeFor(.english, "").title, anonymousUsageChromeFor(.english, "").title));
+    try testing.expect(!std.mem.eql(u8, renderMathChromeFor(.english, "").description, anonymousUsageChromeFor(.english, "").description));
+    try testing.expect(!std.mem.eql(u8, renderMathChromeFor(.english, "").title, localByDefaultChromeFor(.english, "").title));
+    try testing.expect(!std.mem.eql(u8, renderMathChromeFor(.english, "").description, localByDefaultChromeFor(.english, "").description));
+    try testing.expect(!std.mem.eql(u8, renderMathChromeFor(.simplified_chinese, "").title, anonymousUsageChromeFor(.simplified_chinese, "").title));
+    try testing.expect(!std.mem.eql(u8, renderMathChromeFor(.japanese, "").title, anonymousUsageChromeFor(.japanese, "").title));
+    try testing.expect(!std.mem.eql(u8, renderMathChromeFor(.simplified_chinese, "").title, localByDefaultChromeFor(.simplified_chinese, "").title));
+    try testing.expect(!std.mem.eql(u8, renderMathChromeFor(.japanese, "").title, localByDefaultChromeFor(.japanese, "").title));
 }
 
 test "osFolderDialogChromeFor english default; zh and ja chrome; english ignores ja LANG" {
