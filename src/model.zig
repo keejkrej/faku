@@ -641,6 +641,11 @@ pub const Msg = union(enum) {
     /// only; Native `<markdown>` has no math flag this cut.
     /// `on-press` stays `toggle_render_math`.
     toggle_render_math,
+    /// Settings General Automatic updates chip. Flips
+    /// persisted `automatic_updates_enabled` (default true). Preference + UI
+    /// only; no Sparkle / check-for-updates / download / install this cut.
+    /// `on-press` stays `toggle_automatic_updates`.
+    toggle_automatic_updates,
     set_usage_view_daily,
     set_usage_view_monthly,
     set_usage_view_projects,
@@ -1429,6 +1434,13 @@ pub const Model = struct {
     /// Native `<markdown>` has no math flag; transcript / file-preview
     /// markdown stays current Native render; off does not strip LaTeX.
     render_math: bool = true,
+    /// Settings General Automatic updates. Persists as
+    /// `automatic_updates_enabled` on `sessions.json` extras (JSON boolean;
+    /// missing / unknown / null → true). Preference + UI only this cut:
+    /// toggling persists and reloads; no Sparkle / check-for-updates /
+    /// download / install / Releases API. Always shown this cut unlike
+    /// Waku `updater_available`.
+    automatic_updates_enabled: bool = true,
     /// First-cut daemon plan-usage map (four runtime slots: Claude /
     /// Codex / OpenCode / Grok). Not a HashMap. Each slot holds the
     /// snapshot plus per-provider `checked_at` / `stale` / `pending_key`
@@ -5685,6 +5697,10 @@ pub const Model = struct {
         return i18n.renderMathChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn automaticUpdatesChrome(model: *const Model) i18n.AutomaticUpdatesChrome {
+        return i18n.automaticUpdatesChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn composerChrome(model: *const Model) i18n.ComposerChrome {
         return i18n.composerChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -7767,6 +7783,21 @@ pub const Model = struct {
     /// Preference + UI only; persist key is `render_math`.
     pub fn render_math_description(model: *const Model) []const u8 {
         return model.renderMathChrome().description;
+    }
+
+    /// Settings General Automatic updates card title.
+    /// Distinct from `RenderMathChrome` / `AnonymousUsageChrome` /
+    /// `LocalByDefaultChrome`. English matches Waku
+    /// `settings.automatic_updates`.
+    pub fn automatic_updates_title(model: *const Model) []const u8 {
+        return model.automaticUpdatesChrome().title;
+    }
+
+    /// Settings General Automatic updates card description.
+    /// English matches Waku `settings.automatic_updates_description`.
+    /// Preference + UI only; persist key is `automatic_updates_enabled`.
+    pub fn automatic_updates_description(model: *const Model) []const u8 {
+        return model.automaticUpdatesChrome().description;
     }
 
     /// Runtime-only muted status on the Review card (Comparing… /
