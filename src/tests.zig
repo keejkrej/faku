@@ -28204,7 +28204,7 @@ test "Settings search chrome filters nav tabs by keywords; empty query shows all
     try testing.expect(model.settings_open);
     try testing.expect(model.settings_page_general());
     var tree = try buildTree(arena, &model);
-    try testing.expect(findByPlaceholder(tree.root, .text_field, "Search Settings") != null);
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "Search Settings") != null);
     _ = try expectButtonMsg(tree, "General", .set_settings_page_general);
     _ = try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance);
     _ = try expectButtonMsg(tree, "Providers", .set_settings_page_providers);
@@ -28274,7 +28274,7 @@ test "Settings search chrome filters nav tabs by keywords; empty query shows all
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .button, "General") == null);
     try testing.expect(findByText(tree.root, .button, "Appearance") == null);
-    try testing.expect(findByPlaceholder(tree.root, .text_field, "Search Settings") != null);
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "Search Settings") != null);
     _ = try expectByText(tree.root, .text, "Default model");
 
     main.update(&model, .{ .settings_search_edit = .clear }, &fx);
@@ -28304,8 +28304,8 @@ test "Settings search chrome filters nav tabs by keywords; empty query shows all
     try testing.expectEqualStrings(i18n.settingsSearchChromeFor(.simplified_chinese, "").search, model.settings_search_placeholder());
     main.update(&model, .toggle_settings, &fx);
     tree = try buildTree(arena, &model);
-    try testing.expect(findByPlaceholder(tree.root, .text_field, "搜索设置") != null);
-    try testing.expect(findByPlaceholder(tree.root, .text_field, "Search Settings") == null);
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "搜索设置") != null);
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "Search Settings") == null);
     _ = try expectButtonMsg(tree, "通用", .set_settings_page_general);
     main.update(&model, .{ .settings_search_edit = .{ .insert_text = "主题" } }, &fx);
     try testing.expect(!model.settings_nav_general_visible());
@@ -28321,8 +28321,8 @@ test "Settings search chrome filters nav tabs by keywords; empty query shows all
     try testing.expectEqualStrings(i18n.settingsSearchChromeFor(.japanese, "").search, model.settings_search_placeholder());
     main.update(&model, .toggle_settings, &fx);
     tree = try buildTree(arena, &model);
-    try testing.expect(findByPlaceholder(tree.root, .text_field, "設定を検索") != null);
-    try testing.expect(findByPlaceholder(tree.root, .text_field, "搜索设置") == null);
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "設定を検索") != null);
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "搜索设置") == null);
     _ = try expectButtonMsg(tree, "一般", .set_settings_page_general);
     main.update(&model, .{ .settings_search_edit = .{ .insert_text = "使用量" } }, &fx);
     try testing.expect(model.settings_nav_usage_visible());
@@ -28341,6 +28341,190 @@ test "Settings search chrome filters nav tabs by keywords; empty query shows all
     try testing.expectEqualStrings("設定を検索", model.settings_search_placeholder());
     model.setSystemLocaleId("");
     try testing.expectEqualStrings("Search Settings", model.settings_search_placeholder());
+}
+
+test "nextPickerHighlight matches Waku wrap and filtered-out re-entry" {
+    try testing.expectEqual(@as(?usize, null), model_exports.nextPickerHighlight(null, 0, true));
+    try testing.expectEqual(@as(?usize, null), model_exports.nextPickerHighlight(null, 0, false));
+    try testing.expectEqual(@as(?usize, null), model_exports.nextPickerHighlight(0, 0, true));
+    try testing.expectEqual(@as(?usize, null), model_exports.nextPickerHighlight(2, 0, false));
+
+    try testing.expectEqual(@as(?usize, 0), model_exports.nextPickerHighlight(null, 3, true));
+    try testing.expectEqual(@as(?usize, 2), model_exports.nextPickerHighlight(null, 3, false));
+    try testing.expectEqual(@as(?usize, 1), model_exports.nextPickerHighlight(0, 3, true));
+    try testing.expectEqual(@as(?usize, 2), model_exports.nextPickerHighlight(1, 3, true));
+    try testing.expectEqual(@as(?usize, 0), model_exports.nextPickerHighlight(2, 3, true));
+    try testing.expectEqual(@as(?usize, 2), model_exports.nextPickerHighlight(0, 3, false));
+    try testing.expectEqual(@as(?usize, 0), model_exports.nextPickerHighlight(1, 3, false));
+    try testing.expectEqual(@as(?usize, 1), model_exports.nextPickerHighlight(2, 3, false));
+    try testing.expectEqual(@as(?usize, 0), model_exports.nextPickerHighlight(0, 1, true));
+    try testing.expectEqual(@as(?usize, 0), model_exports.nextPickerHighlight(0, 1, false));
+    try testing.expectEqual(@as(?usize, 0), model_exports.nextPickerHighlight(null, 1, true));
+    try testing.expectEqual(@as(?usize, 0), model_exports.nextPickerHighlight(null, 1, false));
+}
+
+test "Settings nav Up/Down cycles filtered tabs; closed Settings ignores the Msg" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<tree label=\"{settings_title}\">"));
+    try testing.expectEqual(@as(usize, 6), std.mem.count(u8, main.app_markup, "role=\"treeitem\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "icon=\"settings\" selected=\"{settings_page_general}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<search-field height=\"24\" text=\"{settings_search}\"") != null);
+    var saw_down = false;
+    var saw_up = false;
+    inline for (Msg.view_unbound) |name| {
+        if (std.mem.eql(u8, name, "cycle_settings_page_down")) saw_down = true;
+        if (std.mem.eql(u8, name, "cycle_settings_page_up")) saw_up = true;
+    }
+    try testing.expect(saw_down);
+    try testing.expect(saw_up);
+
+    const arrow_down = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "ArrowDown" };
+    const arrow_up = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "ArrowUp" };
+    const down = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "Down" };
+    const up = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "Up" };
+    const arrowdown_lc = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "arrowdown" };
+    const arrowup_lc = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "arrowup" };
+    try testing.expectEqual(Msg.cycle_settings_page_down, keys.onKey(arrow_down).?);
+    try testing.expectEqual(Msg.cycle_settings_page_up, keys.onKey(arrow_up).?);
+    try testing.expectEqual(Msg.cycle_settings_page_down, keys.onKey(down).?);
+    try testing.expectEqual(Msg.cycle_settings_page_up, keys.onKey(up).?);
+    try testing.expectEqual(Msg.cycle_settings_page_down, keys.onKey(arrowdown_lc).?);
+    try testing.expectEqual(Msg.cycle_settings_page_up, keys.onKey(arrowup_lc).?);
+
+    const cmd_down = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "ArrowDown",
+        .modifiers = .{ .super = true },
+    };
+    const ctrl_down = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "ArrowDown",
+        .modifiers = .{ .control = true },
+    };
+    const shift_down = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "ArrowDown",
+        .modifiers = .{ .shift = true },
+    };
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(cmd_down));
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(ctrl_down));
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(shift_down));
+    if (@hasField(@TypeOf(shift_down.modifiers), "alt")) {
+        const alt_down = canvas.WidgetKeyboardEvent{
+            .phase = .key_down,
+            .key = "ArrowDown",
+            .modifiers = .{ .alt = true },
+        };
+        try testing.expectEqual(@as(?Msg, null), keys.onKey(alt_down));
+    }
+    if (@hasField(@TypeOf(shift_down.modifiers), "option")) {
+        const option_down = canvas.WidgetKeyboardEvent{
+            .phase = .key_down,
+            .key = "ArrowDown",
+            .modifiers = .{ .option = true },
+        };
+        try testing.expectEqual(@as(?Msg, null), keys.onKey(option_down));
+    }
+
+    var model = boot.initialModel();
+    try testing.expect(!model.settings_open);
+    try testing.expect(model.settings_page_general());
+    main.update(&model, .cycle_settings_page_down, &fx);
+    try testing.expect(model.settings_page_general());
+    main.update(&model, .cycle_settings_page_up, &fx);
+    try testing.expect(model.settings_page_general());
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_open);
+    try testing.expect(model.settings_page_general());
+    var pages: [model_exports.settings_nav_pages.len]skills.Page = undefined;
+    try testing.expectEqual(@as(usize, 6), model.visibleSettingsNavPages(&pages));
+    try testing.expectEqual(skills.Page.appearance, model.nextVisibleSettingsPage(true).?);
+    try testing.expectEqual(skills.Page.computer_use, model.nextVisibleSettingsPage(false).?);
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .tree, "Settings");
+    _ = try expectButtonMsg(tree, "General", .set_settings_page_general);
+
+    main.update(&model, .cycle_settings_page_down, &fx);
+    try testing.expect(model.settings_page_appearance());
+    main.update(&model, .cycle_settings_page_down, &fx);
+    try testing.expect(model.settings_page_providers());
+    main.update(&model, .cycle_settings_page_down, &fx);
+    try testing.expect(model.settings_page_skills());
+    main.update(&model, .cycle_settings_page_down, &fx);
+    try testing.expect(model.settings_page_usage());
+    main.update(&model, .cycle_settings_page_down, &fx);
+    try testing.expect(model.settings_page_computer_use());
+    main.update(&model, .cycle_settings_page_down, &fx);
+    try testing.expect(model.settings_page_general());
+    main.update(&model, .cycle_settings_page_up, &fx);
+    try testing.expect(model.settings_page_computer_use());
+    main.update(&model, .cycle_settings_page_up, &fx);
+    try testing.expect(model.settings_page_usage());
+
+    main.update(&model, .{ .settings_search_edit = .{ .insert_text = "THEME" } }, &fx);
+    try testing.expect(model.settings_page_usage());
+    try testing.expect(!model.settings_nav_usage_visible());
+    try testing.expect(model.settings_nav_appearance_visible());
+    try testing.expectEqual(skills.Page.appearance, model.nextVisibleSettingsPage(true).?);
+    try testing.expectEqual(skills.Page.appearance, model.nextVisibleSettingsPage(false).?);
+    main.update(&model, .cycle_settings_page_down, &fx);
+    try testing.expect(model.settings_page_appearance());
+    main.update(&model, .cycle_settings_page_up, &fx);
+    try testing.expect(model.settings_page_appearance());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance);
+    try testing.expect(findByText(tree.root, .button, "General") == null);
+    try testing.expect(findByText(tree.root, .button, "Usage") == null);
+    _ = try expectByText(tree.root, .text, "Theme");
+
+    main.update(&model, .{ .settings_search_edit = .clear }, &fx);
+    main.update(&model, .set_settings_page_general, &fx);
+    main.update(&model, .{ .settings_search_edit = .{ .insert_text = "claude" } }, &fx);
+    try testing.expect(model.settings_page_general());
+    try testing.expect(!model.settings_nav_general_visible());
+    try testing.expect(model.settings_nav_providers_visible());
+    try testing.expect(model.settings_nav_skills_visible());
+    try testing.expect(model.settings_nav_usage_visible());
+    try testing.expectEqual(skills.Page.providers, model.nextVisibleSettingsPage(true).?);
+    try testing.expectEqual(skills.Page.usage, model.nextVisibleSettingsPage(false).?);
+    main.update(&model, .cycle_settings_page_down, &fx);
+    try testing.expect(model.settings_page_providers());
+    main.update(&model, .cycle_settings_page_down, &fx);
+    try testing.expect(model.settings_page_skills());
+    main.update(&model, .cycle_settings_page_down, &fx);
+    try testing.expect(model.settings_page_usage());
+    main.update(&model, .cycle_settings_page_down, &fx);
+    try testing.expect(model.settings_page_providers());
+    main.update(&model, .cycle_settings_page_up, &fx);
+    try testing.expect(model.settings_page_usage());
+
+    main.update(&model, .{ .settings_search_edit = .clear }, &fx);
+    main.update(&model, .{ .settings_search_edit = .{ .insert_text = "zzz" } }, &fx);
+    try testing.expectEqual(@as(usize, 0), model.visibleSettingsNavPages(&pages));
+    try testing.expectEqual(@as(?skills.Page, null), model.nextVisibleSettingsPage(true));
+    try testing.expectEqual(@as(?skills.Page, null), model.nextVisibleSettingsPage(false));
+    try testing.expect(model.settings_page_usage());
+    main.update(&model, .cycle_settings_page_down, &fx);
+    try testing.expect(model.settings_page_usage());
+    main.update(&model, .cycle_settings_page_up, &fx);
+    try testing.expect(model.settings_page_usage());
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(!model.settings_open);
+    try testing.expect(model.settings_page_usage());
+    main.update(&model, .cycle_settings_page_down, &fx);
+    try testing.expect(model.settings_page_usage());
+    main.update(&model, .cycle_settings_page_up, &fx);
+    try testing.expect(model.settings_page_usage());
 }
 
 test "Settings Back chrome follows Appearance language and close_settings clears search" {

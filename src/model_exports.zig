@@ -96,6 +96,8 @@ pub const sanitizeUiFontSize = model.sanitizeUiFontSize;
 pub const code_font_sizes = model.code_font_sizes;
 pub const default_code_font_size = model.default_code_font_size;
 pub const sanitizeCodeFontSize = model.sanitizeCodeFontSize;
+pub const settings_nav_pages = model.settings_nav_pages;
+pub const nextPickerHighlight = model.nextPickerHighlight;
 
 pub const writeFixed = session.writeFixed;
 
@@ -106,6 +108,8 @@ test "Model/Msg barrel types, caps, and defaults match owning modules" {
     _ = LanguagePreference;
     _ = sanitizeUiFontSize;
     _ = sanitizeCodeFontSize;
+    _ = nextPickerHighlight;
+    _ = settings_nav_pages;
     _ = Mode;
     _ = Role;
     _ = Phase;
@@ -128,6 +132,9 @@ test "Model/Msg barrel types, caps, and defaults match owning modules" {
     try std.testing.expectEqual(@as(u8, 14), sanitizeCodeFontSize(14));
     try std.testing.expectEqual(@as(u8, 14), sanitizeCodeFontSize(17));
     try std.testing.expectEqual(@as(u8, 11), sanitizeCodeFontSize(11));
+    try std.testing.expectEqual(@as(usize, 6), settings_nav_pages.len);
+    try std.testing.expectEqual(@as(?usize, 0), nextPickerHighlight(null, 3, true));
+    try std.testing.expectEqual(@as(?usize, 2), nextPickerHighlight(null, 3, false));
     try std.testing.expect(writeFixed == session.writeFixed);
 
     try std.testing.expectEqual(model.max_sessions, max_sessions);

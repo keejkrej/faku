@@ -2,7 +2,8 @@
 //!
 //! `handleStop` / `handleCloseSettings` / `handleToggleSettings` /
 //! `handleToggleGoalStatusPicker` / settings panel / composer chip
-//! cycles + pickers live here.
+//! cycles + pickers live here, including Settings nav Up/Down
+//! (`cycle_settings_page_*` → the same set-page handlers clicks use).
 //! Msg routing stays in `update.zig`. Behavior is unchanged
 //! from the former `main` update arms except Settings Back
 //! (`close_settings` → `handleCloseSettings` → `closeSettings`).
@@ -277,40 +278,23 @@ pub fn handlePickSkillsSource(model: *Model, id: []const u8) void {
 }
 
 pub fn handleSetSettingsPageGeneral(model: *Model, fx: *Effects) void {
-    leaveUsagePage(model);
-    leaveSkillsPage(model, fx);
-    model.settings_page = .general;
-    store.persistSettingsIfPossible(model);
+    handleSetSettingsPage(model, fx, .general);
 }
 
 pub fn handleSetSettingsPageAppearance(model: *Model, fx: *Effects) void {
-    leaveUsagePage(model);
-    leaveSkillsPage(model, fx);
-    model.settings_page = .appearance;
-    store.persistSettingsIfPossible(model);
+    handleSetSettingsPage(model, fx, .appearance);
 }
 
 pub fn handleSetSettingsPageProviders(model: *Model, fx: *Effects) void {
-    leaveUsagePage(model);
-    leaveSkillsPage(model, fx);
-    model.settings_page = .providers;
-    providers.startProbes(model, fx);
-    store.persistSettingsIfPossible(model);
+    handleSetSettingsPage(model, fx, .providers);
 }
 
 pub fn handleSetSettingsPageSkills(model: *Model, fx: *Effects) void {
-    leaveUsagePage(model);
-    model.settings_page = .skills;
-    skills.refresh(model, fx);
-    store.persistSettingsIfPossible(model);
+    handleSetSettingsPage(model, fx, .skills);
 }
 
 pub fn handleSetSettingsPageUsage(model: *Model, fx: *Effects) void {
-    leaveSkillsPage(model, fx);
-    model.settings_page = .usage;
-    usage_history.refresh(model, fx);
-    litellm_rates.ensure(model, fx);
-    store.persistSettingsIfPossible(model);
+    handleSetSettingsPage(model, fx, .usage);
 }
 
 pub fn handleSetUsageViewDaily(model: *Model, fx: *Effects) void {
@@ -427,9 +411,42 @@ pub fn handleUsageProjectFilterEdit(model: *Model, edit: canvas.TextInputEvent) 
 }
 
 pub fn handleSetSettingsPageComputerUse(model: *Model, fx: *Effects) void {
-    leaveUsagePage(model);
-    leaveSkillsPage(model, fx);
-    model.settings_page = .computer_use;
+    handleSetSettingsPage(model, fx, .computer_use);
+}
+
+pub fn handleCycleSettingsPageDown(model: *Model, fx: *Effects) void {
+    handleCycleSettingsPage(model, fx, true);
+}
+
+pub fn handleCycleSettingsPageUp(model: *Model, fx: *Effects) void {
+    handleCycleSettingsPage(model, fx, false);
+}
+
+fn handleCycleSettingsPage(model: *Model, fx: *Effects, down: bool) void {
+    if (!model.settings_open) return;
+    const page = model.nextVisibleSettingsPage(down) orelse return;
+    handleSetSettingsPage(model, fx, page);
+}
+
+fn handleSetSettingsPage(model: *Model, fx: *Effects, page: skills.Page) void {
+    switch (page) {
+        .general, .appearance, .providers, .computer_use => {
+            leaveUsagePage(model);
+            leaveSkillsPage(model, fx);
+        },
+        .skills => leaveUsagePage(model),
+        .usage => leaveSkillsPage(model, fx),
+    }
+    model.settings_page = page;
+    switch (page) {
+        .providers => providers.startProbes(model, fx),
+        .skills => skills.refresh(model, fx),
+        .usage => {
+            usage_history.refresh(model, fx);
+            litellm_rates.ensure(model, fx);
+        },
+        .general, .appearance, .computer_use => {},
+    }
     store.persistSettingsIfPossible(model);
 }
 

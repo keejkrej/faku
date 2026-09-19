@@ -16,6 +16,12 @@
 //! address draft when that field is active (Waku BrowserAddressCancel)
 //! and first-cut Stop loading when it is not, during the Faku-side
 //! loading-guess window. DevTools stays unbound.
+//! Settings nav: bare ArrowUp/Down emit `cycle_settings_page_*`
+//! (Waku `cycle_settings_page`). Handlers no-op unless Settings is
+//! open. A focused Settings search field still Native-blocks these
+//! keys — editable text kinds structurally consume ALL keys, so
+//! `onKey` never sees them (no GPUI key-context). Nav-tab focus
+//! walks via a Native `<tree>` of `role="treeitem"` buttons.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -139,6 +145,13 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
         }
         return .steer;
     }
+    // Bare ArrowUp/Down: Settings nav cycle (Waku `cycle_settings_page`).
+    // Do not steal Cmd/Ctrl/Shift/Alt arrows. Native `ArrowDown`/`Down`
+    // and `ArrowUp`/`Up` (any casing) are the strings this SDK cut uses.
+    if (!keyboard.modifiers.hasNavigationModifier() and !keyboard.modifiers.shift and !hasAltModifier(keyboard.modifiers)) {
+        if (isArrowDownKey(keyboard.key)) return .cycle_settings_page_down;
+        if (isArrowUpKey(keyboard.key)) return .cycle_settings_page_up;
+    }
     return null;
 }
 
@@ -148,6 +161,14 @@ fn isEnterKey(key: []const u8) bool {
 
 fn isSlashKey(key: []const u8) bool {
     return std.mem.eql(u8, key, "/") or std.ascii.eqlIgnoreCase(key, "slash");
+}
+
+fn isArrowDownKey(key: []const u8) bool {
+    return std.ascii.eqlIgnoreCase(key, "arrowdown") or std.ascii.eqlIgnoreCase(key, "down");
+}
+
+fn isArrowUpKey(key: []const u8) bool {
+    return std.ascii.eqlIgnoreCase(key, "arrowup") or std.ascii.eqlIgnoreCase(key, "up");
 }
 
 /// Native `KeyboardModifiers` documents `alt` on some SDK cuts and
