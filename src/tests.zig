@@ -31932,6 +31932,8 @@ test "Settings General Local by default card follows Appearance language" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{local_by_default_title}").? <
         std.mem.indexOf(u8, main.app_markup, "{anonymous_usage_title}").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{anonymous_usage_title}").? <
+        std.mem.indexOf(u8, main.app_markup, "{render_math_title}").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{render_math_title}").? <
         std.mem.indexOf(u8, main.app_markup, "{settings_default_model_label}").?);
 
     var model = boot.initialModel();
@@ -32045,6 +32047,8 @@ test "Settings General Share anonymous usage data card follows Appearance langua
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{local_by_default_title}").? <
         std.mem.indexOf(u8, main.app_markup, "{anonymous_usage_title}").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{anonymous_usage_title}").? <
+        std.mem.indexOf(u8, main.app_markup, "{render_math_title}").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{render_math_title}").? <
         std.mem.indexOf(u8, main.app_markup, "{settings_default_model_label}").?);
 
     var model = boot.initialModel();
@@ -32155,6 +32159,143 @@ test "Settings General Share anonymous usage data card follows Appearance langua
     _ = try expectByText(tree.root, .text, "匿名の使用状況データを共有");
     try testing.expect(findByText(tree.root, .text, "Share anonymous usage data") == null);
     try testing.expect(findByText(tree.root, .text, "分享匿名使用数据") == null);
+}
+
+test "Settings General Render math expressions card follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{render_math_title}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{render_math_description}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<span weight=\"bold\">{render_math_title}</span>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "selected=\"{render_math}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"toggle_render_math\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "wrap=\"true\" foreground=\"text_muted\">{render_math_description}</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Render math expressions</"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Show formatted math in Markdown"));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "katex") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "KaTeX") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{anonymous_usage_title}").? <
+        std.mem.indexOf(u8, main.app_markup, "{render_math_title}").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{render_math_title}").? <
+        std.mem.indexOf(u8, main.app_markup, "{settings_default_model_label}").?);
+
+    var model = boot.initialModel();
+    try testing.expect(model.render_math);
+    try testing.expectEqualStrings("Render math expressions", model.render_math_title());
+    try testing.expectEqualStrings(
+        "Show formatted math in Markdown. Turn off to show LaTeX source.",
+        model.render_math_description(),
+    );
+    try testing.expectEqualStrings(i18n.renderMathChromeFor(.english, "").title, model.render_math_title());
+    try testing.expectEqualStrings(i18n.renderMathChromeFor(.english, "").description, model.render_math_description());
+    try testing.expect(!std.mem.eql(u8, model.render_math_title(), model.anonymous_usage_title()));
+    try testing.expect(!std.mem.eql(u8, model.render_math_description(), model.anonymous_usage_description()));
+    try testing.expect(!std.mem.eql(u8, model.render_math_title(), model.local_by_default_title()));
+    try testing.expect(!std.mem.eql(u8, model.render_math_description(), model.local_by_default_description()));
+    try testing.expect(!std.mem.eql(u8, model.render_math_title(), model.settings_default_model_label()));
+    try testing.expect(!std.mem.eql(u8, model.render_math_title(), model.computer_use_title()));
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_open);
+    try testing.expect(model.settings_page_general());
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Render math expressions");
+    _ = try expectByText(tree.root, .text, "Show formatted math in Markdown. Turn off to show LaTeX source.");
+    _ = try expectByText(tree.root, .text, "Share anonymous usage data");
+    _ = try expectByText(tree.root, .text, "Local by default");
+    _ = try expectByText(tree.root, .text, "Default model");
+    const en_btn = try expectButtonMsg(tree, "Render math expressions", .toggle_render_math);
+    try testing.expect(en_btn.state.selected);
+    try testing.expect(findByText(tree.root, .text, "渲染数学公式") == null);
+    try testing.expect(findByText(tree.root, .text, "数式を描画") == null);
+
+    model.switcher_open = true;
+    model.settings_effort_picker_open = true;
+    main.update(&model, .toggle_render_math, &fx);
+    try testing.expect(!model.render_math);
+    try testing.expect(!model.switcher_open);
+    try testing.expect(!model.settings_effort_picker_open);
+    tree = try buildTree(arena, &model);
+    const off_btn = try expectButtonMsg(tree, "Render math expressions", .toggle_render_math);
+    try testing.expect(!off_btn.state.selected);
+
+    main.update(&model, .toggle_render_math, &fx);
+    try testing.expect(model.render_math);
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Render math expressions", .toggle_render_math)).state.selected);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("渲染数学公式", model.render_math_title());
+    try testing.expectEqualStrings(
+        "在 Markdown 中显示排版后的公式。关闭后显示 LaTeX 源码。",
+        model.render_math_description(),
+    );
+    try testing.expectEqualStrings(i18n.renderMathChromeFor(.simplified_chinese, "").title, model.render_math_title());
+    try testing.expectEqualStrings(i18n.renderMathChromeFor(.simplified_chinese, "").description, model.render_math_description());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "渲染数学公式");
+    _ = try expectByText(tree.root, .text, "在 Markdown 中显示排版后的公式。关闭后显示 LaTeX 源码。");
+    _ = try expectByText(tree.root, .text, "分享匿名使用数据");
+    _ = try expectButtonMsg(tree, "渲染数学公式", .toggle_render_math);
+    try testing.expect(findByText(tree.root, .text, "Render math expressions") == null);
+    try testing.expect(findByText(tree.root, .text, "Show formatted math in Markdown") == null);
+    try testing.expect(findByText(tree.root, .text, "数式を描画") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("数式を描画", model.render_math_title());
+    try testing.expectEqualStrings(
+        "Markdown の数式を整形して表示します。オフにすると LaTeX ソースを表示します。",
+        model.render_math_description(),
+    );
+    try testing.expectEqualStrings(i18n.renderMathChromeFor(.japanese, "").title, model.render_math_title());
+    try testing.expectEqualStrings(i18n.renderMathChromeFor(.japanese, "").description, model.render_math_description());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "数式を描画");
+    _ = try expectByText(tree.root, .text, "Markdown の数式を整形して表示します。オフにすると LaTeX ソースを表示します。");
+    _ = try expectByText(tree.root, .text, "匿名の使用状況データを共有");
+    _ = try expectButtonMsg(tree, "数式を描画", .toggle_render_math);
+    try testing.expect(findByText(tree.root, .text, "Render math expressions") == null);
+    try testing.expect(findByText(tree.root, .text, "渲染数学公式") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Render math expressions", model.render_math_title());
+    try testing.expectEqualStrings(
+        "Show formatted math in Markdown. Turn off to show LaTeX source.",
+        model.render_math_description(),
+    );
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Render math expressions");
+    try testing.expect(findByText(tree.root, .text, "数式を描画") == null);
+    try testing.expect(findByText(tree.root, .text, "渲染数学公式") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("渲染数学公式", model.render_math_title());
+    try testing.expectEqualStrings(
+        "在 Markdown 中显示排版后的公式。关闭后显示 LaTeX 源码。",
+        model.render_math_description(),
+    );
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "渲染数学公式");
+    try testing.expect(findByText(tree.root, .text, "Render math expressions") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("数式を描画", model.render_math_title());
+    try testing.expectEqualStrings(
+        "Markdown の数式を整形して表示します。オフにすると LaTeX ソースを表示します。",
+        model.render_math_description(),
+    );
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "数式を描画");
+    try testing.expect(findByText(tree.root, .text, "Render math expressions") == null);
+    try testing.expect(findByText(tree.root, .text, "渲染数学公式") == null);
 }
 
 test "Composer Image path and Status chrome follow Appearance language" {
