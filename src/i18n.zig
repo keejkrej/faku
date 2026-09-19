@@ -58,7 +58,12 @@
 //! Settings Skills filter placeholder (same `SkillsSearchChrome`
 //! strings; English matches Waku `skills.search`; distinct from
 //! `FilterChrome` so Usage Projects filter stays independently
-//! evolvable) plus Settings Usage Projects
+//! evolvable) plus Settings chrome Search Settings placeholder and
+//! per-page nav keywords (same `SettingsSearchChrome` strings;
+//! English matches Waku `settings.search` / `settings.*_keywords`
+//! with daemon-connection words folded into General; no Daemon page
+//! pack; distinct from `SkillsSearchChrome` / `FilterChrome`) plus
+//! Settings Usage Projects
 //! search-field placeholder + a11y label and empty-state No project
 //! usage / No matching projects (same `FilterChrome` strings;
 //! `filter_skills` stays on that struct for Usage + existing tests), and first-cut Files
@@ -574,6 +579,14 @@
 //! filter stays independently evolvable; Model getter
 //! `skills_search_placeholder`; wire ids / on-input stay English
 //! `skills_filter_edit`)
+//! plus Settings chrome Search Settings placeholder and per-page
+//! nav keywords (same `SettingsSearchChrome` strings; English
+//! matches Waku `settings.search` / `settings.*_keywords`; EN
+//! Search Settings / zh-CN 搜索设置 / ja 設定を検索; General
+//! keywords fold daemon-connection words; no Daemon page pack;
+//! distinct from `SkillsSearchChrome` / `FilterChrome`; Model
+//! getters `settings_search_placeholder` / nav `*_visible`; wire
+//! ids / on-input stay English `settings_search_edit`)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -5165,6 +5178,60 @@ const skills_search_chrome_ja: SkillsSearchChrome = .{
     .search = "スキルを検索…",
 };
 
+/// Settings chrome Search Settings placeholder + per-page nav
+/// keyword haystacks for the resolved locale. Same resolve path as
+/// SkillsSearchChrome / FilterChrome. English matches Waku
+/// `settings.search` / `settings.*_keywords`. Distinct from
+/// `SkillsSearchChrome` (Skills list) and `FilterChrome` (Usage
+/// Projects) so this pack stays independently evolvable. No Daemon
+/// page pack this cut; daemon-connection words fold into General
+/// (Faku keeps daemon address on General). Faku nav-label words
+/// that differ from Waku (zh-CN Providers 提供商, Computer Use
+/// 电脑使用; ja Usage 使用量) sit on those packs so the visible
+/// tab remains searchable. Settings chrome reads this pack via
+/// Model `settings_search_placeholder` / nav visibility helpers.
+/// Wire ids / on-input stay English (`settings_search_edit`);
+/// filter text stays English (user-typed).
+pub const SettingsSearchChrome = struct {
+    search: []const u8,
+    general_keywords: []const u8,
+    appearance_keywords: []const u8,
+    providers_keywords: []const u8,
+    skills_keywords: []const u8,
+    usage_keywords: []const u8,
+    computer_use_keywords: []const u8,
+};
+
+const settings_search_chrome_en: SettingsSearchChrome = .{
+    .search = "Search Settings",
+    .general_keywords = "general local projects conversations privacy analytics telemetry anonymous sharing updates automatic sparkle version daemon server remote websocket host port",
+    .appearance_keywords = "appearance theme system light dark language english chinese simplified",
+    .providers_keywords = "providers agents models cli version install detect claude codex cursor opencode amp grok pi",
+    .skills_keywords = "skills skill library agent disable enable delete claude codex cursor opencode pi amp shared",
+    .usage_keywords = "usage tokens cost spend cache daily chart model breakdown history claude codex",
+    .computer_use_keywords = "computer use screen recording accessibility apps control codex",
+};
+
+const settings_search_chrome_zh_cn: SettingsSearchChrome = .{
+    .search = "搜索设置",
+    .general_keywords = "通用 本地 项目 对话 隐私 匿名 使用数据 分析 分享 更新 自动 版本 daemon server remote websocket host port 守护进程 服务器 远程 主机 端口",
+    .appearance_keywords = "外观 主题 系统 浅色 深色 语言 英语 中文 简体",
+    .providers_keywords = "服务商 提供商 智能体 模型 命令行 版本 安装 检测 claude codex cursor opencode amp grok pi",
+    .skills_keywords = "技能 技能库 智能体 禁用 启用 删除 claude codex cursor opencode pi amp 共享",
+    .usage_keywords = "用量 令牌 费用 支出 缓存 每日 图表 模型 明细 历史 claude codex",
+    .computer_use_keywords = "电脑操作 电脑使用 屏幕录制 辅助功能 应用 控制 codex",
+};
+
+const settings_search_chrome_ja: SettingsSearchChrome = .{
+    .search = "設定を検索",
+    .general_keywords = "一般 ローカル プロジェクト 会話 プライバシー 分析 テレメトリ 匿名 共有 アップデート 自動 バージョン daemon server remote websocket host port デーモン サーバー リモート ホスト ポート",
+    .appearance_keywords = "外観 テーマ システム ライト ダーク 言語 英語 中国語 簡体字 日本語",
+    .providers_keywords = "プロバイダー エージェント モデル CLI バージョン インストール 検出 claude codex cursor opencode amp grok pi",
+    .skills_keywords = "スキル ライブラリ エージェント 無効 有効 削除 claude codex cursor opencode pi amp 共有",
+    .usage_keywords = "使用状況 使用量 トークン コスト 支出 キャッシュ 日別 グラフ モデル 内訳 履歴 claude codex",
+    .computer_use_keywords = "コンピュータ 操作 コンピュータ使用 画面収録 アクセシビリティ アプリ 制御 codex",
+};
+
 /// Capped scratch for `formatSkillsContentsSummary`. Count phrase +
 /// ` · ` + Latin B/KB/MB stay short in every locale.
 pub const skills_contents_summary_max: usize = 96;
@@ -6935,6 +7002,22 @@ pub fn skillsSearchChromeFor(preference: LanguagePreference, system_locale_id: [
         .simplified_chinese => skills_search_chrome_zh_cn,
         .japanese => skills_search_chrome_ja,
         .system, .english => skills_search_chrome_en,
+    };
+}
+
+/// Settings chrome Search Settings placeholder + per-page nav
+/// keyword haystacks for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does not
+/// read process env. Distinct from SkillsSearchChrome / FilterChrome
+/// so Settings nav search stays independently evolvable. English
+/// matches Waku `settings.search` / `settings.*_keywords`. No Daemon
+/// page pack; General keywords include daemon-connection words.
+/// Wire ids / on-input stay English (`settings_search_edit`).
+pub fn settingsSearchChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SettingsSearchChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => settings_search_chrome_zh_cn,
+        .japanese => settings_search_chrome_ja,
+        .system, .english => settings_search_chrome_en,
     };
 }
 
@@ -11362,6 +11445,104 @@ test "skillsSearchChromeFor english default; zh and ja chrome; english ignores j
     try testing.expect(!std.mem.eql(u8, skillsSearchChromeFor(.english, "").search, filterChromeFor(.english, "").filter_projects));
     try testing.expect(!std.mem.eql(u8, skillsSearchChromeFor(.english, "").search, skillsFilterAllChromeFor(.english, "").filter_all));
     try testing.expect(!std.mem.eql(u8, skillsSearchChromeFor(.english, "").search, skillsEmptyChromeFor(.english, "").no_matching));
+}
+
+test "settingsSearchChromeFor english default; zh and ja chrome; keywords; distinct from skills and usage filter" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Search Settings", settingsSearchChromeFor(.english, "ja").search);
+    try testing.expectEqualStrings("Search Settings", settingsSearchChromeFor(.english, "").search);
+    try testing.expectEqualStrings("Search Settings", settingsSearchChromeFor(.system, "").search);
+    try testing.expectEqualStrings(
+        "general local projects conversations privacy analytics telemetry anonymous sharing updates automatic sparkle version daemon server remote websocket host port",
+        settingsSearchChromeFor(.english, "").general_keywords,
+    );
+    try testing.expectEqualStrings(
+        "appearance theme system light dark language english chinese simplified",
+        settingsSearchChromeFor(.english, "").appearance_keywords,
+    );
+    try testing.expectEqualStrings(
+        "providers agents models cli version install detect claude codex cursor opencode amp grok pi",
+        settingsSearchChromeFor(.english, "").providers_keywords,
+    );
+    try testing.expectEqualStrings(
+        "skills skill library agent disable enable delete claude codex cursor opencode pi amp shared",
+        settingsSearchChromeFor(.english, "").skills_keywords,
+    );
+    try testing.expectEqualStrings(
+        "usage tokens cost spend cache daily chart model breakdown history claude codex",
+        settingsSearchChromeFor(.english, "").usage_keywords,
+    );
+    try testing.expectEqualStrings(
+        "computer use screen recording accessibility apps control codex",
+        settingsSearchChromeFor(.english, "").computer_use_keywords,
+    );
+
+    try testing.expectEqualStrings("搜索设置", settingsSearchChromeFor(.simplified_chinese, "").search);
+    try testing.expectEqualStrings(
+        "通用 本地 项目 对话 隐私 匿名 使用数据 分析 分享 更新 自动 版本 daemon server remote websocket host port 守护进程 服务器 远程 主机 端口",
+        settingsSearchChromeFor(.simplified_chinese, "").general_keywords,
+    );
+    try testing.expectEqualStrings(
+        "外观 主题 系统 浅色 深色 语言 英语 中文 简体",
+        settingsSearchChromeFor(.simplified_chinese, "").appearance_keywords,
+    );
+    try testing.expectEqualStrings(
+        "服务商 提供商 智能体 模型 命令行 版本 安装 检测 claude codex cursor opencode amp grok pi",
+        settingsSearchChromeFor(.simplified_chinese, "").providers_keywords,
+    );
+    try testing.expectEqualStrings(
+        "技能 技能库 智能体 禁用 启用 删除 claude codex cursor opencode pi amp 共享",
+        settingsSearchChromeFor(.simplified_chinese, "").skills_keywords,
+    );
+    try testing.expectEqualStrings(
+        "用量 令牌 费用 支出 缓存 每日 图表 模型 明细 历史 claude codex",
+        settingsSearchChromeFor(.simplified_chinese, "").usage_keywords,
+    );
+    try testing.expectEqualStrings(
+        "电脑操作 电脑使用 屏幕录制 辅助功能 应用 控制 codex",
+        settingsSearchChromeFor(.simplified_chinese, "").computer_use_keywords,
+    );
+
+    try testing.expectEqualStrings("設定を検索", settingsSearchChromeFor(.japanese, "").search);
+    try testing.expectEqualStrings(
+        "一般 ローカル プロジェクト 会話 プライバシー 分析 テレメトリ 匿名 共有 アップデート 自動 バージョン daemon server remote websocket host port デーモン サーバー リモート ホスト ポート",
+        settingsSearchChromeFor(.japanese, "").general_keywords,
+    );
+    try testing.expectEqualStrings(
+        "外観 テーマ システム ライト ダーク 言語 英語 中国語 簡体字 日本語",
+        settingsSearchChromeFor(.japanese, "").appearance_keywords,
+    );
+    try testing.expectEqualStrings(
+        "プロバイダー エージェント モデル CLI バージョン インストール 検出 claude codex cursor opencode amp grok pi",
+        settingsSearchChromeFor(.japanese, "").providers_keywords,
+    );
+    try testing.expectEqualStrings(
+        "スキル ライブラリ エージェント 無効 有効 削除 claude codex cursor opencode pi amp 共有",
+        settingsSearchChromeFor(.japanese, "").skills_keywords,
+    );
+    try testing.expectEqualStrings(
+        "使用状況 使用量 トークン コスト 支出 キャッシュ 日別 グラフ モデル 内訳 履歴 claude codex",
+        settingsSearchChromeFor(.japanese, "").usage_keywords,
+    );
+    try testing.expectEqualStrings(
+        "コンピュータ 操作 コンピュータ使用 画面収録 アクセシビリティ アプリ 制御 codex",
+        settingsSearchChromeFor(.japanese, "").computer_use_keywords,
+    );
+
+    try testing.expectEqualStrings("搜索设置", settingsSearchChromeFor(.system, "zh_CN.UTF-8").search);
+    try testing.expectEqualStrings("設定を検索", settingsSearchChromeFor(.system, "ja_JP.UTF-8").search);
+    try testing.expectEqualStrings("Search Settings", settingsSearchChromeFor(.english, "ja_JP.UTF-8").search);
+    try testing.expectEqualStrings("Search Settings", settingsSearchChromeFor(.english, "zh_CN.UTF-8").search);
+
+    try testing.expect(!std.mem.eql(u8, settingsSearchChromeFor(.english, "").search, skillsSearchChromeFor(.english, "").search));
+    try testing.expect(!std.mem.eql(u8, settingsSearchChromeFor(.simplified_chinese, "").search, skillsSearchChromeFor(.simplified_chinese, "").search));
+    try testing.expect(!std.mem.eql(u8, settingsSearchChromeFor(.japanese, "").search, skillsSearchChromeFor(.japanese, "").search));
+    try testing.expect(!std.mem.eql(u8, settingsSearchChromeFor(.english, "").search, filterChromeFor(.english, "").filter_skills));
+    try testing.expect(!std.mem.eql(u8, settingsSearchChromeFor(.english, "").search, filterChromeFor(.english, "").filter_projects));
+    try testing.expect(std.mem.indexOf(u8, settingsSearchChromeFor(.english, "").general_keywords, "daemon") != null);
+    try testing.expect(std.mem.indexOf(u8, settingsSearchChromeFor(.english, "").general_keywords, "websocket") != null);
+    try testing.expect(std.mem.indexOf(u8, settingsSearchChromeFor(.simplified_chinese, "").providers_keywords, "提供商") != null);
+    try testing.expect(std.mem.indexOf(u8, settingsSearchChromeFor(.japanese, "").usage_keywords, "使用量") != null);
 }
 
 test "skillsPathCopiedChromeFor english default; zh and ja chrome; english ignores ja LANG" {

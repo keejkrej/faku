@@ -28160,6 +28160,183 @@ test "Settings Skills search and Usage Projects filter chrome follow Appearance 
     try testing.expectEqualStrings("No matching projects", model.no_matching_projects_label());
 }
 
+test "Settings search chrome filters nav tabs by keywords; empty query shows all six" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "placeholder=\"{settings_search_placeholder}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "text=\"{settings_search}\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-input=\"settings_search_edit\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_nav_general_visible}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_nav_appearance_visible}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_nav_providers_visible}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_nav_skills_visible}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_nav_usage_visible}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_nav_computer_use_visible}\"") != null);
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Search Settings\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "set_settings_page_daemon") == null);
+
+    var model = boot.initialModel();
+    try testing.expectEqualStrings("Search Settings", model.settings_search_placeholder());
+    try testing.expectEqualStrings(i18n.settingsSearchChromeFor(.english, "").search, model.settings_search_placeholder());
+    try testing.expect(!std.mem.eql(u8, i18n.skillsSearchChromeFor(.english, "").search, model.settings_search_placeholder()));
+    try testing.expect(!std.mem.eql(u8, i18n.filterChromeFor(.english, "").filter_skills, model.settings_search_placeholder()));
+    try testing.expect(!std.mem.eql(u8, i18n.filterChromeFor(.english, "").filter_projects, model.settings_search_placeholder()));
+    try testing.expect(model.settings_nav_general_visible());
+    try testing.expect(model.settings_nav_appearance_visible());
+    try testing.expect(model.settings_nav_providers_visible());
+    try testing.expect(model.settings_nav_skills_visible());
+    try testing.expect(model.settings_nav_usage_visible());
+    try testing.expect(model.settings_nav_computer_use_visible());
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_open);
+    try testing.expect(model.settings_page_general());
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Search Settings") != null);
+    _ = try expectButtonMsg(tree, "General", .set_settings_page_general);
+    _ = try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance);
+    _ = try expectButtonMsg(tree, "Providers", .set_settings_page_providers);
+    _ = try expectButtonMsg(tree, "Skills", .set_settings_page_skills);
+    _ = try expectButtonMsg(tree, "Usage", .set_settings_page_usage);
+    _ = try expectButtonMsg(tree, "Computer Use", .set_settings_page_computer_use);
+    _ = try expectByText(tree.root, .text, "Default model");
+
+    main.update(&model, .{ .settings_search_edit = .{ .insert_text = "  " } }, &fx);
+    try testing.expectEqualStrings("  ", model.settings_search());
+    try testing.expect(model.settings_nav_general_visible());
+    try testing.expect(model.settings_nav_appearance_visible());
+    try testing.expect(model.settings_nav_providers_visible());
+    try testing.expect(model.settings_nav_skills_visible());
+    try testing.expect(model.settings_nav_usage_visible());
+    try testing.expect(model.settings_nav_computer_use_visible());
+
+    main.update(&model, .{ .settings_search_edit = .clear }, &fx);
+    main.update(&model, .{ .settings_search_edit = .{ .insert_text = "THEME" } }, &fx);
+    try testing.expectEqualStrings("THEME", model.settings_search());
+    try testing.expect(!model.settings_nav_general_visible());
+    try testing.expect(model.settings_nav_appearance_visible());
+    try testing.expect(!model.settings_nav_providers_visible());
+    try testing.expect(!model.settings_nav_skills_visible());
+    try testing.expect(!model.settings_nav_usage_visible());
+    try testing.expect(!model.settings_nav_computer_use_visible());
+    try testing.expect(model.settings_page_general());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "General") == null);
+    _ = try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance);
+    try testing.expect(findByText(tree.root, .button, "Providers") == null);
+    try testing.expect(findByText(tree.root, .button, "Skills") == null);
+    try testing.expect(findByText(tree.root, .button, "Usage") == null);
+    try testing.expect(findByText(tree.root, .button, "Computer Use") == null);
+    _ = try expectByText(tree.root, .text, "Default model");
+    try testing.expect(findByText(tree.root, .text, "Theme") == null);
+
+    main.update(&model, .{ .settings_search_edit = .clear }, &fx);
+    main.update(&model, .{ .settings_search_edit = .{ .insert_text = "daemon" } }, &fx);
+    try testing.expect(model.settings_nav_general_visible());
+    try testing.expect(!model.settings_nav_appearance_visible());
+    try testing.expect(!model.settings_nav_providers_visible());
+    try testing.expect(!model.settings_nav_skills_visible());
+    try testing.expect(!model.settings_nav_usage_visible());
+    try testing.expect(!model.settings_nav_computer_use_visible());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "General", .set_settings_page_general);
+    try testing.expect(findByText(tree.root, .button, "Appearance") == null);
+
+    main.update(&model, .{ .settings_search_edit = .clear }, &fx);
+    main.update(&model, .{ .settings_search_edit = .{ .insert_text = "claude" } }, &fx);
+    try testing.expect(!model.settings_nav_general_visible());
+    try testing.expect(!model.settings_nav_appearance_visible());
+    try testing.expect(model.settings_nav_providers_visible());
+    try testing.expect(model.settings_nav_skills_visible());
+    try testing.expect(model.settings_nav_usage_visible());
+    try testing.expect(!model.settings_nav_computer_use_visible());
+
+    main.update(&model, .{ .settings_search_edit = .clear }, &fx);
+    main.update(&model, .{ .settings_search_edit = .{ .insert_text = "zzz" } }, &fx);
+    try testing.expect(!model.settings_nav_general_visible());
+    try testing.expect(!model.settings_nav_appearance_visible());
+    try testing.expect(!model.settings_nav_providers_visible());
+    try testing.expect(!model.settings_nav_skills_visible());
+    try testing.expect(!model.settings_nav_usage_visible());
+    try testing.expect(!model.settings_nav_computer_use_visible());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "General") == null);
+    try testing.expect(findByText(tree.root, .button, "Appearance") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Search Settings") != null);
+    _ = try expectByText(tree.root, .text, "Default model");
+
+    main.update(&model, .{ .settings_search_edit = .clear }, &fx);
+    try testing.expectEqualStrings("", model.settings_search());
+    try testing.expect(model.settings_nav_general_visible());
+    try testing.expect(model.settings_nav_appearance_visible());
+    try testing.expect(model.settings_nav_providers_visible());
+    try testing.expect(model.settings_nav_skills_visible());
+    try testing.expect(model.settings_nav_usage_visible());
+    try testing.expect(model.settings_nav_computer_use_visible());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "General", .set_settings_page_general);
+    _ = try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance);
+    _ = try expectButtonMsg(tree, "Providers", .set_settings_page_providers);
+    _ = try expectButtonMsg(tree, "Skills", .set_settings_page_skills);
+    _ = try expectButtonMsg(tree, "Usage", .set_settings_page_usage);
+    _ = try expectButtonMsg(tree, "Computer Use", .set_settings_page_computer_use);
+
+    main.update(&model, .{ .settings_search_edit = .{ .insert_text = "theme" } }, &fx);
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(!model.settings_open);
+    try testing.expectEqualStrings("", model.settings_search());
+    try testing.expect(model.settings_nav_general_visible());
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("搜索设置", model.settings_search_placeholder());
+    try testing.expectEqualStrings(i18n.settingsSearchChromeFor(.simplified_chinese, "").search, model.settings_search_placeholder());
+    main.update(&model, .toggle_settings, &fx);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "搜索设置") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Search Settings") == null);
+    _ = try expectButtonMsg(tree, "通用", .set_settings_page_general);
+    main.update(&model, .{ .settings_search_edit = .{ .insert_text = "主题" } }, &fx);
+    try testing.expect(!model.settings_nav_general_visible());
+    try testing.expect(model.settings_nav_appearance_visible());
+    main.update(&model, .{ .settings_search_edit = .clear }, &fx);
+    main.update(&model, .{ .settings_search_edit = .{ .insert_text = "提供商" } }, &fx);
+    try testing.expect(model.settings_nav_providers_visible());
+    try testing.expect(!model.settings_nav_appearance_visible());
+    main.update(&model, .toggle_settings, &fx);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("設定を検索", model.settings_search_placeholder());
+    try testing.expectEqualStrings(i18n.settingsSearchChromeFor(.japanese, "").search, model.settings_search_placeholder());
+    main.update(&model, .toggle_settings, &fx);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "設定を検索") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "搜索设置") == null);
+    _ = try expectButtonMsg(tree, "一般", .set_settings_page_general);
+    main.update(&model, .{ .settings_search_edit = .{ .insert_text = "使用量" } }, &fx);
+    try testing.expect(model.settings_nav_usage_visible());
+    try testing.expect(!model.settings_nav_general_visible());
+    main.update(&model, .toggle_settings, &fx);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Search Settings", model.settings_search_placeholder());
+    try testing.expectEqualStrings(i18n.settingsSearchChromeFor(.english, "").search, model.settings_search_placeholder());
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("搜索设置", model.settings_search_placeholder());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("設定を検索", model.settings_search_placeholder());
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Search Settings", model.settings_search_placeholder());
+}
+
 test "Settings Skills empty chrome follows Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
