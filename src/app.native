@@ -351,7 +351,7 @@
                     </dropdown-menu>
                   </if>
                 </stack>
-                <text-field text="{skills_filter}" placeholder="{skills_filter_placeholder}" on-input="skills_filter_edit" />
+                <text-field text="{skills_filter}" placeholder="{skills_search_placeholder}" on-input="skills_filter_edit" />
                 <scroll grow="1" label="{skills_library_title}" overscroll="none">
                   <if test="{skills_empty}">
                     <if test="{skills_empty_rich}">

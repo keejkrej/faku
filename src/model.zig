@@ -5819,6 +5819,10 @@ pub const Model = struct {
         return i18n.skillsPaneChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn skillsSearchChrome(model: *const Model) i18n.SkillsSearchChrome {
+        return i18n.skillsSearchChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     /// Palette row display label for `action`. New Task / Settings /
     /// Collapse all folders reuse Sidebar / Chrome strings; remaining
     /// names come from `i18n.Palette`. Ids / keywords stay English.
@@ -6108,10 +6112,13 @@ pub const Model = struct {
         return model.skills_filter_buffer.text();
     }
 
-    /// Settings Skills filter placeholder. Filter text stays on
-    /// `skills_filter`; `on-input` stays `skills_filter_edit`.
-    pub fn skills_filter_placeholder(model: *const Model) []const u8 {
-        return model.filterChrome().filter_skills;
+    /// Settings Skills filter placeholder. Localized via
+    /// `i18n.SkillsSearchChrome`. English matches Waku `skills.search`.
+    /// Distinct from FilterChrome so Usage Projects filter stays
+    /// independently evolvable. Filter text stays on `skills_filter`;
+    /// `on-input` stays `skills_filter_edit`.
+    pub fn skills_search_placeholder(model: *const Model) []const u8 {
+        return model.skillsSearchChrome().search;
     }
 
     /// Settings Skills source-filter chip. All skills when none, else

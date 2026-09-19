@@ -55,9 +55,13 @@
 //! first-cut Environment info-button a11y + dropdown-menu header /
 //! menu-item chrome plus the dropdown Background section header
 //! (same `EnvironmentChrome` strings), and first-cut
-//! Settings Skills filter placeholder plus Settings Usage Projects
+//! Settings Skills filter placeholder (same `SkillsSearchChrome`
+//! strings; English matches Waku `skills.search`; distinct from
+//! `FilterChrome` so Usage Projects filter stays independently
+//! evolvable) plus Settings Usage Projects
 //! search-field placeholder + a11y label and empty-state No project
-//! usage / No matching projects (same `FilterChrome` strings), and first-cut Files
+//! usage / No matching projects (same `FilterChrome` strings;
+//! `filter_skills` stays on that struct for Usage + existing tests), and first-cut Files
 //! right-panel file-preview toolbar / find-replace / discard /
 //! truncated·binary chrome (same `FilePreviewChrome` strings), and
 //! first-cut Files preview find-option toggle a11y Match case /
@@ -523,11 +527,20 @@
 //! Skill details / zh-CN 技能库 / 技能详情 / ja スキルライブラリ /
 //! スキルの詳細; muted/bold Native pane headers plus Native
 //! `label=` a11y (Waku `aria-label`); this cut ships first-cut
-//! side-by-side (264 library | grow details), still not Waku
-//! GPUI virtualized list quirks; distinct from
+//! side-by-side (264 library | grow details) with per-pane scroll
+//! + 1px library divider, still not resizable `<split>`, still
+//! not Waku GPUI virtualized list quirks / sticky / edge fades;
+//! distinct from
 //! SkillsSectionChrome User / SkillsSelectChrome Select a skill /
 //! SkillsDetailChrome / SkillsEmptyChrome / SkillsCountChrome /
 //! Chrome.skills / StructuralRegionChrome; wire ids stay English)
+//! plus Settings Skills filter placeholder (same
+//! `SkillsSearchChrome` strings; English matches Waku
+//! `skills.search`; EN Search skills… / zh-CN 搜索技能… / ja
+//! スキルを検索…; distinct from `FilterChrome` so Usage Projects
+//! filter stays independently evolvable; Model getter
+//! `skills_search_placeholder`; wire ids / on-input stay English
+//! `skills_filter_edit`)
 //! plus OS folder-dialog prompts / missing-picker
 //! status (same `OsFolderDialogChrome` strings; osascript /
 //! PowerShell / zenity `--title` / kdialog `--title` at spawn) plus
@@ -1876,14 +1889,15 @@ const environment_chrome_ja: EnvironmentChrome = .{
     .background_section = "バックグラウンド",
 };
 
-/// Settings Skills filter placeholder and Settings Usage Projects
-/// search-field placeholder + a11y label plus empty-state No project
-/// usage / No matching projects for the resolved locale. Same
-/// resolve path as EnvironmentChrome. Wire ids / on-input stay
-/// English (`skills_filter_edit` / `usage_project_filter_edit`).
-/// Filter text itself stays English (user-typed). English matches
-/// the former hardcoded copy. No matching projects is distinct from
-/// No project usage.
+/// Settings Usage Projects search-field placeholder + a11y label
+/// plus empty-state No project usage / No matching projects for
+/// the resolved locale. `filter_skills` stays on the struct (Usage
+/// + existing tests) but Settings Skills no longer reads it; that
+/// placeholder lives in `SkillsSearchChrome`. Same resolve path as
+/// EnvironmentChrome. Wire ids / on-input stay English
+/// (`usage_project_filter_edit`). Filter text itself stays English
+/// (user-typed). English matches the former hardcoded copy. No
+/// matching projects is distinct from No project usage.
 pub const FilterChrome = struct {
     filter_skills: []const u8,
     filter_projects: []const u8,
@@ -4396,7 +4410,8 @@ const providers_detail_chrome_ja: ProvidersDetailChrome = .{
 /// the resolved locale. Same resolve path as ProvidersDetailChrome.
 /// English matches Waku `skills_page` locales (`open_project` /
 /// `scanning` / `no_skills` / `no_match`). Distinct from
-/// FilterChrome (filter placeholder / Usage Projects empty) and
+/// FilterChrome (Usage Projects empty) /
+/// SkillsSearchChrome (Skills search placeholder) and
 /// RightPanelChrome (`Open a project to browse its files` / `No
 /// project open`) so Skills empty stays independently evolvable.
 /// Settings `skills.emptyHint` uses all four. Composer `$` insert
@@ -4821,11 +4836,11 @@ pub const skills_scope_caption_max: usize = 256;
 /// locale. Same resolve path as SkillsSourceChrome /
 /// SkillsCountChrome. English matches Waku `skills.filter_all`.
 /// Distinct from SkillsSourceChrome (Shared / provider shorts),
-/// SkillsCountChrome (N of M shown), and FilterChrome (Filter
-/// skills placeholder) so All skills stays independently
-/// evolvable. Source labels stay on `SkillsSourceChrome`. Composer
-/// `$` insert / slash skill rows stay flat and unfiltered by
-/// source. Wire ids stay English.
+/// SkillsCountChrome (N of M shown), FilterChrome
+/// (`filter_skills`), and SkillsSearchChrome (Search skills…) so
+/// All skills stays independently evolvable. Source labels stay on
+/// `SkillsSourceChrome`. Composer `$` insert / slash skill rows stay
+/// flat and unfiltered by source. Wire ids stay English.
 pub const SkillsFilterAllChrome = struct {
     filter_all: []const u8,
 };
@@ -4920,8 +4935,10 @@ const skills_copy_path_chrome_ja: SkillsCopyPathChrome = .{
 /// StructuralRegionChrome so the pane titles stay independently
 /// evolvable. Painted as muted/bold Native pane headers plus Native
 /// `label=` a11y on each column (Waku `aria-label`); this cut ships
-/// first-cut side-by-side (264 library | grow details), still not
-/// Waku GPUI virtualized list quirks. Wire ids stay English.
+/// first-cut side-by-side (264 library | grow details) with per-pane
+/// scroll + 1px library divider, still not resizable `<split>`,
+/// still not Waku GPUI virtualized list quirks / sticky / edge fades.
+/// Wire ids stay English.
 pub const SkillsPaneChrome = struct {
     library: []const u8,
     details: []const u8,
@@ -4940,6 +4957,32 @@ const skills_pane_chrome_zh_cn: SkillsPaneChrome = .{
 const skills_pane_chrome_ja: SkillsPaneChrome = .{
     .library = "スキルライブラリ",
     .details = "スキルの詳細",
+};
+
+/// Settings Skills filter-input placeholder for the resolved
+/// locale. Same resolve path as SkillsPaneChrome /
+/// SkillsFilterAllChrome. English matches Waku `skills.search`
+/// (ellipsis `…`, not three dots). Distinct from FilterChrome
+/// `filter_skills` / `filter_projects` so Usage Projects filter
+/// stays independently evolvable. Settings Skills reads this pack
+/// via Model `skills_search_placeholder`; `FilterChrome.filter_skills`
+/// stays on that struct for Usage + existing tests. Wire ids /
+/// on-input stay English (`skills_filter_edit`); filter text stays
+/// English (user-typed).
+pub const SkillsSearchChrome = struct {
+    search: []const u8,
+};
+
+const skills_search_chrome_en: SkillsSearchChrome = .{
+    .search = "Search skills…",
+};
+
+const skills_search_chrome_zh_cn: SkillsSearchChrome = .{
+    .search = "搜索技能…",
+};
+
+const skills_search_chrome_ja: SkillsSearchChrome = .{
+    .search = "スキルを検索…",
 };
 
 /// Capped scratch for `formatSkillsContentsSummary`. Count phrase +
@@ -5443,8 +5486,10 @@ pub fn environmentChromeFor(preference: LanguagePreference, system_locale_id: []
     };
 }
 
-/// Settings Skills / Usage Projects filter chrome (including empty-state
+/// Settings Usage Projects filter chrome (including empty-state
 /// No project usage / No matching projects) for the resolved locale.
+/// `filter_skills` stays on the pack for Usage + existing tests;
+/// Settings Skills placeholder uses `skillsSearchChromeFor`.
 /// Callers pass Model `language_preference` + `system_locale_id`;
 /// this file does not read process env. Wire ids / on-input /
 /// filter text stay English.
@@ -6630,6 +6675,20 @@ pub fn skillsPaneChromeFor(preference: LanguagePreference, system_locale_id: []c
         .simplified_chinese => skills_pane_chrome_zh_cn,
         .japanese => skills_pane_chrome_ja,
         .system, .english => skills_pane_chrome_en,
+    };
+}
+
+/// Settings Skills filter-input placeholder for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env.
+/// Distinct from FilterChrome so Usage Projects filter stays
+/// independently evolvable. English matches Waku `skills.search`.
+/// Wire ids / on-input stay English (`skills_filter_edit`).
+pub fn skillsSearchChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsSearchChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_search_chrome_zh_cn,
+        .japanese => skills_search_chrome_ja,
+        .system, .english => skills_search_chrome_en,
     };
 }
 
@@ -10915,6 +10974,28 @@ test "skillsPaneChromeFor english default; zh and ja chrome; english ignores ja 
         try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.japanese, "").library, @field(region_ja, field.name)));
         try testing.expect(!std.mem.eql(u8, skillsPaneChromeFor(.japanese, "").details, @field(region_ja, field.name)));
     }
+}
+
+test "skillsSearchChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Search skills…", skillsSearchChromeFor(.english, "ja").search);
+    try testing.expectEqualStrings("Search skills…", skillsSearchChromeFor(.english, "").search);
+    try testing.expectEqualStrings("Search skills…", skillsSearchChromeFor(.system, "").search);
+
+    try testing.expectEqualStrings("搜索技能…", skillsSearchChromeFor(.simplified_chinese, "").search);
+    try testing.expectEqualStrings("スキルを検索…", skillsSearchChromeFor(.japanese, "").search);
+
+    try testing.expectEqualStrings("搜索技能…", skillsSearchChromeFor(.system, "zh_CN.UTF-8").search);
+    try testing.expectEqualStrings("スキルを検索…", skillsSearchChromeFor(.system, "ja_JP.UTF-8").search);
+    try testing.expectEqualStrings("Search skills…", skillsSearchChromeFor(.english, "ja_JP.UTF-8").search);
+    try testing.expectEqualStrings("Search skills…", skillsSearchChromeFor(.english, "zh_CN.UTF-8").search);
+
+    try testing.expect(!std.mem.eql(u8, skillsSearchChromeFor(.english, "").search, filterChromeFor(.english, "").filter_skills));
+    try testing.expect(!std.mem.eql(u8, skillsSearchChromeFor(.simplified_chinese, "").search, filterChromeFor(.simplified_chinese, "").filter_skills));
+    try testing.expect(!std.mem.eql(u8, skillsSearchChromeFor(.japanese, "").search, filterChromeFor(.japanese, "").filter_skills));
+    try testing.expect(!std.mem.eql(u8, skillsSearchChromeFor(.english, "").search, filterChromeFor(.english, "").filter_projects));
+    try testing.expect(!std.mem.eql(u8, skillsSearchChromeFor(.english, "").search, skillsFilterAllChromeFor(.english, "").filter_all));
+    try testing.expect(!std.mem.eql(u8, skillsSearchChromeFor(.english, "").search, skillsEmptyChromeFor(.english, "").no_matching));
 }
 
 test "skillsPathCopiedChromeFor english default; zh and ja chrome; english ignores ja LANG" {
