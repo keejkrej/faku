@@ -188,6 +188,25 @@ pub fn sanitizeCodeFontSize(size: u32) u8 {
     return default_code_font_size;
 }
 
+/// Settings nav display order. No Daemon page this cut.
+pub const settings_nav_pages = [_]skills.Page{
+    .general,
+    .appearance,
+    .providers,
+    .skills,
+    .usage,
+    .computer_use,
+};
+
+/// Waku `next_picker_highlight`. Empty list → null. Down from none
+/// (filtered-out selection) lands on first; up from none lands on
+/// last. Both ends wrap: `(i+1)%len` / `(i+len-1)%len`.
+pub fn nextPickerHighlight(current: ?usize, len: usize, down: bool) ?usize {
+    if (len == 0) return null;
+    if (down) return if (current) |index| (index + 1) % len else 0;
+    return if (current) |index| (index + len - 1) % len else len - 1;
+}
+
 pub const Turn = struct {
     id: u32 = 0,
     session_id: u32 = 0,
@@ -635,6 +654,13 @@ pub const Msg = union(enum) {
     set_settings_page_skills,
     set_settings_page_usage,
     set_settings_page_computer_use,
+    /// Settings nav Up/Down through tabs left visible by search
+    /// (Waku `cycle_settings_page`). Keyboard-only; handlers no-op
+    /// unless Settings is open. A focused search field still
+    /// Native-blocks these keys (editable text kinds consume ALL
+    /// keys; no GPUI key-context).
+    cycle_settings_page_down,
+    cycle_settings_page_up,
     /// Settings General Share anonymous usage data chip. Flips
     /// persisted `analytics_enabled` (default true). Preference + UI
     /// only; no telemetry backend this cut. `on-press` stays
@@ -985,7 +1011,7 @@ pub const Msg = union(enum) {
     fx_probe_exit: native_sdk.EffectExit,
     cli_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "cli_probe_exit", "term_pty", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "focus_browser_or_composer", "open_find", "open_file_preview_find_replace", "clipboard_done", "attach_preview_done", "file_preview_image_done", "transcript_image_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app", "start_image_attach", "show_right_panel", "navigate_back", "navigate_forward" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "cli_probe_exit", "term_pty", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "focus_browser_or_composer", "open_find", "open_file_preview_find_replace", "clipboard_done", "attach_preview_done", "file_preview_image_done", "transcript_image_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "cycle_settings_page_down", "cycle_settings_page_up", "quit_app", "start_image_attach", "show_right_panel", "navigate_back", "navigate_forward" };
 };
 
 pub const Model = struct {
@@ -2420,6 +2446,8 @@ pub const Model = struct {
         "provider_selected_id",
         "settings_search_buffer",
         "applySettingsSearch",
+        "visibleSettingsNavPages",
+        "nextVisibleSettingsPage",
         "skills_filter_buffer",
         "skills_source_filter",
         "toggleSkillsSourcePicker",
@@ -6106,6 +6134,35 @@ pub const Model = struct {
         const query = std.mem.trim(u8, model.settings_search(), " \t\r\n");
         if (query.len == 0) return true;
         return util.asciiContainsIgnoreCase(model.settingsSearchKeywords(page), query);
+    }
+
+    /// Visible Settings nav tabs in display order. Same predicate as
+    /// `settings_nav_*_visible`.
+    pub fn visibleSettingsNavPages(model: *const Model, out: *[settings_nav_pages.len]skills.Page) usize {
+        var n: usize = 0;
+        for (settings_nav_pages) |page| {
+            if (model.settingsNavPageVisible(page)) {
+                out[n] = page;
+                n += 1;
+            }
+        }
+        return n;
+    }
+
+    /// Next visible Settings page for Up/Down. Filtered-out
+    /// `settings_page` re-enters from first (down) or last (up).
+    pub fn nextVisibleSettingsPage(model: *const Model, down: bool) ?skills.Page {
+        var pages: [settings_nav_pages.len]skills.Page = undefined;
+        const len = model.visibleSettingsNavPages(&pages);
+        var current: ?usize = null;
+        for (pages[0..len], 0..) |page, i| {
+            if (page == model.settings_page) {
+                current = i;
+                break;
+            }
+        }
+        const next = nextPickerHighlight(current, len, down) orelse return null;
+        return pages[next];
     }
 
     pub fn settings_nav_general_visible(model: *const Model) bool {

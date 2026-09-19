@@ -320,25 +320,29 @@
         </row>
         <separator />
         <row height="40" padding="14" gap="8" cross="center">
-          <text-field height="24" text="{settings_search}" placeholder="{settings_search_placeholder}" on-input="settings_search_edit" />
-          <if test="{settings_nav_general_visible}">
-            <button variant="ghost" size="sm" icon="settings" selected="{settings_page_general}" on-press="set_settings_page_general">{settings_nav_general}</button>
-          </if>
-          <if test="{settings_nav_appearance_visible}">
-            <button variant="ghost" size="sm" icon="app:appearance" selected="{settings_page_appearance}" on-press="set_settings_page_appearance">{settings_nav_appearance}</button>
-          </if>
-          <if test="{settings_nav_providers_visible}">
-            <button variant="ghost" size="sm" icon="app:bot" selected="{settings_page_providers}" on-press="set_settings_page_providers">{settings_nav_providers}</button>
-          </if>
-          <if test="{settings_nav_skills_visible}">
-            <button variant="ghost" size="sm" icon="app:package" selected="{settings_page_skills}" on-press="set_settings_page_skills">{settings_nav_skills}</button>
-          </if>
-          <if test="{settings_nav_usage_visible}">
-            <button variant="ghost" size="sm" icon="app:chart-column" selected="{settings_page_usage}" on-press="set_settings_page_usage">{settings_nav_usage}</button>
-          </if>
-          <if test="{settings_nav_computer_use_visible}">
-            <button variant="ghost" size="sm" icon="app:cursor-spark" selected="{settings_page_computer_use}" on-press="set_settings_page_computer_use">{settings_nav_computer_use}</button>
-          </if>
+          <search-field height="24" text="{settings_search}" placeholder="{settings_search_placeholder}" on-input="settings_search_edit" />
+          <tree label="{settings_title}">
+            <row gap="8" cross="center">
+              <if test="{settings_nav_general_visible}">
+                <button variant="ghost" size="sm" icon="settings" selected="{settings_page_general}" role="treeitem" on-press="set_settings_page_general">{settings_nav_general}</button>
+              </if>
+              <if test="{settings_nav_appearance_visible}">
+                <button variant="ghost" size="sm" icon="app:appearance" selected="{settings_page_appearance}" role="treeitem" on-press="set_settings_page_appearance">{settings_nav_appearance}</button>
+              </if>
+              <if test="{settings_nav_providers_visible}">
+                <button variant="ghost" size="sm" icon="app:bot" selected="{settings_page_providers}" role="treeitem" on-press="set_settings_page_providers">{settings_nav_providers}</button>
+              </if>
+              <if test="{settings_nav_skills_visible}">
+                <button variant="ghost" size="sm" icon="app:package" selected="{settings_page_skills}" role="treeitem" on-press="set_settings_page_skills">{settings_nav_skills}</button>
+              </if>
+              <if test="{settings_nav_usage_visible}">
+                <button variant="ghost" size="sm" icon="app:chart-column" selected="{settings_page_usage}" role="treeitem" on-press="set_settings_page_usage">{settings_nav_usage}</button>
+              </if>
+              <if test="{settings_nav_computer_use_visible}">
+                <button variant="ghost" size="sm" icon="app:cursor-spark" selected="{settings_page_computer_use}" role="treeitem" on-press="set_settings_page_computer_use">{settings_nav_computer_use}</button>
+              </if>
+            </row>
+          </tree>
           <spacer grow="1" />
           <if test="{settings_page_skills}">
             <button variant="ghost" size="sm" on-press="refresh_skills">{settings_refresh_label}</button>

@@ -228,6 +228,8 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .set_settings_page_skills => settings_actions.handleSetSettingsPageSkills(model, fx),
         .set_settings_page_usage => settings_actions.handleSetSettingsPageUsage(model, fx),
         .set_settings_page_computer_use => settings_actions.handleSetSettingsPageComputerUse(model, fx),
+        .cycle_settings_page_down => settings_actions.handleCycleSettingsPageDown(model, fx),
+        .cycle_settings_page_up => settings_actions.handleCycleSettingsPageUp(model, fx),
         .toggle_analytics_enabled => settings_actions.handleToggleAnalyticsEnabled(model),
         .toggle_render_math => settings_actions.handleToggleRenderMath(model),
         .toggle_automatic_updates => settings_actions.handleToggleAutomaticUpdates(model),
