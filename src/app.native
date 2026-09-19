@@ -947,6 +947,12 @@
           <if test="{settings_page_general}">
           <row grow="1" main="center">
             <column grow="1" max-width="720" gap="10" padding="14">
+              <card size="sm" padding="10">
+                <column gap="8">
+                  <text><span weight="bold">{local_by_default_title}</span></text>
+                  <text wrap="true" foreground="text_muted">{local_by_default_description}</text>
+                </column>
+              </card>
               <text>{settings_default_model_label}</text>
               <text-field text="{settings_model}" placeholder="{settings_model_placeholder}" on-input="settings_model_edit" />
               <text>{settings_access_mode_label}</text>

@@ -5650,6 +5650,10 @@ pub const Model = struct {
         return i18n.settingsGeneralChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn localByDefaultChrome(model: *const Model) i18n.LocalByDefaultChrome {
+        return i18n.localByDefaultChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn composerChrome(model: *const Model) i18n.ComposerChrome {
         return i18n.composerChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -7691,6 +7695,19 @@ pub const Model = struct {
     /// `daemon_address_placeholder`.
     pub fn settings_daemon_address_label(model: *const Model) []const u8 {
         return model.settingsGeneralChrome().daemon_address;
+    }
+
+    /// Settings General Local by default card title. Display-only;
+    /// not a toggle. Distinct from `SettingsGeneralChrome` field
+    /// labels. English matches Waku `settings.local_by_default`.
+    pub fn local_by_default_title(model: *const Model) []const u8 {
+        return model.localByDefaultChrome().title;
+    }
+
+    /// Settings General Local by default card description.
+    /// Display-only; not `settings.local_by_default_web_description`.
+    pub fn local_by_default_description(model: *const Model) []const u8 {
+        return model.localByDefaultChrome().description;
     }
 
     /// Runtime-only muted status on the Review card (Comparing… /

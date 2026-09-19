@@ -167,6 +167,13 @@
 //! Access mode / Interaction / Effort / Last project path / Daemon
 //! address and Default model / Effort placeholders (same
 //! `SettingsGeneralChrome` strings; Latin `FX_MODEL` in every locale)
+//! plus Settings General Local by default title + description (same
+//! `LocalByDefaultChrome` strings; English matches Waku
+//! `settings.local_by_default` / `settings.local_by_default_description`;
+//! not `settings.local_by_default_web_description`; display-only, no
+//! persist key; distinct from `SettingsGeneralChrome` /
+//! `ComputerUseChrome` / `DaemonAddressChrome` so packs stay
+//! independently evolvable)
 //! plus composer Image path placeholder, Pick image button,
 //! Attach image a11y, Clear image a11y, Attached image a11y,
 //! Goal Status picker placeholder / empty label, and Commands
@@ -690,7 +697,13 @@
 //! Latin `FX_MODEL` in every locale) follow the resolved locale this
 //! cut. Settings model `on-input` stays English
 //! (`settings_model_edit`); effort picker `on-press` stays English
-//! (`toggle_settings_effort_picker`). Composer Image path `on-input`
+//! (`toggle_settings_effort_picker`). Settings General Local by
+//! default title + description follow the resolved locale this cut
+//! (same `LocalByDefaultChrome` strings; English matches Waku
+//! `settings.local_by_default` / `settings.local_by_default_description`;
+//! not `settings.local_by_default_web_description`; display-only, no
+//! persist key; distinct from `SettingsGeneralChrome` /
+//! `ComputerUseChrome` / `DaemonAddressChrome`). Composer Image path `on-input`
 //! stays English (`image_path_edit`); Goal Status picker `on-press`
 //! stays English (`toggle_goal_status_picker` / `pick_goal_status`); Pick image / Attach
 //! image `on-press` stays English (`pick_image`); Clear image
@@ -2605,6 +2618,35 @@ const settings_general_chrome_ja: SettingsGeneralChrome = .{
     .last_project_path = "前回のプロジェクトパス",
     .daemon_address = "デーモンアドレス",
     .default_model_placeholder = "FX_MODEL",
+};
+
+/// Settings General Local by default title + description for the
+/// resolved locale. Same resolve path as SettingsGeneralChrome.
+/// English matches Waku `settings.local_by_default` /
+/// `settings.local_by_default_description`. Not
+/// `settings.local_by_default_web_description` (Waku Web /
+/// daemon-host wording). Faku is the desktop window; local
+/// `sessions.json` is canonical. Display-only; no persist key.
+/// Distinct from `SettingsGeneralChrome` / `ComputerUseChrome` /
+/// `DaemonAddressChrome` so packs stay independently evolvable.
+pub const LocalByDefaultChrome = struct {
+    title: []const u8,
+    description: []const u8,
+};
+
+const local_by_default_chrome_en: LocalByDefaultChrome = .{
+    .title = "Local by default",
+    .description = "Projects, conversations, and settings are stored on this computer",
+};
+
+const local_by_default_chrome_zh_cn: LocalByDefaultChrome = .{
+    .title = "默认存储在本地",
+    .description = "项目、对话和设置均存储在这台电脑上",
+};
+
+const local_by_default_chrome_ja: LocalByDefaultChrome = .{
+    .title = "デフォルトでローカルに保存",
+    .description = "プロジェクト、会話、設定はこのコンピュータに保存されます",
 };
 
 /// OS folder-dialog prompt and missing-picker status for the resolved
@@ -5710,6 +5752,23 @@ pub fn settingsGeneralChromeFor(preference: LanguagePreference, system_locale_id
     };
 }
 
+/// Settings General Local by default title + description for the
+/// resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. English
+/// matches Waku `settings.local_by_default` /
+/// `settings.local_by_default_description`. Not
+/// `settings.local_by_default_web_description`. Distinct from
+/// `settingsGeneralChromeFor` / `computerUseChromeFor` /
+/// `daemonAddressChromeFor` so packs stay independently evolvable.
+/// Display-only; no persist key.
+pub fn localByDefaultChromeFor(preference: LanguagePreference, system_locale_id: []const u8) LocalByDefaultChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => local_by_default_chrome_zh_cn,
+        .japanese => local_by_default_chrome_ja,
+        .system, .english => local_by_default_chrome_en,
+    };
+}
+
 /// OS folder-dialog prompt and missing-picker status for the resolved
 /// locale. Callers pass Model `language_preference` +
 /// `system_locale_id`; this file does not read process env. Wire ids /
@@ -8565,6 +8624,24 @@ test "settingsGeneralChromeFor english default; zh and ja chrome; latin FX_MODEL
     try testing.expectEqualStrings("デーモンアドレス", settingsGeneralChromeFor(.system, "ja_JP.UTF-8").daemon_address);
     try testing.expectEqualStrings("FX_MODEL", settingsGeneralChromeFor(.system, "zh_CN.UTF-8").default_model_placeholder);
     try testing.expectEqualStrings("FX_MODEL", settingsGeneralChromeFor(.system, "ja_JP.UTF-8").default_model_placeholder);
+}
+
+test "localByDefaultChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Local by default", localByDefaultChromeFor(.english, "ja").title);
+    try testing.expectEqualStrings(
+        "Projects, conversations, and settings are stored on this computer",
+        localByDefaultChromeFor(.english, "").description,
+    );
+    try testing.expectEqualStrings("Local by default", localByDefaultChromeFor(.system, "").title);
+    try testing.expectEqualStrings("默认存储在本地", localByDefaultChromeFor(.simplified_chinese, "").title);
+    try testing.expectEqualStrings("项目、对话和设置均存储在这台电脑上", localByDefaultChromeFor(.simplified_chinese, "").description);
+    try testing.expectEqualStrings("デフォルトでローカルに保存", localByDefaultChromeFor(.japanese, "").title);
+    try testing.expectEqualStrings("プロジェクト、会話、設定はこのコンピュータに保存されます", localByDefaultChromeFor(.japanese, "").description);
+    try testing.expectEqualStrings("默认存储在本地", localByDefaultChromeFor(.system, "zh_CN.UTF-8").title);
+    try testing.expectEqualStrings("デフォルトでローカルに保存", localByDefaultChromeFor(.system, "ja_JP.UTF-8").title);
+    try testing.expectEqualStrings("Local by default", localByDefaultChromeFor(.english, "ja_JP.UTF-8").title);
+    try testing.expectEqualStrings("Local by default", localByDefaultChromeFor(.english, "zh_CN.UTF-8").title);
 }
 
 test "osFolderDialogChromeFor english default; zh and ja chrome; english ignores ja LANG" {
