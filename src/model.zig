@@ -689,6 +689,10 @@ pub const Msg = union(enum) {
     settings_language_japanese,
     refresh_skills,
     refresh_providers,
+    /// Settings chrome Search Settings. Runtime-only; trims and
+    /// case-insensitive-contains against `i18n.SettingsSearchChrome`
+    /// per-page keywords. `on-input` stays `settings_search_edit`.
+    settings_search_edit: canvas.TextInputEvent,
     skills_filter_edit: canvas.TextInputEvent,
     toggle_skills_source_picker,
     close_skills_source_picker,
@@ -1505,6 +1509,8 @@ pub const Model = struct {
     settings_model_buffer: canvas.TextBuffer(max_fx_model) = .{},
     settings_project_buffer: canvas.TextBuffer(max_project_path) = .{},
     settings_daemon_buffer: canvas.TextBuffer(max_daemon_address) = .{},
+    /// Runtime-only Settings nav search. Not persisted.
+    settings_search_buffer: canvas.TextBuffer(max_search) = .{},
     /// Runtime-only Skills list filter. Not persisted.
     skills_filter_buffer: canvas.TextBuffer(max_search) = .{},
     /// Runtime-only `SKILL.md` cache for Settings → Skills, composer
@@ -2362,6 +2368,7 @@ pub const Model = struct {
         "language_preference",
         "setLanguagePreference",
         "settingsChrome",
+        "settingsSearchChrome",
         "appearanceFontChrome",
         "appearanceCodeFontChrome",
         "accessChrome",
@@ -2407,6 +2414,8 @@ pub const Model = struct {
         "systemLocaleId",
         "disabled_providers",
         "provider_selected_id",
+        "settings_search_buffer",
+        "applySettingsSearch",
         "skills_filter_buffer",
         "skills_source_filter",
         "toggleSkillsSourcePicker",
@@ -5905,6 +5914,10 @@ pub const Model = struct {
         return i18n.skillsSearchChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn settingsSearchChrome(model: *const Model) i18n.SettingsSearchChrome {
+        return i18n.settingsSearchChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     /// Palette row display label for `action`. New Task / Settings /
     /// Collapse all folders reuse Sidebar / Chrome strings; remaining
     /// names come from `i18n.Palette`. Ids / keywords stay English.
@@ -6041,6 +6054,65 @@ pub const Model = struct {
 
     pub fn settings_nav_computer_use(model: *const Model) []const u8 {
         return model.settingsChrome().computer_use;
+    }
+
+    /// Settings chrome Search Settings typed query. Runtime-only.
+    /// `on-input` stays `settings_search_edit`.
+    pub fn settings_search(model: *const Model) []const u8 {
+        return model.settings_search_buffer.text();
+    }
+
+    /// Settings chrome Search Settings placeholder. Localized via
+    /// `i18n.SettingsSearchChrome`. English matches Waku
+    /// `settings.search`. Distinct from SkillsSearchChrome /
+    /// FilterChrome. Filter text stays on `settings_search`;
+    /// `on-input` stays `settings_search_edit`.
+    pub fn settings_search_placeholder(model: *const Model) []const u8 {
+        return model.settingsSearchChrome().search;
+    }
+
+    fn settingsSearchKeywords(model: *const Model, page: skills.Page) []const u8 {
+        const chrome = model.settingsSearchChrome();
+        return switch (page) {
+            .general => chrome.general_keywords,
+            .appearance => chrome.appearance_keywords,
+            .providers => chrome.providers_keywords,
+            .skills => chrome.skills_keywords,
+            .usage => chrome.usage_keywords,
+            .computer_use => chrome.computer_use_keywords,
+        };
+    }
+
+    /// Trim + ASCII case-insensitive contains against that page's
+    /// keyword haystack. Empty / whitespace query shows every tab.
+    fn settingsNavPageVisible(model: *const Model, page: skills.Page) bool {
+        const query = std.mem.trim(u8, model.settings_search(), " \t\r\n");
+        if (query.len == 0) return true;
+        return util.asciiContainsIgnoreCase(model.settingsSearchKeywords(page), query);
+    }
+
+    pub fn settings_nav_general_visible(model: *const Model) bool {
+        return model.settingsNavPageVisible(.general);
+    }
+
+    pub fn settings_nav_appearance_visible(model: *const Model) bool {
+        return model.settingsNavPageVisible(.appearance);
+    }
+
+    pub fn settings_nav_providers_visible(model: *const Model) bool {
+        return model.settingsNavPageVisible(.providers);
+    }
+
+    pub fn settings_nav_skills_visible(model: *const Model) bool {
+        return model.settingsNavPageVisible(.skills);
+    }
+
+    pub fn settings_nav_usage_visible(model: *const Model) bool {
+        return model.settingsNavPageVisible(.usage);
+    }
+
+    pub fn settings_nav_computer_use_visible(model: *const Model) bool {
+        return model.settingsNavPageVisible(.computer_use);
     }
 
     pub fn appearance_theme_title(model: *const Model) []const u8 {
@@ -6661,6 +6733,10 @@ pub const Model = struct {
         model.skills_filter_buffer.apply(edit);
     }
 
+    pub fn applySettingsSearch(model: *Model, edit: canvas.TextInputEvent) void {
+        model.settings_search_buffer.apply(edit);
+    }
+
     pub fn openSettings(model: *Model) void {
         model.closeProjectEdit();
         model.closeImageAttach();
@@ -6684,6 +6760,7 @@ pub const Model = struct {
         model.settings_open = false;
         model.provider_selected_id = 0;
         model.usage_view = .daily;
+        model.settings_search_buffer.clear();
         usage_history.clearProjectFilter(model);
     }
 

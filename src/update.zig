@@ -272,6 +272,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .settings_language_japanese => settings_actions.handleSettingsLanguageJapanese(model),
         .refresh_skills => settings_actions.handleRefreshSkills(model, fx),
         .refresh_providers => settings_actions.handleRefreshProviders(model, fx),
+        .settings_search_edit => |edit| settings_actions.handleSettingsSearchEdit(model, edit),
         .skills_filter_edit => |edit| settings_actions.handleSkillsFilterEdit(model, edit),
         .toggle_skills_source_picker => settings_actions.handleToggleSkillsSourcePicker(model),
         .close_skills_source_picker => model.closeSkillsSourcePicker(),

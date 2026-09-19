@@ -579,6 +579,10 @@ pub fn handleSkillsFilterEdit(model: *Model, edit: canvas.TextInputEvent) void {
     model.applySkillsFilter(edit);
 }
 
+pub fn handleSettingsSearchEdit(model: *Model, edit: canvas.TextInputEvent) void {
+    model.applySettingsSearch(edit);
+}
+
 pub fn handleSelectSkill(model: *Model, id: u32) void {
     skills.selectSkill(model, id);
 }
