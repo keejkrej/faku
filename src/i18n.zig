@@ -383,10 +383,18 @@
 //! plus Settings Providers Available / Not found, Enable /
 //! Disable, Use for this session, Copy install command / Copy login
 //! command, and First-party default (same `ProvidersChrome` strings;
-//! distinct from `ComputerUseChrome` Enable / Off so Providers
-//! Enable/Disable stay independently evolvable; provider wire
-//! names, binary paths, install/login commands, and on-press ids
-//! stay English)
+//! Enable / Disable stay for non-button uses; distinct from
+//! `ComputerUseChrome` Enable / Off so Providers Enable/Disable
+//! stay independently evolvable; provider wire names, binary
+//! paths, install/login commands, and on-press ids stay English)
+//! plus Settings Providers Enable %{name} / Disable %{name} chip
+//! (same `ProvidersEnableNamedChrome` strings; EN Enable %{name}
+//! / Disable %{name} / zh-CN 启用%{name} / 禁用%{name} / ja
+//! `%{name} を有効にする` / `%{name} を無効にする`; zh-CN disable
+//! is 禁用, not Skills 停用; distinct from `ProvidersChrome`
+//! Enable / Disable so the named chip stays independently
+//! evolvable; empty name still paints; on-press stays
+//! `toggle_provider_enabled`; wire names stay English)
 //! plus Settings Providers detail transport notes /
 //! fx_login_note / fx_login_codex_note / other_install_hint and
 //! `Binary:` / `Path:` prefixes (same `ProvidersDetailChrome`
@@ -4492,10 +4500,13 @@ const usage_progress_a11y_chrome_ja: UsageProgressA11yChrome = .{
 /// Settings Providers status, Enable/Disable chip, Apply, Copy
 /// install/login, and First-party default for the resolved locale.
 /// Same resolve path as UsageSessionsChrome. English matches the
-/// former hardcoded copy. Distinct from ComputerUseChrome Enable /
-/// Off so Providers Enable/Disable stay independently evolvable.
-/// Provider wire names, binary paths, install/login *commands*, and
-/// on-press ids stay English. Longer detail transport notes /
+/// former hardcoded copy. Enable / Disable stay for non-button
+/// uses / tests that still need the short words. Named Enable
+/// %{name} / Disable %{name} lives on `ProvidersEnableNamedChrome`.
+/// Distinct from ComputerUseChrome Enable / Off so Providers
+/// Enable/Disable stay independently evolvable. Provider wire
+/// names, binary paths, install/login *commands*, and on-press ids
+/// stay English. Longer detail transport notes /
 /// `fx_login_note` / `other_install_hint` and `Binary:` / `Path:`
 /// prefixes live in `ProvidersDetailChrome`.
 pub const ProvidersChrome = struct {
@@ -4540,6 +4551,38 @@ const providers_chrome_ja: ProvidersChrome = .{
     .apply = "このセッションで使う",
     .copy_install = "インストールコマンドをコピー",
     .copy_login = "ログインコマンドをコピー",
+};
+
+/// Capped scratch for `formatProvidersEnableNamed`. Template +
+/// provider `wireName()` stay short in every locale (same class as
+/// `skills_enable_named_max`).
+pub const providers_enable_named_max: usize = 160;
+
+/// Settings Providers Enable %{name} / Disable %{name} chip for the
+/// resolved locale. Same resolve path as ProvidersChrome.
+/// Distinct from ProvidersChrome Enable / Disable so the named
+/// chip stays independently evolvable. zh-CN disable is 禁用, not
+/// Skills 停用 (stays consistent with `ProvidersChrome.disable`).
+/// Empty name still paints (empty `%{name}` substitution). Wire
+/// names / on-press stay English (`toggle_provider_enabled`).
+pub const ProvidersEnableNamedChrome = struct {
+    enable_named: []const u8,
+    disable_named: []const u8,
+};
+
+const providers_enable_named_chrome_en: ProvidersEnableNamedChrome = .{
+    .enable_named = "Enable %{name}",
+    .disable_named = "Disable %{name}",
+};
+
+const providers_enable_named_chrome_zh_cn: ProvidersEnableNamedChrome = .{
+    .enable_named = "启用%{name}",
+    .disable_named = "禁用%{name}",
+};
+
+const providers_enable_named_chrome_ja: ProvidersEnableNamedChrome = .{
+    .enable_named = "%{name} を有効にする",
+    .disable_named = "%{name} を無効にする",
 };
 
 /// Settings Providers muted detail transport notes, fx login notes,
@@ -6760,16 +6803,32 @@ pub fn usageProgressA11yChromeFor(preference: LanguagePreference, system_locale_
 /// Settings Providers status / Enable·Disable / Apply / Copy
 /// install|login / First-party for the resolved locale. Callers pass
 /// Model `language_preference` + `system_locale_id`; this file does
-/// not read process env. Distinct from ComputerUseChrome so Enable /
-/// Off stay independently evolvable. Provider wire names, binary
-/// paths, install/login commands, and on-press stay English. Longer
-/// detail notes and `Binary:` / `Path:` prefixes live in
-/// `providersDetailChromeFor`.
+/// not read process env. Enable / Disable stay for non-button uses.
+/// Named Enable %{name} / Disable %{name} lives on
+/// `providersEnableNamedChromeFor`. Distinct from ComputerUseChrome
+/// so Enable / Off stay independently evolvable. Provider wire
+/// names, binary paths, install/login commands, and on-press stay
+/// English. Longer detail notes and `Binary:` / `Path:` prefixes
+/// live in `providersDetailChromeFor`.
 pub fn providersChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ProvidersChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => providers_chrome_zh_cn,
         .japanese => providers_chrome_ja,
         .system, .english => providers_chrome_en,
+    };
+}
+
+/// Settings Providers Enable %{name} / Disable %{name} chip for the
+/// resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from ProvidersChrome Enable / Disable so the named chip stays
+/// independently evolvable. zh-CN disable is 禁用, not Skills 停用.
+/// Wire names / on-press stay English (`toggle_provider_enabled`).
+pub fn providersEnableNamedChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ProvidersEnableNamedChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => providers_enable_named_chrome_zh_cn,
+        .japanese => providers_enable_named_chrome_ja,
+        .system, .english => providers_enable_named_chrome_en,
     };
 }
 
@@ -7181,6 +7240,22 @@ pub fn formatSkillsDeletedToast(chrome: SkillsDeletedToastChrome, name: []const 
 /// around an empty slot).
 pub fn formatSkillsEnableNamed(
     chrome: SkillsEnableNamedChrome,
+    enabled: bool,
+    name: []const u8,
+    buf: []u8,
+) []const u8 {
+    const template = if (enabled) chrome.disable_named else chrome.enable_named;
+    return formatSkillsNamedText(template, "name", name, buf);
+}
+
+/// Providers Enable %{name} / Disable %{name} with `%{name}`
+/// replaced by the provider wire name. `enabled` true uses
+/// `disable_named` (the chip turns the provider off); else
+/// `enable_named`. Same class as `formatSkillsEnableNamed`. Overflow
+/// returns `""`. Empty name still substitutes (paints the template
+/// around an empty slot).
+pub fn formatProvidersEnableNamed(
+    chrome: ProvidersEnableNamedChrome,
     enabled: bool,
     name: []const u8,
     buf: []u8,
@@ -10828,6 +10903,103 @@ test "providersChromeFor english default; zh and ja chrome; english ignores ja L
     try testing.expectEqualStrings("Use for this session", providersChromeFor(.english, "ja_JP.UTF-8").apply);
     try testing.expectEqualStrings("Copy install command", providersChromeFor(.english, "zh_CN.UTF-8").copy_install);
     try testing.expectEqualStrings("Copy login command", providersChromeFor(.english, "ja_JP.UTF-8").copy_login);
+}
+
+test "providersEnableNamedChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Enable %{name}", providersEnableNamedChromeFor(.english, "ja").enable_named);
+    try testing.expectEqualStrings("Disable %{name}", providersEnableNamedChromeFor(.english, "").disable_named);
+    try testing.expectEqualStrings("Enable %{name}", providersEnableNamedChromeFor(.system, "").enable_named);
+    try testing.expectEqualStrings("Disable %{name}", providersEnableNamedChromeFor(.system, "").disable_named);
+
+    try testing.expectEqualStrings("启用%{name}", providersEnableNamedChromeFor(.simplified_chinese, "").enable_named);
+    try testing.expectEqualStrings("禁用%{name}", providersEnableNamedChromeFor(.simplified_chinese, "").disable_named);
+    try testing.expectEqualStrings("%{name} を有効にする", providersEnableNamedChromeFor(.japanese, "").enable_named);
+    try testing.expectEqualStrings("%{name} を無効にする", providersEnableNamedChromeFor(.japanese, "").disable_named);
+
+    try testing.expectEqualStrings("启用%{name}", providersEnableNamedChromeFor(.system, "zh_CN.UTF-8").enable_named);
+    try testing.expectEqualStrings("禁用%{name}", providersEnableNamedChromeFor(.system, "zh_CN.UTF-8").disable_named);
+    try testing.expectEqualStrings("%{name} を有効にする", providersEnableNamedChromeFor(.system, "ja_JP.UTF-8").enable_named);
+    try testing.expectEqualStrings("%{name} を無効にする", providersEnableNamedChromeFor(.system, "ja_JP.UTF-8").disable_named);
+    try testing.expectEqualStrings("Enable %{name}", providersEnableNamedChromeFor(.english, "ja_JP.UTF-8").enable_named);
+    try testing.expectEqualStrings("Disable %{name}", providersEnableNamedChromeFor(.english, "zh_CN.UTF-8").disable_named);
+
+    try testing.expect(!std.mem.eql(u8, providersEnableNamedChromeFor(.english, "").enable_named, providersChromeFor(.english, "").enable));
+    try testing.expect(!std.mem.eql(u8, providersEnableNamedChromeFor(.english, "").disable_named, providersChromeFor(.english, "").disable));
+    try testing.expect(!std.mem.eql(u8, providersEnableNamedChromeFor(.simplified_chinese, "").enable_named, providersChromeFor(.simplified_chinese, "").enable));
+    try testing.expect(!std.mem.eql(u8, providersEnableNamedChromeFor(.simplified_chinese, "").disable_named, providersChromeFor(.simplified_chinese, "").disable));
+    try testing.expect(!std.mem.eql(u8, providersEnableNamedChromeFor(.japanese, "").enable_named, providersChromeFor(.japanese, "").enable));
+    try testing.expect(!std.mem.eql(u8, providersEnableNamedChromeFor(.japanese, "").disable_named, providersChromeFor(.japanese, "").disable));
+    try testing.expect(!std.mem.eql(u8, providersEnableNamedChromeFor(.simplified_chinese, "").disable_named, skillsEnableNamedChromeFor(.simplified_chinese, "").disable_named));
+    try testing.expectEqualStrings("停用%{name}", skillsEnableNamedChromeFor(.simplified_chinese, "").disable_named);
+}
+
+test "formatProvidersEnableNamed substitutes %{name}; empty name still paints" {
+    const testing = std.testing;
+    var buf: [providers_enable_named_max]u8 = undefined;
+    try testing.expectEqualStrings(
+        "Enable fx",
+        formatProvidersEnableNamed(providersEnableNamedChromeFor(.english, ""), false, "fx", &buf),
+    );
+    try testing.expectEqualStrings(
+        "Disable claude",
+        formatProvidersEnableNamed(providersEnableNamedChromeFor(.english, ""), true, "claude", &buf),
+    );
+    try testing.expectEqualStrings(
+        "启用fx",
+        formatProvidersEnableNamed(providersEnableNamedChromeFor(.simplified_chinese, ""), false, "fx", &buf),
+    );
+    try testing.expectEqualStrings(
+        "禁用claude",
+        formatProvidersEnableNamed(providersEnableNamedChromeFor(.simplified_chinese, ""), true, "claude", &buf),
+    );
+    try testing.expectEqualStrings(
+        "fx を有効にする",
+        formatProvidersEnableNamed(providersEnableNamedChromeFor(.japanese, ""), false, "fx", &buf),
+    );
+    try testing.expectEqualStrings(
+        "claude を無効にする",
+        formatProvidersEnableNamed(providersEnableNamedChromeFor(.japanese, ""), true, "claude", &buf),
+    );
+    try testing.expectEqualStrings(
+        "Enable ",
+        formatProvidersEnableNamed(providersEnableNamedChromeFor(.english, ""), false, "", &buf),
+    );
+    try testing.expectEqualStrings(
+        "Disable ",
+        formatProvidersEnableNamed(providersEnableNamedChromeFor(.english, ""), true, "", &buf),
+    );
+    try testing.expectEqualStrings(
+        "启用",
+        formatProvidersEnableNamed(providersEnableNamedChromeFor(.simplified_chinese, ""), false, "", &buf),
+    );
+    try testing.expectEqualStrings(
+        "禁用",
+        formatProvidersEnableNamed(providersEnableNamedChromeFor(.simplified_chinese, ""), true, "", &buf),
+    );
+    try testing.expectEqualStrings(
+        " を有効にする",
+        formatProvidersEnableNamed(providersEnableNamedChromeFor(.japanese, ""), false, "", &buf),
+    );
+    try testing.expectEqualStrings(
+        " を無効にする",
+        formatProvidersEnableNamed(providersEnableNamedChromeFor(.japanese, ""), true, "", &buf),
+    );
+    {
+        var providers_buf: [providers_enable_named_max]u8 = undefined;
+        var skills_buf: [skills_enable_named_max]u8 = undefined;
+        try testing.expect(!std.mem.eql(u8, formatProvidersEnableNamed(
+            providersEnableNamedChromeFor(.simplified_chinese, ""),
+            true,
+            "fx",
+            &providers_buf,
+        ), formatSkillsEnableNamed(skillsEnableNamedChromeFor(.simplified_chinese, ""), true, "fx", &skills_buf)));
+    }
+    var tiny: [8]u8 = undefined;
+    try testing.expectEqualStrings(
+        "",
+        formatProvidersEnableNamed(providersEnableNamedChromeFor(.english, ""), false, "fx", &tiny),
+    );
 }
 
 test "providersDetailChromeFor english default; zh and ja chrome; english ignores ja LANG" {

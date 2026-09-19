@@ -16780,8 +16780,8 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     _ = try expectByText(tree.root, .list_item, "kimi");
     _ = try expectByText(tree.root, .text, "cursor-agent");
     _ = try expectByText(tree.root, .text, "claude");
-    _ = try expectButtonMsg(tree, providers.disable_label, .{ .toggle_provider_enabled = 1 });
-    _ = try expectButtonMsg(tree, providers.disable_label, .{ .toggle_provider_enabled = providers.rowId(.claude) });
+    _ = try expectButtonMsg(tree, "Disable fx", .{ .toggle_provider_enabled = 1 });
+    _ = try expectButtonMsg(tree, "Disable claude", .{ .toggle_provider_enabled = providers.rowId(.claude) });
     try testing.expect(!model.disabled_providers[@intFromEnum(protocol.ProviderId.claude)]);
     try testing.expect(!providers.providerEnabled(&model, .claude));
     try testing.expect(!providers.providerEnabled(&model, .fx));
@@ -16792,8 +16792,8 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     try testing.expect(!providers.providerEnabled(&model, .claude));
     try testing.expect(!model.disabled_providers[@intFromEnum(protocol.ProviderId.fx)]);
     tree = try buildTree(arena, &model);
-    _ = try expectButtonMsg(tree, providers.enable_label, .{ .toggle_provider_enabled = providers.rowId(.claude) });
-    _ = try expectButtonMsg(tree, providers.disable_label, .{ .toggle_provider_enabled = 1 });
+    _ = try expectButtonMsg(tree, "Enable claude", .{ .toggle_provider_enabled = providers.rowId(.claude) });
+    _ = try expectButtonMsg(tree, "Disable fx", .{ .toggle_provider_enabled = 1 });
     main.update(&model, .{ .toggle_provider_enabled = providers.rowId(.claude) }, &fx);
     try testing.expect(!model.disabled_providers[@intFromEnum(protocol.ProviderId.claude)]);
     try testing.expect(providers.providerEnabled(&model, .claude));
@@ -37598,7 +37598,7 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "First-party default");
     _ = try expectByText(tree.root, .text, "Not found");
-    _ = try expectButtonMsg(tree, "Disable", .{ .toggle_provider_enabled = 1 });
+    _ = try expectButtonMsg(tree, "Disable fx", .{ .toggle_provider_enabled = 1 });
     _ = try expectButtonMsg(tree, "Copy install command", .copy_fx_install);
     _ = try expectButtonMsg(tree, "Use for this session", .apply_session_provider);
     try testing.expect(findByText(tree.root, .button, "Copy login command") == null);
@@ -37613,12 +37613,12 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     try testing.expectEqualStrings("复制登录命令", model.copy_fx_login_label());
     try testing.expectEqualStrings(i18n.providersChromeFor(.simplified_chinese, "").apply, model.apply_session_provider_label());
     try testing.expectEqualStrings("未找到", providers.statusFor(&model, .fx));
-    try testing.expectEqualStrings("第一方默认", providers.rowFor(&model, .fx).first_party_label);
-    try testing.expectEqualStrings("禁用", providers.rowFor(&model, .fx).enable_label);
+    try testing.expectEqualStrings("第一方默认", providers.rowFor(&model, .fx, arena).first_party_label);
+    try testing.expectEqualStrings("禁用fx", providers.rowFor(&model, .fx, arena).enable_label);
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "第一方默认");
     _ = try expectByText(tree.root, .text, "未找到");
-    _ = try expectButtonMsg(tree, "禁用", .{ .toggle_provider_enabled = 1 });
+    _ = try expectButtonMsg(tree, "禁用fx", .{ .toggle_provider_enabled = 1 });
     _ = try expectButtonMsg(tree, "复制安装命令", .copy_fx_install);
     _ = try expectButtonMsg(tree, "用于此会话", .apply_session_provider);
     try testing.expect(findByText(tree.root, .text, "First-party default") == null);
@@ -37635,7 +37635,7 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "ファーストパーティ既定");
     _ = try expectByText(tree.root, .text, "見つかりません");
-    _ = try expectButtonMsg(tree, "無効", .{ .toggle_provider_enabled = 1 });
+    _ = try expectButtonMsg(tree, "fx を無効にする", .{ .toggle_provider_enabled = 1 });
     _ = try expectButtonMsg(tree, "インストールコマンドをコピー", .copy_fx_install);
     _ = try expectButtonMsg(tree, "このセッションで使う", .apply_session_provider);
     try testing.expect(findByText(tree.root, .text, "First-party default") == null);
@@ -37664,11 +37664,11 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     try testing.expectEqualStrings("Use for this session", model.apply_session_provider_label());
     try testing.expectEqualStrings("Copy login command", model.copy_fx_login_label());
     try testing.expectEqualStrings("Available", providers.statusFor(&model, .fx));
-    try testing.expectEqualStrings("First-party default", providers.rowFor(&model, .fx).first_party_label);
+    try testing.expectEqualStrings("First-party default", providers.rowFor(&model, .fx, arena).first_party_label);
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "First-party default");
     _ = try expectByText(tree.root, .text, "Available");
-    _ = try expectButtonMsg(tree, "Disable", .{ .toggle_provider_enabled = 1 });
+    _ = try expectButtonMsg(tree, "Disable fx", .{ .toggle_provider_enabled = 1 });
     _ = try expectButtonMsg(tree, "Copy login command", .copy_fx_login);
     _ = try expectButtonMsg(tree, "Use for this session", .apply_session_provider);
     try testing.expect(findByText(tree.root, .text, "ファーストパーティ既定") == null);
@@ -37682,7 +37682,7 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "第一方默认");
     _ = try expectByText(tree.root, .text, "可用");
-    _ = try expectButtonMsg(tree, "禁用", .{ .toggle_provider_enabled = 1 });
+    _ = try expectButtonMsg(tree, "禁用fx", .{ .toggle_provider_enabled = 1 });
     _ = try expectButtonMsg(tree, "复制登录命令", .copy_fx_login);
     _ = try expectButtonMsg(tree, "用于此会话", .apply_session_provider);
     try testing.expect(findByText(tree.root, .text, "First-party default") == null);
@@ -37698,7 +37698,7 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "ファーストパーティ既定");
     _ = try expectByText(tree.root, .text, "利用可能");
-    _ = try expectButtonMsg(tree, "無効", .{ .toggle_provider_enabled = 1 });
+    _ = try expectButtonMsg(tree, "fx を無効にする", .{ .toggle_provider_enabled = 1 });
     _ = try expectButtonMsg(tree, "ログインコマンドをコピー", .copy_fx_login);
     _ = try expectButtonMsg(tree, "このセッションで使う", .apply_session_provider);
     try testing.expect(findByText(tree.root, .text, "First-party default") == null);
@@ -37707,7 +37707,7 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     main.update(&model, .{ .toggle_provider_enabled = 1 }, &fx);
     try testing.expect(model.disabled_providers[@intFromEnum(protocol.ProviderId.fx)]);
     tree = try buildTree(arena, &model);
-    _ = try expectButtonMsg(tree, "有効", .{ .toggle_provider_enabled = 1 });
+    _ = try expectButtonMsg(tree, "fx を有効にする", .{ .toggle_provider_enabled = 1 });
     try testing.expect(findByText(tree.root, .button, "Enable") == null);
 }
 
