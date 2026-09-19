@@ -36955,7 +36955,8 @@ test "sidebar Settings gear a11y follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{settings_gear_label}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "icon=\"settings\" label=\"{settings_gear_label}\" on-press=\"toggle_settings\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Settings\""));
-    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "icon=\"settings\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "icon=\"settings\" selected=\"{settings_page_general}\""));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "icon=\"settings\""));
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Settings\" on-press=\"toggle_settings\"") == null);
 
     var model = boot.initialModel();
