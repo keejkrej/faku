@@ -28527,6 +28527,210 @@ test "Settings nav Up/Down cycles filtered tabs; closed Settings ignores the Msg
     try testing.expect(model.settings_page_usage());
 }
 
+test "Settings content page titles follow Appearance language; Skills omits the heading" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 5), std.mem.count(u8, main.app_markup, "{settings_page_heading}"));
+    try testing.expectEqual(@as(usize, 5), std.mem.count(u8, main.app_markup, "<text><span weight=\"bold\">{settings_page_heading}</span></text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "{has_settings_page_heading}"));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_page_general}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_page_appearance}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_page_providers}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_page_usage}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_page_computer_use}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<if test=\"{settings_page_skills}\">") != null);
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">General</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Appearance</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Providers</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Usage</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Computer Use</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Skills</text>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<text>{settings_title}</text>"));
+
+    var model = boot.initialModel();
+    try testing.expect(model.has_settings_page_heading());
+    try testing.expect(model.settings_page_general());
+    try testing.expectEqualStrings("General", model.settings_page_heading());
+    try testing.expectEqualStrings(i18n.chromeFor(.english, "").general, model.settings_page_heading());
+    try testing.expectEqualStrings(model.settings_nav_general(), model.settings_page_heading());
+    try testing.expect(!std.mem.eql(u8, model.settings_title(), model.settings_page_heading()));
+    try testing.expectEqualStrings("Settings", model.settings_title());
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_open);
+    try testing.expect(model.has_settings_page_heading());
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Settings");
+    _ = try expectByText(tree.root, .text, "General");
+    try testing.expect(findNthByText(tree.root, .text, "General", 1) == null);
+    _ = try expectButtonMsg(tree, "General", .set_settings_page_general);
+    try testing.expect(findByText(tree.root, .text, "Appearance") == null);
+    try testing.expect(findByText(tree.root, .text, "Providers") == null);
+    try testing.expect(findByText(tree.root, .text, "Usage") == null);
+    try testing.expect(findByText(tree.root, .text, "Skills") == null);
+
+    main.update(&model, .set_settings_page_appearance, &fx);
+    try testing.expect(model.settings_page_appearance());
+    try testing.expect(model.has_settings_page_heading());
+    try testing.expectEqualStrings("Appearance", model.settings_page_heading());
+    try testing.expectEqualStrings(model.settings_nav_appearance(), model.settings_page_heading());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Settings");
+    _ = try expectByText(tree.root, .text, "Appearance");
+    try testing.expect(findNthByText(tree.root, .text, "Appearance", 1) == null);
+    try testing.expect(findByText(tree.root, .text, "General") == null);
+
+    main.update(&model, .set_settings_page_providers, &fx);
+    try testing.expect(model.settings_page_providers());
+    try testing.expect(model.has_settings_page_heading());
+    try testing.expectEqualStrings("Providers", model.settings_page_heading());
+    try testing.expectEqualStrings(model.settings_nav_providers(), model.settings_page_heading());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Providers");
+    try testing.expect(findNthByText(tree.root, .text, "Providers", 1) == null);
+
+    main.update(&model, .set_settings_page_usage, &fx);
+    try testing.expect(model.settings_page_usage());
+    try testing.expect(model.has_settings_page_heading());
+    try testing.expectEqualStrings("Usage", model.settings_page_heading());
+    try testing.expectEqualStrings(model.settings_nav_usage(), model.settings_page_heading());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Usage");
+    try testing.expect(findNthByText(tree.root, .text, "Usage", 1) == null);
+
+    main.update(&model, .set_settings_page_computer_use, &fx);
+    try testing.expect(model.settings_page_computer_use());
+    try testing.expect(model.has_settings_page_heading());
+    try testing.expectEqualStrings("Computer Use", model.settings_page_heading());
+    try testing.expectEqualStrings(model.settings_nav_computer_use(), model.settings_page_heading());
+    try testing.expectEqualStrings(model.computer_use_title(), model.settings_page_heading());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Computer Use");
+    try testing.expect(findNthByText(tree.root, .text, "Computer Use", 1) == null);
+
+    main.update(&model, .set_settings_page_skills, &fx);
+    try testing.expect(model.settings_page_skills());
+    try testing.expect(!model.has_settings_page_heading());
+    try testing.expectEqualStrings("", model.settings_page_heading());
+    try testing.expectEqualStrings("Skills", model.settings_nav_skills());
+    try testing.expectEqualStrings("Settings", model.settings_title());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Settings");
+    try testing.expect(findByText(tree.root, .text, "Skills") == null);
+    _ = try expectButtonMsg(tree, "Skills", .set_settings_page_skills);
+    _ = try expectByText(tree.root, .text, "Open a project");
+
+    model.language_preference = .simplified_chinese;
+    main.update(&model, .set_settings_page_general, &fx);
+    try testing.expect(model.has_settings_page_heading());
+    try testing.expectEqualStrings("通用", model.settings_page_heading());
+    try testing.expectEqualStrings(i18n.chromeFor(.simplified_chinese, "").general, model.settings_page_heading());
+    try testing.expectEqualStrings("设置", model.settings_title());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "设置");
+    _ = try expectByText(tree.root, .text, "通用");
+    try testing.expect(findByText(tree.root, .text, "General") == null);
+    try testing.expect(findByText(tree.root, .text, "Settings") == null);
+
+    main.update(&model, .set_settings_page_appearance, &fx);
+    try testing.expectEqualStrings("外观", model.settings_page_heading());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "外观");
+
+    main.update(&model, .set_settings_page_providers, &fx);
+    try testing.expectEqualStrings("提供商", model.settings_page_heading());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "提供商");
+
+    main.update(&model, .set_settings_page_usage, &fx);
+    try testing.expectEqualStrings("用量", model.settings_page_heading());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "用量");
+
+    main.update(&model, .set_settings_page_computer_use, &fx);
+    try testing.expectEqualStrings("电脑使用", model.settings_page_heading());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "电脑使用");
+
+    main.update(&model, .set_settings_page_skills, &fx);
+    try testing.expect(!model.has_settings_page_heading());
+    try testing.expectEqualStrings("", model.settings_page_heading());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "设置");
+    try testing.expect(findByText(tree.root, .text, "技能") == null);
+    try testing.expect(findByText(tree.root, .text, "Skills") == null);
+
+    model.language_preference = .japanese;
+    main.update(&model, .set_settings_page_general, &fx);
+    try testing.expectEqualStrings("一般", model.settings_page_heading());
+    try testing.expectEqualStrings(i18n.chromeFor(.japanese, "").general, model.settings_page_heading());
+    try testing.expectEqualStrings("設定", model.settings_title());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "設定");
+    _ = try expectByText(tree.root, .text, "一般");
+    try testing.expect(findByText(tree.root, .text, "通用") == null);
+
+    main.update(&model, .set_settings_page_appearance, &fx);
+    try testing.expectEqualStrings("外観", model.settings_page_heading());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "外観");
+
+    main.update(&model, .set_settings_page_providers, &fx);
+    try testing.expectEqualStrings("プロバイダー", model.settings_page_heading());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "プロバイダー");
+
+    main.update(&model, .set_settings_page_usage, &fx);
+    try testing.expectEqualStrings("使用量", model.settings_page_heading());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "使用量");
+
+    main.update(&model, .set_settings_page_computer_use, &fx);
+    try testing.expectEqualStrings("コンピュータ使用", model.settings_page_heading());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "コンピュータ使用");
+
+    main.update(&model, .set_settings_page_skills, &fx);
+    try testing.expect(!model.has_settings_page_heading());
+    try testing.expectEqualStrings("", model.settings_page_heading());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "設定");
+    try testing.expect(findByText(tree.root, .text, "スキル") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    main.update(&model, .set_settings_page_general, &fx);
+    try testing.expectEqualStrings("General", model.settings_page_heading());
+    try testing.expectEqualStrings("Settings", model.settings_title());
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("通用", model.settings_page_heading());
+    try testing.expectEqualStrings(i18n.chromeFor(.system, "zh_CN.UTF-8").general, model.settings_page_heading());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "通用");
+    _ = try expectByText(tree.root, .text, "设置");
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("一般", model.settings_page_heading());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "一般");
+    _ = try expectByText(tree.root, .text, "設定");
+
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("General", model.settings_page_heading());
+    try testing.expectEqualStrings("Settings", model.settings_title());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "General");
+    _ = try expectByText(tree.root, .text, "Settings");
+}
+
 test "Settings Back chrome follows Appearance language and close_settings clears search" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
@@ -35035,7 +35239,7 @@ test "Computer Use page chrome follows Appearance language" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{computer_use_title}"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "{computer_use_title}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{computer_use_availability_title}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{computer_use_availability_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{computer_use_availability_caption}"));

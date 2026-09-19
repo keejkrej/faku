@@ -501,6 +501,7 @@
           <if test="{settings_page_providers}">
             <row grow="1" main="center">
               <column grow="1" max-width="720" gap="10" padding="14">
+                <text><span weight="bold">{settings_page_heading}</span></text>
                 <for each="provider_rows" key="id" as="p">
                   <list-item height="52" padding="8" gap="4" cross="center" selected="{p.selected}" on-press="select_provider:{p.id}" label="{p.name}">
                     <column gap="2" grow="1">
@@ -544,6 +545,7 @@
           <if test="{settings_page_appearance}">
             <row grow="1" main="center">
               <column grow="1" max-width="720" gap="10" padding="14">
+                <text><span weight="bold">{settings_page_heading}</span></text>
                 <card size="sm" padding="10">
                   <column gap="8">
                     <text>{appearance_theme_title}</text>
@@ -606,6 +608,7 @@
           <if test="{settings_page_usage}">
             <row grow="1" main="center">
               <column grow="1" max-width="720" gap="10" padding="14">
+                <text><span weight="bold">{settings_page_heading}</span></text>
                 <text wrap="false" overflow="ellipsis" foreground="text_muted">{settings_usage_session_label}</text>
                 <card size="sm" padding="10">
                   <column gap="8">
@@ -936,7 +939,7 @@
           <if test="{settings_page_computer_use}">
             <row grow="1" main="center">
               <column grow="1" max-width="720" gap="10" padding="14">
-                <text>{computer_use_title}</text>
+                <text><span weight="bold">{settings_page_heading}</span></text>
                 <card size="sm" padding="10">
                   <column gap="8">
                     <text>{computer_use_availability_title}</text>
@@ -965,6 +968,7 @@
           <if test="{settings_page_general}">
           <row grow="1" main="center">
             <column grow="1" max-width="720" gap="10" padding="14">
+              <text><span weight="bold">{settings_page_heading}</span></text>
               <card size="sm" padding="10">
                 <column gap="8">
                   <text><span weight="bold">{local_by_default_title}</span></text>
