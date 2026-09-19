@@ -1,9 +1,11 @@
 //! Settings / Esc-stop / composer-picker update helpers.
 //!
-//! `handleStop` / `handleToggleGoalStatusPicker` / settings panel /
-//! composer chip cycles + pickers live here.
+//! `handleStop` / `handleCloseSettings` / `handleToggleSettings` /
+//! `handleToggleGoalStatusPicker` / settings panel / composer chip
+//! cycles + pickers live here.
 //! Msg routing stays in `update.zig`. Behavior is unchanged
-//! from the former `main` update arms.
+//! from the former `main` update arms except Settings Back
+//! (`close_settings` → `handleCloseSettings` → `closeSettings`).
 
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
@@ -81,11 +83,7 @@ pub fn handleStop(model: *Model, fx: *Effects) void {
         return;
     }
     if (model.settings_open) {
-        skills.close(model, fx);
-        providers.close(model);
-        usage_history.cancel(model, fx);
-        litellm_rates.cancel(model, fx);
-        model.closeSettings();
+        handleCloseSettings(model, fx);
         return;
     }
     if (model.project_edit_active) {
@@ -185,13 +183,18 @@ pub fn handleToggleGoalStatusPicker(model: *Model) void {
     model.toggleGoalStatusPicker();
 }
 
+pub fn handleCloseSettings(model: *Model, fx: *Effects) void {
+    if (!model.settings_open) return;
+    skills.close(model, fx);
+    providers.close(model);
+    usage_history.cancel(model, fx);
+    litellm_rates.cancel(model, fx);
+    model.closeSettings();
+}
+
 pub fn handleToggleSettings(model: *Model, fx: *Effects) void {
     if (model.settings_open) {
-        skills.close(model, fx);
-        providers.close(model);
-        usage_history.cancel(model, fx);
-        litellm_rates.cancel(model, fx);
-        model.closeSettings();
+        handleCloseSettings(model, fx);
         return;
     }
     review_diff.close(model, fx);

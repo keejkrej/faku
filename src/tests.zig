@@ -28337,6 +28337,91 @@ test "Settings search chrome filters nav tabs by keywords; empty query shows all
     try testing.expectEqualStrings("Search Settings", model.settings_search_placeholder());
 }
 
+test "Settings Back chrome follows Appearance language and close_settings clears search" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{settings_back_label}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "icon=\"chevron-left\" label=\"{settings_back_label}\" on-press=\"close_settings\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"close_settings\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "label=\"Back\" on-press=\"close_settings\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"close_settings\"") != null);
+
+    var model = boot.initialModel();
+    try testing.expectEqualStrings("Back", model.settings_back_label());
+    try testing.expectEqualStrings(i18n.settingsBackChromeFor(.english, "").back, model.settings_back_label());
+    try testing.expectEqualStrings("Back", model.sidebar_history_back_label());
+    try testing.expectEqualStrings("Back", model.browser_back_label());
+    try testing.expectEqualStrings(model.settings_back_label(), model.sidebar_history_back_label());
+    try testing.expectEqualStrings(model.settings_back_label(), model.browser_back_label());
+    try testing.expect(!std.mem.eql(u8, model.settings_back_label(), model.settings_search_placeholder()));
+    try testing.expect(!model.settings_open);
+
+    main.update(&model, .close_settings, &fx);
+    try testing.expect(!model.settings_open);
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_open);
+    var tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Back", .close_settings);
+    _ = try expectButtonMsg(tree, "Back", .history_back);
+    try testing.expect(findByText(tree.root, .button, "返回") == null);
+    try testing.expect(findByText(tree.root, .button, "戻る") == null);
+
+    main.update(&model, .{ .settings_search_edit = .{ .insert_text = "theme" } }, &fx);
+    try testing.expectEqualStrings("theme", model.settings_search());
+    try testing.expect(model.settings_open);
+    main.update(&model, .close_settings, &fx);
+    try testing.expect(!model.settings_open);
+    try testing.expectEqualStrings("", model.settings_search());
+    main.update(&model, .close_settings, &fx);
+    try testing.expect(!model.settings_open);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("返回", model.settings_back_label());
+    try testing.expectEqualStrings(i18n.settingsBackChromeFor(.simplified_chinese, "").back, model.settings_back_label());
+    try testing.expectEqualStrings("返回", model.sidebar_history_back_label());
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_open);
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "返回", .close_settings);
+    try testing.expect(findByText(tree.root, .button, "Back") == null);
+    main.update(&model, .{ .settings_search_edit = .{ .insert_text = "主题" } }, &fx);
+    try testing.expectEqualStrings("主题", model.settings_search());
+    main.update(&model, .close_settings, &fx);
+    try testing.expect(!model.settings_open);
+    try testing.expectEqualStrings("", model.settings_search());
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("戻る", model.settings_back_label());
+    try testing.expectEqualStrings(i18n.settingsBackChromeFor(.japanese, "").back, model.settings_back_label());
+    try testing.expectEqualStrings("戻る", model.sidebar_history_back_label());
+    main.update(&model, .toggle_settings, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "戻る", .close_settings);
+    try testing.expect(findByText(tree.root, .button, "Back") == null);
+    try testing.expect(findByText(tree.root, .button, "返回") == null);
+    main.update(&model, .close_settings, &fx);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Back", model.settings_back_label());
+    try testing.expectEqualStrings(i18n.settingsBackChromeFor(.english, "").back, model.settings_back_label());
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("返回", model.settings_back_label());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("戻る", model.settings_back_label());
+    model.setSystemLocaleId("");
+    try testing.expectEqualStrings("Back", model.settings_back_label());
+}
+
 test "Settings Skills empty chrome follows Appearance language" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

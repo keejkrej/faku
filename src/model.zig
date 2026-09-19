@@ -614,6 +614,10 @@ pub const Msg = union(enum) {
     /// Native `background_rows` id. Unknown / 0 is a no-op.
     open_background_work: u32,
     toggle_settings,
+    /// Settings header Back. Closes Settings via `closeSettings`
+    /// (clears search buffer). Does not open Settings.
+    /// `on-press` stays `close_settings`.
+    close_settings,
     settings_model_edit: canvas.TextInputEvent,
     settings_project_edit: canvas.TextInputEvent,
     settings_daemon_edit: canvas.TextInputEvent,
@@ -5918,6 +5922,10 @@ pub const Model = struct {
         return i18n.settingsSearchChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn settingsBackChrome(model: *const Model) i18n.SettingsBackChrome {
+        return i18n.settingsBackChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     /// Palette row display label for `action`. New Task / Settings /
     /// Collapse all folders reuse Sidebar / Chrome strings; remaining
     /// names come from `i18n.Palette`. Ids / keywords stay English.
@@ -6069,6 +6077,15 @@ pub const Model = struct {
     /// `on-input` stays `settings_search_edit`.
     pub fn settings_search_placeholder(model: *const Model) []const u8 {
         return model.settingsSearchChrome().search;
+    }
+
+    /// Settings header Back a11y. Localized via
+    /// `i18n.SettingsBackChrome`. EN Back / zh-CN 返回 / ja 戻る.
+    /// Distinct from `sidebar_history_back_label` /
+    /// `browser_back_label` so packs stay independently evolvable
+    /// (same display string OK). `on-press` stays `close_settings`.
+    pub fn settings_back_label(model: *const Model) []const u8 {
+        return model.settingsBackChrome().back;
     }
 
     fn settingsSearchKeywords(model: *const Model, page: skills.Page) []const u8 {
