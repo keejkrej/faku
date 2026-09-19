@@ -526,9 +526,11 @@
 //! `skills.library` / `skills.details`; EN Skills library /
 //! Skill details / zh-CN 技能库 / 技能详情 / ja スキルライブラリ /
 //! スキルの詳細; muted/bold Native pane headers plus Native
-//! `label=` a11y (Waku `aria-label`); this cut ships first-cut
-//! side-by-side (264 library | grow details) with per-pane scroll
-//! + 1px library divider, still not resizable `<split>`, still
+//! `label=` a11y (Waku `aria-label`); this cut ships Native resizable
+//! `<split>` library | details (default library 264 = Waku
+//! `SKILLS_LIST_WIDTH`; details min-width 140; library width persists
+//! on `sessions.json` extras `skills_library_width`; Native `<split>`
+//! paints the divider) with per-pane scroll, still
 //! not Waku GPUI virtualized list quirks / sticky / edge fades;
 //! distinct from
 //! SkillsSectionChrome User / SkillsSelectChrome Select a skill /
@@ -4935,9 +4937,11 @@ const skills_copy_path_chrome_ja: SkillsCopyPathChrome = .{
 /// StructuralRegionChrome so the pane titles stay independently
 /// evolvable. Painted as muted/bold Native pane headers plus Native
 /// `label=` a11y on each column (Waku `aria-label`); this cut ships
-/// first-cut side-by-side (264 library | grow details) with per-pane
-/// scroll + 1px library divider, still not resizable `<split>`,
-/// still not Waku GPUI virtualized list quirks / sticky / edge fades.
+/// Native resizable `<split>` library | details (default library 264 =
+/// Waku `SKILLS_LIST_WIDTH`; details min-width 140; library width
+/// persists on `sessions.json` extras `skills_library_width`; Native
+/// `<split>` paints the divider) with per-pane scroll, still not Waku
+/// GPUI virtualized list quirks / sticky / edge fades.
 /// Wire ids stay English.
 pub const SkillsPaneChrome = struct {
     library: []const u8,

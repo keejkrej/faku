@@ -172,9 +172,11 @@
 //! titles follow `i18n.SkillsPaneChrome` (`library` / `details`;
 //! English matches Waku `skills.library` / `skills.details`;
 //! muted/bold Native pane headers plus Native `label=` a11y
-//! (Waku `aria-label`); this cut ships first-cut side-by-side
-//! (264 library | grow details) with per-pane scroll + 1px library
-//! divider, still not resizable `<split>`, still not Waku GPUI
+//! (Waku `aria-label`); this cut ships Native resizable `<split>`
+//! library | details (default library 264 = Waku `SKILLS_LIST_WIDTH`;
+//! details min-width 140; library width persists on `sessions.json`
+//! extras `skills_library_width`; Native `<split>` paints the divider)
+//! with per-pane scroll, still not Waku GPUI
 //! virtualized list quirks / sticky / edge fades; distinct from
 //! SkillsSectionChrome User / SkillsSelectChrome Select a skill /
 //! SkillsDetailChrome / SkillsEmptyChrome / SkillsCountChrome /
@@ -233,6 +235,8 @@ const effect_keys = @import("effect_keys.zig");
 const open_editor = @import("open_editor.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const copy = @import("copy.zig");
+const layout = @import("layout.zig");
+const shell = @import("shell.zig");
 
 const Model = model_exports.Model;
 const Effects = main.Effects;
@@ -329,6 +333,54 @@ pub const walk_skip_out = file_mention.walk_skip_out;
 pub const walk_skip_vendor = file_mention.walk_skip_vendor;
 pub const walk_skip_pycache = file_mention.walk_skip_pycache;
 pub const walk_skip_names = file_mention.walk_skip_names;
+
+/// Conversation / Settings column width for the Skills nested split:
+/// window minus sidebar, minus an open right panel. Matches
+/// `right_panel.restWidth` minus that panel.
+pub fn paneWidth(model: *const Model) f32 {
+    const sidebar = if (model.sidebar_collapsed)
+        layout.sidebar_rail_width
+    else if (model.sidebar_last_width > 0)
+        model.sidebar_last_width
+    else
+        layout.sidebar_default_width;
+    const rest = @max(1, shell.window_width - sidebar);
+    if (!model.right_panel_open) return rest;
+    return @max(1, rest - model.right_panel_width);
+}
+
+/// Fitted Skills library width against the current Settings pane.
+pub fn fittedLibraryWidth(model: *const Model) f32 {
+    return layout.fittedSkillsLibraryWidth(paneWidth(model), model.skills_library_width);
+}
+
+/// Native nested-split left fraction (library pane) for Skills.
+pub fn librarySplit(model: *const Model) f32 {
+    return layout.skillsLibrarySplitFraction(paneWidth(model), model.skills_library_width);
+}
+
+/// Skills library split `on-resize`. Stores a fitted library width.
+/// No-op when Settings Skills is not showing. Layout extras persist
+/// the fitted width.
+pub fn applyLibraryResize(model: *Model, fraction: f32) void {
+    if (!model.settings_open or model.settings_page != .skills) return;
+    const pane = paneWidth(model);
+    const frac = @max(0, @min(1, fraction));
+    const dragged = @round(pane * frac);
+    const library = if (dragged > 0) dragged else layout.skills_library_min_width;
+    model.skills_library_width = layout.fittedSkillsLibraryWidth(pane, library);
+}
+
+/// Clamp for persist/restore of Skills library width. Uses
+/// `fittedSkillsLibraryWidth` against a pane that can hold
+/// `SKILLS_LIBRARY_MAX` so a narrow conversation column does not
+/// squash a stored 320. Missing / 0 is a no-op at the Model apply
+/// helper (keep 264).
+pub fn clampLibraryWidthForPersist(pane_width: f32, stored: f32) f32 {
+    const floor = layout.skills_library_max_width + layout.skills_details_min_width;
+    const pane = @max(@max(1, pane_width), floor);
+    return layout.fittedSkillsLibraryWidth(pane, stored);
+}
 
 /// Packed into one `-c` string so the spawn stays under Native
 /// `max_effect_argv` (16). Does not prune `.*` — project skills live
@@ -7080,4 +7132,49 @@ test "Enable/Disable rename-fail window_status follows Appearance language" {
     try testing.expectEqual(@as(u64, 0), model.skill_rename_key);
     try testing.expectEqual(@as(u32, 0), cachedCount(&model));
     try testing.expect(!model.has_window_status());
+}
+
+test "Skills library split defaults to SKILLS_LIST_WIDTH 264 and clamps resize" {
+    const testing = std.testing;
+    try std.testing.expectEqual(@as(f32, 264), layout.skills_library_default_width);
+    try std.testing.expectEqual(@as(f32, 140), layout.skills_library_min_width);
+    try std.testing.expectEqual(@as(f32, 480), layout.skills_library_max_width);
+    try std.testing.expectEqual(@as(f32, 140), layout.skills_details_min_width);
+    try std.testing.expectEqual(@as(f32, 264), clampLibraryWidthForPersist(184, 0));
+    try std.testing.expectEqual(@as(f32, 264), clampLibraryWidthForPersist(184, 264));
+    try std.testing.expectEqual(@as(f32, 320), clampLibraryWidthForPersist(184, 320));
+    try std.testing.expectEqual(@as(f32, 140), clampLibraryWidthForPersist(184, 100));
+    try std.testing.expectEqual(@as(f32, 480), clampLibraryWidthForPersist(184, 500));
+    try std.testing.expectEqual(@as(f32, 300), clampLibraryWidthForPersist(400, 300));
+    try std.testing.expectEqual(@as(f32, 320), clampLibraryWidthForPersist(1128, 320));
+
+    var model = Model{};
+    try testing.expectEqual(@as(f32, 264), model.skills_library_width);
+    try testing.expectEqual(@as(f32, 1128), paneWidth(&model));
+    try testing.expectEqual(@as(f32, 264), fittedLibraryWidth(&model));
+    try testing.expectEqual(@as(f32, 264.0 / 1128.0), librarySplit(&model));
+    try testing.expectEqual(@as(f32, 264.0 / 1128.0), model.skills_library_split());
+    try testing.expectEqual(@as(u32, 264), model.skillsLibraryWidthPixels());
+
+    applyLibraryResize(&model, 0.5);
+    try testing.expectEqual(@as(f32, 264), model.skills_library_width);
+
+    model.settings_open = true;
+    applyLibraryResize(&model, 0.5);
+    try testing.expectEqual(@as(f32, 264), model.skills_library_width);
+
+    model.settings_page = .skills;
+    applyLibraryResize(&model, 320.0 / 1128.0);
+    try testing.expectEqual(@as(f32, 320), model.skills_library_width);
+    try testing.expectEqual(@as(f32, 320.0 / 1128.0), model.skills_library_split());
+    applyLibraryResize(&model, 0);
+    try testing.expectEqual(@as(f32, 140), model.skills_library_width);
+    applyLibraryResize(&model, 1);
+    try testing.expectEqual(@as(f32, 480), model.skills_library_width);
+
+    model.right_panel_open = true;
+    model.right_panel_width = 184;
+    try testing.expectEqual(@as(f32, 944), paneWidth(&model));
+    try testing.expectEqual(@as(f32, 480), fittedLibraryWidth(&model));
+    try testing.expectEqual(@as(f32, 480.0 / 944.0), librarySplit(&model));
 }

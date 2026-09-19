@@ -55,6 +55,7 @@ const pick_folder = @import("pick_folder.zig");
 const usage_history = @import("usage_history.zig");
 const usage_meter = @import("usage_meter.zig");
 const litellm_rates = @import("litellm_rates.zig");
+const layout = @import("layout.zig");
 
 const canvas = native_sdk.canvas;
 const main = @import("main.zig");
@@ -700,6 +701,9 @@ pub const Msg = union(enum) {
     /// via Native `fx.writeClipboard`. Successful write sets
     /// window_status Path copied. `on-press` stays `copy_skill_path`.
     copy_skill_path,
+    /// Nested Skills library split drag. Fraction is the library
+    /// (left) pane of that nested split.
+    skills_library_resized: f32,
     select_provider: u32,
     /// Settings Providers: toggle persisted `disabled_providers` for that row.
     toggle_provider_enabled: u32,
@@ -1237,6 +1241,11 @@ pub const Model = struct {
     /// last-live global fallback; missing / 0 keep 184 then FILE_TREE
     /// clamp.
     right_panel_diff_file_list_width: f32 = right_panel_default_width,
+    /// Settings Skills library width. Waku `SKILLS_LIST_WIDTH` 264.
+    /// Fitted at layout/resize via `fittedSkillsLibraryWidth`. Persisted
+    /// on sessions.json extras (`skills_library_width`) as last-live
+    /// global fallback; missing / 0 keep 264 then Skills library clamp.
+    skills_library_width: f32 = layout.skills_library_default_width,
     /// Runtime-only Files-tab inline preview. 1-based file-mention id;
     /// 0 = tree only. Not persisted to sessions.json this cut.
     right_panel_file_preview_id: u32 = 0,
@@ -2536,9 +2545,13 @@ pub const Model = struct {
         "right_panel_session_pending_diff_source_set",
         "right_panel_file_tree_width",
         "right_panel_diff_file_list_width",
+        "skills_library_width",
         "applyRightPanelResize",
         "applyFileTreeResize",
         "applyDiffFileListResize",
+        "applySkillsLibraryResize",
+        "skillsLibraryWidthPixels",
+        "applySkillsLibraryWidth",
         "setAttachStatus",
         "clearAttachStatus",
         "window_status_storage",
@@ -3608,6 +3621,11 @@ pub const Model = struct {
     /// Native nested Diff split: left fraction for the hunk column.
     pub fn right_panel_diff_file_list_split(model: *const Model) f32 {
         return right_panel.diffFileListSplit(model);
+    }
+
+    /// Native nested Skills split: left fraction for the library column.
+    pub fn skills_library_split(model: *const Model) f32 {
+        return skills.librarySplit(model);
     }
 
     pub fn file_preview_path(model: *const Model) []const u8 {
@@ -5137,6 +5155,15 @@ pub const Model = struct {
         model.right_panel_diff_file_list_width = right_panel.clampNestedListWidthForPersist(model.right_panel_width, @floatFromInt(width));
     }
 
+    pub fn skillsLibraryWidthPixels(model: *const Model) u32 {
+        return @intFromFloat(@round(skills.clampLibraryWidthForPersist(skills.paneWidth(model), model.skills_library_width)));
+    }
+
+    pub fn applySkillsLibraryWidth(model: *Model, width: u32) void {
+        if (width == 0) return;
+        model.skills_library_width = skills.clampLibraryWidthForPersist(skills.paneWidth(model), @floatFromInt(width));
+    }
+
     pub fn syncRightPanelSplit(model: *Model) void {
         if (!model.right_panel_open) {
             model.right_panel_split = right_panel.closedSplit();
@@ -5193,6 +5220,10 @@ pub const Model = struct {
 
     pub fn applyDiffFileListResize(model: *Model, fraction: f32) void {
         right_panel.applyDiffFileListResize(model, fraction);
+    }
+
+    pub fn applySkillsLibraryResize(model: *Model, fraction: f32) void {
+        skills.applyLibraryResize(model, fraction);
     }
 
     pub fn openEditorPath(model: *const Model) []const u8 {
@@ -6259,7 +6290,7 @@ pub const Model = struct {
     /// `i18n.SkillsPaneChrome`. English matches Waku `skills.library`.
     /// Distinct from SkillsSectionChrome User, Chrome.skills nav,
     /// SkillsSelectChrome, and StructuralRegionChrome. Muted/bold
-    /// Native pane header and `label=` a11y on the 264 library column.
+    /// Native pane header and `label=` a11y on the Skills library column.
     pub fn skills_library_title(model: *const Model) []const u8 {
         return model.skillsPaneChrome().library;
     }

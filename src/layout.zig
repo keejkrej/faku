@@ -8,7 +8,10 @@
 //! 500). Nested Files tree + preview uses `file_editor_min_width` 140
 //! and `fittedFileTreeWidth` (Waku `fitted_file_tree_width`). Nested
 //! Diff hunk + file list reuses those FILE_TREE clamps (no Waku
-//! REVIEW_* list-width constant this cut). First-cut Diff / Review
+//! REVIEW_* list-width constant this cut). Settings Skills library
+//! | details uses `skills_library_*` (Waku `SKILLS_LIST_WIDTH` 264
+//! default; Faku min 140 / max 480 so neither pane can collapse).
+//! First-cut Diff / Review
 //! open widen lives here as `review_initial_width` and
 //! `widenedPanelWidthForReview` (Waku `REVIEW_INITIAL_WIDTH` 820).
 
@@ -53,6 +56,17 @@ pub const review_initial_width: f32 = 820;
 /// Waku `FILE_EDITOR_MIN_WIDTH`. Preview/editor column floor in the
 /// nested Files split (tree sits on the right).
 pub const file_editor_min_width: f32 = 140;
+/// Waku `SKILLS_LIST_WIDTH`. Settings Skills library default.
+pub const skills_library_default_width: f32 = 264;
+/// Floor so the Skills library cannot collapse to zero. Same 140 as
+/// today's details `min-width` and FILE_TREE_MIN. Not a Waku
+/// SKILLS_LIST_MIN this cut.
+pub const skills_library_min_width: f32 = 140;
+/// Cap so persist/resize cannot store a zero-details pane. Sits above
+/// the 264 default. Not a Waku SKILLS_LIST_MAX this cut.
+pub const skills_library_max_width: f32 = 480;
+/// Details column floor. Same as today's Skills details `min-width`.
+pub const skills_details_min_width: f32 = 140;
 
 /// Waku RIGHT_PANEL sanitize: non-positive → default 460, then clamp
 /// 280–1000.
@@ -104,6 +118,24 @@ pub const fittedDiffFileListWidth = fittedFileTreeWidth;
 /// the left pane, file list the right at `fittedDiffFileListWidth`.
 pub const diffFileListSplitFraction = fileTreeSplitFraction;
 
+/// Fitted Settings Skills library width: max is `SKILLS_LIBRARY_MAX`
+/// min `(pane - DETAILS_MIN)` then at least `SKILLS_LIBRARY_MIN`.
+/// Sanitize `library_width` into that range; non-positive uses
+/// Waku `SKILLS_LIST_WIDTH` 264 then that clamp.
+pub fn fittedSkillsLibraryWidth(pane_width: f32, library_width: f32) f32 {
+    const max = @max(skills_library_min_width, @min(skills_library_max_width, pane_width - skills_details_min_width));
+    const raw = if (library_width > 0) library_width else skills_library_default_width;
+    return @max(skills_library_min_width, @min(max, raw));
+}
+
+/// Native nested-split left fraction for Skills library | details:
+/// library is the left pane at `fittedSkillsLibraryWidth`.
+pub fn skillsLibrarySplitFraction(pane_width: f32, library_width: f32) f32 {
+    const pane = @max(1, pane_width);
+    const library = fittedSkillsLibraryWidth(pane, library_width);
+    return library / pane;
+}
+
 test "layout chrome widths match Waku-aligned numbers" {
     try std.testing.expectEqual(@as(f32, 252), sidebar_default_width);
     try std.testing.expectEqual(@as(f32, 180), sidebar_min_width);
@@ -118,6 +150,10 @@ test "layout chrome widths match Waku-aligned numbers" {
     try std.testing.expectEqual(@as(f32, 500), file_editor_initial_width);
     try std.testing.expectEqual(@as(f32, 820), review_initial_width);
     try std.testing.expectEqual(@as(f32, 140), file_editor_min_width);
+    try std.testing.expectEqual(@as(f32, 264), skills_library_default_width);
+    try std.testing.expectEqual(@as(f32, 140), skills_library_min_width);
+    try std.testing.expectEqual(@as(f32, 480), skills_library_max_width);
+    try std.testing.expectEqual(@as(f32, 140), skills_details_min_width);
 }
 
 test "widenedPanelWidthForFileEditor matches Waku FILE_EDITOR_INITIAL_WIDTH 500" {
@@ -153,6 +189,28 @@ test "fileTreeSplitFraction is preview-left of fitted tree width" {
     try std.testing.expectEqual(@as(f32, 500.0 / 684.0), fileTreeSplitFraction(684, 184));
     try std.testing.expectEqual(@as(f32, 0.5), fileTreeSplitFraction(280, 184));
     try std.testing.expectEqual(@as(f32, (720.0 - 184.0) / 720.0), fileTreeSplitFraction(720, 184));
+}
+
+test "fittedSkillsLibraryWidth matches SKILLS_LIST_WIDTH 264 then 140…min(480, pane-140)" {
+    try std.testing.expectEqual(@as(f32, 264), fittedSkillsLibraryWidth(1128, 264));
+    try std.testing.expectEqual(@as(f32, 264), fittedSkillsLibraryWidth(1128, 0));
+    try std.testing.expectEqual(@as(f32, 264), fittedSkillsLibraryWidth(1128, -1));
+    try std.testing.expectEqual(@as(f32, 140), fittedSkillsLibraryWidth(1128, 100));
+    try std.testing.expectEqual(@as(f32, 480), fittedSkillsLibraryWidth(1128, 500));
+    try std.testing.expectEqual(@as(f32, 320), fittedSkillsLibraryWidth(1128, 320));
+    try std.testing.expectEqual(@as(f32, 140), fittedSkillsLibraryWidth(280, 264));
+    try std.testing.expectEqual(@as(f32, 140), fittedSkillsLibraryWidth(280, 0));
+    try std.testing.expectEqual(@as(f32, 260), fittedSkillsLibraryWidth(400, 300));
+    try std.testing.expectEqual(@as(f32, 220), fittedSkillsLibraryWidth(400, 220));
+    try std.testing.expectEqual(@as(f32, 140), fittedSkillsLibraryWidth(200, 264));
+}
+
+test "skillsLibrarySplitFraction is library-left of fitted library width" {
+    try std.testing.expectEqual(@as(f32, 264.0 / 1128.0), skillsLibrarySplitFraction(1128, 264));
+    try std.testing.expectEqual(@as(f32, 264.0 / 1128.0), skillsLibrarySplitFraction(1128, 0));
+    try std.testing.expectEqual(@as(f32, 0.5), skillsLibrarySplitFraction(280, 264));
+    try std.testing.expectEqual(@as(f32, 320.0 / 944.0), skillsLibrarySplitFraction(944, 320));
+    try std.testing.expectEqual(@as(f32, 140.0 / 280.0), skillsLibrarySplitFraction(280, 0));
 }
 
 test "Diff file-list width reuses FILE_TREE fitted clamps and split fraction" {

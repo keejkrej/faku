@@ -338,8 +338,8 @@
         </row>
         <separator />
         <if test="{settings_page_skills}">
-            <row grow="1">
-              <column min-width="264" max-width="264" gap="10" padding="14" label="{skills_library_title}">
+            <split grow="1" value="{skills_library_split}" on-resize="skills_library_resized">
+              <column min-width="140" gap="10" padding="14" label="{skills_library_title}">
                 <text foreground="text_muted"><span weight="bold">{skills_library_title}</span></text>
                 <stack>
                   <select on-press="toggle_skills_source_picker">{skills_source_filter_label}</select>
@@ -396,7 +396,6 @@
                   </row>
                 </if>
               </column>
-              <separator width="1"></separator>
               <column grow="1" min-width="140" gap="10" padding="14" label="{skills_details_title}">
                 <text foreground="text_muted"><span weight="bold">{skills_details_title}</span></text>
                 <if test="{skills_needs_select}">
@@ -477,7 +476,7 @@
                   </if>
                 </scroll>
               </column>
-            </row>
+            </split>
           </if>
           <else>
           <scroll grow="1">
