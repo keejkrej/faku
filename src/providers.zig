@@ -60,8 +60,9 @@
 //! `i18n.ProvidersDetailChrome`. Coding agents card title /
 //! description / Checked … caption follow
 //! `i18n.ProvidersCodingAgentsChrome` (Faku-adapted Waku
-//! `providers.description`; Refresh stays the Settings header
-//! button). Expand chevron Show/Hide %{provider} settings and
+//! `providers.description`; Refresh lives in the Coding agents
+//! card via `i18n.SettingsRefreshChrome`; Skills / Usage Refresh
+//! stay in the Settings header). Expand chevron Show/Hide %{provider} settings and
 //! Binary path override follow `i18n.ProvidersBinaryOverrideChrome`
 //! (Faku, not Waku, in product-named strings). Tests do not
 //! need a live daemon or any real CLI install.
@@ -71,8 +72,8 @@
 //! LiteLLM rate-table; T3 layered Usage chart; amend/force and
 //! remote `--track` over daemon (local already). Version badge ships
 //! this cut (runtime `{binary} --version` parse; muted `v{version}`
-//! beside Available names). model_count / moving Refresh into the
-//! card stay out.
+//! beside Available names). Refresh-in-card ships this cut.
+//! model_count stays out.
 //! Disabling does not
 //! move unstarted drafts / last_provider (Faku new sessions stay fx;
 //! drafts.json has no provider).

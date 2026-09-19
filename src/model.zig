@@ -5453,10 +5453,12 @@ pub const Model = struct {
     }
 
     /// Settings Providers / Skills / Usage Refresh. One string is
-    /// shared by all three Settings pages. `on-press` stays
-    /// `refresh_providers` / `refresh_skills` /
-    /// `refresh_usage_history`. Distinct from Refresh goal /
-    /// plan Refresh (`refresh_goal_label` / `plan_refresh_label`).
+    /// shared by all three Settings pages. Providers Refresh lives
+    /// in the Coding agents card; Skills / Usage stay in the
+    /// Settings header. `on-press` stays `refresh_providers` /
+    /// `refresh_skills` / `refresh_usage_history`. Distinct from
+    /// Refresh goal / plan Refresh (`refresh_goal_label` /
+    /// `plan_refresh_label`).
     pub fn settings_refresh_label(model: *const Model) []const u8 {
         return model.settingsRefreshChrome().refresh;
     }
@@ -5481,7 +5483,7 @@ pub const Model = struct {
 
     /// Settings Providers Coding agents card title. Distinct from
     /// `settings_page_heading` / `settings_nav_providers` /
-    /// `Chrome.providers`. Refresh stays the header button.
+    /// `Chrome.providers`. Refresh lives in this card.
     pub fn providers_coding_agents_title(model: *const Model) []const u8 {
         return model.providersCodingAgentsChrome().coding_agents;
     }

@@ -347,9 +347,6 @@
           <if test="{settings_page_skills}">
             <button variant="ghost" size="sm" on-press="refresh_skills">{settings_refresh_label}</button>
           </if>
-          <if test="{settings_page_providers}">
-            <button variant="ghost" size="sm" on-press="refresh_providers">{settings_refresh_label}</button>
-          </if>
           <if test="{settings_page_usage}">
             <button variant="ghost" size="sm" on-press="refresh_usage_history">{settings_refresh_label}</button>
           </if>
@@ -503,13 +500,18 @@
               <column grow="1" max-width="720" gap="10" padding="14">
                 <text><span weight="bold">{settings_page_heading}</span></text>
                 <card size="sm" padding="10">
-                  <column gap="8">
-                    <text><span weight="bold">{providers_coding_agents_title}</span></text>
-                    <text wrap="true" foreground="text_muted">{providers_coding_agents_description}</text>
-                    <if test="{has_provider_detection_checked}">
-                      <text wrap="true" foreground="text_muted">{provider_detection_checked_label}</text>
-                    </if>
-                  </column>
+                  <row gap="8">
+                    <column grow="1" gap="8">
+                      <text><span weight="bold">{providers_coding_agents_title}</span></text>
+                      <text wrap="true" foreground="text_muted">{providers_coding_agents_description}</text>
+                    </column>
+                    <column gap="4">
+                      <button variant="ghost" size="sm" on-press="refresh_providers">{settings_refresh_label}</button>
+                      <if test="{has_provider_detection_checked}">
+                        <text wrap="true" foreground="text_muted">{provider_detection_checked_label}</text>
+                      </if>
+                    </column>
+                  </row>
                 </card>
                 <for each="provider_rows" key="id" as="p">
                   <column gap="4">
