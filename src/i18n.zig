@@ -408,8 +408,9 @@
 //! name Faku, not Waku; distinct from `ProvidersChrome` /
 //! `ProvidersDetailChrome` / `SettingsRefreshChrome` /
 //! `Chrome.providers` so the card stays independently evolvable;
-//! Refresh stays the header `SettingsRefreshChrome` button;
-//! wire ids / on-press stay English)
+//! Refresh lives in the card (`SettingsRefreshChrome`); Skills /
+//! Usage Refresh stay in the Settings header; wire ids / on-press
+//! stay English)
 //! plus Settings Providers expand chevron + binary-path override
 //! (same `ProvidersBinaryOverrideChrome` strings; English matches
 //! Waku `providers.show_settings` / `hide_settings` /
@@ -3885,11 +3886,12 @@ const usage_view_chrome_ja: UsageViewChrome = .{
 /// Settings Providers / Skills / Usage Refresh for the resolved locale.
 /// Same resolve path as UsageViewChrome. English matches the former
 /// hardcoded copy. One Refresh field is shared by all three Settings
-/// pages so Providers / Skills / Usage stay one chrome table. Distinct
-/// from Refresh goal / plan Refresh (`GoalPlanRefreshChrome`) and from
-/// Browser toolbar Reload (`BrowserToolbarChrome.reload`). Wire ids /
-/// on-press stay English (`refresh_providers` / `refresh_skills` /
-/// `refresh_usage_history`).
+/// pages so Providers / Skills / Usage stay one chrome table.
+/// Providers Refresh lives in the Coding agents card; Skills / Usage
+/// stay in the Settings header. Distinct from Refresh goal / plan
+/// Refresh (`GoalPlanRefreshChrome`) and from Browser toolbar Reload
+/// (`BrowserToolbarChrome.reload`). Wire ids / on-press stay English
+/// (`refresh_providers` / `refresh_skills` / `refresh_usage_history`).
 pub const SettingsRefreshChrome = struct {
     refresh: []const u8,
 };
@@ -4680,7 +4682,8 @@ const providers_detail_chrome_ja: ProvidersDetailChrome = .{
 /// Faku, not Waku). Distinct from `ProvidersChrome` /
 /// `ProvidersDetailChrome` / `SettingsRefreshChrome` /
 /// `Chrome.providers` so the card stays independently evolvable.
-/// Refresh stays the Settings header button. Wire ids / on-press
+/// Refresh lives in this card (`SettingsRefreshChrome`); Skills /
+/// Usage Refresh stay in the Settings header. Wire ids / on-press
 /// stay English. Templates keep Waku `%{count}` slots; Latin `{d}m`
 /// / `{d}h` in English, locale-natural zh-CN / ja forms.
 pub const ProvidersCodingAgentsChrome = struct {
@@ -6947,7 +6950,8 @@ pub fn providersDetailChromeFor(preference: LanguagePreference, system_locale_id
 /// read process env. Distinct from ProvidersChrome /
 /// ProvidersDetailChrome / SettingsRefreshChrome / Chrome.providers
 /// so the card stays independently evolvable. English description
-/// says Faku, not Waku. Wire ids / on-press stay English.
+/// says Faku, not Waku. Refresh lives in this card
+/// (`SettingsRefreshChrome`). Wire ids / on-press stay English.
 pub fn providersCodingAgentsChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ProvidersCodingAgentsChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => providers_coding_agents_chrome_zh_cn,

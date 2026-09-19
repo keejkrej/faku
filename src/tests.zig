@@ -16966,6 +16966,17 @@ test "Settings Providers Coding agents card follows Appearance language; Checked
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Coding agents</text>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Checked just now</text>"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"refresh_providers\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "<if test=\"{settings_page_providers}\">\n            <button variant=\"ghost\" size=\"sm\" on-press=\"refresh_providers\">{settings_refresh_label}</button>"));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<if test=\"{settings_page_skills}\">\n            <button variant=\"ghost\" size=\"sm\" on-press=\"refresh_skills\">{settings_refresh_label}</button>\n          </if>\n          <if test=\"{settings_page_usage}\">\n            <button variant=\"ghost\" size=\"sm\" on-press=\"refresh_usage_history\">{settings_refresh_label}</button>\n          </if>") != null);
+    const title_idx = std.mem.indexOf(u8, main.app_markup, "{providers_coding_agents_title}") orelse return error.MissingCodingAgentsTitle;
+    const card_open = std.mem.lastIndexOf(u8, main.app_markup[0..title_idx], "<card") orelse return error.MissingCodingAgentsCard;
+    const card_close = title_idx + (std.mem.indexOf(u8, main.app_markup[title_idx..], "</card>") orelse return error.MissingCodingAgentsCardClose);
+    const refresh_idx = std.mem.indexOf(u8, main.app_markup, "on-press=\"refresh_providers\"") orelse return error.MissingProvidersRefresh;
+    const checked_idx = std.mem.indexOf(u8, main.app_markup, "{provider_detection_checked_label}") orelse return error.MissingCheckedCaption;
+    try testing.expect(refresh_idx > card_open);
+    try testing.expect(refresh_idx < card_close);
+    try testing.expect(checked_idx > refresh_idx);
+    try testing.expect(checked_idx < card_close);
 
     var model = boot.initialModel();
     try testing.expectEqualStrings("Coding agents", model.providers_coding_agents_title());
@@ -16990,6 +17001,7 @@ test "Settings Providers Coding agents card follows Appearance language; Checked
     _ = try expectByText(tree.root, .text, "Coding agents");
     _ = try expectByText(tree.root, .text, model.providers_coding_agents_description());
     _ = try expectButtonMsg(tree, "Refresh", .refresh_providers);
+    try testing.expectEqual(@as(usize, 1), countByText(tree.root, .button, "Refresh"));
     try testing.expect(findByText(tree.root, .text, "Checked just now") == null);
     try testing.expect(findByText(tree.root, .text, "编程智能体") == null);
     try testing.expect(findByText(tree.root, .text, "コーディングエージェント") == null);
@@ -35714,6 +35726,14 @@ test "Settings Providers Skills Usage Refresh follow Appearance language" {
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"refresh_usage_history\">Refresh</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"refresh_plan_usage\">Refresh</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"goal_refresh\">Refresh goal</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "<if test=\"{settings_page_providers}\">\n            <button variant=\"ghost\" size=\"sm\" on-press=\"refresh_providers\">{settings_refresh_label}</button>"));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<if test=\"{settings_page_skills}\">\n            <button variant=\"ghost\" size=\"sm\" on-press=\"refresh_skills\">{settings_refresh_label}</button>\n          </if>\n          <if test=\"{settings_page_usage}\">\n            <button variant=\"ghost\" size=\"sm\" on-press=\"refresh_usage_history\">{settings_refresh_label}</button>\n          </if>") != null);
+    const title_idx = std.mem.indexOf(u8, main.app_markup, "{providers_coding_agents_title}") orelse return error.MissingCodingAgentsTitle;
+    const card_open = std.mem.lastIndexOf(u8, main.app_markup[0..title_idx], "<card") orelse return error.MissingCodingAgentsCard;
+    const card_close = title_idx + (std.mem.indexOf(u8, main.app_markup[title_idx..], "</card>") orelse return error.MissingCodingAgentsCardClose);
+    const refresh_idx = std.mem.indexOf(u8, main.app_markup, "on-press=\"refresh_providers\"") orelse return error.MissingProvidersRefresh;
+    try testing.expect(refresh_idx > card_open);
+    try testing.expect(refresh_idx < card_close);
 
     var model = boot.initialModel();
     try testing.expectEqualStrings("Refresh", model.settings_refresh_label());
@@ -35724,17 +35744,20 @@ test "Settings Providers Skills Usage Refresh follow Appearance language" {
     try testing.expect(model.settings_page_providers());
     var tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "Refresh", .refresh_providers);
+    try testing.expectEqual(@as(usize, 1), countByText(tree.root, .button, "Refresh"));
     try testing.expect(findByText(tree.root, .button, "刷新") == null);
 
     main.update(&model, .set_settings_page_skills, &fx);
     try testing.expect(model.settings_page_skills());
     tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "Refresh", .refresh_skills);
+    try testing.expectEqual(@as(usize, 1), countByText(tree.root, .button, "Refresh"));
 
     main.update(&model, .set_settings_page_usage, &fx);
     try testing.expect(model.settings_page_usage());
     tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "Refresh", .refresh_usage_history);
+    try testing.expectEqual(@as(usize, 1), countByText(tree.root, .button, "Refresh"));
 
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("刷新", model.settings_refresh_label());
