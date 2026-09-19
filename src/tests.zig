@@ -14348,6 +14348,8 @@ test "settings gear opens the panel; Esc and gear return to the session" {
     _ = try expectByText(tree.root, .text, "Today");
     _ = try expectButton(tree.root, "Search");
     _ = try expectByText(tree.root, .text, "Settings");
+    _ = try expectByText(tree.root, .text, "Local by default");
+    _ = try expectByText(tree.root, .text, "Projects, conversations, and settings are stored on this computer");
     _ = try expectByText(tree.root, .text, "Default model");
     _ = try expectByText(tree.root, .text, "Access mode");
     _ = try expectByText(tree.root, .text, "Interaction");
@@ -31906,6 +31908,116 @@ test "Settings General field labels follow Appearance language" {
     _ = try expectByText(tree.root, .text, "前回のプロジェクトパス");
     _ = try expectByText(tree.root, .text, "デーモンアドレス");
     try testing.expect(findByPlaceholder(tree.root, .select, "エフォート") != null);
+}
+
+test "Settings General Local by default card follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{local_by_default_title}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{local_by_default_description}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<span weight=\"bold\">{local_by_default_title}</span>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "wrap=\"true\" foreground=\"text_muted\">{local_by_default_description}</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Local by default</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Projects, conversations, and settings are stored on this computer"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "local_by_default_web"));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{local_by_default_title}") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{local_by_default_title}").? <
+        std.mem.indexOf(u8, main.app_markup, "{settings_default_model_label}").?);
+
+    var model = boot.initialModel();
+    try testing.expectEqualStrings("Local by default", model.local_by_default_title());
+    try testing.expectEqualStrings(
+        "Projects, conversations, and settings are stored on this computer",
+        model.local_by_default_description(),
+    );
+    try testing.expectEqualStrings(i18n.localByDefaultChromeFor(.english, "").title, model.local_by_default_title());
+    try testing.expectEqualStrings(i18n.localByDefaultChromeFor(.english, "").description, model.local_by_default_description());
+    try testing.expect(!std.mem.eql(u8, model.local_by_default_title(), model.settings_default_model_label()));
+    try testing.expect(!std.mem.eql(u8, model.local_by_default_title(), model.settings_daemon_address_label()));
+    try testing.expect(!std.mem.eql(u8, model.local_by_default_title(), model.computer_use_title()));
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_open);
+    try testing.expect(model.settings_page_general());
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Local by default");
+    _ = try expectByText(tree.root, .text, "Projects, conversations, and settings are stored on this computer");
+    _ = try expectByText(tree.root, .text, "Default model");
+    _ = try expectByText(tree.root, .text, "Access mode");
+    _ = try expectByText(tree.root, .text, "Daemon address");
+    try testing.expect(findByText(tree.root, .text, "默认存储在本地") == null);
+    try testing.expect(findByText(tree.root, .text, "デフォルトでローカルに保存") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "FX_MODEL") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "host:port") != null);
+    _ = try expectButton(tree.root, "Ask");
+    _ = try expectButton(tree.root, "Build");
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("默认存储在本地", model.local_by_default_title());
+    try testing.expectEqualStrings("项目、对话和设置均存储在这台电脑上", model.local_by_default_description());
+    try testing.expectEqualStrings(i18n.localByDefaultChromeFor(.simplified_chinese, "").title, model.local_by_default_title());
+    try testing.expectEqualStrings(i18n.localByDefaultChromeFor(.simplified_chinese, "").description, model.local_by_default_description());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "默认存储在本地");
+    _ = try expectByText(tree.root, .text, "项目、对话和设置均存储在这台电脑上");
+    _ = try expectByText(tree.root, .text, "默认模型");
+    try testing.expect(findByText(tree.root, .text, "Local by default") == null);
+    try testing.expect(findByText(tree.root, .text, "Projects, conversations, and settings are stored on this computer") == null);
+    try testing.expect(findByText(tree.root, .text, "デフォルトでローカルに保存") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "FX_MODEL") != null);
+    _ = try expectButton(tree.root, "询问");
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("デフォルトでローカルに保存", model.local_by_default_title());
+    try testing.expectEqualStrings("プロジェクト、会話、設定はこのコンピュータに保存されます", model.local_by_default_description());
+    try testing.expectEqualStrings(i18n.localByDefaultChromeFor(.japanese, "").title, model.local_by_default_title());
+    try testing.expectEqualStrings(i18n.localByDefaultChromeFor(.japanese, "").description, model.local_by_default_description());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "デフォルトでローカルに保存");
+    _ = try expectByText(tree.root, .text, "プロジェクト、会話、設定はこのコンピュータに保存されます");
+    _ = try expectByText(tree.root, .text, "デフォルトモデル");
+    try testing.expect(findByText(tree.root, .text, "Local by default") == null);
+    try testing.expect(findByText(tree.root, .text, "默认存储在本地") == null);
+    try testing.expect(findByText(tree.root, .text, "项目、对话和设置均存储在这台电脑上") == null);
+    try testing.expect(findByPlaceholder(tree.root, .select, "エフォート") != null);
+    _ = try expectButton(tree.root, "確認");
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Local by default", model.local_by_default_title());
+    try testing.expectEqualStrings(
+        "Projects, conversations, and settings are stored on this computer",
+        model.local_by_default_description(),
+    );
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Local by default");
+    _ = try expectByText(tree.root, .text, "Projects, conversations, and settings are stored on this computer");
+    try testing.expect(findByText(tree.root, .text, "デフォルトでローカルに保存") == null);
+    try testing.expect(findByText(tree.root, .text, "默认存储在本地") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("默认存储在本地", model.local_by_default_title());
+    try testing.expectEqualStrings("项目、对话和设置均存储在这台电脑上", model.local_by_default_description());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "默认存储在本地");
+    _ = try expectByText(tree.root, .text, "项目、对话和设置均存储在这台电脑上");
+    try testing.expect(findByText(tree.root, .text, "Local by default") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("デフォルトでローカルに保存", model.local_by_default_title());
+    try testing.expectEqualStrings("プロジェクト、会話、設定はこのコンピュータに保存されます", model.local_by_default_description());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "デフォルトでローカルに保存");
+    _ = try expectByText(tree.root, .text, "プロジェクト、会話、設定はこのコンピュータに保存されます");
+    try testing.expect(findByText(tree.root, .text, "Local by default") == null);
+    try testing.expect(findByText(tree.root, .text, "默认存储在本地") == null);
 }
 
 test "Composer Image path and Status chrome follow Appearance language" {
