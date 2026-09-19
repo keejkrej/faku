@@ -3,15 +3,20 @@
 //! Settings page. Lists every `protocol.ProviderId` as a runtime-only
 //! row. fx (first-party default) reads existing `model.fx_available` /
 //! `fxPath()` — no new probe key. Other ids one-shot PATH
-//! `{defaultBinary()} --help` via `cli_probe.zig` (Available / Not
-//! found when that exit lands). Boot (`initFx`) starts non-fx probes
+//! `{probeBinary()} --help` via `cli_probe.zig` (persisted override
+//! when set, else PATH `defaultBinary()`; Available / Not found when
+//! that exit lands). Boot (`initFx`) starts non-fx probes
 //! alongside the fx probe; Settings → Providers open calls
 //! `startProbes` (no-op when already started). Refresh re-runs
 //! fx_probe and every non-fx probe. Selecting a row highlights
 //! and shows detail; Apply ("Use for this session") sets the selected
 //! chat session's `provider` and persists via `sessions.json`. First-cut
 //! per-row Enable/Disable persists `disabled_providers` (wire names) on
-//! that same extras bag. The Enable/Disable chip is disable-flag-only
+//! that same extras bag. Expand chevron + binary-path override persist
+//! `provider_binary_overrides` (wireName → path object; omit empty)
+//! on that same bag. One expanded row at a time (runtime-only
+//! `provider_expanded_id`); switching applies the previous draft.
+//! The Enable/Disable chip is disable-flag-only
 //! (user can toggle regardless of install). `providerEnabled` (the
 //! plan-usage `maybeRefresh` gate) is `!disabled && isAvailable`.
 //! Disabled or Not-found / unset skips background plan-usage refresh
@@ -56,15 +61,16 @@
 //! description / Checked … caption follow
 //! `i18n.ProvidersCodingAgentsChrome` (Faku-adapted Waku
 //! `providers.description`; Refresh stays the Settings header
-//! button). Tests do not
+//! button). Expand chevron Show/Hide %{provider} settings and
+//! Binary path override follow `i18n.ProvidersBinaryOverrideChrome`
+//! (Faku, not Waku, in product-named strings). Tests do not
 //! need a live daemon or any real CLI install.
 //!
 //! Leftovers: full onboarding / OAuth / auto-install; Pi ACP /
 //! long-lived RPC (steer / follow_up / session resume); Claude ACP; `--continue`; circular GPUI gauge;
 //! LiteLLM rate-table; T3 layered Usage chart; amend/force and
-//! remote `--track` over daemon (local already). Provider binary-path
-//! override / version badge / model_count / expand chevron /
-//! moving Refresh into the card stay out.
+//! remote `--track` over daemon (local already). Version badge /
+//! model_count / moving Refresh into the card stay out.
 //! Disabling does not
 //! move unstarted drafts / last_provider (Faku new sessions stay fx;
 //! drafts.json has no provider).
@@ -173,6 +179,19 @@ pub const ProviderRow = struct {
     /// First-party badge. Empty on non-fx rows; markup gates on
     /// `first_party`. Localized via `i18n.ProvidersChrome`.
     first_party_label: []const u8 = "",
+    /// Runtime-only expand chevron. One row at a time.
+    expanded: bool = false,
+    /// Show/Hide %{provider} settings. Arena-owned when built
+    /// through `rowFor` / `rows`.
+    expand_label: []const u8 = "",
+    /// Persisted override is non-empty (Reset control visible).
+    has_override: bool = false,
+    /// using_override / invalid_override / detected_at / detected_as /
+    /// searches_path. Arena-owned. Empty when none.
+    override_caption: []const u8 = "",
+    has_override_caption: bool = false,
+    /// Binary path description with %{provider}. Arena-owned.
+    binary_path_description: []const u8 = "",
 };
 
 pub fn catalogLen() usize {
@@ -227,13 +246,119 @@ pub fn statusFor(model: *const Model, id: protocol.ProviderId) []const u8 {
     return pack.not_found;
 }
 
-/// Probed fx path when that probe succeeded, else PATH `defaultBinary`.
+/// Persisted override when set (absolute or as stored), else probed
+/// fx path when that probe succeeded, else PATH `defaultBinary`.
+/// Empty override means PATH detect. Spawn / probe fail closed when
+/// this is empty.
 pub fn binaryFor(model: *const Model, id: protocol.ProviderId) []const u8 {
+    const override = model.providerBinaryOverride(id);
+    if (override.len > 0) return override;
     if (id == .fx and model.fx_available) {
         const path = model.fxPath();
         if (path.len > 0) return path;
     }
     return id.defaultBinary();
+}
+
+fn overrideChrome(model: *const Model) i18n.ProvidersBinaryOverrideChrome {
+    return i18n.providersBinaryOverrideChromeFor(model.language_preference, model.systemLocaleId());
+}
+
+fn seedOverrideDraft(model: *Model, id: protocol.ProviderId) void {
+    model.provider_override_buffer.set(model.providerBinaryOverride(id));
+}
+
+/// Apply the expanded row's Binary path draft. Empty / whitespace
+/// clears the override (PATH detect). Restarts that provider's
+/// `--help` probe when the stored path changes. Returns true when
+/// the persisted override changed.
+pub fn applyPathOverride(model: *Model, fx: *Effects) bool {
+    const id = fromRowId(model.provider_expanded_id) orelse return false;
+    const trimmed = std.mem.trim(u8, model.provider_override_buffer.text(), " \t\r\n");
+    const current = model.providerBinaryOverride(id);
+    if (std.mem.eql(u8, trimmed, current)) return false;
+    model.setProviderBinaryOverride(id, trimmed);
+    model.provider_override_buffer.set(model.providerBinaryOverride(id));
+    restartProbeFor(model, fx, id);
+    return true;
+}
+
+/// Clear the expanded row's persisted override and draft, then
+/// re-probe PATH. Returns true when an override was cleared.
+pub fn clearPathOverride(model: *Model, fx: *Effects) bool {
+    const id = fromRowId(model.provider_expanded_id) orelse return false;
+    if (model.providerBinaryOverride(id).len == 0) {
+        model.provider_override_buffer.clear();
+        return false;
+    }
+    model.setProviderBinaryOverride(id, "");
+    model.provider_override_buffer.clear();
+    restartProbeFor(model, fx, id);
+    return true;
+}
+
+fn restartProbeFor(model: *Model, fx: *Effects, id: protocol.ProviderId) void {
+    if (id == .fx) {
+        if (model.providerBinaryOverride(.fx).len > 0) {
+            model.setFxPath(model.providerBinaryOverride(.fx));
+        } else {
+            model.fx_path_len = 0;
+        }
+        model.fx_available = false;
+        fx_probe.restartFxProbe(model, fx);
+        return;
+    }
+    model.cli_available[@intFromEnum(id)] = false;
+    cli_probe.restartCliProbe(model, fx, id);
+}
+
+/// Toggle the expand chevron. One expanded at a time. Switching
+/// applies the previous row's pending draft first. Same-row toggle
+/// applies then collapses.
+pub fn toggleExpanded(model: *Model, fx: *Effects, row_id: u32) bool {
+    const id = fromRowId(row_id) orelse return false;
+    if (model.provider_expanded_id != 0 and model.provider_expanded_id != row_id) {
+        _ = applyPathOverride(model, fx);
+    }
+    if (model.provider_expanded_id == row_id) {
+        _ = applyPathOverride(model, fx);
+        model.provider_expanded_id = 0;
+        model.provider_override_buffer.clear();
+        return true;
+    }
+    model.provider_expanded_id = row_id;
+    seedOverrideDraft(model, id);
+    return true;
+}
+
+fn expandLabelFor(model: *const Model, id: protocol.ProviderId, expanded: bool, arena: std.mem.Allocator) []const u8 {
+    var buf: [i18n.providers_binary_override_label_max]u8 = undefined;
+    const text = i18n.formatProvidersExpandSettings(overrideChrome(model), expanded, id.wireName(), &buf);
+    return copyNamed(arena, text);
+}
+
+fn binaryPathDescriptionFor(model: *const Model, id: protocol.ProviderId, arena: std.mem.Allocator) []const u8 {
+    var buf: [i18n.providers_binary_override_label_max]u8 = undefined;
+    const text = i18n.formatProvidersBinaryPathDescription(overrideChrome(model), id.wireName(), &buf);
+    return copyNamed(arena, text);
+}
+
+fn overrideCaptionFor(model: *const Model, id: protocol.ProviderId, arena: std.mem.Allocator) []const u8 {
+    const pack = overrideChrome(model);
+    const override = model.providerBinaryOverride(id);
+    var buf: [i18n.providers_binary_override_caption_max]u8 = undefined;
+    const text = if (override.len > 0)
+        if (isAvailable(model, id))
+            i18n.formatProvidersUsingOverride(pack, override, &buf)
+        else
+            pack.invalid_override
+    else if (id == .fx and isAvailable(model, .fx) and model.fxPath().len > 0)
+        i18n.formatProvidersDetectedAt(pack, model.fxPath(), &buf)
+    else if (isAvailable(model, id))
+        i18n.formatProvidersDetectedAs(pack, id.defaultBinary(), &buf)
+    else
+        i18n.formatProvidersSearchesPath(pack, id.defaultBinary(), &buf);
+    return copyNamed(arena, text);
 }
 
 fn copyNamed(arena: std.mem.Allocator, text: []const u8) []const u8 {
@@ -274,6 +399,12 @@ pub fn rowFor(model: *const Model, id: protocol.ProviderId, arena: std.mem.Alloc
         .enabled = enabled,
         .enable_label = enableLabelFor(model, id, arena),
         .first_party_label = if (id == .fx) pack.first_party else "",
+        .expanded = model.provider_expanded_id == rid,
+        .expand_label = expandLabelFor(model, id, model.provider_expanded_id == rid, arena),
+        .has_override = model.providerBinaryOverride(id).len > 0,
+        .override_caption = overrideCaptionFor(model, id, arena),
+        .has_override_caption = true,
+        .binary_path_description = binaryPathDescriptionFor(model, id, arena),
     };
 }
 
@@ -291,14 +422,16 @@ pub fn detailText(model: *const Model, arena: std.mem.Allocator) []const u8 {
     const id = fromRowId(model.provider_selected_id) orelse return "";
     const pack = chrome(model);
     const notes = detailChrome(model);
+    const override = model.providerBinaryOverride(id);
+    const shown_binary = if (override.len > 0) override else id.defaultBinary();
     if (id == .fx) {
-        const path = model.fxPath();
-        if (model.fx_available and path.len > 0) {
+        const path = if (override.len > 0) override else model.fxPath();
+        if ((model.fx_available or override.len > 0) and path.len > 0) {
             return std.fmt.allocPrint(arena, "{s}\n{s}\n{s} {s}\n{s} {s}\n{s}", .{
                 id.wireName(),
                 pack.first_party,
                 notes.binary_prefix,
-                id.defaultBinary(),
+                shown_binary,
                 notes.path_prefix,
                 path,
                 notes.fx_transport_note,
@@ -308,7 +441,7 @@ pub fn detailText(model: *const Model, arena: std.mem.Allocator) []const u8 {
             id.wireName(),
             pack.first_party,
             notes.binary_prefix,
-            id.defaultBinary(),
+            shown_binary,
             pack.not_found,
             notes.fx_transport_note,
         }) catch "";
@@ -327,10 +460,21 @@ pub fn detailText(model: *const Model, arena: std.mem.Allocator) []const u8 {
         notes.acp_transport_note
     else
         notes.catalog_detail_note;
+    if (override.len > 0) {
+        return std.fmt.allocPrint(arena, "{s}\n{s} {s}\n{s} {s}\n{s}\n{s}", .{
+            id.wireName(),
+            notes.binary_prefix,
+            shown_binary,
+            notes.path_prefix,
+            override,
+            statusFor(model, id),
+            note,
+        }) catch "";
+    }
     return std.fmt.allocPrint(arena, "{s}\n{s} {s}\n{s}\n{s}", .{
         id.wireName(),
         notes.binary_prefix,
-        id.defaultBinary(),
+        shown_binary,
         statusFor(model, id),
         note,
     }) catch "";
@@ -409,7 +553,10 @@ pub fn copyFxLogin(model: *const Model, fx: *Effects) void {
     copy_helpers.copyText(fx, fx_login_command);
 }
 
-pub fn close(model: *Model) void {
+pub fn close(model: *Model, fx: *Effects) void {
+    _ = applyPathOverride(model, fx);
+    model.provider_expanded_id = 0;
+    model.provider_override_buffer.clear();
     model.provider_selected_id = 0;
 }
 
@@ -1282,5 +1429,169 @@ test "detailText english default matches former Binary/Path prefixes; zh-CN / ja
     try testing.expect(std.mem.indexOf(u8, sys_ja, "パス: /home/probe/.local/bin/fx") != null);
     try testing.expect(std.mem.indexOf(u8, sys_ja, "Binary:") == null);
     try testing.expect(std.mem.indexOf(u8, sys_ja, "Path:") == null);
+}
+
+test "toggleExpanded is one-at-a-time; switching applies pending override" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.settings_page = .providers;
+    try testing.expect(!toggleExpanded(&model, &fx, 0));
+    try testing.expect(!toggleExpanded(&model, &fx, 99));
+    try testing.expectEqual(@as(u32, 0), model.provider_expanded_id);
+
+    try testing.expect(toggleExpanded(&model, &fx, rowId(.claude)));
+    try testing.expectEqual(rowId(.claude), model.provider_expanded_id);
+    try testing.expect(rowFor(&model, .claude, arena).expanded);
+    try testing.expectEqualStrings("Show fx settings", rowFor(&model, .fx, arena).expand_label);
+    try testing.expectEqualStrings("Hide claude settings", rowFor(&model, .claude, arena).expand_label);
+    try testing.expect(!rowFor(&model, .fx, arena).expanded);
+    try testing.expectEqualStrings("", model.provider_override_buffer.text());
+
+    model.provider_override_buffer.set(" /opt/claude ");
+    try testing.expect(toggleExpanded(&model, &fx, rowId(.fx)));
+    try testing.expectEqual(rowId(.fx), model.provider_expanded_id);
+    try testing.expectEqualStrings("/opt/claude", model.providerBinaryOverride(.claude));
+    try testing.expectEqualStrings("", model.providerBinaryOverride(.fx));
+    try testing.expect(rowFor(&model, .fx, arena).expanded);
+    try testing.expect(!rowFor(&model, .claude, arena).expanded);
+
+    try testing.expect(toggleExpanded(&model, &fx, rowId(.fx)));
+    try testing.expectEqual(@as(u32, 0), model.provider_expanded_id);
+    try testing.expect(!rowFor(&model, .fx, arena).expanded);
+}
+
+test "applyPathOverride empty clears; captions invalid vs using; binaryFor prefers override" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    try testing.expect(!applyPathOverride(&model, &fx));
+    try testing.expect(!clearPathOverride(&model, &fx));
+
+    try testing.expect(toggleExpanded(&model, &fx, rowId(.claude)));
+    model.provider_override_buffer.set("/opt/claude");
+    try testing.expect(applyPathOverride(&model, &fx));
+    try testing.expectEqualStrings("/opt/claude", model.providerBinaryOverride(.claude));
+    try testing.expectEqualStrings("/opt/claude", binaryFor(&model, .claude));
+    try testing.expect(rowFor(&model, .claude, arena).has_override);
+    try testing.expectEqualStrings(
+        "Nothing runnable at this path. Clear it to detect from PATH",
+        rowFor(&model, .claude, arena).override_caption,
+    );
+    try testing.expect(!isAvailable(&model, .claude));
+
+    model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
+    try testing.expectEqualStrings(
+        "Using /opt/claude instead of PATH detection",
+        rowFor(&model, .claude, arena).override_caption,
+    );
+
+    model.provider_override_buffer.set("");
+    try testing.expect(applyPathOverride(&model, &fx));
+    try testing.expectEqualStrings("", model.providerBinaryOverride(.claude));
+    try testing.expectEqualStrings("claude", binaryFor(&model, .claude));
+    try testing.expect(!rowFor(&model, .claude, arena).has_override);
+
+    model.setProviderBinaryOverride(.claude, "/opt/claude");
+    model.provider_override_buffer.set("/opt/claude");
+    try testing.expect(clearPathOverride(&model, &fx));
+    try testing.expectEqualStrings("", model.providerBinaryOverride(.claude));
+    try testing.expectEqualStrings("", model.provider_override_buffer.text());
+}
+
+test "no override captions: detected_at / detected_as / searches_path; zh and ja expand labels" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var model = Model{};
+    try testing.expectEqualStrings(
+        "Faku did not detect claude in PATH",
+        rowFor(&model, .claude, arena).override_caption,
+    );
+    try testing.expectEqualStrings(
+        "Faku did not detect fx in PATH",
+        rowFor(&model, .fx, arena).override_caption,
+    );
+
+    model.fx_available = true;
+    model.setFxPath("/home/probe/.fx/bin/fx");
+    try testing.expectEqualStrings(
+        "Detected at /home/probe/.fx/bin/fx",
+        rowFor(&model, .fx, arena).override_caption,
+    );
+    model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
+    try testing.expectEqualStrings(
+        "Detected as claude",
+        rowFor(&model, .claude, arena).override_caption,
+    );
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("显示 fx 设置", rowFor(&model, .fx, arena).expand_label);
+    try testing.expectEqualStrings("已在 /home/probe/.fx/bin/fx 检测到", rowFor(&model, .fx, arena).override_caption);
+    try testing.expectEqualStrings("已检测到 claude", rowFor(&model, .claude, arena).override_caption);
+    try testing.expect(std.mem.indexOf(u8, rowFor(&model, .fx, arena).binary_path_description, "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, rowFor(&model, .fx, arena).binary_path_description, "Waku") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("fx の設定を表示", rowFor(&model, .fx, arena).expand_label);
+    try testing.expectEqualStrings("/home/probe/.fx/bin/fx で検出されました", rowFor(&model, .fx, arena).override_caption);
+    try testing.expectEqualStrings("claude として検出されました", rowFor(&model, .claude, arena).override_caption);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Show fx settings", rowFor(&model, .fx, arena).expand_label);
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("显示 fx 设置", rowFor(&model, .fx, arena).expand_label);
+}
+
+test "refresh / apply override probe argv uses override path" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setProviderBinaryOverride(.claude, "/opt/claude");
+    model.setProviderBinaryOverride(.fx, "/opt/fx");
+    refresh(&model, &fx);
+
+    var saw_fx_override = false;
+    var saw_claude_override = false;
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |item| : (i += 1) {
+        if (item.key == fx_probe.fx_probe_key) {
+            try testing.expect(fx_probe.isFxProbeArgv(item.argv));
+            try testing.expectEqualStrings("/opt/fx", item.argv[0]);
+            saw_fx_override = true;
+            continue;
+        }
+        if (cli_probe.fromProbeKey(item.key)) |id| {
+            if (id == .claude) {
+                try testing.expect(cli_probe.isCliProbeArgvWith(item.argv, .claude, "/opt/claude"));
+                try testing.expectEqualStrings("/opt/claude", item.argv[0]);
+                saw_claude_override = true;
+            } else {
+                try testing.expect(cli_probe.isCliProbeArgv(item.argv, id));
+            }
+        }
+    }
+    try testing.expect(saw_fx_override);
+    try testing.expect(saw_claude_override);
+    try testing.expectEqualStrings("/opt/fx", binaryFor(&model, .fx));
+    try testing.expectEqualStrings("/opt/claude", binaryFor(&model, .claude));
 }
 

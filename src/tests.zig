@@ -6312,7 +6312,8 @@ fn findPendingSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) 
 
 fn findCliProbeSpawn(fx: *Effects, id: protocol.ProviderId) ?@TypeOf(fx.pendingSpawnAt(0).?) {
     const spawn = findPendingSpawnKey(fx, cli_probe.probeKey(id)) orelse return null;
-    if (!cli_probe.isCliProbeArgv(spawn.argv, id)) return null;
+    if (spawn.argv.len != 2) return null;
+    if (!std.mem.eql(u8, spawn.argv[1], cli_probe.help_flag)) return null;
     return spawn;
 }
 
@@ -16780,6 +16781,8 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     _ = try expectByText(tree.root, .list_item, "kimi");
     _ = try expectByText(tree.root, .text, "cursor-agent");
     _ = try expectByText(tree.root, .text, "claude");
+    _ = try expectButtonMsg(tree, "Show fx settings", .{ .toggle_provider_expanded = 1 });
+    _ = try expectButtonMsg(tree, "Show claude settings", .{ .toggle_provider_expanded = providers.rowId(.claude) });
     _ = try expectButtonMsg(tree, "Disable fx", .{ .toggle_provider_enabled = 1 });
     _ = try expectButtonMsg(tree, "Disable claude", .{ .toggle_provider_enabled = providers.rowId(.claude) });
     try testing.expect(!model.disabled_providers[@intFromEnum(protocol.ProviderId.claude)]);
@@ -37598,6 +37601,7 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "First-party default");
     _ = try expectByText(tree.root, .text, "Not found");
+    _ = try expectButtonMsg(tree, "Show fx settings", .{ .toggle_provider_expanded = 1 });
     _ = try expectButtonMsg(tree, "Disable fx", .{ .toggle_provider_enabled = 1 });
     _ = try expectButtonMsg(tree, "Copy install command", .copy_fx_install);
     _ = try expectButtonMsg(tree, "Use for this session", .apply_session_provider);
@@ -37618,6 +37622,7 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "第一方默认");
     _ = try expectByText(tree.root, .text, "未找到");
+    _ = try expectButtonMsg(tree, "显示 fx 设置", .{ .toggle_provider_expanded = 1 });
     _ = try expectButtonMsg(tree, "禁用fx", .{ .toggle_provider_enabled = 1 });
     _ = try expectButtonMsg(tree, "复制安装命令", .copy_fx_install);
     _ = try expectButtonMsg(tree, "用于此会话", .apply_session_provider);
@@ -37635,6 +37640,7 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "ファーストパーティ既定");
     _ = try expectByText(tree.root, .text, "見つかりません");
+    _ = try expectButtonMsg(tree, "fx の設定を表示", .{ .toggle_provider_expanded = 1 });
     _ = try expectButtonMsg(tree, "fx を無効にする", .{ .toggle_provider_enabled = 1 });
     _ = try expectButtonMsg(tree, "インストールコマンドをコピー", .copy_fx_install);
     _ = try expectButtonMsg(tree, "このセッションで使う", .apply_session_provider);
@@ -37668,6 +37674,7 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "First-party default");
     _ = try expectByText(tree.root, .text, "Available");
+    _ = try expectButtonMsg(tree, "Show fx settings", .{ .toggle_provider_expanded = 1 });
     _ = try expectButtonMsg(tree, "Disable fx", .{ .toggle_provider_enabled = 1 });
     _ = try expectButtonMsg(tree, "Copy login command", .copy_fx_login);
     _ = try expectButtonMsg(tree, "Use for this session", .apply_session_provider);
@@ -37682,6 +37689,7 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "第一方默认");
     _ = try expectByText(tree.root, .text, "可用");
+    _ = try expectButtonMsg(tree, "显示 fx 设置", .{ .toggle_provider_expanded = 1 });
     _ = try expectButtonMsg(tree, "禁用fx", .{ .toggle_provider_enabled = 1 });
     _ = try expectButtonMsg(tree, "复制登录命令", .copy_fx_login);
     _ = try expectButtonMsg(tree, "用于此会话", .apply_session_provider);
@@ -37698,6 +37706,7 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "ファーストパーティ既定");
     _ = try expectByText(tree.root, .text, "利用可能");
+    _ = try expectButtonMsg(tree, "fx の設定を表示", .{ .toggle_provider_expanded = 1 });
     _ = try expectButtonMsg(tree, "fx を無効にする", .{ .toggle_provider_enabled = 1 });
     _ = try expectButtonMsg(tree, "ログインコマンドをコピー", .copy_fx_login);
     _ = try expectButtonMsg(tree, "このセッションで使う", .apply_session_provider);
@@ -37709,6 +37718,74 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "fx を有効にする", .{ .toggle_provider_enabled = 1 });
     try testing.expect(findByText(tree.root, .button, "Enable") == null);
+}
+
+test "Settings Providers expand chevron + binary override persist; captions; probe argv uses override" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = boot.initialModel();
+    try testing.expectEqualStrings("Binary path", model.providers_binary_path_label());
+    try testing.expectEqualStrings("Reset", model.providers_reset_label());
+    try testing.expectEqualStrings(i18n.providersBinaryOverrideChromeFor(.english, "").binary_path, model.providers_binary_path_label());
+    try testing.expectEqualStrings(i18n.providersBinaryOverrideChromeFor(.english, "").reset, model.providers_reset_label());
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_providers, &fx);
+    var tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Show fx settings", .{ .toggle_provider_expanded = 1 });
+    _ = try expectButtonMsg(tree, "Show claude settings", .{ .toggle_provider_expanded = providers.rowId(.claude) });
+    try testing.expect(findByText(tree.root, .text, "Binary path") == null);
+    try testing.expect(findByText(tree.root, .button, "Reset") == null);
+    try testing.expect(findByText(tree.root, .text, "Hide fx settings") == null);
+
+    main.update(&model, .{ .toggle_provider_expanded = 1 }, &fx);
+    try testing.expectEqual(@as(u32, 1), model.provider_expanded_id);
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Hide fx settings", .{ .toggle_provider_expanded = 1 });
+    _ = try expectByText(tree.root, .text, "Binary path");
+    _ = try expectByText(tree.root, .text_field, "Binary path");
+    try testing.expect(findTextContaining(tree.root, "The executable Faku launches for fx") != null);
+    try testing.expect(findTextContaining(tree.root, "Faku did not detect fx in PATH") != null);
+    try testing.expect(findByText(tree.root, .button, "Reset") == null);
+    try testing.expect(findByText(tree.root, .text, "Show fx settings") == null);
+
+    main.update(&model, .{ .provider_override_edit = .{ .insert_text = "/opt/custom-fx" } }, &fx);
+    try testing.expectEqualStrings("/opt/custom-fx", model.provider_override_draft());
+    main.update(&model, .apply_provider_path_override, &fx);
+    try testing.expectEqualStrings("/opt/custom-fx", model.providerBinaryOverride(.fx));
+    try testing.expectEqualStrings("/opt/custom-fx", providers.binaryFor(&model, .fx));
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Reset", .clear_provider_path_override);
+    try testing.expect(findTextContaining(tree.root, "Nothing runnable at this path") != null);
+    try testing.expect(findTextContaining(tree.root, "Using /opt/custom-fx instead of PATH detection") == null);
+
+    const override_spawn = findPendingSpawnKey(&fx, fx_probe.fx_probe_key) orelse return error.MissingFxOverrideProbe;
+    try testing.expect(fx_probe.isFxProbeArgv(override_spawn.argv));
+    try testing.expectEqualStrings("/opt/custom-fx", override_spawn.argv[0]);
+
+    main.update(&model, .clear_provider_path_override, &fx);
+    try testing.expectEqualStrings("", model.providerBinaryOverride(.fx));
+    try testing.expectEqualStrings("", model.provider_override_draft());
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("可执行文件路径", model.providers_binary_path_label());
+    try testing.expectEqualStrings("重置", model.providers_reset_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "隐藏 fx 设置", .{ .toggle_provider_expanded = 1 });
+    try testing.expect(findByText(tree.root, .text, "Binary path") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("実行ファイルのパス", model.providers_binary_path_label());
+    try testing.expectEqualStrings("リセット", model.providers_reset_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "fx の設定を隠す", .{ .toggle_provider_expanded = 1 });
+    try testing.expect(findByText(tree.root, .text, "Binary path") == null);
 }
 
 test "Settings Providers fx_login_note fx_login_codex_note other_install_hint follow Appearance language" {

@@ -410,6 +410,20 @@
 //! `Chrome.providers` so the card stays independently evolvable;
 //! Refresh stays the header `SettingsRefreshChrome` button;
 //! wire ids / on-press stay English)
+//! plus Settings Providers expand chevron + binary-path override
+//! (same `ProvidersBinaryOverrideChrome` strings; English matches
+//! Waku `providers.show_settings` / `hide_settings` /
+//! `binary_path` / `binary_path_description` / `using_override` /
+//! `invalid_override` / `detected_at` / `detected_as` /
+//! `not_detected_as` / `searches_path` / `common.reset` with
+//! product name Faku, not Waku; distinct from `ProvidersChrome` /
+//! `ProvidersDetailChrome` / `ProvidersEnableNamedChrome` /
+//! `ProvidersCodingAgentsChrome` so expand / override stay
+//! independently evolvable; empty `%{provider}` / `%{path}` /
+//! `%{command}` still paint; on-press stays
+//! `toggle_provider_expanded` / `apply_provider_path_override` /
+//! `clear_provider_path_override`; wire names / typed paths stay
+//! English)
 //! plus Settings Skills empty-state Open a project / Scanning
 //! skill folders… / No skills found / No skills match your search
 //! (same `SkillsEmptyChrome` strings; distinct from
@@ -4705,6 +4719,86 @@ const providers_coding_agents_chrome_ja: ProvidersCodingAgentsChrome = .{
 /// minutes / hours stay Latin; templates are short in every locale.
 pub const providers_detection_checked_label_max: usize = 64;
 
+/// Capped scratch for Show/Hide %{provider} settings and the
+/// Binary path description. Template + provider `wireName()` stay
+/// short in every locale (same class as `providers_enable_named_max`).
+pub const providers_binary_override_label_max: usize = 200;
+
+/// Capped scratch for `using_override` / `detected_at` captions.
+/// Template + a `max_fx_path` override stay inside this cap.
+pub const providers_binary_override_caption_max: usize = 420;
+
+/// Settings Providers expand chevron + binary-path override chrome
+/// for the resolved locale. Same resolve path as ProvidersChrome.
+/// English matches Waku `providers.show_settings` /
+/// `providers.hide_settings` / `providers.binary_path` /
+/// `providers.binary_path_description` / `providers.using_override` /
+/// `providers.invalid_override` / `providers.detected_at` /
+/// `providers.detected_as` / `providers.not_detected_as` /
+/// `providers.searches_path` / `common.reset`. Description and
+/// `searches_path` say Faku, not Waku. Distinct from
+/// `ProvidersChrome` / `ProvidersDetailChrome` /
+/// `ProvidersEnableNamedChrome` / `ProvidersCodingAgentsChrome` so
+/// expand / override stay independently evolvable. Empty
+/// `%{provider}` / `%{path}` / `%{command}` still paint. Wire names /
+/// typed paths / on-press stay English (`toggle_provider_expanded` /
+/// `apply_provider_path_override` / `clear_provider_path_override`).
+pub const ProvidersBinaryOverrideChrome = struct {
+    show_settings: []const u8,
+    hide_settings: []const u8,
+    binary_path: []const u8,
+    binary_path_description: []const u8,
+    using_override: []const u8,
+    invalid_override: []const u8,
+    detected_at: []const u8,
+    detected_as: []const u8,
+    not_detected_as: []const u8,
+    searches_path: []const u8,
+    reset: []const u8,
+};
+
+const providers_binary_override_chrome_en: ProvidersBinaryOverrideChrome = .{
+    .show_settings = "Show %{provider} settings",
+    .hide_settings = "Hide %{provider} settings",
+    .binary_path = "Binary path",
+    .binary_path_description = "The executable Faku launches for %{provider}. Press Return to apply; leave empty to detect from PATH",
+    .using_override = "Using %{path} instead of PATH detection",
+    .invalid_override = "Nothing runnable at this path. Clear it to detect from PATH",
+    .detected_at = "Detected at %{path}",
+    .detected_as = "Detected as %{command}",
+    .not_detected_as = "Not detected on PATH as %{command}",
+    .searches_path = "Faku did not detect %{command} in PATH",
+    .reset = "Reset",
+};
+
+const providers_binary_override_chrome_zh_cn: ProvidersBinaryOverrideChrome = .{
+    .show_settings = "显示 %{provider} 设置",
+    .hide_settings = "隐藏 %{provider} 设置",
+    .binary_path = "可执行文件路径",
+    .binary_path_description = "Faku 用于启动 %{provider} 的可执行文件。按 Return 应用；留空则从 PATH 自动检测",
+    .using_override = "正在使用 %{path}，不再从 PATH 自动检测",
+    .invalid_override = "此路径下没有可执行文件。清空后可恢复从 PATH 自动检测",
+    .detected_at = "已在 %{path} 检测到",
+    .detected_as = "已检测到 %{command}",
+    .not_detected_as = "未在 PATH 中找到 %{command}",
+    .searches_path = "Faku 未在 PATH 中找到 %{command}",
+    .reset = "重置",
+};
+
+const providers_binary_override_chrome_ja: ProvidersBinaryOverrideChrome = .{
+    .show_settings = "%{provider} の設定を表示",
+    .hide_settings = "%{provider} の設定を隠す",
+    .binary_path = "実行ファイルのパス",
+    .binary_path_description = "Faku が %{provider} の起動に使用する実行ファイルです。Return キーで適用します。空欄にすると PATH から自動検出します",
+    .using_override = "PATH の自動検出ではなく %{path} を使用しています",
+    .invalid_override = "このパスには実行可能なファイルがありません。空欄にすると PATH から自動検出します",
+    .detected_at = "%{path} で検出されました",
+    .detected_as = "%{command} として検出されました",
+    .not_detected_as = "PATH 上に %{command} が見つかりません",
+    .searches_path = "Faku は PATH で %{command} を検出できませんでした",
+    .reset = "リセット",
+};
+
 /// Settings Skills empty-state Open a project / Scanning skill
 /// folders… / No skills found / No skills match your search for
 /// the resolved locale. Same resolve path as ProvidersDetailChrome.
@@ -6862,6 +6956,22 @@ pub fn providersCodingAgentsChromeFor(preference: LanguagePreference, system_loc
     };
 }
 
+/// Settings Providers expand chevron + binary-path override chrome
+/// for the resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from ProvidersChrome / ProvidersDetailChrome /
+/// ProvidersEnableNamedChrome / ProvidersCodingAgentsChrome so expand
+/// / override stay independently evolvable. English description and
+/// `searches_path` say Faku, not Waku. Wire names / typed paths /
+/// on-press stay English.
+pub fn providersBinaryOverrideChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ProvidersBinaryOverrideChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => providers_binary_override_chrome_zh_cn,
+        .japanese => providers_binary_override_chrome_ja,
+        .system, .english => providers_binary_override_chrome_en,
+    };
+}
+
 /// Waku `detection_checked_label` buckets from a runtime stamp in
 /// milliseconds (`model.now_ms`). Callers inject `now_ms` so tests
 /// pin buckets. Floor division like Waku. Numbers stay Latin.
@@ -7262,6 +7372,79 @@ pub fn formatProvidersEnableNamed(
 ) []const u8 {
     const template = if (enabled) chrome.disable_named else chrome.enable_named;
     return formatSkillsNamedText(template, "name", name, buf);
+}
+
+/// Show %{provider} settings / Hide %{provider} settings. `expanded`
+/// true uses `hide_settings`. Overflow returns `""`. Empty provider
+/// still substitutes (paints the template around an empty slot).
+pub fn formatProvidersExpandSettings(
+    chrome: ProvidersBinaryOverrideChrome,
+    expanded: bool,
+    provider: []const u8,
+    buf: []u8,
+) []const u8 {
+    const template = if (expanded) chrome.hide_settings else chrome.show_settings;
+    return formatSkillsNamedText(template, "provider", provider, buf);
+}
+
+/// Binary path description with `%{provider}` replaced. Overflow
+/// returns `""`. Empty provider still paints.
+pub fn formatProvidersBinaryPathDescription(
+    chrome: ProvidersBinaryOverrideChrome,
+    provider: []const u8,
+    buf: []u8,
+) []const u8 {
+    return formatSkillsNamedText(chrome.binary_path_description, "provider", provider, buf);
+}
+
+/// `using_override` with `%{path}` replaced. Overflow returns `""`.
+/// Empty path still paints.
+pub fn formatProvidersUsingOverride(
+    chrome: ProvidersBinaryOverrideChrome,
+    path: []const u8,
+    buf: []u8,
+) []const u8 {
+    return formatSkillsNamedText(chrome.using_override, "path", path, buf);
+}
+
+/// `detected_at` with `%{path}` replaced. Overflow returns `""`.
+/// Empty path still paints.
+pub fn formatProvidersDetectedAt(
+    chrome: ProvidersBinaryOverrideChrome,
+    path: []const u8,
+    buf: []u8,
+) []const u8 {
+    return formatSkillsNamedText(chrome.detected_at, "path", path, buf);
+}
+
+/// `detected_as` with `%{command}` replaced. Overflow returns `""`.
+/// Empty command still paints.
+pub fn formatProvidersDetectedAs(
+    chrome: ProvidersBinaryOverrideChrome,
+    command: []const u8,
+    buf: []u8,
+) []const u8 {
+    return formatSkillsNamedText(chrome.detected_as, "command", command, buf);
+}
+
+/// `not_detected_as` with `%{command}` replaced. Overflow returns
+/// `""`. Empty command still paints.
+pub fn formatProvidersNotDetectedAs(
+    chrome: ProvidersBinaryOverrideChrome,
+    command: []const u8,
+    buf: []u8,
+) []const u8 {
+    return formatSkillsNamedText(chrome.not_detected_as, "command", command, buf);
+}
+
+/// `searches_path` with `%{command}` replaced. Overflow returns `""`.
+/// Empty command still paints.
+pub fn formatProvidersSearchesPath(
+    chrome: ProvidersBinaryOverrideChrome,
+    command: []const u8,
+    buf: []u8,
+) []const u8 {
+    return formatSkillsNamedText(chrome.searches_path, "command", command, buf);
 }
 
 /// Waku `skills.scope_in_project` with `%{project}` replaced by the
@@ -11181,6 +11364,160 @@ test "providersCodingAgentsChromeFor english default; zh and ja chrome; Faku not
     try testing.expectEqualStrings("刚刚检查过", formatProvidersDetectionChecked(providersCodingAgentsChromeFor(.system, "zh_CN.UTF-8"), stamp, stamp, &buf));
     try testing.expectEqualStrings("5 分前に確認済み", formatProvidersDetectionChecked(providersCodingAgentsChromeFor(.system, "ja_JP.UTF-8"), stamp, stamp + 300_000, &buf));
     try testing.expectEqualStrings("Checked just now", formatProvidersDetectionChecked(providersCodingAgentsChromeFor(.english, "zh_CN.UTF-8"), stamp, stamp, &buf));
+}
+
+test "providersBinaryOverrideChromeFor english default; zh and ja chrome; Faku not Waku; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Show %{provider} settings", providersBinaryOverrideChromeFor(.english, "ja").show_settings);
+    try testing.expectEqualStrings("Hide %{provider} settings", providersBinaryOverrideChromeFor(.english, "").hide_settings);
+    try testing.expectEqualStrings("Binary path", providersBinaryOverrideChromeFor(.english, "").binary_path);
+    try testing.expectEqualStrings(
+        "The executable Faku launches for %{provider}. Press Return to apply; leave empty to detect from PATH",
+        providersBinaryOverrideChromeFor(.english, "").binary_path_description,
+    );
+    try testing.expectEqualStrings("Using %{path} instead of PATH detection", providersBinaryOverrideChromeFor(.english, "").using_override);
+    try testing.expectEqualStrings(
+        "Nothing runnable at this path. Clear it to detect from PATH",
+        providersBinaryOverrideChromeFor(.english, "").invalid_override,
+    );
+    try testing.expectEqualStrings("Detected at %{path}", providersBinaryOverrideChromeFor(.english, "").detected_at);
+    try testing.expectEqualStrings("Detected as %{command}", providersBinaryOverrideChromeFor(.english, "").detected_as);
+    try testing.expectEqualStrings("Not detected on PATH as %{command}", providersBinaryOverrideChromeFor(.english, "").not_detected_as);
+    try testing.expectEqualStrings("Faku did not detect %{command} in PATH", providersBinaryOverrideChromeFor(.english, "").searches_path);
+    try testing.expectEqualStrings("Reset", providersBinaryOverrideChromeFor(.english, "").reset);
+    try testing.expectEqualStrings("Show %{provider} settings", providersBinaryOverrideChromeFor(.system, "").show_settings);
+    try testing.expectEqualStrings("Binary path", providersBinaryOverrideChromeFor(.system, "").binary_path);
+    try testing.expectEqualStrings("Reset", providersBinaryOverrideChromeFor(.system, "").reset);
+
+    try testing.expectEqualStrings("显示 %{provider} 设置", providersBinaryOverrideChromeFor(.simplified_chinese, "").show_settings);
+    try testing.expectEqualStrings("隐藏 %{provider} 设置", providersBinaryOverrideChromeFor(.simplified_chinese, "").hide_settings);
+    try testing.expectEqualStrings("可执行文件路径", providersBinaryOverrideChromeFor(.simplified_chinese, "").binary_path);
+    try testing.expectEqualStrings(
+        "Faku 用于启动 %{provider} 的可执行文件。按 Return 应用；留空则从 PATH 自动检测",
+        providersBinaryOverrideChromeFor(.simplified_chinese, "").binary_path_description,
+    );
+    try testing.expectEqualStrings("正在使用 %{path}，不再从 PATH 自动检测", providersBinaryOverrideChromeFor(.simplified_chinese, "").using_override);
+    try testing.expectEqualStrings("此路径下没有可执行文件。清空后可恢复从 PATH 自动检测", providersBinaryOverrideChromeFor(.simplified_chinese, "").invalid_override);
+    try testing.expectEqualStrings("已在 %{path} 检测到", providersBinaryOverrideChromeFor(.simplified_chinese, "").detected_at);
+    try testing.expectEqualStrings("已检测到 %{command}", providersBinaryOverrideChromeFor(.simplified_chinese, "").detected_as);
+    try testing.expectEqualStrings("未在 PATH 中找到 %{command}", providersBinaryOverrideChromeFor(.simplified_chinese, "").not_detected_as);
+    try testing.expectEqualStrings("Faku 未在 PATH 中找到 %{command}", providersBinaryOverrideChromeFor(.simplified_chinese, "").searches_path);
+    try testing.expectEqualStrings("重置", providersBinaryOverrideChromeFor(.simplified_chinese, "").reset);
+
+    try testing.expectEqualStrings("%{provider} の設定を表示", providersBinaryOverrideChromeFor(.japanese, "").show_settings);
+    try testing.expectEqualStrings("%{provider} の設定を隠す", providersBinaryOverrideChromeFor(.japanese, "").hide_settings);
+    try testing.expectEqualStrings("実行ファイルのパス", providersBinaryOverrideChromeFor(.japanese, "").binary_path);
+    try testing.expectEqualStrings(
+        "Faku が %{provider} の起動に使用する実行ファイルです。Return キーで適用します。空欄にすると PATH から自動検出します",
+        providersBinaryOverrideChromeFor(.japanese, "").binary_path_description,
+    );
+    try testing.expectEqualStrings("PATH の自動検出ではなく %{path} を使用しています", providersBinaryOverrideChromeFor(.japanese, "").using_override);
+    try testing.expectEqualStrings("このパスには実行可能なファイルがありません。空欄にすると PATH から自動検出します", providersBinaryOverrideChromeFor(.japanese, "").invalid_override);
+    try testing.expectEqualStrings("%{path} で検出されました", providersBinaryOverrideChromeFor(.japanese, "").detected_at);
+    try testing.expectEqualStrings("%{command} として検出されました", providersBinaryOverrideChromeFor(.japanese, "").detected_as);
+    try testing.expectEqualStrings("PATH 上に %{command} が見つかりません", providersBinaryOverrideChromeFor(.japanese, "").not_detected_as);
+    try testing.expectEqualStrings("Faku は PATH で %{command} を検出できませんでした", providersBinaryOverrideChromeFor(.japanese, "").searches_path);
+    try testing.expectEqualStrings("リセット", providersBinaryOverrideChromeFor(.japanese, "").reset);
+
+    try testing.expectEqualStrings("显示 %{provider} 设置", providersBinaryOverrideChromeFor(.system, "zh_CN.UTF-8").show_settings);
+    try testing.expectEqualStrings("可执行文件路径", providersBinaryOverrideChromeFor(.system, "zh_CN.UTF-8").binary_path);
+    try testing.expectEqualStrings("重置", providersBinaryOverrideChromeFor(.system, "zh_CN.UTF-8").reset);
+    try testing.expectEqualStrings("%{provider} の設定を表示", providersBinaryOverrideChromeFor(.system, "ja_JP.UTF-8").show_settings);
+    try testing.expectEqualStrings("実行ファイルのパス", providersBinaryOverrideChromeFor(.system, "ja_JP.UTF-8").binary_path);
+    try testing.expectEqualStrings("リセット", providersBinaryOverrideChromeFor(.system, "ja_JP.UTF-8").reset);
+    try testing.expectEqualStrings("Show %{provider} settings", providersBinaryOverrideChromeFor(.english, "ja_JP.UTF-8").show_settings);
+    try testing.expectEqualStrings("Binary path", providersBinaryOverrideChromeFor(.english, "zh_CN.UTF-8").binary_path);
+    try testing.expectEqualStrings("Reset", providersBinaryOverrideChromeFor(.english, "ja_JP.UTF-8").reset);
+
+    try testing.expect(!std.mem.eql(u8, providersBinaryOverrideChromeFor(.english, "").binary_path, providersDetailChromeFor(.english, "").binary_prefix));
+    try testing.expect(!std.mem.eql(u8, providersBinaryOverrideChromeFor(.english, "").show_settings, providersEnableNamedChromeFor(.english, "").enable_named));
+    try testing.expect(!std.mem.eql(u8, providersBinaryOverrideChromeFor(.english, "").reset, providersChromeFor(.english, "").available));
+    try testing.expect(!std.mem.eql(u8, providersBinaryOverrideChromeFor(.simplified_chinese, "").reset, providersChromeFor(.simplified_chinese, "").enable));
+    try testing.expect(std.mem.indexOf(u8, providersBinaryOverrideChromeFor(.english, "").binary_path_description, "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, providersBinaryOverrideChromeFor(.english, "").binary_path_description, "Waku") == null);
+    try testing.expect(std.mem.indexOf(u8, providersBinaryOverrideChromeFor(.english, "").searches_path, "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, providersBinaryOverrideChromeFor(.english, "").searches_path, "Waku") == null);
+    try testing.expect(std.mem.indexOf(u8, providersBinaryOverrideChromeFor(.simplified_chinese, "").binary_path_description, "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, providersBinaryOverrideChromeFor(.simplified_chinese, "").binary_path_description, "Waku") == null);
+    try testing.expect(std.mem.indexOf(u8, providersBinaryOverrideChromeFor(.simplified_chinese, "").searches_path, "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, providersBinaryOverrideChromeFor(.japanese, "").binary_path_description, "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, providersBinaryOverrideChromeFor(.japanese, "").binary_path_description, "Waku") == null);
+    try testing.expect(std.mem.indexOf(u8, providersBinaryOverrideChromeFor(.japanese, "").searches_path, "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, providersBinaryOverrideChromeFor(.japanese, "").searches_path, "Waku") == null);
+}
+
+test "formatProvidersBinaryOverride substitutes %{provider} / %{path} / %{command}; empty still paints" {
+    const testing = std.testing;
+    var buf: [providers_binary_override_caption_max]u8 = undefined;
+    try testing.expectEqualStrings(
+        "Show fx settings",
+        formatProvidersExpandSettings(providersBinaryOverrideChromeFor(.english, ""), false, "fx", &buf),
+    );
+    try testing.expectEqualStrings(
+        "Hide claude settings",
+        formatProvidersExpandSettings(providersBinaryOverrideChromeFor(.english, ""), true, "claude", &buf),
+    );
+    try testing.expectEqualStrings(
+        "显示 fx 设置",
+        formatProvidersExpandSettings(providersBinaryOverrideChromeFor(.simplified_chinese, ""), false, "fx", &buf),
+    );
+    try testing.expectEqualStrings(
+        "隐藏 claude 设置",
+        formatProvidersExpandSettings(providersBinaryOverrideChromeFor(.simplified_chinese, ""), true, "claude", &buf),
+    );
+    try testing.expectEqualStrings(
+        "fx の設定を表示",
+        formatProvidersExpandSettings(providersBinaryOverrideChromeFor(.japanese, ""), false, "fx", &buf),
+    );
+    try testing.expectEqualStrings(
+        "claude の設定を隠す",
+        formatProvidersExpandSettings(providersBinaryOverrideChromeFor(.japanese, ""), true, "claude", &buf),
+    );
+    try testing.expectEqualStrings(
+        "Show  settings",
+        formatProvidersExpandSettings(providersBinaryOverrideChromeFor(.english, ""), false, "", &buf),
+    );
+    try testing.expectEqualStrings(
+        "The executable Faku launches for fx. Press Return to apply; leave empty to detect from PATH",
+        formatProvidersBinaryPathDescription(providersBinaryOverrideChromeFor(.english, ""), "fx", &buf),
+    );
+    try testing.expectEqualStrings(
+        "Using /opt/claude instead of PATH detection",
+        formatProvidersUsingOverride(providersBinaryOverrideChromeFor(.english, ""), "/opt/claude", &buf),
+    );
+    try testing.expectEqualStrings(
+        "Detected at /home/probe/.fx/bin/fx",
+        formatProvidersDetectedAt(providersBinaryOverrideChromeFor(.english, ""), "/home/probe/.fx/bin/fx", &buf),
+    );
+    try testing.expectEqualStrings(
+        "Detected as claude",
+        formatProvidersDetectedAs(providersBinaryOverrideChromeFor(.english, ""), "claude", &buf),
+    );
+    try testing.expectEqualStrings(
+        "Not detected on PATH as kimi",
+        formatProvidersNotDetectedAs(providersBinaryOverrideChromeFor(.english, ""), "kimi", &buf),
+    );
+    try testing.expectEqualStrings(
+        "Faku did not detect cursor-agent in PATH",
+        formatProvidersSearchesPath(providersBinaryOverrideChromeFor(.english, ""), "cursor-agent", &buf),
+    );
+    try testing.expectEqualStrings(
+        "Using  instead of PATH detection",
+        formatProvidersUsingOverride(providersBinaryOverrideChromeFor(.english, ""), "", &buf),
+    );
+    try testing.expectEqualStrings(
+        "已在 /opt/fx 检测到",
+        formatProvidersDetectedAt(providersBinaryOverrideChromeFor(.simplified_chinese, ""), "/opt/fx", &buf),
+    );
+    try testing.expectEqualStrings(
+        "/opt/fx で検出されました",
+        formatProvidersDetectedAt(providersBinaryOverrideChromeFor(.japanese, ""), "/opt/fx", &buf),
+    );
+    var tiny: [8]u8 = undefined;
+    try testing.expectEqualStrings(
+        "",
+        formatProvidersExpandSettings(providersBinaryOverrideChromeFor(.english, ""), false, "fx", &tiny),
+    );
 }
 
 test "skillsEmptyChromeFor english default; zh and ja chrome; english ignores ja LANG" {

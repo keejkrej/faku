@@ -61,6 +61,7 @@
 //! `automatic_updates_enabled` /
 //! `file_preview_find_case_sensitive` / `file_preview_find_whole_word` /
 //! `file_preview_find_use_regex` / `disabled_providers` /
+//! `provider_binary_overrides` /
 //! `usage_view` / `usage_window` / `usage_metric` / `usage_breakdown` /
 //! `usage_project_filter` so the settings gear and
 //! composer chips can edit persisted defaults, and `folders` /
@@ -318,6 +319,7 @@ pub fn saveSession(model: *const Model, session_id: u32, allocator: std.mem.Allo
     document.file_preview_find_whole_word = model.file_preview_find_whole_word;
     document.file_preview_find_use_regex = model.file_preview_find_use_regex;
     document.disabled_providers = model.disabled_providers;
+    document.provider_binary_overrides = providerBinaryOverridesFromModel(model);
     applyUsageExtras(&document, model);
     applySidebarExtras(&document, model);
     try applyFolderExtras(&document, arena, model);
@@ -373,6 +375,7 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
     document.file_preview_find_whole_word = model.file_preview_find_whole_word;
     document.file_preview_find_use_regex = model.file_preview_find_use_regex;
     document.disabled_providers = model.disabled_providers;
+    document.provider_binary_overrides = providerBinaryOverridesFromModel(model);
     applyUsageExtras(&document, model);
     applySidebarExtras(&document, model);
     try applyFolderExtras(&document, arena, model);
@@ -442,6 +445,7 @@ pub fn persistLayoutIfPossible(model: *const Model) void {
 /// `theme_preference`, `ui_font_size`, `code_font_size`, `language_preference`, `settings_page`,
 /// `usage_meter_open`, `commands_open`, `analytics_enabled`, `render_math`, `automatic_updates_enabled`, `file_preview_find_case_sensitive`,
 /// `file_preview_find_whole_word`, `file_preview_find_use_regex`, `disabled_providers`,
+/// `provider_binary_overrides`,
 /// `usage_view`, `usage_window`, `usage_metric`, `usage_breakdown`,
 /// `usage_project_filter`) plus remembered `new_task`.
 /// Same first-run rule as sidebar collapse: does not create `sessions.json`
@@ -562,6 +566,7 @@ fn applySettingsExtras(document: *Document, model: *const Model) void {
     document.file_preview_find_whole_word = model.file_preview_find_whole_word;
     document.file_preview_find_use_regex = model.file_preview_find_use_regex;
     document.disabled_providers = model.disabled_providers;
+    document.provider_binary_overrides = providerBinaryOverridesFromModel(model);
     applyUsageExtras(document, model);
 }
 
@@ -1109,6 +1114,7 @@ const Document = struct {
     file_preview_find_whole_word: bool = false,
     file_preview_find_use_regex: bool = false,
     disabled_providers: [protocol.provider_id_count]bool = [_]bool{false} ** protocol.provider_id_count,
+    provider_binary_overrides: [protocol.provider_id_count][]const u8 = [_][]const u8{""} ** protocol.provider_id_count,
     usage_view: usage_history.View = .daily,
     usage_window: usage_history.WindowChoice = .trailing_30,
     usage_metric: usage_history.ShareMetric = .cost,
@@ -1161,6 +1167,7 @@ const Document = struct {
             .file_preview_find_whole_word = model.file_preview_find_whole_word,
             .file_preview_find_use_regex = model.file_preview_find_use_regex,
             .disabled_providers = model.disabled_providers,
+            .provider_binary_overrides = providerBinaryOverridesFromModel(model),
             .usage_view = model.usage_view,
             .usage_window = model.usage_window,
             .usage_metric = model.usage_share_metric,
@@ -1270,6 +1277,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.file_preview_find_whole_word = document.file_preview_find_whole_word;
     model.file_preview_find_use_regex = document.file_preview_find_use_regex;
     model.disabled_providers = document.disabled_providers;
+    applyProviderBinaryOverrides(model, document.provider_binary_overrides);
     model.usage_view = document.usage_view;
     model.usage_window = document.usage_window;
     model.usage_share_metric = document.usage_metric;
@@ -1601,6 +1609,7 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .file_preview_find_whole_word = jsonBool(obj.get("file_preview_find_whole_word")) orelse false,
         .file_preview_find_use_regex = jsonBool(obj.get("file_preview_find_use_regex")) orelse false,
         .disabled_providers = parseDisabledProviders(obj.get("disabled_providers")),
+        .provider_binary_overrides = parseProviderBinaryOverrides(arena, obj.get("provider_binary_overrides")),
         .usage_view = usage_history.View.fromPersist(jsonString(obj.get("usage_view")) orelse ""),
         .usage_window = usage_history.WindowChoice.fromPersist(jsonString(obj.get("usage_window")) orelse ""),
         .usage_metric = usage_history.ShareMetric.fromPersist(jsonString(obj.get("usage_metric")) orelse ""),
@@ -1721,6 +1730,41 @@ fn parseFolder(value: std.json.Value) !StoredFolder {
     const id = jsonUint(obj.get("id")) orelse return error.Corrupt;
     const title = jsonString(obj.get("title")) orelse return error.Corrupt;
     return .{ .id = id, .title = title };
+}
+
+fn providerBinaryOverridesFromModel(model: *const Model) [protocol.provider_id_count][]const u8 {
+    var out = [_][]const u8{""} ** protocol.provider_id_count;
+    for (std.meta.tags(protocol.ProviderId)) |id| {
+        out[@intFromEnum(id)] = model.providerBinaryOverride(id);
+    }
+    return out;
+}
+
+fn applyProviderBinaryOverrides(model: *Model, overrides: [protocol.provider_id_count][]const u8) void {
+    for (std.meta.tags(protocol.ProviderId)) |id| {
+        model.setProviderBinaryOverride(id, overrides[@intFromEnum(id)]);
+    }
+}
+
+/// Missing / empty / non-object → no overrides. Unknown wire names
+/// skipped. Empty / non-string values skipped.
+fn parseProviderBinaryOverrides(arena: std.mem.Allocator, value: ?std.json.Value) [protocol.provider_id_count][]const u8 {
+    var out = [_][]const u8{""} ** protocol.provider_id_count;
+    const obj_val = value orelse return out;
+    const obj = switch (obj_val) {
+        .object => |o| o,
+        else => return out,
+    };
+    var it = obj.iterator();
+    while (it.next()) |entry| {
+        const id = protocol.ProviderId.fromWire(entry.key_ptr.*) orelse continue;
+        const path = jsonString(entry.value_ptr.*) orelse continue;
+        const trimmed = std.mem.trim(u8, path, " \t\r\n");
+        if (trimmed.len == 0) continue;
+        const copied = arena.dupe(u8, trimmed) catch continue;
+        out[@intFromEnum(id)] = copied;
+    }
+    return out;
 }
 
 /// Missing / empty / non-array → all enabled. Unknown wire names skipped.
@@ -2180,7 +2224,18 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
             disabled_written = true;
         }
     }
-    try out.appendSlice(allocator, "],\"usage_view\":");
+    try out.appendSlice(allocator, "],\"provider_binary_overrides\":{");
+    var override_written = false;
+    for (std.meta.tags(protocol.ProviderId)) |id| {
+        const path = document.provider_binary_overrides[@intFromEnum(id)];
+        if (path.len == 0) continue;
+        if (override_written) try out.append(allocator, ',');
+        try appendJsonString(&out, allocator, id.wireName());
+        try out.append(allocator, ':');
+        try appendJsonString(&out, allocator, path);
+        override_written = true;
+    }
+    try out.appendSlice(allocator, "},\"usage_view\":");
     try appendJsonString(&out, allocator, document.usage_view.persistName());
     try out.appendSlice(allocator, ",\"usage_window\":");
     try appendJsonString(&out, allocator, document.usage_window.persistName());
@@ -4041,6 +4096,77 @@ test "disabled_providers persist round-trip; enabling clears; missing/unknown st
     const cleared_bytes = try std.Io.Dir.cwd().readFileAlloc(io, catalogPath(dir, &path_buf).?, allocator, .limited(64 * 1024));
     defer allocator.free(cleared_bytes);
     try testing.expect(std.mem.indexOf(u8, cleared_bytes, "\"disabled_providers\":[]") != null);
+}
+
+test "provider_binary_overrides persist round-trip; empty clears; missing/unknown stay empty" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var missing = Model{};
+    missing.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&missing, allocator, io));
+    try testing.expectEqualStrings("", missing.providerBinaryOverride(.claude));
+    try testing.expectEqualStrings("", missing.providerBinaryOverride(.fx));
+    try testing.expectEqualStrings("", missing.providerBinaryOverride(.grok));
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"provider_binary_overrides":{"claude":"/opt/claude","nope":"/tmp/x","fx":"","grok":"/opt/grok"},"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var unknown = Model{};
+    unknown.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&unknown, allocator, io));
+    try testing.expectEqualStrings("/opt/claude", unknown.providerBinaryOverride(.claude));
+    try testing.expectEqualStrings("/opt/grok", unknown.providerBinaryOverride(.grok));
+    try testing.expectEqualStrings("", unknown.providerBinaryOverride(.fx));
+    try testing.expectEqualStrings("", unknown.providerBinaryOverride(.codex));
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("override later", .fx);
+    _ = source.appendTurn(id, .user, "remember overrides");
+    try saveSession(&source, id, allocator, io);
+    source.setProviderBinaryOverride(.claude, "/custom/claude");
+    source.setProviderBinaryOverride(.fx, "/custom/fx");
+    persistSettingsIfPossible(&source);
+    try saveSession(&source, id, allocator, io);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = io;
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqualStrings("/custom/claude", loaded.providerBinaryOverride(.claude));
+    try testing.expectEqualStrings("/custom/fx", loaded.providerBinaryOverride(.fx));
+    try testing.expectEqualStrings("", loaded.providerBinaryOverride(.grok));
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, catalogPath(dir, &path_buf).?, allocator, .limited(64 * 1024));
+    defer allocator.free(bytes);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"provider_binary_overrides\":{") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"claude\":\"/custom/claude\"") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"fx\":\"/custom/fx\"") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"grok\"") == null);
+
+    loaded.setProviderBinaryOverride(.claude, "");
+    loaded.setProviderBinaryOverride(.fx, "   ");
+    persistSettingsIfPossible(&loaded);
+    var cleared = Model{};
+    cleared.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&cleared, allocator, io));
+    try testing.expectEqualStrings("", cleared.providerBinaryOverride(.claude));
+    try testing.expectEqualStrings("", cleared.providerBinaryOverride(.fx));
+    const cleared_bytes = try std.Io.Dir.cwd().readFileAlloc(io, catalogPath(dir, &path_buf).?, allocator, .limited(64 * 1024));
+    defer allocator.free(cleared_bytes);
+    try testing.expect(std.mem.indexOf(u8, cleared_bytes, "\"provider_binary_overrides\":{}") != null);
 }
 
 test "usage chrome extras persist on sessions.json; missing or unknown load defaults" {

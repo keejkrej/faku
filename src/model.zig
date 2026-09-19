@@ -437,9 +437,11 @@ pub const UsageHistoryRow = usage_history.Row;
 pub const UsageMeterRow = usage_meter.Row;
 
 /// Settings Providers row. `id` is 1-based `ProviderId` so Native
-/// `select_provider:{p.id}` / `toggle_provider_enabled:{p.id}` never
-/// bind 0. Apply sets `session.provider`; live Send is
-/// `spawn.startPrompt`. Enable/Disable persists `disabled_providers`.
+/// `select_provider:{p.id}` / `toggle_provider_enabled:{p.id}` /
+/// `toggle_provider_expanded:{p.id}` never bind 0. Apply sets
+/// `session.provider`; live Send is `spawn.startPrompt`.
+/// Enable/Disable persists `disabled_providers`. Expand + Binary
+/// path persist `provider_binary_overrides`.
 pub const ProviderRow = providers.ProviderRow;
 
 /// Composer model picker row. `row_id` is a 1-based Native `for` key.
@@ -756,6 +758,20 @@ pub const Msg = union(enum) {
     select_provider: u32,
     /// Settings Providers: toggle persisted `disabled_providers` for that row.
     toggle_provider_enabled: u32,
+    /// Settings Providers: expand/collapse that row's binary-path
+    /// override panel. One expanded at a time; switching applies the
+    /// previous row's pending draft (Waku `apply_provider_path_override`
+    /// before `expanded_provider_settings` change).
+    toggle_provider_expanded: u32,
+    /// Settings Providers expanded Binary path field `on-input`.
+    /// Draft only until Return / expand-switch / Reset.
+    provider_override_edit: canvas.TextInputEvent,
+    /// Settings Providers: apply the expanded Binary path draft
+    /// (empty clears). `on-submit` / expand-switch.
+    apply_provider_path_override,
+    /// Settings Providers: clear the expanded row's persisted
+    /// override (Reset). Re-probes PATH.
+    clear_provider_path_override,
     apply_session_provider,
     /// Settings Providers: copy verified fx install command. Clipboard only.
     copy_fx_install,
@@ -1531,6 +1547,13 @@ pub const Model = struct {
     system_locale_id_len: usize = 0,
     /// Runtime-only selected Providers row (1-based). Not persisted.
     provider_selected_id: u32 = 0,
+    /// Runtime-only expanded Providers row (1-based). One at a time
+    /// like Waku `expanded_provider_settings`. Not persisted.
+    provider_expanded_id: u32 = 0,
+    /// Runtime-only Binary path draft for the expanded Providers row.
+    /// Applied on Return / expand-switch; Reset clears. Not persisted
+    /// (the applied override lives in `provider_binary_override_*`).
+    provider_override_buffer: canvas.TextBuffer(max_fx_path) = .{},
     /// Runtime-only last PATH `--help` probe exit stamp (`now_ms`).
     /// Not persisted on `sessions.json`. 0 hides the Providers
     /// Coding agents Checked … caption (boot / Refresh mid-flight).
@@ -2089,6 +2112,12 @@ pub const Model = struct {
     /// `providerEnabled` ANDs PATH `--help` probe-installed
     /// (`isAvailable`). Boot starts non-fx probes alongside fx.
     disabled_providers: [protocol.provider_id_count]bool = [_]bool{false} ** protocol.provider_id_count,
+    /// Persisted per-provider binary-path overrides. Index is
+    /// `@intFromEnum`. Empty slot = no override (PATH detect).
+    /// `sessions.json` extras `provider_binary_overrides` (wireName →
+    /// path object; omit empty). Missing / unknown → no overrides.
+    provider_binary_override_storage: [protocol.provider_id_count][max_fx_path]u8 = [_][max_fx_path]u8{[_]u8{0} ** max_fx_path} ** protocol.provider_id_count,
+    provider_binary_override_len: [protocol.provider_id_count]usize = [_]usize{0} ** protocol.provider_id_count,
     /// Runtime-only non-fx `--help` probe results. Index is
     /// `@intFromEnum(ProviderId)`. Slot 0 (fx) is unused — fx stays
     /// on `fx_available` / `fx_probe`. Not persisted.
@@ -2436,6 +2465,7 @@ pub const Model = struct {
         "providersChrome",
         "providersDetailChrome",
         "providersCodingAgentsChrome",
+        "providersBinaryOverrideChrome",
         "skillsEnableChrome",
         "skillsEnableStatusChrome",
         "skillsTrashChrome",
@@ -2448,7 +2478,14 @@ pub const Model = struct {
         "setSystemLocaleId",
         "systemLocaleId",
         "disabled_providers",
+        "provider_binary_override_storage",
+        "provider_binary_override_len",
+        "providerBinaryOverride",
+        "setProviderBinaryOverride",
         "provider_selected_id",
+        "provider_expanded_id",
+        "provider_override_buffer",
+        "applyProviderOverrideEdit",
         "provider_detection_checked_at_ms",
         "settings_search_buffer",
         "applySettingsSearch",
@@ -2937,6 +2974,8 @@ pub const Model = struct {
         "fx_probe_index",
         "cli_available",
         "cli_probe_started",
+        "provider_binary_override_storage",
+        "provider_binary_override_len",
         "home_storage",
         "home_len",
         "reply_path",
@@ -5468,6 +5507,44 @@ pub const Model = struct {
         return out;
     }
 
+    /// Settings Providers Binary path field label. Localized via
+    /// `i18n.ProvidersBinaryOverrideChrome`. Distinct from
+    /// `ProvidersDetailChrome` `Binary:` prefix.
+    pub fn providers_binary_path_label(model: *const Model) []const u8 {
+        return model.providersBinaryOverrideChrome().binary_path;
+    }
+
+    /// Settings Providers Reset control when an override is set.
+    /// Localized via `i18n.ProvidersBinaryOverrideChrome` (Waku
+    /// `common.reset`). `on-press` stays `clear_provider_path_override`.
+    pub fn providers_reset_label(model: *const Model) []const u8 {
+        return model.providersBinaryOverrideChrome().reset;
+    }
+
+    /// Expanded Binary path draft. `on-input` stays
+    /// `provider_override_edit`. Typed path stays data.
+    pub fn provider_override_draft(model: *const Model) []const u8 {
+        return model.provider_override_buffer.text();
+    }
+
+    pub fn applyProviderOverrideEdit(model: *Model, edit: canvas.TextInputEvent) void {
+        model.provider_override_buffer.apply(edit);
+    }
+
+    /// Persisted binary-path override for `id`. Empty = PATH detect.
+    pub fn providerBinaryOverride(model: *const Model, id: protocol.ProviderId) []const u8 {
+        const index = @intFromEnum(id);
+        return model.provider_binary_override_storage[index][0..model.provider_binary_override_len[index]];
+    }
+
+    /// Set or clear a persisted binary-path override. Empty / whitespace
+    /// clears (omit on `sessions.json`).
+    pub fn setProviderBinaryOverride(model: *Model, id: protocol.ProviderId, path: []const u8) void {
+        const index = @intFromEnum(id);
+        const trimmed = std.mem.trim(u8, path, " \t\r\n");
+        writeFixed(&model.provider_binary_override_storage[index], &model.provider_binary_override_len[index], trimmed);
+    }
+
     /// Composer goal-row Refresh goal. `on-press` stays
     /// `goal_refresh`. Distinct from Settings Refresh and from
     /// plan-meter Refresh.
@@ -5952,6 +6029,10 @@ pub const Model = struct {
 
     fn providersCodingAgentsChrome(model: *const Model) i18n.ProvidersCodingAgentsChrome {
         return i18n.providersCodingAgentsChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn providersBinaryOverrideChrome(model: *const Model) i18n.ProvidersBinaryOverrideChrome {
+        return i18n.providersBinaryOverrideChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     fn skillsSelectChrome(model: *const Model) i18n.SkillsSelectChrome {
@@ -6909,6 +6990,8 @@ pub const Model = struct {
         model.closeSkillsSourcePicker();
         model.settings_open = false;
         model.provider_selected_id = 0;
+        model.provider_expanded_id = 0;
+        model.provider_override_buffer.clear();
         model.usage_view = .daily;
         model.settings_search_buffer.clear();
         usage_history.clearProjectFilter(model);

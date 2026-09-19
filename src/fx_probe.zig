@@ -43,7 +43,16 @@ pub fn isFxProbeArgv(argv: []const []const u8) bool {
     if (argv.len != 2) return false;
     if (!std.mem.eql(u8, argv[1], "--help")) return false;
     const bin = argv[0];
-    return std.mem.eql(u8, bin, "fx") or std.mem.endsWith(u8, bin, "/fx");
+    if (bin.len == 0) return false;
+    if (std.mem.eql(u8, bin, "fx") or std.mem.endsWith(u8, bin, "/fx") or std.mem.endsWith(u8, bin, "\\fx")) {
+        return true;
+    }
+    const protocol = @import("protocol.zig");
+    for (std.meta.tags(protocol.ProviderId)) |id| {
+        if (id == .fx) continue;
+        if (std.mem.eql(u8, bin, id.defaultBinary())) return false;
+    }
+    return true;
 }
 
 /// Must match `protocol.FX_PROBE_PATHS` length: ~/.fx/bin/fx,
@@ -51,6 +60,17 @@ pub fn isFxProbeArgv(argv: []const []const u8) bool {
 const probe_path_count: u32 = 3;
 
 fn spawnFxProbe(model: *Model, fx: *Effects) void {
+    const override = model.providerBinaryOverride(.fx);
+    if (override.len > 0) {
+        model.setFxPath(override);
+        fx.spawn(.{
+            .key = fx_probe_key,
+            .argv = &.{ model.fxPath(), "--help" },
+            .output = .collect,
+            .on_exit = Effects.exitMsg(.fx_probe_exit),
+        });
+        return;
+    }
     while (model.fx_probe_index < probe_path_count) {
         var path_buf: [max_fx_path]u8 = undefined;
         if (fxProbePath(model, model.fx_probe_index, &path_buf)) |path| {
@@ -79,6 +99,9 @@ pub fn handleFxProbeExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExi
         return;
     }
     model.fx_available = false;
+    if (model.providerBinaryOverride(.fx).len > 0) {
+        return;
+    }
     model.fx_path_len = 0;
     model.fx_probe_index += 1;
     spawnFxProbe(model, fx);
@@ -127,8 +150,10 @@ test "isFxProbeArgv matches --help on fx path" {
     try std.testing.expect(isFxProbeArgv(&.{ "fx", "--help" }));
     try std.testing.expect(isFxProbeArgv(&.{ "/home/probe/.fx/bin/fx", "--help" }));
     try std.testing.expect(isFxProbeArgv(&.{ "/home/probe/.local/bin/fx", "--help" }));
+    try std.testing.expect(isFxProbeArgv(&.{ "/opt/custom-fx", "--help" }));
     try std.testing.expect(!isFxProbeArgv(&.{ "fx", "acp" }));
     try std.testing.expect(!isFxProbeArgv(&.{"fx"}));
+    try std.testing.expect(!isFxProbeArgv(&.{ "", "--help" }));
 }
 
 test "restartFxProbe resets started and queues --help" {
@@ -146,6 +171,30 @@ test "restartFxProbe resets started and queues --help" {
     const spawn = fx.pendingSpawnAt(0).?;
     try testing.expectEqual(fx_probe_key, spawn.key);
     try testing.expect(isFxProbeArgv(spawn.argv));
+}
+
+test "fx override skips home/PATH cascade; argv[0] is the override; fail does not cascade" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setHome("/home/probe");
+    model.setProviderBinaryOverride(.fx, "/opt/custom-fx");
+    startFxProbe(&model, &fx);
+    try testing.expect(model.fx_probe_started);
+    const spawn = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(fx_probe_key, spawn.key);
+    try testing.expect(isFxProbeArgv(spawn.argv));
+    try testing.expectEqualStrings("/opt/custom-fx", spawn.argv[0]);
+    try testing.expectEqualStrings("--help", spawn.argv[1]);
+    try testing.expectEqualStrings("/opt/custom-fx", model.fxPath());
+
+    handleFxProbeExit(&model, &fx, .{ .key = fx_probe_key, .reason = .exited, .code = 127 });
+    try testing.expect(!model.fx_available);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    try testing.expectEqualStrings("/opt/custom-fx", model.fxPath());
 }
 
 test "handleFxProbeExit stamps now_ms; cancel is ignored" {
