@@ -96,9 +96,12 @@
 //! Richer empty title / description when a project is open, scan is
 //! idle, and `skill_count == 0` follow `i18n.SkillsEmptyRichChrome`
 //! (distinct from SkillsEmptyChrome so the single-line hints stay
-//! independently evolvable; composer `$` insert empty unchanged). Enable / Disable / Disabled
-//! badge follow `i18n.SkillsEnableChrome` (distinct from
-//! ProvidersChrome). Enable/Disable rename-fail window_status
+//! independently evolvable; composer `$` insert empty unchanged). Enable %{name} /
+//! Disable %{name} chip follows `i18n.SkillsEnableNamedChrome`
+//! (Waku `skills.enable_named` / `skills.disable_named`; distinct from
+//! SkillsEnableChrome Enable / Disable / Disabled badge and from
+//! ProvidersChrome; empty name still paints). Disabled badge
+//! follows `i18n.SkillsEnableChrome.disabled`. Enable/Disable rename-fail window_status
 //! Could not update skill. follows `i18n.SkillsEnableStatusChrome`
 //! (distinct from SkillsEnableChrome Enable / Disable / Disabled
 //! and from SkillsTrashStatusChrome). Delete / Confirm delete follow
@@ -2251,11 +2254,19 @@ pub const scope_user_detail = skills_scope_chrome_en.scope_user_detail;
 pub const scope_in_project = skills_scope_chrome_en.scope_in_project;
 
 /// English defaults from `i18n.SkillsEnableChrome`. Distinct from
-/// Providers Enable / Disable.
+/// Providers Enable / Disable. Enable / Disable stay for non-button
+/// uses; Disabled badge is the list/detail chip. Named Enable %{name}
+/// / Disable %{name} lives on `SkillsEnableNamedChrome`.
 const skills_enable_chrome_en = i18n.skillsEnableChromeFor(.english, "");
 pub const enable_label = skills_enable_chrome_en.enable;
 pub const disable_label = skills_enable_chrome_en.disable;
 pub const disabled_badge = skills_enable_chrome_en.disabled;
+
+/// English defaults from `i18n.SkillsEnableNamedChrome`. Distinct from
+/// SkillsEnableChrome Enable / Disable / Disabled and from Providers.
+const skills_enable_named_chrome_en = i18n.skillsEnableNamedChromeFor(.english, "");
+pub const enable_named_template = skills_enable_named_chrome_en.enable_named;
+pub const disable_named_template = skills_enable_named_chrome_en.disable_named;
 
 /// English defaults from `i18n.SkillsTrashChrome`. Distinct from
 /// Enable / Disable / empty-state.
@@ -2724,6 +2735,20 @@ pub fn selectedSkillLocationRows(model: *const Model, arena: std.mem.Allocator) 
 pub fn selectedSkillName(model: *const Model) []const u8 {
     if (model.skill_selected_id == 0 or model.skill_selected_id > model.skill_count) return "";
     return model.skill_store[model.skill_selected_id - 1].name();
+}
+
+/// Settings Skills detail Enable %{name} / Disable %{name} chip.
+/// Localized via `i18n.SkillsEnableNamedChrome`. Distinct from
+/// SkillsEnableChrome Enable / Disable / Disabled badge and from
+/// ProvidersChrome. Empty when unselected (`has_selected_skill`).
+/// Empty name still paints (empty `%{name}` substitution). Writes
+/// through `arena` like `countCaption` / `selectedSkillScopeCaption`.
+pub fn enableLabel(model: *const Model, arena: std.mem.Allocator) []const u8 {
+    if (!model.has_selected_skill()) return "";
+    const chrome = i18n.skillsEnableNamedChromeFor(model.language_preference, model.systemLocaleId());
+    var buf: [i18n.skills_enable_named_max]u8 = undefined;
+    const text = i18n.formatSkillsEnableNamed(chrome, model.skill_enabled(), selectedSkillName(model), &buf);
+    return copyCaption(arena, text);
 }
 
 const skill_source_kind_count = @typeInfo(SkillSourceKind).@"enum".fields.len;
@@ -3712,6 +3737,7 @@ test "selected-detail chrome description vs no_description; invoke / location / 
     try testing.expectEqualStrings("", model.skill_detail_allowed_tools());
     try testing.expectEqualStrings("", model.skill_allowed_tools());
     try testing.expectEqualStrings("", model.skill_name());
+    try testing.expectEqualStrings("", model.skill_enable_label(arena));
     try testing.expect(!model.has_skill_disabled_badge());
     try testing.expectEqualStrings("", model.skill_disabled_badge());
     try testing.expect(!model.has_skill_scope_caption());
@@ -5121,6 +5147,86 @@ test "skill_path_copied_status equals SkillsPathCopiedChrome path_copied" {
     try std.testing.expectEqualStrings("已复制路径", model.skill_path_copied_status());
     model.setSystemLocaleId("ja_JP.UTF-8");
     try std.testing.expectEqualStrings("パスをコピーしました", model.skill_path_copied_status());
+}
+
+test "skill_enable_label formats Enable %{name} / Disable %{name}; empty name still paints" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    try testing.expectEqualStrings("Enable %{name}", enable_named_template);
+    try testing.expectEqualStrings("Disable %{name}", disable_named_template);
+    try testing.expect(!std.mem.eql(u8, enable_named_template, enable_label));
+    try testing.expect(!std.mem.eql(u8, disable_named_template, disable_label));
+    try testing.expect(!std.mem.eql(u8, enable_named_template, i18n.providersChromeFor(.english, "").enable));
+    try testing.expect(!std.mem.eql(u8, disable_named_template, i18n.providersChromeFor(.english, "").disable));
+
+    var model = Model{};
+    try testing.expect(!model.has_selected_skill());
+    try testing.expectEqualStrings("", model.skill_enable_label(arena));
+    try testing.expectEqualStrings("", enableLabel(&model, arena));
+
+    applyStdoutPaths(&model, ".cursor/skills/on/SKILL.md\n.cursor/skills/off/SKILL.md.disabled\n");
+    model.settings_page = .skills;
+    selectSkill(&model, 1);
+    try testing.expect(model.has_selected_skill());
+    try testing.expect(model.skill_enabled());
+    try testing.expectEqualStrings("on", model.skill_name());
+    try testing.expectEqualStrings("Disable on", model.skill_enable_label(arena));
+    try testing.expectEqualStrings("Disable on", enableLabel(&model, arena));
+    {
+        var buf: [i18n.skills_enable_named_max]u8 = undefined;
+        try testing.expectEqualStrings(
+            i18n.formatSkillsEnableNamed(i18n.skillsEnableNamedChromeFor(.english, ""), true, "on", &buf),
+            model.skill_enable_label(arena),
+        );
+    }
+    try testing.expect(!std.mem.eql(u8, model.skill_enable_label(arena), disable_label));
+    try testing.expect(!std.mem.eql(u8, model.skill_enable_label(arena), i18n.providersChromeFor(.english, "").disable));
+    try testing.expect(!model.has_skill_disabled_badge());
+    try testing.expectEqualStrings("", model.skill_disabled_badge());
+
+    selectSkill(&model, 2);
+    try testing.expect(!model.skill_enabled());
+    try testing.expectEqualStrings("off", model.skill_name());
+    try testing.expectEqualStrings("Enable off", model.skill_enable_label(arena));
+    try testing.expect(!std.mem.eql(u8, model.skill_enable_label(arena), enable_label));
+    try testing.expect(!std.mem.eql(u8, model.skill_enable_label(arena), i18n.providersChromeFor(.english, "").enable));
+    try testing.expect(model.has_skill_disabled_badge());
+    try testing.expectEqualStrings(disabled_badge, model.skill_disabled_badge());
+    try testing.expectEqualStrings("Disabled", model.skill_disabled_badge());
+
+    model.skill_store[1].setName("");
+    try testing.expectEqualStrings("", model.skill_name());
+    try testing.expectEqualStrings("Enable ", model.skill_enable_label(arena));
+    try testing.expectEqualStrings("Disabled", model.skill_disabled_badge());
+
+    model.skill_store[1].setName("off");
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("启用off", model.skill_enable_label(arena));
+    try testing.expectEqualStrings("已禁用", model.skill_disabled_badge());
+    selectSkill(&model, 1);
+    try testing.expectEqualStrings("停用on", model.skill_enable_label(arena));
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("on を無効にする", model.skill_enable_label(arena));
+    selectSkill(&model, 2);
+    try testing.expectEqualStrings("off を有効にする", model.skill_enable_label(arena));
+    try testing.expectEqualStrings("無効", model.skill_disabled_badge());
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Enable off", model.skill_enable_label(arena));
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("启用off", model.skill_enable_label(arena));
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("off を有効にする", model.skill_enable_label(arena));
+
+    model.settings_page = .general;
+    try testing.expect(!model.has_selected_skill());
+    try testing.expectEqualStrings("", model.skill_enable_label(arena));
 }
 
 test "skill_deleted_status formats %{name} from SkillsDeletedToastChrome" {

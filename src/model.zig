@@ -6289,13 +6289,15 @@ pub const Model = struct {
         return model.skill_store[model.skill_selected_id - 1].enabled;
     }
 
-    /// Settings Skills detail Enable / Disable chip. Localized via
-    /// `i18n.SkillsEnableChrome`. Distinct from Providers Enable /
-    /// Disable. `on-press` stays `toggle_skill_enabled`.
-    pub fn skill_enable_label(model: *const Model) []const u8 {
-        const chrome = model.skillsEnableChrome();
-        if (model.skill_enabled()) return chrome.disable;
-        return chrome.enable;
+    /// Settings Skills detail Enable %{name} / Disable %{name} chip.
+    /// Localized via `i18n.SkillsEnableNamedChrome`. Distinct from
+    /// SkillsEnableChrome Enable / Disable / Disabled badge and from
+    /// Providers Enable / Disable. Empty when unselected (same as
+    /// `has_selected_skill` button visibility). Empty name still
+    /// paints. Allocates via `arena` like `skills_count_caption` /
+    /// `skill_scope_caption`. `on-press` stays `toggle_skill_enabled`.
+    pub fn skill_enable_label(model: *const Model, arena: std.mem.Allocator) []const u8 {
+        return skills.enableLabel(model, arena);
     }
 
     /// Settings Skills Enable/Disable rename-fail window_status.
