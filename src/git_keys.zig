@@ -2,9 +2,9 @@
 //!
 //! One-shot git_branch / checkout / dirty / numstat / commit / remotes /
 //! toplevel / common-dir keys, plus file_mention, review diff, skills
-//! scan / rename, Files Preview issue-link, CLI `--help` probe, and
-//! LiteLLM rate-table keys. Owning modules keep the values; this file
-//! only re-exports them.
+//! scan / rename, Files Preview issue-link, CLI `--help` / `--version`
+//! probes, and LiteLLM rate-table keys. Owning modules keep the values;
+//! this file only re-exports them.
 //! Callers import this module directly (`git_keys.git_branch_key_first` /
 //! `git_keys.litellm_rates_key`). Not re-exported from `main`. Behavior is
 //! unchanged from the former `main` constants.
@@ -24,6 +24,7 @@ const review_diff = @import("review_diff.zig");
 const skills = @import("skills.zig");
 const file_preview_issue_link = @import("file_preview_issue_link.zig");
 const cli_probe = @import("cli_probe.zig");
+const cli_version = @import("cli_version.zig");
 const litellm_rates = @import("litellm_rates.zig");
 
 /// One-shot `git branch --show-current` probe. Distinct from maximize /
@@ -148,9 +149,14 @@ pub const file_preview_issue_link_key_first = file_preview_issue_link.key_first;
 /// Distinct from skills remove (590+). Band is 600+ `@intFromEnum(id)`
 /// so claude=601 … kimi=608. fx stays on `fx_probe_key` (3).
 pub const cli_probe_key_first = cli_probe.cli_probe_key_first;
+/// One-shot Settings Providers `{binary} --version` probes (runtime
+/// badge). Distinct from cli_probe 600–608. Band is 610+
+/// `@intFromEnum(id)` so fx=610 … kimi=618.
+pub const cli_version_key_first = cli_version.cli_version_key_first;
 /// One-shot LiteLLM rate-table curl (`-o` into the Faku data dir).
-/// Distinct from cli_probe (600+). Fixed key 650. Browser `page_title`
-/// curl is 660–699 (`browser_pane` / `sidecar_keys`).
+/// Distinct from cli_probe (600+) and cli_version (610+). Fixed key
+/// 650. Browser `page_title` curl is 660–699 (`browser_pane` /
+/// `sidecar_keys`).
 pub const litellm_rates_key = litellm_rates.litellm_rates_key;
 
 test "git/review/skills/probe spawn keys match owning modules" {
@@ -180,6 +186,7 @@ test "git/review/skills/probe spawn keys match owning modules" {
     try std.testing.expectEqual(skills.skills_remove_key_first, skills_remove_key_first);
     try std.testing.expectEqual(file_preview_issue_link.key_first, file_preview_issue_link_key_first);
     try std.testing.expectEqual(cli_probe.cli_probe_key_first, cli_probe_key_first);
+    try std.testing.expectEqual(cli_version.cli_version_key_first, cli_version_key_first);
     try std.testing.expectEqual(litellm_rates.litellm_rates_key, litellm_rates_key);
 
     try std.testing.expectEqual(@as(u64, 200), git_branch_key_first);
@@ -208,5 +215,6 @@ test "git/review/skills/probe spawn keys match owning modules" {
     try std.testing.expectEqual(@as(u64, 580), skills_rename_key_first);
     try std.testing.expectEqual(@as(u64, 590), skills_remove_key_first);
     try std.testing.expectEqual(@as(u64, 600), cli_probe_key_first);
+    try std.testing.expectEqual(@as(u64, 610), cli_version_key_first);
     try std.testing.expectEqual(@as(u64, 650), litellm_rates_key);
 }

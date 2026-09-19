@@ -19,6 +19,7 @@ const model_exports = @import("model_exports.zig");
 const Model = model_exports.Model;
 const Effects = main.Effects;
 const max_fx_path = model_exports.max_fx_path;
+const cli_version = @import("cli_version.zig");
 
 /// Distinct from fx ask / daemon / maximize / picker keys.
 pub const fx_probe_key: u64 = 3;
@@ -31,9 +32,12 @@ pub fn startFxProbe(model: *Model, fx: *Effects) void {
 }
 
 /// Settings → Providers Refresh. Cancel any in-flight `--help` probe
-/// (same fixed key) and start from index 0. Fake executor queues the
-/// spawn; tests do not need a live fx binary.
+/// (same fixed key) and start from index 0. Also cancel the fx
+/// `--version` probe and clear its stored token so Refresh re-probes
+/// version only after the new `--help` marks Available. Fake executor
+/// queues the spawn; tests do not need a live fx binary.
 pub fn restartFxProbe(model: *Model, fx: *Effects) void {
+    cli_version.cancelVersionProbe(model, fx, .fx);
     fx.cancel(fx_probe_key);
     model.fx_probe_started = false;
     startFxProbe(model, fx);
@@ -87,6 +91,7 @@ fn spawnFxProbe(model: *Model, fx: *Effects) void {
     }
     model.fx_available = false;
     model.fx_path_len = 0;
+    cli_version.clearVersion(model, .fx);
 }
 
 pub fn handleFxProbeExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
@@ -96,9 +101,11 @@ pub fn handleFxProbeExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExi
     model.provider_detection_checked_at_ms = model.now_ms;
     if (exit.code == 0) {
         model.fx_available = true;
+        cli_version.startVersionProbe(model, fx, .fx);
         return;
     }
     model.fx_available = false;
+    cli_version.cancelVersionProbe(model, fx, .fx);
     if (model.providerBinaryOverride(.fx).len > 0) {
         return;
     }
@@ -195,6 +202,7 @@ test "fx override skips home/PATH cascade; argv[0] is the override; fail does no
     try testing.expect(!model.fx_available);
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
     try testing.expectEqualStrings("/opt/custom-fx", model.fxPath());
+    try testing.expectEqualStrings("", cli_version.providerVersion(&model, .fx));
 }
 
 test "handleFxProbeExit stamps now_ms; cancel is ignored" {
@@ -205,9 +213,13 @@ test "handleFxProbeExit stamps now_ms; cancel is ignored" {
 
     var model = Model{};
     model.now_ms = 99_000;
+    model.setFxPath("/tmp/faku-fx");
     handleFxProbeExit(&model, &fx, .{ .key = fx_probe_key, .reason = .exited, .code = 0 });
     try testing.expect(model.fx_available);
     try testing.expectEqual(@as(i64, 99_000), model.provider_detection_checked_at_ms);
+    const version = fx.pendingSpawnAt(0) orelse return error.MissingFxVersion;
+    try testing.expectEqual(cli_version.versionKey(.fx), version.key);
+    try testing.expect(cli_version.isCliVersionArgv(version.argv, "/tmp/faku-fx"));
 
     model.now_ms = 100_000;
     handleFxProbeExit(&model, &fx, .{ .key = fx_probe_key, .reason = .rejected, .code = 0 });

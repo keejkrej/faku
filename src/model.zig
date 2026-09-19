@@ -97,6 +97,9 @@ pub const max_draft = 512;
 pub const max_queued = 16;
 pub const max_queued_text = 1024;
 pub const max_fx_path = 256;
+/// Runtime-only `{binary} --version` token (Waku `parse_cli_version`).
+/// No extra `v` prefix; markup/`rowFor` paints `v{version}`.
+pub const max_cli_version = 64;
 pub const max_store_dir = 512;
 pub const max_attach_status = 192;
 pub const max_tool_call_id = 128;
@@ -1026,8 +1029,9 @@ pub const Msg = union(enum) {
     fx_exit: native_sdk.EffectExit,
     fx_probe_exit: native_sdk.EffectExit,
     cli_probe_exit: native_sdk.EffectExit,
+    cli_version_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "cli_probe_exit", "term_pty", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "focus_browser_or_composer", "open_find", "open_file_preview_find_replace", "clipboard_done", "attach_preview_done", "file_preview_image_done", "transcript_image_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "cycle_settings_page_down", "cycle_settings_page_up", "quit_app", "start_image_attach", "show_right_panel", "navigate_back", "navigate_forward" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "cli_probe_exit", "cli_version_exit", "term_pty", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "focus_browser_or_composer", "open_find", "open_file_preview_find_replace", "clipboard_done", "attach_preview_done", "file_preview_image_done", "transcript_image_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "cycle_settings_page_down", "cycle_settings_page_up", "quit_app", "start_image_attach", "show_right_panel", "navigate_back", "navigate_forward" };
 };
 
 pub const Model = struct {
@@ -2123,6 +2127,12 @@ pub const Model = struct {
     /// on `fx_available` / `fx_probe`. Not persisted.
     cli_available: [protocol.provider_id_count]bool = [_]bool{false} ** protocol.provider_id_count,
     cli_probe_started: [protocol.provider_id_count]bool = [_]bool{false} ** protocol.provider_id_count,
+    /// Runtime-only `{binary} --version` parse tokens. Index is
+    /// `@intFromEnum(ProviderId)` (fx uses slot 0). Not persisted.
+    /// Cleared when `--help` says not installed; re-probed on Refresh
+    /// / override apply after Available. No extra `v` prefix.
+    cli_version_storage: [protocol.provider_id_count][max_cli_version]u8 = [_][max_cli_version]u8{[_]u8{0} ** max_cli_version} ** protocol.provider_id_count,
+    cli_version_len: [protocol.provider_id_count]usize = [_]usize{0} ** protocol.provider_id_count,
     home_storage: [max_fx_path]u8 = [_]u8{0} ** max_fx_path,
     home_len: usize = 0,
     reply_path: ReplyPath = .demo,
@@ -2974,6 +2984,8 @@ pub const Model = struct {
         "fx_probe_index",
         "cli_available",
         "cli_probe_started",
+        "cli_version_storage",
+        "cli_version_len",
         "provider_binary_override_storage",
         "provider_binary_override_len",
         "home_storage",

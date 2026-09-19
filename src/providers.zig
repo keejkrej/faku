@@ -69,8 +69,10 @@
 //! Leftovers: full onboarding / OAuth / auto-install; Pi ACP /
 //! long-lived RPC (steer / follow_up / session resume); Claude ACP; `--continue`; circular GPUI gauge;
 //! LiteLLM rate-table; T3 layered Usage chart; amend/force and
-//! remote `--track` over daemon (local already). Version badge /
-//! model_count / moving Refresh into the card stay out.
+//! remote `--track` over daemon (local already). Version badge ships
+//! this cut (runtime `{binary} --version` parse; muted `v{version}`
+//! beside Available names). model_count / moving Refresh into the
+//! card stay out.
 //! Disabling does not
 //! move unstarted drafts / last_provider (Faku new sessions stay fx;
 //! drafts.json has no provider).
@@ -95,6 +97,7 @@ const sidecar_keys = @import("sidecar_keys.zig");
 const protocol = @import("protocol.zig");
 const fx_probe = @import("fx_probe.zig");
 const cli_probe = @import("cli_probe.zig");
+const cli_version = @import("cli_version.zig");
 const copy_helpers = @import("copy.zig");
 const i18n = @import("i18n.zig");
 
@@ -192,6 +195,10 @@ pub const ProviderRow = struct {
     has_override_caption: bool = false,
     /// Binary path description with %{provider}. Arena-owned.
     binary_path_description: []const u8 = "",
+    /// Painted `v{token}` when Available and the `--version` parse
+    /// succeeded. Empty otherwise. Arena-owned. Latin data, not i18n.
+    version: []const u8 = "",
+    has_version: bool = false,
 };
 
 pub fn catalogLen() usize {
@@ -380,14 +387,25 @@ pub fn enableLabelFor(model: *const Model, id: protocol.ProviderId, arena: std.m
     return copyNamed(arena, text);
 }
 
+fn versionLabelFor(token: []const u8, arena: std.mem.Allocator) []const u8 {
+    if (token.len == 0) return "";
+    const out = arena.alloc(u8, token.len + 1) catch return "";
+    out[0] = 'v';
+    @memcpy(out[1..], token);
+    return out;
+}
+
 /// `arena` owns `enable_label` (named Enable %{name} / Disable
-/// %{name}). Callers of `rows` pass the Native frame arena. Tests
-/// pass an ArenaAllocator (or any allocator that outlives the row).
+/// %{name}) and the optional `v{version}` badge. Callers of `rows`
+/// pass the Native frame arena. Tests pass an ArenaAllocator (or any
+/// allocator that outlives the row).
 pub fn rowFor(model: *const Model, id: protocol.ProviderId, arena: std.mem.Allocator) ProviderRow {
     const binary = binaryFor(model, id);
     const rid = rowId(id);
     const enabled = !model.disabled_providers[@intFromEnum(id)];
     const pack = chrome(model);
+    const token = cli_version.providerVersion(model, id);
+    const version = if (isAvailable(model, id)) versionLabelFor(token, arena) else "";
     return .{
         .id = rid,
         .name = id.wireName(),
@@ -405,6 +423,8 @@ pub fn rowFor(model: *const Model, id: protocol.ProviderId, arena: std.mem.Alloc
         .override_caption = overrideCaptionFor(model, id, arena),
         .has_override_caption = true,
         .binary_path_description = binaryPathDescriptionFor(model, id, arena),
+        .version = version,
+        .has_version = version.len > 0,
     };
 }
 
@@ -635,8 +655,12 @@ test "non-fx success exit is Available; non-zero is Not found; fx stays on fx_av
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
     var model = Model{};
-    cli_probe.handleCliProbeExit(&model, .{
+    cli_probe.handleCliProbeExit(&model, &fx, .{
         .key = cli_probe.probeKey(.claude),
         .reason = .exited,
         .code = 0,
@@ -644,8 +668,9 @@ test "non-fx success exit is Available; non-zero is Not found; fx stays on fx_av
     try std.testing.expectEqualStrings(available_status, statusFor(&model, .claude));
     try std.testing.expectEqualStrings("claude", binaryFor(&model, .claude));
     try std.testing.expectEqualStrings(missing_status, statusFor(&model, .fx));
+    try std.testing.expect(!rowFor(&model, .claude, arena).has_version);
 
-    cli_probe.handleCliProbeExit(&model, .{
+    cli_probe.handleCliProbeExit(&model, &fx, .{
         .key = cli_probe.probeKey(.codex),
         .reason = .exited,
         .code = 127,
@@ -1593,5 +1618,165 @@ test "refresh / apply override probe argv uses override path" {
     try testing.expect(saw_claude_override);
     try testing.expectEqualStrings("/opt/fx", binaryFor(&model, .fx));
     try testing.expectEqualStrings("/opt/claude", binaryFor(&model, .claude));
+}
+
+test "rowFor paints v{version} only when Available and parse succeeded" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    try testing.expect(!rowFor(&model, .claude, arena).has_version);
+    try testing.expectEqualStrings("", rowFor(&model, .claude, arena).version);
+    try testing.expect(!rowFor(&model, .fx, arena).has_version);
+
+    cli_probe.handleCliProbeExit(&model, &fx, .{
+        .key = cli_probe.probeKey(.claude),
+        .reason = .exited,
+        .code = 0,
+    });
+    try testing.expectEqualStrings(available_status, statusFor(&model, .claude));
+    try testing.expect(!rowFor(&model, .claude, arena).has_version);
+
+    const version_spawn = findPendingVersion(&fx, .claude) orelse return error.MissingClaudeVersion;
+    try testing.expect(cli_version.isCliVersionArgv(version_spawn.argv, "claude"));
+    try testing.expectEqual(cli_version.versionKey(.claude), version_spawn.key);
+    try testing.expect(version_spawn.key != cli_probe.probeKey(.claude));
+
+    cli_version.handleCliVersionExit(&model, .{
+        .key = cli_version.versionKey(.claude),
+        .reason = .exited,
+        .code = 0,
+        .output = "2.1.24 (Claude Code)\n",
+    });
+    try testing.expect(rowFor(&model, .claude, arena).has_version);
+    try testing.expectEqualStrings("v2.1.24", rowFor(&model, .claude, arena).version);
+    try testing.expect(!std.mem.eql(u8, cli_version.providerVersion(&model, .claude), rowFor(&model, .claude, arena).version));
+
+    cli_probe.handleCliProbeExit(&model, &fx, .{
+        .key = cli_probe.probeKey(.claude),
+        .reason = .exited,
+        .code = 127,
+    });
+    try testing.expectEqualStrings(missing_status, statusFor(&model, .claude));
+    try testing.expect(!rowFor(&model, .claude, arena).has_version);
+    try testing.expectEqualStrings("", rowFor(&model, .claude, arena).version);
+    try testing.expectEqualStrings("", cli_version.providerVersion(&model, .claude));
+}
+
+test "Refresh clears versions and restarts --version only after Available help" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setFxPath("/tmp/faku-fx");
+    model.setProviderBinaryOverride(.fx, "/tmp/faku-fx");
+    model.fx_available = true;
+    cli_version.handleCliVersionExit(&model, .{
+        .key = cli_version.versionKey(.fx),
+        .reason = .exited,
+        .code = 0,
+        .output = "fx 0.1.0\n",
+    });
+    cli_version.handleCliVersionExit(&model, .{
+        .key = cli_version.versionKey(.claude),
+        .reason = .exited,
+        .code = 0,
+        .output = "2.1.24 (Claude Code)\n",
+    });
+    model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
+    try testing.expect(rowFor(&model, .fx, arena).has_version);
+    try testing.expectEqualStrings("v0.1.0", rowFor(&model, .fx, arena).version);
+    try testing.expect(rowFor(&model, .claude, arena).has_version);
+
+    refresh(&model, &fx);
+    try testing.expect(!rowFor(&model, .fx, arena).has_version);
+    try testing.expect(!rowFor(&model, .claude, arena).has_version);
+    try testing.expectEqualStrings("", cli_version.providerVersion(&model, .fx));
+    try testing.expectEqualStrings("", cli_version.providerVersion(&model, .claude));
+    try testing.expect(findPendingVersion(&fx, .fx) == null);
+    try testing.expect(findPendingVersion(&fx, .claude) == null);
+
+    fx_probe.handleFxProbeExit(&model, &fx, .{
+        .key = fx_probe.fx_probe_key,
+        .reason = .exited,
+        .code = 0,
+    });
+    const fx_version = findPendingVersion(&fx, .fx) orelse return error.MissingFxVersionAfterHelp;
+    try testing.expect(cli_version.isCliVersionArgv(fx_version.argv, "/tmp/faku-fx"));
+
+    cli_probe.handleCliProbeExit(&model, &fx, .{
+        .key = cli_probe.probeKey(.claude),
+        .reason = .exited,
+        .code = 0,
+    });
+    const claude_version = findPendingVersion(&fx, .claude) orelse return error.MissingClaudeVersionAfterHelp;
+    try testing.expect(cli_version.isCliVersionArgv(claude_version.argv, "claude"));
+}
+
+test "apply / reset override cancel version probe and clear stored token" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.provider_expanded_id = rowId(.claude);
+    model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
+    cli_version.handleCliVersionExit(&model, .{
+        .key = cli_version.versionKey(.claude),
+        .reason = .exited,
+        .code = 0,
+        .output = "2.1.24 (Claude Code)\n",
+    });
+    try testing.expect(rowFor(&model, .claude, arena).has_version);
+
+    model.provider_override_buffer.set("/opt/claude");
+    try testing.expect(applyPathOverride(&model, &fx));
+    try testing.expect(!rowFor(&model, .claude, arena).has_version);
+    try testing.expectEqualStrings("", cli_version.providerVersion(&model, .claude));
+    try testing.expect(findPendingVersion(&fx, .claude) == null);
+
+    cli_probe.handleCliProbeExit(&model, &fx, .{
+        .key = cli_probe.probeKey(.claude),
+        .reason = .exited,
+        .code = 0,
+    });
+    const after_apply = findPendingVersion(&fx, .claude) orelse return error.MissingClaudeVersionAfterApply;
+    try testing.expect(cli_version.isCliVersionArgv(after_apply.argv, "/opt/claude"));
+
+    cli_version.handleCliVersionExit(&model, .{
+        .key = cli_version.versionKey(.claude),
+        .reason = .exited,
+        .code = 0,
+        .output = "2.1.24 (Claude Code)\n",
+    });
+    try testing.expect(rowFor(&model, .claude, arena).has_version);
+
+    try testing.expect(clearPathOverride(&model, &fx));
+    try testing.expect(!rowFor(&model, .claude, arena).has_version);
+    try testing.expectEqualStrings("", cli_version.providerVersion(&model, .claude));
+    try testing.expect(findPendingVersion(&fx, .claude) == null);
+}
+
+fn findPendingVersion(fx: *Effects, id: protocol.ProviderId) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    const key = cli_version.versionKey(id);
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |item| : (i += 1) {
+        if (item.key == key) return item;
+    }
+    return null;
 }
 

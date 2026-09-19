@@ -25,6 +25,7 @@ const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
 const fx_probe = @import("fx_probe.zig");
+const cli_version = @import("cli_version.zig");
 const model_exports = @import("model_exports.zig");
 const effect_keys = @import("effect_keys.zig");
 const protocol = @import("protocol.zig");
@@ -102,6 +103,7 @@ fn startOneCliProbe(model: *Model, fx: *Effects, id: protocol.ProviderId) void {
     const binary = probeBinary(model, id);
     if (binary.len == 0) {
         model.cli_available[index] = false;
+        cli_version.clearVersion(model, id);
         return;
     }
     fx.spawn(.{
@@ -113,34 +115,44 @@ fn startOneCliProbe(model: *Model, fx: *Effects, id: protocol.ProviderId) void {
 }
 
 /// Re-run one non-fx `--help` probe (Settings override apply / Reset).
-/// Cancel in-flight first. Does not reset availability until the new
+/// Cancel in-flight first, including that id's `--version` probe, and
+/// clear its stored token. Does not reset availability until the new
 /// exit lands — same as `restartCliProbes`.
 pub fn restartCliProbe(model: *Model, fx: *Effects, id: protocol.ProviderId) void {
     if (id == .fx) return;
+    cli_version.cancelVersionProbe(model, fx, id);
     fx.cancel(probeKey(id));
     model.cli_probe_started[@intFromEnum(id)] = false;
     startOneCliProbe(model, fx, id);
 }
 
 /// Settings → Providers Refresh. Cancel in-flight `--help` probes
-/// (same fixed keys) and start again. Does not reset availability
+/// (same fixed keys) and start again. Also cancel `--version` probes
+/// and clear stored tokens so Refresh re-probes version only after
+/// the new `--help` marks Available. Does not reset availability
 /// until the new exit lands — same as `restartFxProbe`.
 pub fn restartCliProbes(model: *Model, fx: *Effects) void {
     for (std.meta.tags(protocol.ProviderId)) |id| {
         if (id == .fx) continue;
+        cli_version.cancelVersionProbe(model, fx, id);
         fx.cancel(probeKey(id));
         model.cli_probe_started[@intFromEnum(id)] = false;
     }
     startCliProbes(model, fx);
 }
 
-pub fn handleCliProbeExit(model: *Model, exit: native_sdk.EffectExit) void {
+pub fn handleCliProbeExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     const id = fromProbeKey(exit.key) orelse return;
     const index = @intFromEnum(id);
     // Cancel (Providers Refresh) must not paint a cancelled spawn.
     if (exit.reason != .exited) return;
     model.provider_detection_checked_at_ms = model.now_ms;
     model.cli_available[index] = exit.code == 0;
+    if (exit.code == 0) {
+        cli_version.startVersionProbe(model, fx, id);
+    } else {
+        cli_version.cancelVersionProbe(model, fx, id);
+    }
 }
 
 test "probeKey is per-id and skips fx_probe_key / ask / daemon" {
@@ -219,25 +231,28 @@ test "success exit is Available; non-zero and missing are Not found; cancel is i
     model.now_ms = 42_000;
     startCliProbes(&model, &fx);
 
-    handleCliProbeExit(&model, .{ .key = probeKey(.claude), .reason = .exited, .code = 0 });
+    handleCliProbeExit(&model, &fx, .{ .key = probeKey(.claude), .reason = .exited, .code = 0 });
     try testing.expect(model.cli_available[@intFromEnum(protocol.ProviderId.claude)]);
     try testing.expectEqual(@as(i64, 42_000), model.provider_detection_checked_at_ms);
+    const claude_version = findPending(&fx, cli_version.versionKey(.claude)) orelse return error.MissingClaudeVersion;
+    try testing.expect(cli_version.isCliVersionArgv(claude_version.argv, "claude"));
 
-    handleCliProbeExit(&model, .{ .key = probeKey(.codex), .reason = .exited, .code = 1 });
+    handleCliProbeExit(&model, &fx, .{ .key = probeKey(.codex), .reason = .exited, .code = 1 });
     try testing.expect(!model.cli_available[@intFromEnum(protocol.ProviderId.codex)]);
     try testing.expectEqual(@as(i64, 42_000), model.provider_detection_checked_at_ms);
+    try testing.expect(findPending(&fx, cli_version.versionKey(.codex)) == null);
 
-    handleCliProbeExit(&model, .{ .key = probeKey(.amp), .reason = .exited, .code = 127 });
+    handleCliProbeExit(&model, &fx, .{ .key = probeKey(.amp), .reason = .exited, .code = 127 });
     try testing.expect(!model.cli_available[@intFromEnum(protocol.ProviderId.amp)]);
     try testing.expectEqual(@as(i64, 42_000), model.provider_detection_checked_at_ms);
 
     model.cli_available[@intFromEnum(protocol.ProviderId.grok)] = true;
     model.provider_detection_checked_at_ms = 42_000;
-    handleCliProbeExit(&model, .{ .key = probeKey(.grok), .reason = .rejected, .code = 0 });
+    handleCliProbeExit(&model, &fx, .{ .key = probeKey(.grok), .reason = .rejected, .code = 0 });
     try testing.expect(model.cli_available[@intFromEnum(protocol.ProviderId.grok)]);
     try testing.expectEqual(@as(i64, 42_000), model.provider_detection_checked_at_ms);
 
-    handleCliProbeExit(&model, .{ .key = fx_probe.fx_probe_key, .reason = .exited, .code = 0 });
+    handleCliProbeExit(&model, &fx, .{ .key = fx_probe.fx_probe_key, .reason = .exited, .code = 0 });
     try testing.expect(!model.cli_available[0]);
     try testing.expectEqual(@as(i64, 42_000), model.provider_detection_checked_at_ms);
 }

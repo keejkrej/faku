@@ -594,6 +594,7 @@ test "terminal_sessions_enabled is opted in by this ejected build" {
 test "pty_shell_key band is 700..703 and outside occupied bands" {
     const litellm_rates = @import("litellm_rates.zig");
     const cli_probe = @import("cli_probe.zig");
+    const cli_version = @import("cli_version.zig");
     const fx_probe = @import("fx_probe.zig");
     const browser_pane = @import("browser_pane.zig");
     try std.testing.expectEqual(@as(u64, 700), pty_shell_key);
@@ -608,6 +609,7 @@ test "pty_shell_key band is 700..703 and outside occupied bands" {
     try std.testing.expect(pty_shell_key != open_terminal.open_terminal_key);
     try std.testing.expect(pty_shell_key != effect_keys.fx_spawn_overlap_key_first);
     try std.testing.expect(pty_shell_key != cli_probe.cli_probe_key_first);
+    try std.testing.expect(pty_shell_key != cli_version.cli_version_key_first);
     try std.testing.expect(pty_shell_key != litellm_rates.litellm_rates_key);
     try std.testing.expect(pty_shell_key > litellm_rates.litellm_rates_key);
     try std.testing.expect(pty_shell_key > browser_pane.page_title_key_last);
