@@ -16085,12 +16085,12 @@ test "settings Skills lists SKILL.md name, description, and path; select shows b
     try testing.expect(!std.mem.eql(u8, model.file_preview_open_in_editor_label(), model.skill_open_file_label()));
     try testing.expectEqualStrings(i18n.skillsOpenFileChromeFor(.english, "").open_file, model.skill_open_file_label());
     try testing.expect(!std.mem.eql(u8, i18n.filePreviewChromeFor(.english, "").open_in_editor, model.skill_open_file_label()));
-    try testing.expectEqualStrings("Reveal folder", model.skill_reveal_label());
-    try testing.expectEqualStrings(model.reveal_folder_label(), model.skill_reveal_label());
-    try testing.expectEqualStrings(i18n.composerProjectChromeFor(.english, "").reveal_folder, model.skill_reveal_label());
-    try testing.expectEqualStrings("Copy path", model.skill_copy_path_label());
-    try testing.expectEqualStrings(model.copy_path_label(), model.skill_copy_path_label());
-    try testing.expectEqualStrings(i18n.composerProjectChromeFor(.english, "").copy_path, model.skill_copy_path_label());
+    try testing.expectEqualStrings("Show in File Manager", model.skill_reveal_label());
+    try testing.expect(!std.mem.eql(u8, model.reveal_folder_label(), model.skill_reveal_label()));
+    try testing.expectEqualStrings(i18n.skillsRevealChromeFor(.english, "").reveal, model.skill_reveal_label());
+    try testing.expectEqualStrings("Copy Path", model.skill_copy_path_label());
+    try testing.expect(!std.mem.eql(u8, model.copy_path_label(), model.skill_copy_path_label()));
+    try testing.expectEqualStrings(i18n.skillsCopyPathChromeFor(.english, "").copy_path, model.skill_copy_path_label());
     try testing.expect(findByText(tree.root, .text, skills.disabled_badge) == null);
     try testing.expect(findByText(tree.root, .text, skills.confirm_delete_label) == null);
 
@@ -16182,8 +16182,8 @@ test "settings Skills Open in editor queues host editor argv at the absolute ski
 
     tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "Open SKILL.md", .open_skill_in_editor);
-    _ = try expectButtonMsg(tree, "Reveal folder", .reveal_skill);
-    _ = try expectButtonMsg(tree, "Copy path", .copy_skill_path);
+    _ = try expectButtonMsg(tree, "Show in File Manager", .reveal_skill);
+    _ = try expectButtonMsg(tree, "Copy Path", .copy_skill_path);
 
     main.update(&model, .open_skill_in_editor, &fx);
     const spawn = findOpenEditorSpawn(&fx) orelse return error.MissingOpenEditorSpawn;
@@ -16236,7 +16236,7 @@ test "settings Skills Reveal queues host file-manager argv at the skill parent d
     try testing.expect(model.has_selected_skill() == false);
 
     var tree = try buildTree(arena, &model);
-    try testing.expect(findByText(tree.root, .button, "Reveal folder") == null);
+    try testing.expect(findByText(tree.root, .button, "Show in File Manager") == null);
 
     const before = fx.pendingSpawnCount();
     main.update(&model, .reveal_skill, &fx);
@@ -16253,12 +16253,12 @@ test "settings Skills Reveal queues host file-manager argv at the skill parent d
     tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, model.skill_reveal_label(), .reveal_skill);
     _ = try expectButtonMsg(tree, model.skill_copy_path_label(), .copy_skill_path);
-    try testing.expectEqualStrings("Reveal folder", model.skill_reveal_label());
-    try testing.expectEqualStrings(model.reveal_folder_label(), model.skill_reveal_label());
-    try testing.expectEqualStrings(i18n.composerProjectChromeFor(.english, "").reveal_folder, model.skill_reveal_label());
-    try testing.expectEqualStrings("Copy path", model.skill_copy_path_label());
-    try testing.expectEqualStrings(model.copy_path_label(), model.skill_copy_path_label());
-    try testing.expectEqualStrings(i18n.composerProjectChromeFor(.english, "").copy_path, model.skill_copy_path_label());
+    try testing.expectEqualStrings("Show in File Manager", model.skill_reveal_label());
+    try testing.expect(!std.mem.eql(u8, model.reveal_folder_label(), model.skill_reveal_label()));
+    try testing.expectEqualStrings(i18n.skillsRevealChromeFor(.english, "").reveal, model.skill_reveal_label());
+    try testing.expectEqualStrings("Copy Path", model.skill_copy_path_label());
+    try testing.expect(!std.mem.eql(u8, model.copy_path_label(), model.skill_copy_path_label()));
+    try testing.expectEqualStrings(i18n.skillsCopyPathChromeFor(.english, "").copy_path, model.skill_copy_path_label());
 
     main.update(&model, .reveal_skill, &fx);
     const spawn = findRevealFolderSpawn(&fx) orelse return error.MissingRevealFolderSpawn;
@@ -16310,7 +16310,7 @@ test "settings Skills Copy path writes the absolute skill parent directory" {
     try testing.expect(model.has_selected_skill() == false);
 
     var tree = try buildTree(arena, &model);
-    try testing.expect(findByText(tree.root, .button, "Copy path") == null);
+    try testing.expect(findByText(tree.root, .button, "Copy Path") == null);
 
     try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
     const before = fx.pendingSpawnCount();
@@ -16328,9 +16328,9 @@ test "settings Skills Copy path writes the absolute skill parent directory" {
 
     tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, model.skill_copy_path_label(), .copy_skill_path);
-    try testing.expectEqualStrings("Copy path", model.skill_copy_path_label());
-    try testing.expectEqualStrings(model.copy_path_label(), model.skill_copy_path_label());
-    try testing.expectEqualStrings(i18n.composerProjectChromeFor(.english, "").copy_path, model.skill_copy_path_label());
+    try testing.expectEqualStrings("Copy Path", model.skill_copy_path_label());
+    try testing.expect(!std.mem.eql(u8, model.copy_path_label(), model.skill_copy_path_label()));
+    try testing.expectEqualStrings(i18n.skillsCopyPathChromeFor(.english, "").copy_path, model.skill_copy_path_label());
 
     const spawn_before = fx.pendingSpawnCount();
     main.update(&model, .copy_skill_path, &fx);
@@ -16440,7 +16440,9 @@ test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabl
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"confirm_skill_delete\">Confirm delete</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"open_skill_in_editor\">Open SKILL.md</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"open_skill_in_editor\">Open in editor</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"reveal_skill\">Show in File Manager</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"reveal_skill\">Reveal folder</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"copy_skill_path\">Copy Path</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"copy_skill_path\">Copy path</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Path copied</text>"));
 
@@ -16468,8 +16470,8 @@ test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabl
     _ = try expectButtonMsg(tree, skills.enable_label, .toggle_skill_enabled);
     _ = try expectButtonMsg(tree, skills.delete_label, .arm_skill_delete);
     _ = try expectButtonMsg(tree, "Open SKILL.md", .open_skill_in_editor);
-    _ = try expectButtonMsg(tree, "Reveal folder", .reveal_skill);
-    _ = try expectButtonMsg(tree, "Copy path", .copy_skill_path);
+    _ = try expectButtonMsg(tree, "Show in File Manager", .reveal_skill);
+    _ = try expectButtonMsg(tree, "Copy Path", .copy_skill_path);
     _ = try expectByText(tree.root, .text, "Hidden from insert.");
 
     main.update(&model, .toggle_skill_enabled, &fx);
@@ -16490,7 +16492,7 @@ test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabl
     _ = try expectButtonMsg(tree, "启用", .toggle_skill_enabled);
     _ = try expectButtonMsg(tree, "删除", .arm_skill_delete);
     _ = try expectButtonMsg(tree, "打开 SKILL.md", .open_skill_in_editor);
-    _ = try expectButtonMsg(tree, "显示文件夹", .reveal_skill);
+    _ = try expectButtonMsg(tree, "在文件管理器中显示", .reveal_skill);
     _ = try expectButtonMsg(tree, "复制路径", .copy_skill_path);
     model.language_preference = .japanese;
     tree = try buildTree(arena, &model);
@@ -16498,7 +16500,7 @@ test "settings Skills lists Disabled badge; Enable chip; composer $ skips disabl
     _ = try expectButtonMsg(tree, "有効", .toggle_skill_enabled);
     _ = try expectButtonMsg(tree, "削除", .arm_skill_delete);
     _ = try expectButtonMsg(tree, "SKILL.md を開く", .open_skill_in_editor);
-    _ = try expectButtonMsg(tree, "フォルダを表示", .reveal_skill);
+    _ = try expectButtonMsg(tree, "ファイルマネージャーで表示", .reveal_skill);
     _ = try expectButtonMsg(tree, "パスをコピー", .copy_skill_path);
     model.language_preference = .english;
 
@@ -26662,6 +26664,10 @@ test "composer project-row Pick folder / Reveal folder / Open in Terminal / Open
     try testing.expectEqualStrings("Open in Terminal", model.open_in_terminal_label());
     try testing.expectEqualStrings("Open in Editor", model.open_in_editor_label());
     try testing.expectEqualStrings("Copy path", model.copy_path_label());
+    try testing.expectEqualStrings("Show in File Manager", model.skill_reveal_label());
+    try testing.expectEqualStrings("Copy Path", model.skill_copy_path_label());
+    try testing.expect(!std.mem.eql(u8, model.reveal_folder_label(), model.skill_reveal_label()));
+    try testing.expect(!std.mem.eql(u8, model.copy_path_label(), model.skill_copy_path_label()));
     try testing.expect(!std.mem.eql(u8, model.open_in_editor_label(), model.palette_action_label(.open_editor)));
     try testing.expect(!std.mem.eql(u8, model.reveal_folder_label(), model.palette_action_label(.reveal_folder)));
     try testing.expect(!std.mem.eql(u8, model.copy_path_label(), model.palette_action_label(.copy_project_path)));
