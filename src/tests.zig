@@ -1327,7 +1327,7 @@ test "nested right-panel Files Review Background scrolls pin with overscroll non
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<scroll grow=\"1\" label=\"{file_preview_body_label}\" overscroll=\"none\">"));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "<scroll grow=\"1\" overscroll=\"none\">"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<scroll height=\"384\" overscroll=\"none\">"));
-    try testing.expectEqual(@as(usize, 9), std.mem.count(u8, main.app_markup, "overscroll=\"none\""));
+    try testing.expectEqual(@as(usize, 11), std.mem.count(u8, main.app_markup, "overscroll=\"none\""));
     try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "<scroll grow=\"1\">"));
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "<scroll grow=\"1\" value=\"{transcript_scroll}\" on-scroll=\"transcript_scrolled\" label=\"{transcript_label}\">") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "<scroll grow=\"1\" value=\"{transcript_scroll}\" on-scroll=\"transcript_scrolled\" label=\"{transcript_label}\" overscroll") == null);
@@ -11730,6 +11730,22 @@ fn countByKind(widget: canvas.Widget, kind: canvas.WidgetKind) usize {
     return n;
 }
 
+fn skillsRowHasLibraryDivider(widget: canvas.Widget) bool {
+    var has_library = false;
+    var has_details = false;
+    var has_sep = false;
+    for (widget.children) |child| {
+        if (child.kind == .column and std.mem.eql(u8, widgetName(child), "Skills library")) has_library = true;
+        if (child.kind == .column and std.mem.eql(u8, widgetName(child), "Skill details")) has_details = true;
+        if (child.kind == .separator) has_sep = true;
+    }
+    if (has_library and has_details and has_sep) return true;
+    for (widget.children) |child| {
+        if (skillsRowHasLibraryDivider(child)) return true;
+    }
+    return false;
+}
+
 fn sessionRowHasGroupRail(widget: canvas.Widget, title: []const u8) bool {
     var child_is_target = false;
     for (widget.children) |child| {
@@ -15979,10 +15995,13 @@ test "settings Skills lists SKILL.md name, description, and path; select shows b
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Skills library");
     _ = try expectByText(tree.root, .text, "Skill details");
-    _ = try expectByText(tree.root, .column, "Skills library");
     {
+        const library_pane = try expectByText(tree.root, .column, "Skills library");
+        _ = try expectByText(library_pane, .scroll_view, "Skills library");
         const details_pane = try expectByText(tree.root, .column, "Skill details");
+        _ = try expectByText(details_pane, .scroll_view, "Skill details");
         try testing.expectEqual(@as(f32, 1), details_pane.layout.grow);
+        try testing.expect(skillsRowHasLibraryDivider(tree.root));
     }
     try testing.expectEqualStrings("Skills library", model.skills_library_title());
     try testing.expectEqualStrings("Skill details", model.skills_details_title());
@@ -28135,17 +28154,23 @@ test "Settings Skills empty chrome follows Appearance language" {
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skills_insert_hint}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skills_needs_select}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skills_select_placeholder}"));
-    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{skills_library_title}"));
-    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{skills_details_title}"));
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, main.app_markup, "{skills_library_title}"));
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, main.app_markup, "{skills_details_title}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "foreground=\"text_muted\"><span weight=\"bold\">{skills_library_title}</span>"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "foreground=\"text_muted\"><span weight=\"bold\">{skills_details_title}</span>"));
-    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{skills_library_title}\""));
-    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "label=\"{skills_details_title}\""));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "label=\"{skills_library_title}\""));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "label=\"{skills_details_title}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<column min-width=\"264\" max-width=\"264\" gap=\"10\" padding=\"14\" label=\"{skills_library_title}\">"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<column grow=\"1\" min-width=\"140\" gap=\"10\" padding=\"14\" label=\"{skills_details_title}\">"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<scroll grow=\"1\" label=\"{skills_library_title}\" overscroll=\"none\">"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<scroll grow=\"1\" label=\"{skills_details_title}\" overscroll=\"none\">"));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<separator width=\"1\"></separator>") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<scroll grow=\"1\">\n          <if test=\"{settings_page_skills}\">") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<else>\n          <scroll grow=\"1\">\n          <if test=\"{settings_page_providers}\">") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "<if test=\"{settings_page_skills}\">\n            <row grow=\"1\">") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "<if test=\"{settings_page_skills}\">\n            <row grow=\"1\" main=\"center\">") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "<if test=\"{settings_page_skills}\">\n            <row grow=\"1\" main=\"center\">\n              <column grow=\"1\" max-width=\"720\"") == null);
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<row height=\"26\" cross=\"center\">"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{has_skills_count_caption}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{skills_count_caption}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{k.is_header}"));
@@ -28270,9 +28295,12 @@ test "Settings Skills empty chrome follows Appearance language" {
     _ = try expectByText(tree.root, .text, "Open a project");
     _ = try expectByText(tree.root, .text, "Skills library");
     _ = try expectByText(tree.root, .text, "Skill details");
-    _ = try expectByText(tree.root, .column, "Skills library");
+    const library_pane = try expectByText(tree.root, .column, "Skills library");
+    _ = try expectByText(library_pane, .scroll_view, "Skills library");
     const details_pane = try expectByText(tree.root, .column, "Skill details");
+    _ = try expectByText(details_pane, .scroll_view, "Skill details");
     try testing.expectEqual(@as(f32, 1), details_pane.layout.grow);
+    try testing.expect(skillsRowHasLibraryDivider(tree.root));
     try testing.expect(findByText(tree.root, .text, "No skills found") == null);
     try testing.expect(findByText(tree.root, .text, "No skills yet") == null);
     try testing.expect(findByText(tree.root, .text, "打开项目") == null);
@@ -28295,8 +28323,12 @@ test "Settings Skills empty chrome follows Appearance language" {
     _ = try expectByText(tree.root, .text, "打开项目");
     _ = try expectByText(tree.root, .text, "技能库");
     _ = try expectByText(tree.root, .text, "技能详情");
-    _ = try expectByText(tree.root, .column, "技能库");
-    _ = try expectByText(tree.root, .column, "技能详情");
+    {
+        const library_pane = try expectByText(tree.root, .column, "技能库");
+        _ = try expectByText(library_pane, .scroll_view, "技能库");
+        const details_pane = try expectByText(tree.root, .column, "技能详情");
+        _ = try expectByText(details_pane, .scroll_view, "技能详情");
+    }
     try testing.expect(findByText(tree.root, .text, "Open a project") == null);
     try testing.expect(findByText(tree.root, .text, "Skills library") == null);
     try testing.expect(findByText(tree.root, .text, "Skill details") == null);
@@ -28316,8 +28348,12 @@ test "Settings Skills empty chrome follows Appearance language" {
     _ = try expectByText(tree.root, .text, "プロジェクトを開く");
     _ = try expectByText(tree.root, .text, "スキルライブラリ");
     _ = try expectByText(tree.root, .text, "スキルの詳細");
-    _ = try expectByText(tree.root, .column, "スキルライブラリ");
-    _ = try expectByText(tree.root, .column, "スキルの詳細");
+    {
+        const library_pane = try expectByText(tree.root, .column, "スキルライブラリ");
+        _ = try expectByText(library_pane, .scroll_view, "スキルライブラリ");
+        const details_pane = try expectByText(tree.root, .column, "スキルの詳細");
+        _ = try expectByText(details_pane, .scroll_view, "スキルの詳細");
+    }
     try testing.expect(findByText(tree.root, .text, "Open a project") == null);
     try testing.expect(findByText(tree.root, .text, "Skills library") == null);
     try testing.expect(findByText(tree.root, .text, "技能库") == null);
@@ -28500,6 +28536,12 @@ test "Settings Skills empty chrome follows Appearance language" {
     _ = try expectByText(tree.root, .text, "Select a skill");
     _ = try expectByText(tree.root, .text, "Skills library");
     _ = try expectByText(tree.root, .text, "Skill details");
+    {
+        const library_pane = try expectByText(tree.root, .column, "Skills library");
+        _ = try expectByText(library_pane, .scroll_view, "Skills library");
+        _ = try expectByText(library_pane, .text, "1 skill");
+        try testing.expect(skillsRowHasLibraryDivider(tree.root));
+    }
     _ = try expectByText(tree.root, .text, "1 skill");
     _ = try expectByText(tree.root, .text, "FAKU-SKILLS-EMPTY-I18N");
     try testing.expect(findByText(tree.root, .text, "No skills found") == null);
