@@ -425,6 +425,20 @@
 //! `toggle_provider_expanded` / `apply_provider_path_override` /
 //! `clear_provider_path_override`; wire names / typed paths stay
 //! English)
+//! plus Settings Providers model-count / disabled caption
+//! (same `ProvidersModelCountChrome` strings; English matches
+//! Waku `providers.model_count_one` / `model_count_many` /
+//! `disabled_for_new_tasks`; EN `%{count} model` /
+//! `%{count} models` / Disabled for new tasks / zh-CN
+//! `%{count} 个模型` / `%{count} 个模型` / 新建任务时不可用 /
+//! ja `%{count} 個のモデル` / `%{count} 個のモデル` /
+//! 新規タスクでは無効; numbers stay Latin; distinct from
+//! `ProvidersChrome` / `ProvidersDetailChrome` /
+//! `ProvidersEnableNamedChrome` / `ProvidersCodingAgentsChrome` /
+//! `ProvidersBinaryOverrideChrome` so the caption stays
+//! independently evolvable; Available + disabled paints
+//! disabled_for_new_tasks; Available + enabled + count>0 paints
+//! one/many; empty-catalog / Not found omit)
 //! plus Settings Skills empty-state Open a project / Scanning
 //! skill folders… / No skills found / No skills match your search
 //! (same `SkillsEmptyChrome` strings; distinct from
@@ -4802,6 +4816,47 @@ const providers_binary_override_chrome_ja: ProvidersBinaryOverrideChrome = .{
     .reset = "リセット",
 };
 
+/// Capped scratch for `formatProvidersModelCount`. Templates plus a
+/// Latin `{d}` count stay short in every locale.
+pub const providers_model_count_label_max: usize = 64;
+
+/// Settings Providers muted model-count / disabled caption for the
+/// resolved locale. Same resolve path as ProvidersChrome. English
+/// matches Waku `providers.model_count_one` /
+/// `providers.model_count_many` /
+/// `providers.disabled_for_new_tasks`. Distinct from
+/// `ProvidersChrome` / `ProvidersDetailChrome` /
+/// `ProvidersEnableNamedChrome` / `ProvidersCodingAgentsChrome` /
+/// `ProvidersBinaryOverrideChrome` so the caption stays
+/// independently evolvable. Templates keep Waku `%{count}` slots;
+/// numbers stay Latin. Available + disabled paints
+/// `disabled_for_new_tasks` (not the count). Available + enabled
+/// with a static fallback catalog paints one/many. Empty-catalog
+/// Available rows and Not found omit the caption.
+pub const ProvidersModelCountChrome = struct {
+    model_count_one: []const u8,
+    model_count_many: []const u8,
+    disabled_for_new_tasks: []const u8,
+};
+
+const providers_model_count_chrome_en: ProvidersModelCountChrome = .{
+    .model_count_one = "%{count} model",
+    .model_count_many = "%{count} models",
+    .disabled_for_new_tasks = "Disabled for new tasks",
+};
+
+const providers_model_count_chrome_zh_cn: ProvidersModelCountChrome = .{
+    .model_count_one = "%{count} 个模型",
+    .model_count_many = "%{count} 个模型",
+    .disabled_for_new_tasks = "新建任务时不可用",
+};
+
+const providers_model_count_chrome_ja: ProvidersModelCountChrome = .{
+    .model_count_one = "%{count} 個のモデル",
+    .model_count_many = "%{count} 個のモデル",
+    .disabled_for_new_tasks = "新規タスクでは無効",
+};
+
 /// Settings Skills empty-state Open a project / Scanning skill
 /// folders… / No skills found / No skills match your search for
 /// the resolved locale. Same resolve path as ProvidersDetailChrome.
@@ -6976,6 +7031,23 @@ pub fn providersBinaryOverrideChromeFor(preference: LanguagePreference, system_l
     };
 }
 
+/// Settings Providers muted model-count / disabled caption for the
+/// resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from ProvidersChrome / ProvidersDetailChrome /
+/// ProvidersEnableNamedChrome / ProvidersCodingAgentsChrome /
+/// ProvidersBinaryOverrideChrome so the caption stays independently
+/// evolvable. English matches Waku `providers.model_count_one` /
+/// `model_count_many` / `disabled_for_new_tasks`. Numbers stay
+/// Latin. Wire ids stay English.
+pub fn providersModelCountChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ProvidersModelCountChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => providers_model_count_chrome_zh_cn,
+        .japanese => providers_model_count_chrome_ja,
+        .system, .english => providers_model_count_chrome_en,
+    };
+}
+
 /// Waku `detection_checked_label` buckets from a runtime stamp in
 /// milliseconds (`model.now_ms`). Callers inject `now_ms` so tests
 /// pin buckets. Floor division like Waku. Numbers stay Latin.
@@ -7449,6 +7521,18 @@ pub fn formatProvidersSearchesPath(
     buf: []u8,
 ) []const u8 {
     return formatSkillsNamedText(chrome.searches_path, "command", command, buf);
+}
+
+/// `model_count_one` / `model_count_many` with Latin `%{count}`.
+/// `count == 1` uses one (Waku still substitutes `%{count}` there).
+/// Writes into `buf`; overflow returns the prefix written so far.
+pub fn formatProvidersModelCount(
+    chrome: ProvidersModelCountChrome,
+    count: usize,
+    buf: []u8,
+) []const u8 {
+    const template = if (count == 1) chrome.model_count_one else chrome.model_count_many;
+    return formatSkillsPlaceholders(template, &.{.{ .name = "count", .value = count }}, buf);
 }
 
 /// Waku `skills.scope_in_project` with `%{project}` replaced by the
@@ -11521,6 +11605,82 @@ test "formatProvidersBinaryOverride substitutes %{provider} / %{path} / %{comman
     try testing.expectEqualStrings(
         "",
         formatProvidersExpandSettings(providersBinaryOverrideChromeFor(.english, ""), false, "fx", &tiny),
+    );
+}
+
+test "providersModelCountChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("%{count} model", providersModelCountChromeFor(.english, "ja").model_count_one);
+    try testing.expectEqualStrings("%{count} models", providersModelCountChromeFor(.english, "").model_count_many);
+    try testing.expectEqualStrings("Disabled for new tasks", providersModelCountChromeFor(.english, "").disabled_for_new_tasks);
+    try testing.expectEqualStrings("%{count} model", providersModelCountChromeFor(.system, "").model_count_one);
+    try testing.expectEqualStrings("%{count} models", providersModelCountChromeFor(.system, "").model_count_many);
+    try testing.expectEqualStrings("Disabled for new tasks", providersModelCountChromeFor(.system, "").disabled_for_new_tasks);
+
+    try testing.expectEqualStrings("%{count} 个模型", providersModelCountChromeFor(.simplified_chinese, "").model_count_one);
+    try testing.expectEqualStrings("%{count} 个模型", providersModelCountChromeFor(.simplified_chinese, "").model_count_many);
+    try testing.expectEqualStrings("新建任务时不可用", providersModelCountChromeFor(.simplified_chinese, "").disabled_for_new_tasks);
+    try testing.expectEqualStrings("%{count} 個のモデル", providersModelCountChromeFor(.japanese, "").model_count_one);
+    try testing.expectEqualStrings("%{count} 個のモデル", providersModelCountChromeFor(.japanese, "").model_count_many);
+    try testing.expectEqualStrings("新規タスクでは無効", providersModelCountChromeFor(.japanese, "").disabled_for_new_tasks);
+
+    try testing.expectEqualStrings("%{count} 个模型", providersModelCountChromeFor(.system, "zh_CN.UTF-8").model_count_one);
+    try testing.expectEqualStrings("新建任务时不可用", providersModelCountChromeFor(.system, "zh_CN.UTF-8").disabled_for_new_tasks);
+    try testing.expectEqualStrings("%{count} 個のモデル", providersModelCountChromeFor(.system, "ja_JP.UTF-8").model_count_one);
+    try testing.expectEqualStrings("新規タスクでは無効", providersModelCountChromeFor(.system, "ja_JP.UTF-8").disabled_for_new_tasks);
+    try testing.expectEqualStrings("%{count} model", providersModelCountChromeFor(.english, "ja_JP.UTF-8").model_count_one);
+    try testing.expectEqualStrings("%{count} models", providersModelCountChromeFor(.english, "zh_CN.UTF-8").model_count_many);
+    try testing.expectEqualStrings("Disabled for new tasks", providersModelCountChromeFor(.english, "zh_CN.UTF-8").disabled_for_new_tasks);
+
+    try testing.expect(!std.mem.eql(
+        u8,
+        providersModelCountChromeFor(.english, "").disabled_for_new_tasks,
+        providersChromeFor(.english, "").disable,
+    ));
+    try testing.expect(!std.mem.eql(
+        u8,
+        providersModelCountChromeFor(.english, "").model_count_many,
+        providersCodingAgentsChromeFor(.english, "").checked_minutes_ago,
+    ));
+    try testing.expect(!std.mem.eql(
+        u8,
+        providersModelCountChromeFor(.simplified_chinese, "").disabled_for_new_tasks,
+        providersChromeFor(.simplified_chinese, "").disable,
+    ));
+    try testing.expect(!std.mem.eql(
+        u8,
+        providersModelCountChromeFor(.japanese, "").disabled_for_new_tasks,
+        providersChromeFor(.japanese, "").disable,
+    ));
+
+    var buf: [providers_model_count_label_max]u8 = undefined;
+    try testing.expectEqualStrings(
+        "1 model",
+        formatProvidersModelCount(providersModelCountChromeFor(.english, ""), 1, &buf),
+    );
+    try testing.expectEqualStrings(
+        "9 models",
+        formatProvidersModelCount(providersModelCountChromeFor(.english, ""), 9, &buf),
+    );
+    try testing.expectEqualStrings(
+        "4 models",
+        formatProvidersModelCount(providersModelCountChromeFor(.english, ""), 4, &buf),
+    );
+    try testing.expectEqualStrings(
+        "1 个模型",
+        formatProvidersModelCount(providersModelCountChromeFor(.simplified_chinese, ""), 1, &buf),
+    );
+    try testing.expectEqualStrings(
+        "5 个模型",
+        formatProvidersModelCount(providersModelCountChromeFor(.simplified_chinese, ""), 5, &buf),
+    );
+    try testing.expectEqualStrings(
+        "1 個のモデル",
+        formatProvidersModelCount(providersModelCountChromeFor(.japanese, ""), 1, &buf),
+    );
+    try testing.expectEqualStrings(
+        "9 個のモデル",
+        formatProvidersModelCount(providersModelCountChromeFor(.japanese, ""), 9, &buf),
     );
 }
 

@@ -515,7 +515,7 @@
                 </card>
                 <for each="provider_rows" key="id" as="p">
                   <column gap="4">
-                    <list-item height="52" padding="8" gap="4" cross="center" selected="{p.selected}" on-press="select_provider:{p.id}" label="{p.name}">
+                    <list-item height="68" padding="8" gap="4" cross="center" selected="{p.selected}" on-press="select_provider:{p.id}" label="{p.name}">
                       <if test="{p.expanded}">
                         <button variant="ghost" size="icon" icon="chevron-down" label="{p.expand_label}" on-press="toggle_provider_expanded:{p.id}"></button>
                       </if>
@@ -533,6 +533,9 @@
                           </if>
                         </row>
                         <text wrap="false" overflow="ellipsis" foreground="text_muted">{p.status}</text>
+                        <if test="{p.has_model_count}">
+                          <text wrap="false" overflow="ellipsis" foreground="text_muted">{p.model_count_label}</text>
+                        </if>
                         <if test="{p.has_binary}">
                           <text wrap="false" overflow="ellipsis" foreground="text_muted">{p.binary}</text>
                         </if>

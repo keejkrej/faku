@@ -64,16 +64,22 @@
 //! card via `i18n.SettingsRefreshChrome`; Skills / Usage Refresh
 //! stay in the Settings header). Expand chevron Show/Hide %{provider} settings and
 //! Binary path override follow `i18n.ProvidersBinaryOverrideChrome`
-//! (Faku, not Waku, in product-named strings). Tests do not
+//! (Faku, not Waku, in product-named strings). Model-count /
+//! disabled caption follows `i18n.ProvidersModelCountChrome`
+//! (static Waku `fallback_models` lengths; Latin digits). Tests do not
 //! need a live daemon or any real CLI install.
 //!
 //! Leftovers: full onboarding / OAuth / auto-install; Pi ACP /
 //! long-lived RPC (steer / follow_up / session resume); Claude ACP; `--continue`; circular GPUI gauge;
 //! LiteLLM rate-table; T3 layered Usage chart; amend/force and
-//! remote `--track` over daemon (local already). Version badge ships
+//! remote `--track` over daemon (local already); Daemon hosting
+//! page + Native-blocked UI. Version badge ships
 //! this cut (runtime `{binary} --version` parse; muted `v{version}`
 //! beside Available names). Refresh-in-card ships this cut.
-//! model_count stays out.
+//! model_count ships this cut (static Waku `fallback_models`
+//! lengths; Available enabled paints N model(s); Available
+//! disabled paints Disabled for new tasks; empty-catalog /
+//! Not found omit).
 //! Disabling does not
 //! move unstarted drafts / last_provider (Faku new sessions stay fx;
 //! drafts.json has no provider).
@@ -200,6 +206,13 @@ pub const ProviderRow = struct {
     /// succeeded. Empty otherwise. Arena-owned. Latin data, not i18n.
     version: []const u8 = "",
     has_version: bool = false,
+    /// Muted model-count / disabled caption when Available.
+    /// Disabled paints `disabled_for_new_tasks`; else static
+    /// fallback catalog one/many when count > 0. Empty on
+    /// Not found and empty-catalog Available rows. Arena-owned
+    /// when formatted from a count template.
+    model_count_label: []const u8 = "",
+    has_model_count: bool = false,
 };
 
 pub fn catalogLen() usize {
@@ -270,6 +283,23 @@ pub fn binaryFor(model: *const Model, id: protocol.ProviderId) []const u8 {
 
 fn overrideChrome(model: *const Model) i18n.ProvidersBinaryOverrideChrome {
     return i18n.providersBinaryOverrideChromeFor(model.language_preference, model.systemLocaleId());
+}
+
+fn modelCountChrome(model: *const Model) i18n.ProvidersModelCountChrome {
+    return i18n.providersModelCountChromeFor(model.language_preference, model.systemLocaleId());
+}
+
+/// Static Waku `fallback_models(provider)` lengths. Live discovery
+/// stays out this cut. Empty-catalog ids (fx / grok / kimi /
+/// opencode / pi) return 0 — do not invent catalogs.
+pub fn fallbackModelCount(id: protocol.ProviderId) usize {
+    return switch (id) {
+        .amp => 4,
+        .codex => 5,
+        .claude => 9,
+        .cursor => 1,
+        .fx, .grok, .kimi, .opencode, .pi => 0,
+    };
 }
 
 fn seedOverrideDraft(model: *Model, id: protocol.ProviderId) void {
@@ -396,8 +426,20 @@ fn versionLabelFor(token: []const u8, arena: std.mem.Allocator) []const u8 {
     return out;
 }
 
+fn modelCountLabelFor(model: *const Model, id: protocol.ProviderId, enabled: bool, arena: std.mem.Allocator) []const u8 {
+    if (!isAvailable(model, id)) return "";
+    const pack = modelCountChrome(model);
+    if (!enabled) return pack.disabled_for_new_tasks;
+    const count = fallbackModelCount(id);
+    if (count == 0) return "";
+    var buf: [i18n.providers_model_count_label_max]u8 = undefined;
+    const text = i18n.formatProvidersModelCount(pack, count, &buf);
+    return copyNamed(arena, text);
+}
+
 /// `arena` owns `enable_label` (named Enable %{name} / Disable
-/// %{name}) and the optional `v{version}` badge. Callers of `rows`
+/// %{name}), the optional `v{version}` badge, and the optional
+/// formatted model-count caption. Callers of `rows`
 /// pass the Native frame arena. Tests pass an ArenaAllocator (or any
 /// allocator that outlives the row).
 pub fn rowFor(model: *const Model, id: protocol.ProviderId, arena: std.mem.Allocator) ProviderRow {
@@ -407,6 +449,7 @@ pub fn rowFor(model: *const Model, id: protocol.ProviderId, arena: std.mem.Alloc
     const pack = chrome(model);
     const token = cli_version.providerVersion(model, id);
     const version = if (isAvailable(model, id)) versionLabelFor(token, arena) else "";
+    const model_count_label = modelCountLabelFor(model, id, enabled, arena);
     return .{
         .id = rid,
         .name = id.wireName(),
@@ -426,6 +469,8 @@ pub fn rowFor(model: *const Model, id: protocol.ProviderId, arena: std.mem.Alloc
         .binary_path_description = binaryPathDescriptionFor(model, id, arena),
         .version = version,
         .has_version = version.len > 0,
+        .model_count_label = model_count_label,
+        .has_model_count = model_count_label.len > 0,
     };
 }
 
@@ -1770,6 +1815,79 @@ test "apply / reset override cancel version probe and clear stored token" {
     try testing.expect(!rowFor(&model, .claude, arena).has_version);
     try testing.expectEqualStrings("", cli_version.providerVersion(&model, .claude));
     try testing.expect(findPendingVersion(&fx, .claude) == null);
+}
+
+test "fallbackModelCount matches Waku fallback_models lengths" {
+    const testing = std.testing;
+    try testing.expectEqual(@as(usize, 4), fallbackModelCount(.amp));
+    try testing.expectEqual(@as(usize, 5), fallbackModelCount(.codex));
+    try testing.expectEqual(@as(usize, 9), fallbackModelCount(.claude));
+    try testing.expectEqual(@as(usize, 1), fallbackModelCount(.cursor));
+    try testing.expectEqual(@as(usize, 0), fallbackModelCount(.fx));
+    try testing.expectEqual(@as(usize, 0), fallbackModelCount(.pi));
+    try testing.expectEqual(@as(usize, 0), fallbackModelCount(.grok));
+    try testing.expectEqual(@as(usize, 0), fallbackModelCount(.kimi));
+    try testing.expectEqual(@as(usize, 0), fallbackModelCount(.opencode));
+}
+
+test "rowFor paints model_count when Available with a catalog; disabled wins; Not found omits" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var model = Model{};
+
+    try testing.expect(!rowFor(&model, .claude, arena).has_model_count);
+    try testing.expectEqualStrings("", rowFor(&model, .claude, arena).model_count_label);
+    try testing.expect(!rowFor(&model, .fx, arena).has_model_count);
+    try testing.expect(!rowFor(&model, .cursor, arena).has_model_count);
+    try testing.expect(!rowFor(&model, .amp, arena).has_model_count);
+
+    model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
+    model.cli_available[@intFromEnum(protocol.ProviderId.cursor)] = true;
+    model.cli_available[@intFromEnum(protocol.ProviderId.amp)] = true;
+    model.cli_available[@intFromEnum(protocol.ProviderId.codex)] = true;
+    model.fx_available = true;
+    model.cli_available[@intFromEnum(protocol.ProviderId.pi)] = true;
+
+    try testing.expect(rowFor(&model, .claude, arena).has_model_count);
+    try testing.expectEqualStrings("9 models", rowFor(&model, .claude, arena).model_count_label);
+    try testing.expect(rowFor(&model, .amp, arena).has_model_count);
+    try testing.expectEqualStrings("4 models", rowFor(&model, .amp, arena).model_count_label);
+    try testing.expect(rowFor(&model, .codex, arena).has_model_count);
+    try testing.expectEqualStrings("5 models", rowFor(&model, .codex, arena).model_count_label);
+    try testing.expect(rowFor(&model, .cursor, arena).has_model_count);
+    try testing.expectEqualStrings("1 model", rowFor(&model, .cursor, arena).model_count_label);
+    try testing.expect(!rowFor(&model, .fx, arena).has_model_count);
+    try testing.expectEqualStrings("", rowFor(&model, .fx, arena).model_count_label);
+    try testing.expect(!rowFor(&model, .pi, arena).has_model_count);
+    try testing.expectEqualStrings("", rowFor(&model, .pi, arena).model_count_label);
+
+    setProviderEnabled(&model, .claude, false);
+    try testing.expect(rowFor(&model, .claude, arena).has_model_count);
+    try testing.expectEqualStrings("Disabled for new tasks", rowFor(&model, .claude, arena).model_count_label);
+    try testing.expect(std.mem.indexOf(u8, rowFor(&model, .claude, arena).model_count_label, "model") == null);
+
+    setProviderEnabled(&model, .fx, false);
+    try testing.expect(rowFor(&model, .fx, arena).has_model_count);
+    try testing.expectEqualStrings("Disabled for new tasks", rowFor(&model, .fx, arena).model_count_label);
+
+    setProviderEnabled(&model, .claude, true);
+    model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = false;
+    try testing.expect(!rowFor(&model, .claude, arena).has_model_count);
+    try testing.expectEqualStrings("", rowFor(&model, .claude, arena).model_count_label);
+
+    model.language_preference = .simplified_chinese;
+    model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
+    try testing.expectEqualStrings("9 个模型", rowFor(&model, .claude, arena).model_count_label);
+    setProviderEnabled(&model, .claude, false);
+    try testing.expectEqualStrings("新建任务时不可用", rowFor(&model, .claude, arena).model_count_label);
+
+    model.language_preference = .japanese;
+    setProviderEnabled(&model, .claude, true);
+    try testing.expectEqualStrings("9 個のモデル", rowFor(&model, .claude, arena).model_count_label);
+    setProviderEnabled(&model, .cursor, false);
+    try testing.expectEqualStrings("新規タスクでは無効", rowFor(&model, .cursor, arena).model_count_label);
 }
 
 fn findPendingVersion(fx: *Effects, id: protocol.ProviderId) ?@TypeOf(fx.pendingSpawnAt(0).?) {
