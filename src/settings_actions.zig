@@ -457,6 +457,20 @@ pub fn handleToggleRenderMath(model: *Model) void {
     store.persistSettingsIfPossible(model);
 }
 
+/// Settings General Automatic updates chip. Closes
+/// switcher / palette / Settings effort picker like other Settings
+/// General overlays, then flips `automatic_updates_enabled` and merge-writes
+/// extras. Preference + UI only; no Sparkle / check-for-updates /
+/// download / install this cut.
+pub fn handleToggleAutomaticUpdates(model: *Model) void {
+    session_switcher.closeSwitcher(model);
+    if (model.palette_open) model.closePalette();
+    model.closeSettingsEffortPicker();
+    model.closeSkillsSourcePicker();
+    model.automatic_updates_enabled = !model.automatic_updates_enabled;
+    store.persistSettingsIfPossible(model);
+}
+
 fn leaveUsagePage(model: *Model) void {
     if (model.settings_page != .usage) return;
     usage_history.leaveUsage(model);

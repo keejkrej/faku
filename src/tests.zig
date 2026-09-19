@@ -31934,6 +31934,8 @@ test "Settings General Local by default card follows Appearance language" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{anonymous_usage_title}").? <
         std.mem.indexOf(u8, main.app_markup, "{render_math_title}").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{render_math_title}").? <
+        std.mem.indexOf(u8, main.app_markup, "{automatic_updates_title}").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{automatic_updates_title}").? <
         std.mem.indexOf(u8, main.app_markup, "{settings_default_model_label}").?);
 
     var model = boot.initialModel();
@@ -32049,6 +32051,8 @@ test "Settings General Share anonymous usage data card follows Appearance langua
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{anonymous_usage_title}").? <
         std.mem.indexOf(u8, main.app_markup, "{render_math_title}").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{render_math_title}").? <
+        std.mem.indexOf(u8, main.app_markup, "{automatic_updates_title}").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{automatic_updates_title}").? <
         std.mem.indexOf(u8, main.app_markup, "{settings_default_model_label}").?);
 
     var model = boot.initialModel();
@@ -32183,6 +32187,8 @@ test "Settings General Render math expressions card follows Appearance language"
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{anonymous_usage_title}").? <
         std.mem.indexOf(u8, main.app_markup, "{render_math_title}").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{render_math_title}").? <
+        std.mem.indexOf(u8, main.app_markup, "{automatic_updates_title}").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{automatic_updates_title}").? <
         std.mem.indexOf(u8, main.app_markup, "{settings_default_model_label}").?);
 
     var model = boot.initialModel();
@@ -32296,6 +32302,165 @@ test "Settings General Render math expressions card follows Appearance language"
     _ = try expectByText(tree.root, .text, "数式を描画");
     try testing.expect(findByText(tree.root, .text, "Render math expressions") == null);
     try testing.expect(findByText(tree.root, .text, "渲染数学公式") == null);
+}
+
+test "Settings General Automatic updates card follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{automatic_updates_title}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{automatic_updates_description}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<span weight=\"bold\">{automatic_updates_title}</span>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "selected=\"{automatic_updates_enabled}\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"toggle_automatic_updates\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "wrap=\"true\" foreground=\"text_muted\">{automatic_updates_description}</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Automatic updates</"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "Check for new versions in the background"));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "Sparkle") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "sparkle") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{render_math_title}").? <
+        std.mem.indexOf(u8, main.app_markup, "{automatic_updates_title}").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{automatic_updates_title}").? <
+        std.mem.indexOf(u8, main.app_markup, "{settings_default_model_label}").?);
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-auto-upd", .{tmp.sub_path[0..]});
+
+    var model = boot.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    try store.saveSession(&model, model.selected, testing.allocator, testing.io);
+    try testing.expect(model.automatic_updates_enabled);
+    try testing.expectEqualStrings("Automatic updates", model.automatic_updates_title());
+    try testing.expectEqualStrings(
+        "Check for new versions in the background and offer to install them",
+        model.automatic_updates_description(),
+    );
+    try testing.expectEqualStrings(i18n.automaticUpdatesChromeFor(.english, "").title, model.automatic_updates_title());
+    try testing.expectEqualStrings(i18n.automaticUpdatesChromeFor(.english, "").description, model.automatic_updates_description());
+    try testing.expect(!std.mem.eql(u8, model.automatic_updates_title(), model.render_math_title()));
+    try testing.expect(!std.mem.eql(u8, model.automatic_updates_description(), model.render_math_description()));
+    try testing.expect(!std.mem.eql(u8, model.automatic_updates_title(), model.anonymous_usage_title()));
+    try testing.expect(!std.mem.eql(u8, model.automatic_updates_description(), model.anonymous_usage_description()));
+    try testing.expect(!std.mem.eql(u8, model.automatic_updates_title(), model.local_by_default_title()));
+    try testing.expect(!std.mem.eql(u8, model.automatic_updates_description(), model.local_by_default_description()));
+    try testing.expect(!std.mem.eql(u8, model.automatic_updates_title(), model.settings_default_model_label()));
+    try testing.expect(!std.mem.eql(u8, model.automatic_updates_title(), model.computer_use_title()));
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_open);
+    try testing.expect(model.settings_page_general());
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Automatic updates");
+    _ = try expectByText(tree.root, .text, "Check for new versions in the background and offer to install them");
+    _ = try expectByText(tree.root, .text, "Render math expressions");
+    _ = try expectByText(tree.root, .text, "Share anonymous usage data");
+    _ = try expectByText(tree.root, .text, "Local by default");
+    _ = try expectByText(tree.root, .text, "Default model");
+    const en_btn = try expectButtonMsg(tree, "Automatic updates", .toggle_automatic_updates);
+    try testing.expect(en_btn.state.selected);
+    try testing.expect(findByText(tree.root, .text, "自动更新") == null);
+    try testing.expect(findByText(tree.root, .text, "自動アップデート") == null);
+
+    model.switcher_open = true;
+    model.settings_effort_picker_open = true;
+    main.update(&model, .toggle_automatic_updates, &fx);
+    try testing.expect(!model.automatic_updates_enabled);
+    try testing.expect(!model.switcher_open);
+    try testing.expect(!model.settings_effort_picker_open);
+    tree = try buildTree(arena, &model);
+    const off_btn = try expectButtonMsg(tree, "Automatic updates", .toggle_automatic_updates);
+    try testing.expect(!off_btn.state.selected);
+
+    var reloaded_off = Model{};
+    reloaded_off.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&reloaded_off, testing.allocator, testing.io));
+    try testing.expect(!reloaded_off.automatic_updates_enabled);
+
+    main.update(&model, .toggle_automatic_updates, &fx);
+    try testing.expect(model.automatic_updates_enabled);
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Automatic updates", .toggle_automatic_updates)).state.selected);
+
+    var reloaded_on = Model{};
+    reloaded_on.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&reloaded_on, testing.allocator, testing.io));
+    try testing.expect(reloaded_on.automatic_updates_enabled);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("自动更新", model.automatic_updates_title());
+    try testing.expectEqualStrings(
+        "在后台检查新版本，并在发现更新时提示安装",
+        model.automatic_updates_description(),
+    );
+    try testing.expectEqualStrings(i18n.automaticUpdatesChromeFor(.simplified_chinese, "").title, model.automatic_updates_title());
+    try testing.expectEqualStrings(i18n.automaticUpdatesChromeFor(.simplified_chinese, "").description, model.automatic_updates_description());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "自动更新");
+    _ = try expectByText(tree.root, .text, "在后台检查新版本，并在发现更新时提示安装");
+    _ = try expectByText(tree.root, .text, "渲染数学公式");
+    _ = try expectButtonMsg(tree, "自动更新", .toggle_automatic_updates);
+    try testing.expect(findByText(tree.root, .text, "Automatic updates") == null);
+    try testing.expect(findByText(tree.root, .text, "Check for new versions in the background") == null);
+    try testing.expect(findByText(tree.root, .text, "自動アップデート") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("自動アップデート", model.automatic_updates_title());
+    try testing.expectEqualStrings(
+        "バックグラウンドで新しいバージョンを確認し、インストールを案内します",
+        model.automatic_updates_description(),
+    );
+    try testing.expectEqualStrings(i18n.automaticUpdatesChromeFor(.japanese, "").title, model.automatic_updates_title());
+    try testing.expectEqualStrings(i18n.automaticUpdatesChromeFor(.japanese, "").description, model.automatic_updates_description());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "自動アップデート");
+    _ = try expectByText(tree.root, .text, "バックグラウンドで新しいバージョンを確認し、インストールを案内します");
+    _ = try expectByText(tree.root, .text, "数式を描画");
+    _ = try expectButtonMsg(tree, "自動アップデート", .toggle_automatic_updates);
+    try testing.expect(findByText(tree.root, .text, "Automatic updates") == null);
+    try testing.expect(findByText(tree.root, .text, "自动更新") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Automatic updates", model.automatic_updates_title());
+    try testing.expectEqualStrings(
+        "Check for new versions in the background and offer to install them",
+        model.automatic_updates_description(),
+    );
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Automatic updates");
+    try testing.expect(findByText(tree.root, .text, "自動アップデート") == null);
+    try testing.expect(findByText(tree.root, .text, "自动更新") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("自动更新", model.automatic_updates_title());
+    try testing.expectEqualStrings(
+        "在后台检查新版本，并在发现更新时提示安装",
+        model.automatic_updates_description(),
+    );
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "自动更新");
+    try testing.expect(findByText(tree.root, .text, "Automatic updates") == null);
+
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("自動アップデート", model.automatic_updates_title());
+    try testing.expectEqualStrings(
+        "バックグラウンドで新しいバージョンを確認し、インストールを案内します",
+        model.automatic_updates_description(),
+    );
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "自動アップデート");
+    try testing.expect(findByText(tree.root, .text, "Automatic updates") == null);
+    try testing.expect(findByText(tree.root, .text, "自动更新") == null);
 }
 
 test "Composer Image path and Status chrome follow Appearance language" {

@@ -188,6 +188,16 @@
 //! only, no KaTeX / Native math flag this cut; distinct from
 //! `AnonymousUsageChrome` / `LocalByDefaultChrome` /
 //! `SettingsGeneralChrome` so packs stay independently evolvable)
+//! plus Settings General Automatic updates title +
+//! description (same `AutomaticUpdatesChrome` strings; English
+//! matches Waku `settings.automatic_updates` /
+//! `settings.automatic_updates_description`; persist key
+//! `automatic_updates_enabled`; default true; preference + UI
+//! only, no Sparkle / check-for-updates / download / install this
+//! cut; always shown this cut unlike Waku `updater_available`;
+//! distinct from `RenderMathChrome` / `AnonymousUsageChrome` /
+//! `LocalByDefaultChrome` / `SettingsGeneralChrome` so packs
+//! stay independently evolvable)
 //! plus composer Image path placeholder, Pick image button,
 //! Attach image a11y, Clear image a11y, Attached image a11y,
 //! Goal Status picker placeholder / empty label, and Commands
@@ -729,7 +739,15 @@
 //! `render_math`; `on-press` stays English `toggle_render_math`;
 //! preference + UI only, no KaTeX / Native math flag this cut;
 //! distinct from `AnonymousUsageChrome` / `LocalByDefaultChrome` /
-//! `SettingsGeneralChrome`). Composer Image path `on-input`
+//! `SettingsGeneralChrome`). Settings General Automatic
+//! updates title + description follow the resolved locale
+//! this cut (same `AutomaticUpdatesChrome` strings; persist key
+//! `automatic_updates_enabled`; `on-press` stays English
+//! `toggle_automatic_updates`; preference + UI only, no Sparkle
+//! / check-for-updates / download / install this cut; always
+//! shown this cut unlike Waku `updater_available`; distinct from
+//! `RenderMathChrome` / `AnonymousUsageChrome` /
+//! `LocalByDefaultChrome` / `SettingsGeneralChrome`). Composer Image path `on-input`
 //! stays English (`image_path_edit`); Goal Status picker `on-press`
 //! stays English (`toggle_goal_status_picker` / `pick_goal_status`); Pick image / Attach
 //! image `on-press` stays English (`pick_image`); Clear image
@@ -2732,6 +2750,37 @@ const render_math_chrome_zh_cn: RenderMathChrome = .{
 const render_math_chrome_ja: RenderMathChrome = .{
     .title = "数式を描画",
     .description = "Markdown の数式を整形して表示します。オフにすると LaTeX ソースを表示します。",
+};
+
+/// Settings General Automatic updates title + description
+/// for the resolved locale. Same resolve path as RenderMathChrome.
+/// English matches Waku `settings.automatic_updates` /
+/// `settings.automatic_updates_description`. First-cut preference + UI
+/// only: persist `automatic_updates_enabled` (default true); no
+/// Sparkle / check-for-updates / download / install this cut. Always
+/// shown this cut unlike Waku `updater_available`. Distinct from
+/// `RenderMathChrome` / `AnonymousUsageChrome` /
+/// `LocalByDefaultChrome` / `SettingsGeneralChrome` /
+/// `ComputerUseChrome` / `DaemonAddressChrome` so packs stay
+/// independently evolvable.
+pub const AutomaticUpdatesChrome = struct {
+    title: []const u8,
+    description: []const u8,
+};
+
+const automatic_updates_chrome_en: AutomaticUpdatesChrome = .{
+    .title = "Automatic updates",
+    .description = "Check for new versions in the background and offer to install them",
+};
+
+const automatic_updates_chrome_zh_cn: AutomaticUpdatesChrome = .{
+    .title = "自动更新",
+    .description = "在后台检查新版本，并在发现更新时提示安装",
+};
+
+const automatic_updates_chrome_ja: AutomaticUpdatesChrome = .{
+    .title = "自動アップデート",
+    .description = "バックグラウンドで新しいバージョンを確認し、インストールを案内します",
 };
 
 /// OS folder-dialog prompt and missing-picker status for the resolved
@@ -5886,6 +5935,23 @@ pub fn renderMathChromeFor(preference: LanguagePreference, system_locale_id: []c
     };
 }
 
+/// Settings General Automatic updates title + description
+/// for the resolved locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. English
+/// matches Waku `settings.automatic_updates` /
+/// `settings.automatic_updates_description`. Distinct from
+/// `renderMathChromeFor` / `anonymousUsageChromeFor` /
+/// `localByDefaultChromeFor` / `settingsGeneralChromeFor` so packs
+/// stay independently evolvable. Preference + UI only; no Sparkle /
+/// check-for-updates / download / install this cut.
+pub fn automaticUpdatesChromeFor(preference: LanguagePreference, system_locale_id: []const u8) AutomaticUpdatesChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => automatic_updates_chrome_zh_cn,
+        .japanese => automatic_updates_chrome_ja,
+        .system, .english => automatic_updates_chrome_en,
+    };
+}
+
 /// OS folder-dialog prompt and missing-picker status for the resolved
 /// locale. Callers pass Model `language_preference` +
 /// `system_locale_id`; this file does not read process env. Wire ids /
@@ -8825,6 +8891,42 @@ test "renderMathChromeFor english default; zh and ja chrome; distinct from anony
     try testing.expect(!std.mem.eql(u8, renderMathChromeFor(.japanese, "").title, anonymousUsageChromeFor(.japanese, "").title));
     try testing.expect(!std.mem.eql(u8, renderMathChromeFor(.simplified_chinese, "").title, localByDefaultChromeFor(.simplified_chinese, "").title));
     try testing.expect(!std.mem.eql(u8, renderMathChromeFor(.japanese, "").title, localByDefaultChromeFor(.japanese, "").title));
+}
+
+test "automaticUpdatesChromeFor english default; zh and ja chrome; distinct from renderMath anonymousUsage localByDefault" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Automatic updates", automaticUpdatesChromeFor(.english, "ja").title);
+    try testing.expectEqualStrings(
+        "Check for new versions in the background and offer to install them",
+        automaticUpdatesChromeFor(.english, "").description,
+    );
+    try testing.expectEqualStrings("Automatic updates", automaticUpdatesChromeFor(.system, "").title);
+    try testing.expectEqualStrings("自动更新", automaticUpdatesChromeFor(.simplified_chinese, "").title);
+    try testing.expectEqualStrings(
+        "在后台检查新版本，并在发现更新时提示安装",
+        automaticUpdatesChromeFor(.simplified_chinese, "").description,
+    );
+    try testing.expectEqualStrings("自動アップデート", automaticUpdatesChromeFor(.japanese, "").title);
+    try testing.expectEqualStrings(
+        "バックグラウンドで新しいバージョンを確認し、インストールを案内します",
+        automaticUpdatesChromeFor(.japanese, "").description,
+    );
+    try testing.expectEqualStrings("自动更新", automaticUpdatesChromeFor(.system, "zh_CN.UTF-8").title);
+    try testing.expectEqualStrings("自動アップデート", automaticUpdatesChromeFor(.system, "ja_JP.UTF-8").title);
+    try testing.expectEqualStrings("Automatic updates", automaticUpdatesChromeFor(.english, "ja_JP.UTF-8").title);
+    try testing.expectEqualStrings("Automatic updates", automaticUpdatesChromeFor(.english, "zh_CN.UTF-8").title);
+    try testing.expect(!std.mem.eql(u8, automaticUpdatesChromeFor(.english, "").title, renderMathChromeFor(.english, "").title));
+    try testing.expect(!std.mem.eql(u8, automaticUpdatesChromeFor(.english, "").description, renderMathChromeFor(.english, "").description));
+    try testing.expect(!std.mem.eql(u8, automaticUpdatesChromeFor(.english, "").title, anonymousUsageChromeFor(.english, "").title));
+    try testing.expect(!std.mem.eql(u8, automaticUpdatesChromeFor(.english, "").description, anonymousUsageChromeFor(.english, "").description));
+    try testing.expect(!std.mem.eql(u8, automaticUpdatesChromeFor(.english, "").title, localByDefaultChromeFor(.english, "").title));
+    try testing.expect(!std.mem.eql(u8, automaticUpdatesChromeFor(.english, "").description, localByDefaultChromeFor(.english, "").description));
+    try testing.expect(!std.mem.eql(u8, automaticUpdatesChromeFor(.simplified_chinese, "").title, renderMathChromeFor(.simplified_chinese, "").title));
+    try testing.expect(!std.mem.eql(u8, automaticUpdatesChromeFor(.japanese, "").title, renderMathChromeFor(.japanese, "").title));
+    try testing.expect(!std.mem.eql(u8, automaticUpdatesChromeFor(.simplified_chinese, "").title, anonymousUsageChromeFor(.simplified_chinese, "").title));
+    try testing.expect(!std.mem.eql(u8, automaticUpdatesChromeFor(.japanese, "").title, anonymousUsageChromeFor(.japanese, "").title));
+    try testing.expect(!std.mem.eql(u8, automaticUpdatesChromeFor(.simplified_chinese, "").title, localByDefaultChromeFor(.simplified_chinese, "").title));
+    try testing.expect(!std.mem.eql(u8, automaticUpdatesChromeFor(.japanese, "").title, localByDefaultChromeFor(.japanese, "").title));
 }
 
 test "osFolderDialogChromeFor english default; zh and ja chrome; english ignores ja LANG" {
