@@ -1,7 +1,10 @@
 //! Non-fx CLI `--help` probes (boot + Settings Providers).
 //!
-//! Each non-fx `protocol.ProviderId` one-shots `{defaultBinary()} --help`
-//! on PATH (no `~/.local/bin/<binary>` fallback this cut). fx stays on
+//! Each non-fx `protocol.ProviderId` one-shots `{probeBinary()} --help`
+//! (`providerBinaryOverride` when set, else PATH `defaultBinary()`; no
+//! `~/.local/bin/<binary>` fallback this cut). Empty override is PATH
+//! detect. Empty probe binary fail-closes (marks Not found, no spawn).
+//! fx stays on
 //! `fx_probe.zig` (`$HOME/.fx/bin/fx`, leftover `~/.local/bin/fx`, then
 //! PATH) and is never spawned here. Boot (`initFx`) starts these
 //! alongside the fx probe so `providerEnabled` can AND probe-installed
@@ -55,10 +58,22 @@ pub fn nonFxCount() usize {
 }
 
 pub fn isCliProbeArgv(argv: []const []const u8, id: protocol.ProviderId) bool {
+    return isCliProbeArgvWith(argv, id, id.defaultBinary());
+}
+
+pub fn isCliProbeArgvWith(argv: []const []const u8, id: protocol.ProviderId, binary: []const u8) bool {
     if (id == .fx) return false;
     if (argv.len != 2) return false;
     if (!std.mem.eql(u8, argv[1], help_flag)) return false;
-    return std.mem.eql(u8, argv[0], id.defaultBinary());
+    if (binary.len == 0) return false;
+    return std.mem.eql(u8, argv[0], binary);
+}
+
+pub fn probeBinary(model: *const Model, id: protocol.ProviderId) []const u8 {
+    if (id == .fx) return "";
+    const override = model.providerBinaryOverride(id);
+    if (override.len > 0) return override;
+    return id.defaultBinary();
 }
 
 pub fn isAnyCliProbeArgv(argv: []const []const u8) bool {
@@ -76,14 +91,35 @@ pub fn startCliProbes(model: *Model, fx: *Effects) void {
         if (id == .fx) continue;
         const index = @intFromEnum(id);
         if (model.cli_probe_started[index]) continue;
-        model.cli_probe_started[index] = true;
-        fx.spawn(.{
-            .key = probeKey(id),
-            .argv = &.{ id.defaultBinary(), help_flag },
-            .output = .collect,
-            .on_exit = Effects.exitMsg(.cli_probe_exit),
-        });
+        startOneCliProbe(model, fx, id);
     }
+}
+
+fn startOneCliProbe(model: *Model, fx: *Effects, id: protocol.ProviderId) void {
+    if (id == .fx) return;
+    const index = @intFromEnum(id);
+    model.cli_probe_started[index] = true;
+    const binary = probeBinary(model, id);
+    if (binary.len == 0) {
+        model.cli_available[index] = false;
+        return;
+    }
+    fx.spawn(.{
+        .key = probeKey(id),
+        .argv = &.{ binary, help_flag },
+        .output = .collect,
+        .on_exit = Effects.exitMsg(.cli_probe_exit),
+    });
+}
+
+/// Re-run one non-fx `--help` probe (Settings override apply / Reset).
+/// Cancel in-flight first. Does not reset availability until the new
+/// exit lands — same as `restartCliProbes`.
+pub fn restartCliProbe(model: *Model, fx: *Effects, id: protocol.ProviderId) void {
+    if (id == .fx) return;
+    fx.cancel(probeKey(id));
+    model.cli_probe_started[@intFromEnum(id)] = false;
+    startOneCliProbe(model, fx, id);
 }
 
 /// Settings → Providers Refresh. Cancel in-flight `--help` probes
@@ -140,6 +176,9 @@ test "isCliProbeArgv matches PATH defaultBinary --help only" {
     try std.testing.expect(!isCliProbeArgv(&.{"claude"}, .claude));
     try std.testing.expect(!isAnyCliProbeArgv(&.{ "fx", "--help" }));
     try std.testing.expect(isAnyCliProbeArgv(&.{ "pi", "--help" }));
+    try std.testing.expect(isCliProbeArgvWith(&.{ "/opt/claude", "--help" }, .claude, "/opt/claude"));
+    try std.testing.expect(!isCliProbeArgvWith(&.{ "/opt/claude", "--help" }, .claude, "claude"));
+    try std.testing.expect(!isCliProbeArgvWith(&.{ "/opt/claude", "--help" }, .fx, "/opt/claude"));
 }
 
 test "startCliProbes queues PATH --help per non-fx id; skips fx; second start is a no-op" {
@@ -218,6 +257,33 @@ test "restartCliProbes requeues every non-fx probe and leaves fx_probe_key unuse
     try testing.expect(model.cli_probe_started[@intFromEnum(protocol.ProviderId.claude)]);
     const claude = findPending(&fx, probeKey(.claude)).?;
     try testing.expect(isCliProbeArgv(claude.argv, .claude));
+}
+
+test "startCliProbes argv[0] uses persisted override; empty override stays defaultBinary" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setProviderBinaryOverride(.claude, "/opt/custom-claude");
+    startCliProbes(&model, &fx);
+    const claude = findPending(&fx, probeKey(.claude)) orelse return error.MissingCliProbe;
+    try testing.expect(isCliProbeArgvWith(claude.argv, .claude, "/opt/custom-claude"));
+    try testing.expectEqualStrings("/opt/custom-claude", claude.argv[0]);
+    try testing.expectEqualStrings(help_flag, claude.argv[1]);
+    try testing.expect(!isCliProbeArgv(claude.argv, .claude));
+    const codex = findPending(&fx, probeKey(.codex)) orelse return error.MissingCliProbe;
+    try testing.expect(isCliProbeArgv(codex.argv, .codex));
+    try testing.expectEqualStrings("codex", codex.argv[0]);
+
+    fx.cancel(probeKey(.claude));
+    model.cli_probe_started[@intFromEnum(protocol.ProviderId.claude)] = false;
+    model.setProviderBinaryOverride(.claude, "");
+    startOneCliProbe(&model, &fx, .claude);
+    const cleared = findPending(&fx, probeKey(.claude)) orelse return error.MissingClearedCliProbe;
+    try testing.expect(isCliProbeArgv(cleared.argv, .claude));
+    try testing.expectEqualStrings("claude", cleared.argv[0]);
 }
 
 fn findPending(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {

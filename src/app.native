@@ -512,21 +512,44 @@
                   </column>
                 </card>
                 <for each="provider_rows" key="id" as="p">
-                  <list-item height="52" padding="8" gap="4" cross="center" selected="{p.selected}" on-press="select_provider:{p.id}" label="{p.name}">
-                    <column gap="2" grow="1">
-                      <row gap="8" cross="center">
-                        <text wrap="false" overflow="ellipsis">{p.name}</text>
-                        <if test="{p.first_party}">
-                          <text wrap="false" overflow="ellipsis" foreground="text_muted">{p.first_party_label}</text>
-                        </if>
-                      </row>
-                      <text wrap="false" overflow="ellipsis" foreground="text_muted">{p.status}</text>
-                      <if test="{p.has_binary}">
-                        <text wrap="false" overflow="ellipsis" foreground="text_muted">{p.binary}</text>
+                  <column gap="4">
+                    <list-item height="52" padding="8" gap="4" cross="center" selected="{p.selected}" on-press="select_provider:{p.id}" label="{p.name}">
+                      <if test="{p.expanded}">
+                        <button variant="ghost" size="icon" icon="chevron-down" label="{p.expand_label}" on-press="toggle_provider_expanded:{p.id}"></button>
                       </if>
-                    </column>
-                    <button variant="ghost" size="sm" selected="{p.enabled}" on-press="toggle_provider_enabled:{p.id}">{p.enable_label}</button>
-                  </list-item>
+                      <else>
+                        <button variant="ghost" size="icon" icon="chevron-right" label="{p.expand_label}" on-press="toggle_provider_expanded:{p.id}"></button>
+                      </else>
+                      <column gap="2" grow="1">
+                        <row gap="8" cross="center">
+                          <text wrap="false" overflow="ellipsis">{p.name}</text>
+                          <if test="{p.first_party}">
+                            <text wrap="false" overflow="ellipsis" foreground="text_muted">{p.first_party_label}</text>
+                          </if>
+                        </row>
+                        <text wrap="false" overflow="ellipsis" foreground="text_muted">{p.status}</text>
+                        <if test="{p.has_binary}">
+                          <text wrap="false" overflow="ellipsis" foreground="text_muted">{p.binary}</text>
+                        </if>
+                      </column>
+                      <button variant="ghost" size="sm" selected="{p.enabled}" on-press="toggle_provider_enabled:{p.id}">{p.enable_label}</button>
+                    </list-item>
+                    <if test="{p.expanded}">
+                      <card size="sm" padding="10">
+                        <column gap="6">
+                          <text><span weight="bold">{providers_binary_path_label}</span></text>
+                          <text wrap="true" foreground="text_muted">{p.binary_path_description}</text>
+                          <text-field text="{provider_override_draft}" on-input="provider_override_edit" on-submit="apply_provider_path_override" label="{providers_binary_path_label}" />
+                          <if test="{p.has_override}">
+                            <button variant="ghost" size="sm" on-press="clear_provider_path_override">{providers_reset_label}</button>
+                          </if>
+                          <if test="{p.has_override_caption}">
+                            <text wrap="true" foreground="text_muted">{p.override_caption}</text>
+                          </if>
+                        </column>
+                      </card>
+                    </if>
+                  </column>
                 </for>
                 <if test="{has_provider_detail}">
                   <text wrap="true">{provider_detail}</text>

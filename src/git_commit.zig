@@ -21,8 +21,9 @@
 //! `chars().take(200)`). Empty / whitespace on Commit / Commit and
 //! Push / Amend Confirm prefers hello + daemon
 //! `WorkspaceOperation::GenerateCommitMessage` when a daemon address
-//! is set and a non-empty invocation binary can be built (`fxPath()`
-//! / provider `defaultBinary`, same as Settings Providers). On ok
+//! is set and a non-empty invocation binary can be built (persisted
+//! override when set, else `fxPath()` / provider `defaultBinary`,
+//! same as Settings Providers). On ok
 //! `CommitMessage` it fills the normalized subject, then auto-proceeds
 //! into the same add/preflight/commit (or amend) path — including
 //! existing daemon Commit prefer after generate when an address is
@@ -1442,9 +1443,12 @@ fn trySpawnDaemonWorkspaceCommit(model: *Model, fx: *Effects) bool {
     return true;
 }
 
-/// Settings Providers binary: probed `fxPath()` when fx is available,
-/// else PATH `defaultBinary()`. Empty means skip daemon generate.
+/// Settings Providers binary: persisted override when set, else
+/// probed `fxPath()` when fx is available, else PATH
+/// `defaultBinary()`. Empty means skip daemon generate (fail closed).
 fn generateInvocationBinary(model: *const Model, provider: protocol.ProviderId) []const u8 {
+    const override = model.providerBinaryOverride(provider);
+    if (override.len > 0) return override;
     if (provider == .fx and model.fx_available) {
         const path = model.fxPath();
         if (path.len > 0) return path;

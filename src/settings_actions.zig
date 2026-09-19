@@ -8,6 +8,7 @@
 //! from the former `main` update arms except Settings Back
 //! (`close_settings` → `handleCloseSettings` → `closeSettings`).
 
+const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
 const model_exports = @import("model_exports.zig");
@@ -187,7 +188,7 @@ pub fn handleToggleGoalStatusPicker(model: *Model) void {
 pub fn handleCloseSettings(model: *Model, fx: *Effects) void {
     if (!model.settings_open) return;
     skills.close(model, fx);
-    providers.close(model);
+    providers.close(model, fx);
     usage_history.cancel(model, fx);
     litellm_rates.cancel(model, fx);
     model.closeSettings();
@@ -580,6 +581,25 @@ pub fn handleToggleProviderEnabled(model: *Model, id: u32) void {
     store.persistSettingsIfPossible(model);
 }
 
+pub fn handleToggleProviderExpanded(model: *Model, fx: *Effects, id: u32) void {
+    if (!providers.toggleExpanded(model, fx, id)) return;
+    store.persistSettingsIfPossible(model);
+}
+
+pub fn handleProviderOverrideEdit(model: *Model, edit: canvas.TextInputEvent) void {
+    model.applyProviderOverrideEdit(edit);
+}
+
+pub fn handleApplyProviderPathOverride(model: *Model, fx: *Effects) void {
+    if (!providers.applyPathOverride(model, fx)) return;
+    store.persistSettingsIfPossible(model);
+}
+
+pub fn handleClearProviderPathOverride(model: *Model, fx: *Effects) void {
+    if (!providers.clearPathOverride(model, fx)) return;
+    store.persistSettingsIfPossible(model);
+}
+
 pub fn handleApplySessionProvider(model: *Model, fx: *Effects) void {
     if (!providers.applyToSession(model)) return;
     store.persistIfPossible(model, model.selected, fx);
@@ -876,4 +896,36 @@ pub fn handleToggleGitCommitAmend(model: *Model, fx: *Effects) void {
 pub fn handlePickEffort(model: *Model, fx: *Effects, id: []const u8) void {
     model.pickSelectedEffort(id);
     persist.persistComposerChips(model, fx);
+}
+
+test "handleToggleProviderExpanded applies pending override; empty apply clears" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    handleToggleProviderExpanded(&model, &fx, 0);
+    try testing.expectEqual(@as(u32, 0), model.provider_expanded_id);
+
+    handleToggleProviderExpanded(&model, &fx, providers.rowId(.claude));
+    try testing.expectEqual(providers.rowId(.claude), model.provider_expanded_id);
+    handleProviderOverrideEdit(&model, .{ .insert_text = "/opt/claude" });
+    try testing.expectEqualStrings("/opt/claude", model.provider_override_draft());
+    handleApplyProviderPathOverride(&model, &fx);
+    try testing.expectEqualStrings("/opt/claude", model.providerBinaryOverride(.claude));
+
+    handleToggleProviderExpanded(&model, &fx, providers.rowId(.fx));
+    try testing.expectEqual(providers.rowId(.fx), model.provider_expanded_id);
+    try testing.expectEqualStrings("/opt/claude", model.providerBinaryOverride(.claude));
+
+    handleProviderOverrideEdit(&model, .{ .insert_text = "/opt/fx" });
+    handleToggleProviderExpanded(&model, &fx, providers.rowId(.claude));
+    try testing.expectEqual(providers.rowId(.claude), model.provider_expanded_id);
+    try testing.expectEqualStrings("/opt/fx", model.providerBinaryOverride(.fx));
+    try testing.expectEqualStrings("/opt/claude", model.provider_override_draft());
+
+    handleClearProviderPathOverride(&model, &fx);
+    try testing.expectEqualStrings("", model.providerBinaryOverride(.claude));
+    try testing.expectEqualStrings("/opt/fx", model.providerBinaryOverride(.fx));
 }

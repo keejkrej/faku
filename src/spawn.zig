@@ -228,10 +228,10 @@ pub fn startChromeTick(fx: *Effects) void {
 /// Map stored session fields onto verified `StartOptions`. Empty
 /// `project_path` becomes `"."`. Empty model is omitted on the wire.
 /// `computer_use_enabled` is not stored here and stays false.
-pub fn startOptionsFromSession(session: *const Session) protocol.StartOptions {
+pub fn startOptionsFromSession(model: *const Model, session: *const Session) protocol.StartOptions {
     return .{
         .provider = session.provider.wireName(),
-        .binary = session.provider.defaultBinary(),
+        .binary = providers.binaryFor(model, session.provider),
         .cwd = if (session.projectPath().len > 0) session.projectPath() else ".",
         .mode = if (session.accessMode().len > 0) session.accessMode() else default_access_mode,
         .interaction_mode = if (session.interactionMode().len > 0) session.interactionMode() else default_interaction_mode,
@@ -246,7 +246,14 @@ pub fn startDaemonProxy(model: *Model, fx: *Effects, session: *const Session, pr
     const session_id = daemon_proxy.wireUuid(session.id, &id_buf);
     const has_runtime = protocol.isUsableRuntimeId(session.runtimeId());
     const runtime_id = if (has_runtime) session.runtimeId() else protocol.NIL_UUID;
-    const start = if (has_runtime) null else startOptionsFromSession(session);
+    const start = if (has_runtime) null else startOptionsFromSession(model, session);
+    if (start) |opts| {
+        if (opts.binary.len == 0) {
+            model.reply_path = .demo;
+            startDemoTimer(fx);
+            return;
+        }
+    }
     var stdin_buf: [4096]u8 = undefined;
     const stdin = daemon_proxy.writeTurnStdin(&stdin_buf, .{
         .token = model.daemonToken(),
