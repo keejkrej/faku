@@ -403,6 +403,16 @@
 //! evolvable; on-press stays `copy_skill_path`; fail closed with no
 //! selection / empty / unresolved path does not write clipboard or
 //! set window_status; wire ids stay English)
+//! plus Settings Skills Delete success window_status Moved
+//! “%{name}” to the Trash (same `SkillsDeletedToastChrome` strings;
+//! English matches Waku `skills.deleted_toast`; distinct from
+//! `SkillsTrashChrome` Delete / Confirm delete,
+//! `SkillsTrashStatusChrome` Could not delete skill., and
+//! `SkillsPathCopiedChrome` Path copied so the toast stays
+//! independently evolvable; `%{name}` is the cached skill name
+//! captured before selection clear; daemon `trashSkills` ack and
+//! the permanent-remove fallback share this chrome — Faku has no
+//! OS Trash crate on the fallback)
 //! plus Settings Skills Select a skill unselected-detail
 //! placeholder (same `SkillsSelectChrome` strings; distinct from
 //! `SkillsEmptyChrome` so the placeholder stays independently
@@ -558,6 +568,9 @@
 //! Model getter; success window_status Path copied uses
 //! `SkillsPathCopiedChrome.path_copied` via Model
 //! `skill_path_copied_status`).
+//! Skills Delete success window_status uses
+//! `SkillsDeletedToastChrome.deleted_toast` via Model
+//! `skill_deleted_status` (`%{name}` from cache before clear).
 //! File-preview toolbar `on-press` / `on-input` stay English
 //! (`file_preview_save` / `close_right_panel_file_preview` /
 //! `toggle_file_preview_find_replace` / `file_preview_find_edit` /
@@ -4999,6 +5012,38 @@ const skills_trash_status_chrome_ja: SkillsTrashStatusChrome = .{
     .delete_failed = "スキルを削除できませんでした。",
 };
 
+/// Capped scratch for `formatSkillsDeletedToast`. Template +
+/// `max_skill_name` (64) stay short in every locale.
+pub const skills_deleted_toast_max: usize = 160;
+
+/// Settings Skills Delete success window_status Moved “%{name}” to
+/// the Trash for the resolved locale. Same resolve path as
+/// SkillsPathCopiedChrome / SkillsTrashStatusChrome. English matches
+/// Waku `skills.deleted_toast` (curly quotes). Distinct from Delete /
+/// Confirm delete (`SkillsTrashChrome`), Could not delete skill.
+/// (`SkillsTrashStatusChrome`), and Path copied
+/// (`SkillsPathCopiedChrome`) so packs stay independently evolvable.
+/// `%{name}` is the cached skill name (empty name still paints the
+/// toast with an empty substitution). Daemon `trashSkills` ack and
+/// the permanent-remove fallback share this chrome (Faku has no OS
+/// Trash crate on the fallback; first-cut workaround). Wire ids /
+/// on-press / daemon `trashSkills` stay English.
+pub const SkillsDeletedToastChrome = struct {
+    deleted_toast: []const u8,
+};
+
+const skills_deleted_toast_chrome_en: SkillsDeletedToastChrome = .{
+    .deleted_toast = "Moved “%{name}” to the Trash",
+};
+
+const skills_deleted_toast_chrome_zh_cn: SkillsDeletedToastChrome = .{
+    .deleted_toast = "已将“%{name}”移到废纸篓",
+};
+
+const skills_deleted_toast_chrome_ja: SkillsDeletedToastChrome = .{
+    .deleted_toast = "「%{name}」をゴミ箱に移動しました",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -6461,6 +6506,15 @@ pub fn skillsPaneChromeFor(preference: LanguagePreference, system_locale_id: []c
     };
 }
 
+/// Waku `skills.deleted_toast` with `%{name}` replaced by the cached
+/// skill name. Same class as count/filter `%{count}` /
+/// `scope_in_project` `%{project}` (text slot via
+/// `formatSkillsNamedText`). Overflow returns `""`. Empty name still
+/// substitutes (paints the quotes with nothing between them).
+pub fn formatSkillsDeletedToast(chrome: SkillsDeletedToastChrome, name: []const u8, buf: []u8) []const u8 {
+    return formatSkillsNamedText(chrome.deleted_toast, "name", name, buf);
+}
+
 /// Waku `skills.scope_in_project` with `%{project}` replaced by the
 /// probe basename (else `project`). Overflow returns `""`.
 pub fn formatSkillsScopeInProject(chrome: SkillsScopeChrome, project: []const u8, buf: []u8) []const u8 {
@@ -6704,6 +6758,22 @@ pub fn skillsTrashStatusChromeFor(preference: LanguagePreference, system_locale_
         .simplified_chinese => skills_trash_status_chrome_zh_cn,
         .japanese => skills_trash_status_chrome_ja,
         .system, .english => skills_trash_status_chrome_en,
+    };
+}
+
+/// Settings Skills Delete success window_status Moved “%{name}” to
+/// the Trash for the resolved locale. Callers pass Model
+/// `language_preference` + `system_locale_id`; this file does not
+/// read process env. Distinct from SkillsTrashChrome /
+/// SkillsTrashStatusChrome / SkillsPathCopiedChrome so packs stay
+/// independently evolvable. English matches Waku
+/// `skills.deleted_toast`. Wire ids / on-press / daemon
+/// `trashSkills` stay English.
+pub fn skillsDeletedToastChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SkillsDeletedToastChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => skills_deleted_toast_chrome_zh_cn,
+        .japanese => skills_deleted_toast_chrome_ja,
+        .system, .english => skills_deleted_toast_chrome_en,
     };
 }
 
@@ -10736,6 +10806,64 @@ test "skillsTrashStatusChromeFor english default; zh and ja chrome; english igno
     try testing.expect(!std.mem.eql(u8, skillsTrashStatusChromeFor(.english, "").delete_failed, branchOpStatusChromeFor(.english, "").delete_failed));
     try testing.expect(!std.mem.eql(u8, skillsTrashStatusChromeFor(.simplified_chinese, "").delete_failed, branchOpStatusChromeFor(.simplified_chinese, "").delete_failed));
     try testing.expect(!std.mem.eql(u8, skillsTrashStatusChromeFor(.japanese, "").delete_failed, branchOpStatusChromeFor(.japanese, "").delete_failed));
+}
+
+test "skillsDeletedToastChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Moved “%{name}” to the Trash", skillsDeletedToastChromeFor(.english, "ja").deleted_toast);
+    try testing.expectEqualStrings("Moved “%{name}” to the Trash", skillsDeletedToastChromeFor(.english, "").deleted_toast);
+    try testing.expectEqualStrings("Moved “%{name}” to the Trash", skillsDeletedToastChromeFor(.system, "").deleted_toast);
+
+    try testing.expectEqualStrings("已将“%{name}”移到废纸篓", skillsDeletedToastChromeFor(.simplified_chinese, "").deleted_toast);
+    try testing.expectEqualStrings("「%{name}」をゴミ箱に移動しました", skillsDeletedToastChromeFor(.japanese, "").deleted_toast);
+
+    try testing.expectEqualStrings("已将“%{name}”移到废纸篓", skillsDeletedToastChromeFor(.system, "zh_CN.UTF-8").deleted_toast);
+    try testing.expectEqualStrings("「%{name}」をゴミ箱に移動しました", skillsDeletedToastChromeFor(.system, "ja_JP.UTF-8").deleted_toast);
+    try testing.expectEqualStrings("Moved “%{name}” to the Trash", skillsDeletedToastChromeFor(.english, "ja_JP.UTF-8").deleted_toast);
+    try testing.expectEqualStrings("Moved “%{name}” to the Trash", skillsDeletedToastChromeFor(.english, "zh_CN.UTF-8").deleted_toast);
+
+    try testing.expect(!std.mem.eql(u8, skillsDeletedToastChromeFor(.english, "").deleted_toast, skillsTrashStatusChromeFor(.english, "").delete_failed));
+    try testing.expect(!std.mem.eql(u8, skillsDeletedToastChromeFor(.english, "").deleted_toast, skillsTrashChromeFor(.english, "").delete));
+    try testing.expect(!std.mem.eql(u8, skillsDeletedToastChromeFor(.english, "").deleted_toast, skillsTrashChromeFor(.english, "").confirm));
+    try testing.expect(!std.mem.eql(u8, skillsDeletedToastChromeFor(.english, "").deleted_toast, skillsPathCopiedChromeFor(.english, "").path_copied));
+    try testing.expect(!std.mem.eql(u8, skillsDeletedToastChromeFor(.simplified_chinese, "").deleted_toast, skillsTrashStatusChromeFor(.simplified_chinese, "").delete_failed));
+    try testing.expect(!std.mem.eql(u8, skillsDeletedToastChromeFor(.japanese, "").deleted_toast, skillsTrashStatusChromeFor(.japanese, "").delete_failed));
+    try testing.expect(!std.mem.eql(u8, skillsDeletedToastChromeFor(.simplified_chinese, "").deleted_toast, skillsPathCopiedChromeFor(.simplified_chinese, "").path_copied));
+    try testing.expect(!std.mem.eql(u8, skillsDeletedToastChromeFor(.japanese, "").deleted_toast, skillsPathCopiedChromeFor(.japanese, "").path_copied));
+}
+
+test "formatSkillsDeletedToast substitutes %{name}; empty name still paints" {
+    const testing = std.testing;
+    var buf: [skills_deleted_toast_max]u8 = undefined;
+    try testing.expectEqualStrings(
+        "Moved “demo” to the Trash",
+        formatSkillsDeletedToast(skillsDeletedToastChromeFor(.english, ""), "demo", &buf),
+    );
+    try testing.expectEqualStrings(
+        "已将“demo”移到废纸篓",
+        formatSkillsDeletedToast(skillsDeletedToastChromeFor(.simplified_chinese, ""), "demo", &buf),
+    );
+    try testing.expectEqualStrings(
+        "「demo」をゴミ箱に移動しました",
+        formatSkillsDeletedToast(skillsDeletedToastChromeFor(.japanese, ""), "demo", &buf),
+    );
+    try testing.expectEqualStrings(
+        "Moved “” to the Trash",
+        formatSkillsDeletedToast(skillsDeletedToastChromeFor(.english, ""), "", &buf),
+    );
+    try testing.expectEqualStrings(
+        "已将“”移到废纸篓",
+        formatSkillsDeletedToast(skillsDeletedToastChromeFor(.simplified_chinese, ""), "", &buf),
+    );
+    try testing.expectEqualStrings(
+        "「」をゴミ箱に移動しました",
+        formatSkillsDeletedToast(skillsDeletedToastChromeFor(.japanese, ""), "", &buf),
+    );
+    var tiny: [8]u8 = undefined;
+    try testing.expectEqualStrings(
+        "",
+        formatSkillsDeletedToast(skillsDeletedToastChromeFor(.english, ""), "demo", &tiny),
+    );
 }
 
 test "skillsEnableStatusChromeFor english default; zh and ja chrome; english ignores ja LANG" {

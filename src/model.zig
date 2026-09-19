@@ -1488,7 +1488,8 @@ pub const Model = struct {
     /// `setSkillsEnabled` so Delete cannot settle those keys.
     daemon_trash_skills_key: u64 = 0,
     /// True once an ok Ack landed for the in-flight `trashSkills`
-    /// sidecar. Exit refreshes; miss falls back to permanent remove.
+    /// sidecar. Exit paints deleted-toast window_status then
+    /// refreshes; miss falls back to permanent remove.
     skill_trash_ok: bool = false,
     /// Two-click Delete arming. Selecting another skill or leaving
     /// Skills clears it.
@@ -5798,6 +5799,10 @@ pub const Model = struct {
         return i18n.skillsPathCopiedChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn skillsDeletedToastChrome(model: *const Model) i18n.SkillsDeletedToastChrome {
+        return i18n.skillsDeletedToastChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn skillsOpenFileChrome(model: *const Model) i18n.SkillsOpenFileChrome {
         return i18n.skillsOpenFileChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6352,6 +6357,18 @@ pub const Model = struct {
     /// matches Waku `skills.path_copied`.
     pub fn skill_path_copied_status(model: *const Model) []const u8 {
         return model.skillsPathCopiedChrome().path_copied;
+    }
+
+    /// Settings Skills Delete success window_status Moved
+    /// “%{name}” to the Trash. Localized via
+    /// `i18n.SkillsDeletedToastChrome`. Distinct from
+    /// `skill_delete_failed_status` / `SkillsTrashChrome` /
+    /// `skill_path_copied_status`. English matches Waku
+    /// `skills.deleted_toast`. `%{name}` is the cached skill name
+    /// (callers capture it before `skill_selected_id = 0`). Empty
+    /// name still paints. Writes into `buf`; overflow returns `""`.
+    pub fn skill_deleted_status(model: *const Model, name: []const u8, buf: []u8) []const u8 {
+        return i18n.formatSkillsDeletedToast(model.skillsDeletedToastChrome(), name, buf);
     }
 
     pub fn skill_body(model: *const Model) []const u8 {
