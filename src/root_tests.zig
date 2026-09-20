@@ -59,6 +59,8 @@ test {
     _ = @import("effect_keys.zig");
     _ = @import("sidecar_keys.zig");
     _ = @import("git_keys.zig");
+    _ = @import("git_commit.zig");
+    _ = @import("git_commit_generate.zig");
     _ = @import("model_exports.zig");
     _ = @import("session.zig");
     _ = @import("session_workspace.zig");

@@ -179,7 +179,8 @@
 //! ships in `git_commit` (Commit… open / include-unstaged re-probe).
 //! First-cut daemon `WorkspaceOperation::GenerateCommitMessage`
 //! ships in `git_commit` (empty-message Commit… generate; overflow /
-//! error / empty / parse miss falls back to local `fx ask`).
+//! error / empty / parse miss falls back to local session-provider
+//! generate, or last-resort `fx ask`).
 //! First-cut daemon `WorkspaceOperation::CaptureTurnStart` ships in
 //! `fork` (best-effort Send sidecar after local capture; Ack; local
 //! sha stays canonical). First-cut daemon

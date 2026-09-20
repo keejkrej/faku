@@ -100,7 +100,8 @@ pub const git_commit_key_first = git_commit.git_commit_key_first;
 /// Band is 460+. Incremented per probe from
 /// `git_commit_numstat_key_first`.
 pub const git_commit_numstat_key_first = git_commit.git_commit_numstat_key_first;
-/// One-shot empty-message `fx ask` generate on the Commit… card.
+/// One-shot empty-message generate on the Commit… card (session
+/// provider CLI, last-resort `fx ask`, or daemon GenerateCommitMessage).
 /// Distinct from add/commit (450+) and CommitSnapshot numstat (460+).
 /// Band is 470+. Incremented per spawn from
 /// `git_commit_generate_key_first`.

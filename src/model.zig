@@ -1911,9 +1911,10 @@ pub const Model = struct {
     /// snapshot. Exit falls back to local numstat when this is false.
     /// Runtime only; not persisted.
     git_commit_numstat_daemon_ok: bool = false,
-    /// Runtime-only empty-message `fx ask` generate on the Commit…
-    /// card. Distinct spawn-key band (470+). Not persisted. First-cut
-    /// daemon `WorkspaceOperation::GenerateCommitMessage` reuses
+    /// Runtime-only empty-message generate on the Commit… card
+    /// (session provider CLI, else last-resort `fx ask`). Distinct
+    /// spawn-key band (470+). Not persisted. First-cut daemon
+    /// `WorkspaceOperation::GenerateCommitMessage` reuses
     /// `next_daemon_key` assigned onto this field.
     git_commit_generate_key: u64 = 0,
     next_git_commit_generate_key: u64 = git_commit_mod.git_commit_generate_key_first,
@@ -1921,13 +1922,23 @@ pub const Model = struct {
     git_commit_generate_stdout_len: usize = 0,
     /// True while the in-flight `git_commit_generate_key` is a
     /// daemon-proxy GenerateCommitMessage sidecar. Line/exit handlers
-    /// parse a `commitMessage` instead of `fx ask --json` stdout.
+    /// parse a `commitMessage` instead of local generate stdout.
     /// Runtime only; not persisted.
     git_commit_generate_via_daemon: bool = false,
     /// True after an in-flight GenerateCommitMessage sidecar applied a
-    /// usable `commitMessage`. Exit falls back to local `fx ask` when
-    /// this is false. Runtime only; not persisted.
+    /// usable `commitMessage`. Exit falls back to local session-provider
+    /// generate (or last-resort `fx ask`) when this is false. Runtime
+    /// only; not persisted.
     git_commit_generate_daemon_ok: bool = false,
+    /// True when the in-flight local generate is today's fx JSON ask
+    /// path (`output` field). Other providers parse plain stdout.
+    /// Runtime only; not persisted.
+    git_commit_generate_parse_json: bool = false,
+    /// Amp `--settings-file` temp path for the in-flight generate.
+    /// Deleted on exit / cancel / fail (including the error path).
+    /// Runtime only; not persisted.
+    git_commit_generate_amp_settings_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    git_commit_generate_amp_settings_len: usize = 0,
     git_branch_delete_storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
     git_branch_delete_len: usize = 0,
     /// Runtime-only composer dirty count. One-shot `git status
@@ -2855,6 +2866,10 @@ pub const Model = struct {
         "git_commit_generate_stdout_len",
         "git_commit_generate_via_daemon",
         "git_commit_generate_daemon_ok",
+        "git_commit_generate_parse_json",
+        "git_commit_generate_amp_settings_storage",
+        "git_commit_generate_amp_settings_len",
+        "clearGitCommitGenerateAmpSettings",
         "git_has_staged",
         "git_has_unstaged",
         "git_branch_delete_storage",
@@ -7756,6 +7771,17 @@ pub const Model = struct {
 
     pub fn has_git_commit_generate(model: *const Model) bool {
         return git_commit_mod.hasGitCommitGenerate(model);
+    }
+
+    /// Delete the Amp generate `--settings-file` temp (including the
+    /// error / cancel path) and clear the runtime path slot.
+    pub fn clearGitCommitGenerateAmpSettings(model: *Model) void {
+        if (model.git_commit_generate_amp_settings_len == 0) return;
+        const path = model.git_commit_generate_amp_settings_storage[0..model.git_commit_generate_amp_settings_len];
+        if (model.store_io) |io| {
+            std.Io.Dir.cwd().deleteFile(io, path) catch {};
+        }
+        model.git_commit_generate_amp_settings_len = 0;
     }
 
     /// In-dialog Amending… on the Commit… card. True while Amend

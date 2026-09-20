@@ -1,7 +1,8 @@
 //! First-cut InspectCommit flags + include-unstaged Commit… / Commit
 //! and Push / Push-only / first-cut Amend, plus a one-shot
-//! CommitSnapshot numstat label and an fx-first empty-message
-//! `generate_message`, for the composer project row.
+//! CommitSnapshot numstat label and empty-message generate via the
+//! selected session's provider CLI (Waku `agent_arguments` parity;
+//! last-resort `fx ask`), for the composer project row.
 //!
 //! Native has no git effect. `canCommitGit` follows Waku `can_commit`:
 //! dirty probe idle, and staged or (include_unstaged and unstaged).
@@ -29,16 +30,19 @@
 //! existing daemon Commit prefer after generate when an address is
 //! set (Amend stays local git). Missing address, empty binary,
 //! Native 4 KiB stdin overflow, spawn failure, non-ok outcome, empty
-//! message, or parse miss falls back to today's local
-//! `fx ask --no-save --auto --json` when `fx_available` and `fxPath`
-//! are set. If fx is
-//! unavailable or the path is empty, it sets
+//! message, or parse miss falls back to local session-provider
+//! generate when that provider is Available (PATH / `isAvailable`,
+//! persisted binary override honored) and a documented one-shot argv
+//! can be built. Keep today's `fx ask --no-save --auto --json` only
+//! when the session provider is fx, when that binary is Not found /
+//! unavailable / empty, or as last-resort if a safe argv cannot be
+//! built. If neither path is available, it sets
 //! `Enter a commit message.` and does not spawn. Generate fail
 //! / empty output keeps the card open with
 //! `Could not generate a commit message.` In-dialog pending
 //! labels stay muted extra lines on the card (not on the action
 //! row), mutually exclusive: Generating… while daemon generate or
-//! `fx ask` is live;
+//! local generate is live;
 //! Amending… while Amend is on and add/preflight/amend is in
 //! flight; Committing… (Waku `commit.committing`) while commit-only
 //! add/preflight/commit is in flight; Committing and pushing…
@@ -100,8 +104,9 @@
 //! prefers hello + daemon `WorkspaceOperation::GenerateCommitMessage`
 //! when a daemon address is set (ok fills the subject then
 //! auto-proceeds; overflow / error / empty / parse miss falls back
-//! to local `fx ask`); after generate auto-proceeds, daemon Commit
-//! prefer applies there too. Missing address / stdin overflow / amend /
+//! to local session-provider generate, or last-resort `fx ask`);
+//! after generate auto-proceeds, daemon Commit prefer applies there
+//! too. Missing address / stdin overflow / amend /
 //! force+then_push leave today's local add→preflight→commit path.
 //! First-cut daemon `WorkspaceOperation::CaptureTurnStart` lives in
 //! `fork` (best-effort Send sidecar after local capture; Ack; local
@@ -175,12 +180,17 @@
 //! `git.exe -C PATH commit --amend -m <message>`; CommitSnapshot
 //! cached is `git.exe -C PATH diff --cached --numstat --`;
 //! include-unstaged reuses `git_numstat.argvFor` (Windows PowerShell
-//! untracked rows). Empty-message `fx ask` generate is
+//! untracked rows). Empty-message fx generate stays
 //! `powershell.exe -NoProfile -Command {scriptblock} -Args`
 //! cwd, fx path, prompt (`$args[0]` / `$args[1]` / `$args[2]`;
 //! documented `ask --no-save --auto --json --` stay literals in
 //! the scriptblock — never interpolate cwd / fx path / prompt;
-//! `exit $LASTEXITCODE` keeps fx's status).
+//! `exit $LASTEXITCODE` keeps fx's status). Other Available
+//! providers use a PowerShell `-Args` splat (cwd, binary, then
+//! documented generate flags / prompt as later `$args` slots) or
+//! Unix `/bin/sh -c` with `generate_chdir_env_script` (`export
+//! NO_COLOR=1 CI=1`). Long documented flag lists stay literals in
+//! that script so Native `max_effect_argv` 16 is not exceeded.
 //! Push lives
 //! in `git_checkout.zig` and uses the same `git.exe -C` pattern
 //! (`probeSupported` is true on Windows). app.zon already includes
@@ -221,6 +231,8 @@ const daemon_proxy = @import("daemon_proxy.zig");
 const store = @import("store.zig");
 const protocol = @import("protocol.zig");
 const i18n = @import("i18n.zig");
+const providers = @import("providers.zig");
+const git_commit_generate = @import("git_commit_generate.zig");
 
 const Model = model_exports.Model;
 const Effects = main.Effects;
@@ -240,11 +252,12 @@ pub const git_commit_key_first: u64 = 450;
 /// cannot paint a later card.
 pub const git_commit_numstat_key_first: u64 = 460;
 
-/// One-shot empty-message generate for the Commit… card (`fx ask`,
-/// or daemon GenerateCommitMessage when a daemon address is set).
-/// Distinct from add/commit (450+) and CommitSnapshot numstat (460+).
-/// Incremented per spawn so a cancelled generate cannot paint a later
-/// card. Daemon generate reuses `next_daemon_key` on the same field.
+/// One-shot empty-message generate for the Commit… card (session
+/// provider CLI, last-resort `fx ask`, or daemon
+/// GenerateCommitMessage when a daemon address is set). Distinct from
+/// add/commit (450+) and CommitSnapshot numstat (460+). Incremented
+/// per spawn so a cancelled generate cannot paint a later card.
+/// Daemon generate reuses `next_daemon_key` on the same field.
 pub const git_commit_generate_key_first: u64 = 470;
 
 /// Waku `chars().take(200)` plus a byte cap on the runtime TextBuffer.
@@ -1151,10 +1164,7 @@ pub fn closeCommit(model: *Model) void {
     model.git_commit_numstat_key = 0;
     model.git_commit_numstat_via_daemon = false;
     model.git_commit_numstat_daemon_ok = false;
-    model.git_commit_generate_key = 0;
-    model.git_commit_generate_stdout_len = 0;
-    model.git_commit_generate_via_daemon = false;
-    model.git_commit_generate_daemon_ok = false;
+    resetGenerateRuntime(model);
     model.git_commit_then_push = false;
     model.git_commit_amend = false;
     model.git_commit_via_daemon = false;
@@ -1169,13 +1179,19 @@ fn cancelCommit(model: *Model, fx: *Effects) void {
     resetCommitState(model);
 }
 
-fn cancelGenerate(model: *Model, fx: *Effects) void {
-    if (model.git_commit_generate_key == 0) return;
-    fx.cancel(model.git_commit_generate_key);
+fn resetGenerateRuntime(model: *Model) void {
+    model.clearGitCommitGenerateAmpSettings();
     model.git_commit_generate_key = 0;
     model.git_commit_generate_stdout_len = 0;
     model.git_commit_generate_via_daemon = false;
     model.git_commit_generate_daemon_ok = false;
+    model.git_commit_generate_parse_json = false;
+}
+
+fn cancelGenerate(model: *Model, fx: *Effects) void {
+    if (model.git_commit_generate_key == 0) return;
+    fx.cancel(model.git_commit_generate_key);
+    resetGenerateRuntime(model);
     model.git_commit_then_push = false;
 }
 
@@ -1346,8 +1362,19 @@ fn failNothingStaged(model: *Model) void {
     model.setAttachStatus(model.nothing_staged_status());
 }
 
-fn generateAvailable(model: *const Model) bool {
+fn sessionProviderGenerateReady(model: *const Model) bool {
+    const session = model.sessionByIdConst(model.selected) orelse return false;
+    if (!providers.isAvailable(model, session.provider)) return false;
+    if (session.provider == .fx) return model.fxPath().len > 0;
+    return generateInvocationBinary(model, session.provider).len > 0;
+}
+
+fn fxGenerateReady(model: *const Model) bool {
     return model.fx_available and model.fxPath().len > 0;
+}
+
+fn generateAvailable(model: *const Model) bool {
+    return sessionProviderGenerateReady(model) or fxGenerateReady(model);
 }
 
 fn generateStillCurrent(model: *const Model) bool {
@@ -1369,10 +1396,7 @@ fn appendGenerateStdout(model: *Model, chunk: []const u8) void {
 }
 
 fn failGenerate(model: *Model) void {
-    model.git_commit_generate_key = 0;
-    model.git_commit_generate_stdout_len = 0;
-    model.git_commit_generate_via_daemon = false;
-    model.git_commit_generate_daemon_ok = false;
+    resetGenerateRuntime(model);
     model.git_commit_then_push = false;
     model.setAttachStatus(model.generate_failed_status());
 }
@@ -1461,7 +1485,8 @@ fn generateInvocationBinary(model: *const Model, provider: protocol.ProviderId) 
 /// non-empty. Own daemon spawn key assigned to
 /// `git_commit_generate_key` so Generating… / `handleGenerateExit`
 /// still own the card. Missing address, empty binary, or Native 4 KiB
-/// stdin overflow returns false and leaves local `fx ask`.
+/// stdin overflow returns false and leaves local session-provider
+/// generate (or last-resort `fx ask`).
 fn trySpawnDaemonGenerate(model: *Model, fx: *Effects) bool {
     const address = store.resolveDaemonMirrorAddress(model);
     if (address.len == 0) return false;
@@ -1493,9 +1518,11 @@ fn trySpawnDaemonGenerate(model: *Model, fx: *Effects) bool {
 
     const key = model.next_daemon_key;
     model.next_daemon_key += 1;
+    model.clearGitCommitGenerateAmpSettings();
     model.git_commit_generate_key = key;
     model.git_commit_generate_via_daemon = true;
     model.git_commit_generate_daemon_ok = false;
+    model.git_commit_generate_parse_json = false;
     model.git_commit_generate_stdout_len = 0;
     model.git_commit_probe_session = model.selected;
     const probed = model.git_commit_probe_path_storage[0..model.git_commit_probe_path_len];
@@ -1513,13 +1540,7 @@ fn trySpawnDaemonGenerate(model: *Model, fx: *Effects) bool {
     return true;
 }
 
-fn spawnGenerate(model: *Model, fx: *Effects) void {
-    const cwd = commitCwd(model);
-    const fx_path = model.fxPath();
-    if (cwd.len == 0 or fx_path.len == 0) {
-        failGenerate(model);
-        return;
-    }
+fn beginLocalGenerate(model: *Model, cwd: []const u8) u64 {
     model.git_commit_generate_stdout_len = 0;
     model.git_commit_generate_via_daemon = false;
     model.git_commit_generate_daemon_ok = false;
@@ -1531,6 +1552,62 @@ fn spawnGenerate(model: *Model, fx: *Effects) void {
     if (cwd.ptr != probed.ptr) {
         writeFixed(&model.git_commit_probe_path_storage, &model.git_commit_probe_path_len, cwd);
     }
+    return key;
+}
+
+fn trySpawnProviderGenerate(model: *Model, fx: *Effects) bool {
+    const session = model.sessionByIdConst(model.selected) orelse return false;
+    if (session.provider == .fx) return false;
+    if (!providers.isAvailable(model, session.provider)) return false;
+    const binary = generateInvocationBinary(model, session.provider);
+    if (binary.len == 0) return false;
+    const cwd = commitCwd(model);
+    if (cwd.len == 0) return false;
+
+    model.clearGitCommitGenerateAmpSettings();
+    if (session.provider == .amp) {
+        var amp_path_buf: [512]u8 = undefined;
+        const amp_path = std.fmt.bufPrint(&amp_path_buf, "{s}/.faku-amp-commit-settings.json", .{cwd}) catch return false;
+        const io = model.store_io orelse return false;
+        if (!git_commit_generate.writeAmpSettings(io, amp_path)) return false;
+        writeFixed(&model.git_commit_generate_amp_settings_storage, &model.git_commit_generate_amp_settings_len, amp_path);
+    }
+
+    const spec = git_commit_generate.GenerateSpec{
+        .provider = session.provider,
+        .cwd = cwd,
+        .binary = binary,
+        .prompt = generatePromptFor(model.git_commit_include_unstaged),
+        .model = session.model(),
+        .effort = session.reasoningEffort(),
+        .amp_settings_path = model.git_commit_generate_amp_settings_storage[0..model.git_commit_generate_amp_settings_len],
+    };
+    var argv_buf: [git_commit_generate.provider_generate_argv_len][]const u8 = undefined;
+    const argv = git_commit_generate.providerGenerateArgvFor(spec, &argv_buf) orelse {
+        model.clearGitCommitGenerateAmpSettings();
+        return false;
+    };
+
+    const key = beginLocalGenerate(model, cwd);
+    model.git_commit_generate_parse_json = false;
+    fx.spawn(.{
+        .key = key,
+        .argv = argv,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
+}
+
+fn spawnFxGenerate(model: *Model, fx: *Effects) void {
+    const cwd = commitCwd(model);
+    const fx_path = model.fxPath();
+    if (cwd.len == 0 or fx_path.len == 0) {
+        failGenerate(model);
+        return;
+    }
+    const key = beginLocalGenerate(model, cwd);
+    model.git_commit_generate_parse_json = true;
     var argv_buf: [generate_argv_len][]const u8 = undefined;
     fx.spawn(.{
         .key = key,
@@ -1538,6 +1615,20 @@ fn spawnGenerate(model: *Model, fx: *Effects) void {
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
+}
+
+fn spawnGenerate(model: *Model, fx: *Effects) void {
+    const cwd = commitCwd(model);
+    if (cwd.len == 0) {
+        failGenerate(model);
+        return;
+    }
+    if (trySpawnProviderGenerate(model, fx)) return;
+    if (fxGenerateReady(model)) {
+        spawnFxGenerate(model, fx);
+        return;
+    }
+    failGenerate(model);
 }
 
 fn confirmCommitWith(model: *Model, fx: *Effects, then_push: bool) void {
@@ -1576,8 +1667,9 @@ fn confirmCommitWith(model: *Model, fx: *Effects, then_push: bool) void {
 /// `git commit -m` when include-unstaged is on; otherwise the same
 /// preflight then `git commit -m` only. Empty / whitespace prefers
 /// daemon GenerateCommitMessage when a daemon address is set, else
-/// `fx ask` generate when fx is available, then auto-proceeds;
-/// if fx is not available it sets
+/// the selected session's provider CLI when Available, else last-resort
+/// `fx ask` when fx is available, then auto-proceeds;
+/// if neither path is available it sets
 /// `Enter a commit message.` and does not spawn. Confirm while
 /// generate is in flight is a no-op. Gated / busy / in-flight /
 /// missing cwd is a no-op. Commit-only: does not start a push after
@@ -1693,11 +1785,14 @@ pub fn handleGenerateExit(model: *Model, fx: *Effects, exit: native_sdk.EffectEx
     const current = generateStillCurrent(model);
     const via_daemon = model.git_commit_generate_via_daemon;
     const daemon_ok = model.git_commit_generate_daemon_ok;
+    const parse_json = model.git_commit_generate_parse_json;
     const stdout = model.git_commit_generate_stdout_storage[0..model.git_commit_generate_stdout_len];
+    model.clearGitCommitGenerateAmpSettings();
     model.git_commit_generate_key = 0;
     model.git_commit_generate_stdout_len = 0;
     model.git_commit_generate_via_daemon = false;
     model.git_commit_generate_daemon_ok = false;
+    model.git_commit_generate_parse_json = false;
     if (!current) {
         model.git_commit_then_push = false;
         return;
@@ -1722,7 +1817,19 @@ pub fn handleGenerateExit(model: *Model, fx: *Effects, exit: native_sdk.EffectEx
         failGenerate(model);
         return;
     }
-    finishGeneratedSubject(model, fx, stdout);
+    if (parse_json) {
+        finishGeneratedSubject(model, fx, stdout);
+        return;
+    }
+    var msg_buf: [max_commit_message]u8 = undefined;
+    const message = normalizeMessage(stdout, &msg_buf) orelse {
+        failGenerate(model);
+        return;
+    };
+    model.git_commit_buffer.clear();
+    model.git_commit_buffer.apply(.{ .insert_text = message });
+    writeFixed(&model.git_commit_message_storage, &model.git_commit_message_len, message);
+    spawnAddOrCommit(model, fx);
 }
 
 pub fn applyLine(model: *Model, line: native_sdk.EffectLine) void {
@@ -5407,4 +5514,222 @@ test "commit attach status follows Appearance language" {
     try std.testing.expectEqualStrings("コミットするステージ済みの変更がありません。", model.attach_status());
     try paint.generateFail(&model, &fx);
     try std.testing.expectEqualStrings("コミットメッセージを生成できませんでした。", model.attach_status());
+}
+
+fn enableCli(model: *Model, id: protocol.ProviderId) void {
+    model.cli_available[@intFromEnum(id)] = true;
+}
+
+test "empty plus DeepSeek Available one-shots dsh --profile headless and honors override" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-generate-dsh", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    enableCli(&model, .deepseek);
+    model.setProviderBinaryOverride(.deepseek, "/opt/custom/dsh");
+    const id = model.addSession("commit generate dsh", .deepseek);
+    model.selected = id;
+    if (model.sessionById(id)) |session| {
+        session.setProjectPath(project);
+        session.setModel("ignored-model");
+    }
+    markDirtyUnstaged(&model, 1);
+
+    startCommit(&model, &fx);
+    confirmCommit(&model, &fx);
+    try std.testing.expect(!model.git_commit_generate_via_daemon);
+    try std.testing.expect(!model.git_commit_generate_parse_json);
+    try std.testing.expectEqual(git_commit_generate_key_first, model.git_commit_generate_key);
+    const gen = findPending(&fx, model.git_commit_generate_key, &git_commit_generate.isProviderGenerateArgv) orelse return error.MissingDeepSeekGenerate;
+    try std.testing.expect(!isGitCommitGenerateArgv(gen.argv));
+    try std.testing.expect(!isDaemonWorkspaceCommitArgv(gen.argv));
+    try std.testing.expectEqualStrings("", gen.stdin);
+    try std.testing.expect(gen.argv.len <= git_commit_generate.max_effect_argv);
+    const args = git_commit_generate.providerArgsFromGenerateArgv(gen.argv);
+    try std.testing.expectEqualStrings("/opt/custom/dsh", git_commit_generate.generateBinaryFromArgv(gen.argv));
+    try std.testing.expectEqualStrings("--profile", args[0]);
+    try std.testing.expectEqualStrings("headless", args[1]);
+    try std.testing.expectEqualStrings(generate_prompt_include_unstaged, args[2]);
+    try std.testing.expect(!std.mem.eql(u8, args[2], "ignored-model"));
+    var i: usize = 0;
+    while (i < gen.argv.len) : (i += 1) {
+        try std.testing.expect(!std.mem.eql(u8, gen.argv[i], "--model"));
+        try std.testing.expect(!std.mem.eql(u8, gen.argv[i], "acp"));
+    }
+}
+
+test "DeepSeek generate parses plain stdout and does not take JSON output" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-generate-dsh-plain", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    enableCli(&model, .deepseek);
+    const id = model.addSession("commit generate dsh plain", .deepseek);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 1);
+
+    startCommit(&model, &fx);
+    confirmCommit(&model, &fx);
+    const gen = findPending(&fx, model.git_commit_generate_key, &git_commit_generate.isProviderGenerateArgv) orelse return error.MissingDeepSeekPlain;
+    applyGenerateLine(&model, .{ .key = gen.key, .line = "  wrap the dirty probe  \nmore\n" });
+    handleGenerateExit(&model, &fx, .{ .key = gen.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqualStrings("wrap the dirty probe", model.git_commit_buffer.text());
+    try std.testing.expectEqual(GitCommitPhase.add, model.git_commit_phase);
+
+    dismissCommit(&model, &fx);
+    markDirtyUnstaged(&model, 1);
+    startCommit(&model, &fx);
+    confirmCommit(&model, &fx);
+    const gen2 = findPending(&fx, model.git_commit_generate_key, &git_commit_generate.isProviderGenerateArgv) orelse return error.MissingDeepSeekJsonPlain;
+    applyGenerateLine(&model, .{ .key = gen2.key, .line = "{\"output\":\"  ship it  \\nbody\"}\n" });
+    handleGenerateExit(&model, &fx, .{ .key = gen2.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqualStrings("{\"output\":\"  ship it  \\nbody\"}", model.git_commit_buffer.text());
+}
+
+test "unavailable DeepSeek last-resorts to fx ask when fx is Available" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-generate-dsh-fallback", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    enableFx(&model);
+    const id = model.addSession("commit generate dsh fallback", .deepseek);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 1);
+    try std.testing.expect(!providers.isAvailable(&model, .deepseek));
+
+    startCommit(&model, &fx);
+    confirmCommit(&model, &fx);
+    try std.testing.expect(model.git_commit_generate_parse_json);
+    const gen = findPending(&fx, model.git_commit_generate_key, &isGitCommitGenerateArgv) orelse return error.MissingFxLastResort;
+    try std.testing.expect(!git_commit_generate.isProviderGenerateArgv(gen.argv));
+    try expectGenerateArgv(gen.argv, project, true);
+}
+
+test "Amp generate writes settings JSON and deletes it after exit" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-generate-amp", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    enableCli(&model, .amp);
+    const id = model.addSession("commit generate amp", .amp);
+    model.selected = id;
+    if (model.sessionById(id)) |session| {
+        session.setProjectPath(project);
+        session.setModel("amp-mode");
+        session.setReasoningEffort("max");
+    }
+    markDirtyUnstaged(&model, 1);
+
+    startCommit(&model, &fx);
+    confirmCommit(&model, &fx);
+    const gen = findPending(&fx, model.git_commit_generate_key, &git_commit_generate.isProviderGenerateArgv) orelse return error.MissingAmpGenerate;
+    try std.testing.expect(gen.argv.len <= git_commit_generate.max_effect_argv);
+    const script = git_commit_generate.generateScriptFromArgv(gen.argv);
+    try std.testing.expect(std.mem.indexOf(u8, script, "--execute") != null);
+    try std.testing.expect(std.mem.indexOf(u8, script, "--settings-file") != null);
+    const settings_path = git_commit_generate.ampSettingsPathFromGenerateArgv(gen.argv);
+    try std.testing.expect(settings_path.len > 0);
+    try std.testing.expect(util.fileExists(std.testing.io, settings_path));
+    const body = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, settings_path, std.testing.allocator, .limited(256));
+    defer std.testing.allocator.free(body);
+    try std.testing.expectEqualStrings(git_commit_generate.amp_settings_json, body);
+    try std.testing.expect(std.mem.indexOf(u8, settings_path, "--mode") == null);
+    var has_mode = false;
+    var has_effort = false;
+    const args = git_commit_generate.providerArgsFromGenerateArgv(gen.argv);
+    if (args.len > 0) {
+        for (args, 0..) |arg, i| {
+            if (std.mem.eql(u8, arg, "--mode") and i + 1 < args.len)
+                has_mode = std.mem.eql(u8, args[i + 1], "amp-mode");
+            if (std.mem.eql(u8, arg, "--effort") and i + 1 < args.len)
+                has_effort = std.mem.eql(u8, args[i + 1], "max");
+        }
+    } else {
+        has_mode = std.mem.indexOf(u8, script, "--mode") != null and
+            std.mem.eql(u8, gen.argv[if (builtin.os.tag == .windows) 8 else 7], "amp-mode");
+        has_effort = std.mem.indexOf(u8, script, "--effort") != null and
+            std.mem.eql(u8, gen.argv[if (builtin.os.tag == .windows) 9 else 8], "max");
+    }
+    try std.testing.expect(has_mode);
+    try std.testing.expect(has_effort);
+    applyGenerateLine(&model, .{ .key = gen.key, .line = "amp subject\n" });
+    handleGenerateExit(&model, &fx, .{ .key = gen.key, .reason = .exited, .code = 0 });
+    try std.testing.expect(!util.fileExists(std.testing.io, settings_path));
+    try std.testing.expectEqualStrings("amp subject", model.git_commit_buffer.text());
+}
+
+test "Claude generate stays pinned and ignores session model" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-generate-claude", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    enableCli(&model, .claude);
+    const id = model.addSession("commit generate claude", .claude);
+    model.selected = id;
+    if (model.sessionById(id)) |session| {
+        session.setProjectPath(project);
+        session.setModel("sonnet-should-not-win");
+        session.setReasoningEffort("high");
+    }
+    markDirtyUnstaged(&model, 1);
+
+    startCommit(&model, &fx);
+    confirmCommit(&model, &fx);
+    const gen = findPending(&fx, model.git_commit_generate_key, &git_commit_generate.isProviderGenerateArgv) orelse return error.MissingClaudeGenerate;
+    try std.testing.expect(gen.argv.len <= git_commit_generate.max_effect_argv);
+    const script = git_commit_generate.generateScriptFromArgv(gen.argv);
+    try std.testing.expect(std.mem.indexOf(u8, script, "--print") != null);
+    try std.testing.expect(std.mem.indexOf(u8, script, "--output-format") != null);
+    try std.testing.expect(std.mem.indexOf(u8, script, git_commit_generate.claude_generate_model) != null);
+    try std.testing.expect(std.mem.indexOf(u8, script, git_commit_generate.claude_generate_effort) != null);
+    const args = git_commit_generate.providerArgsFromGenerateArgv(gen.argv);
+    const prompt = if (args.len > 0) args[args.len - 1] else gen.argv[if (builtin.os.tag == .windows) 7 else 6];
+    try std.testing.expectEqualStrings(generate_prompt_include_unstaged, prompt);
+    var i: usize = 0;
+    while (i < gen.argv.len) : (i += 1) {
+        try std.testing.expect(!std.mem.eql(u8, gen.argv[i], "sonnet-should-not-win"));
+        if (std.mem.eql(u8, gen.argv[i], "high")) return error.UnexpectedClaudeEffort;
+    }
 }

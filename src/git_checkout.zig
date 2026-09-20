@@ -205,7 +205,8 @@
 //! unusable snapshot falls back to local numstat). First-cut daemon
 //! `WorkspaceOperation::GenerateCommitMessage` lives in `git_commit`
 //! (best-effort sidecar on empty-message Commit… generate; overflow /
-//! error / empty / parse miss falls back to local `fx ask`). First-cut daemon
+//! error / empty / parse miss falls back to local session-provider
+//! generate, or last-resort `fx ask`). First-cut daemon
 //! `WorkspaceOperation::CaptureTurnStart` lives in `fork` (best-effort
 //! Send sidecar after local capture; Ack; local sha stays canonical).
 //! First-cut daemon `WorkspaceOperation::CaptureTurn` lives in `fork`
@@ -2035,6 +2036,10 @@ fn closeCommitCard(model: *Model) void {
     model.git_commit_numstat_daemon_ok = false;
     model.git_commit_generate_key = 0;
     model.git_commit_generate_stdout_len = 0;
+    model.git_commit_generate_via_daemon = false;
+    model.git_commit_generate_daemon_ok = false;
+    model.git_commit_generate_parse_json = false;
+    model.clearGitCommitGenerateAmpSettings();
     model.git_commit_then_push = false;
     model.git_commit_via_daemon = false;
 }
@@ -2603,6 +2608,10 @@ pub fn refresh(model: *Model, fx: *Effects) void {
         fx.cancel(model.git_commit_generate_key);
         model.git_commit_generate_key = 0;
         model.git_commit_generate_stdout_len = 0;
+        model.git_commit_generate_via_daemon = false;
+        model.git_commit_generate_daemon_ok = false;
+        model.git_commit_generate_parse_json = false;
+        model.clearGitCommitGenerateAmpSettings();
         model.setAttachStatus(model.commit_failed_status());
     }
     if (model.git_commit_key != 0) {

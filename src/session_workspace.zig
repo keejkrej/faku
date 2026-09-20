@@ -41,7 +41,8 @@
 //! `WorkspaceOperation::GenerateCommitMessage` ships in `git_commit`
 //! (best-effort sidecar on empty-message Commit… generate when a
 //! daemon address is set; overflow / error / empty / parse miss
-//! falls back to local `fx ask`). First-cut daemon `WorkspaceOperation::ListProjectFiles`
+//! falls back to local session-provider generate, or last-resort
+//! `fx ask`). First-cut daemon `WorkspaceOperation::ListProjectFiles`
 //! ships in `file_mention` (best-effort sidecar on Files refresh when a
 //! daemon address is set; prefer hello + listProjectFiles; overflow /
 //! error / unusable parse falls back to ListTree then local git
