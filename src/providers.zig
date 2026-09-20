@@ -81,7 +81,9 @@
 //! model_count ships this cut (static Waku `fallback_models`
 //! lengths; Available enabled paints N model(s); Available
 //! disabled paints Disabled for new tasks; empty-catalog /
-//! Not found omit).
+//! Not found omit). Provider row icons (`app:provider-*`) ship
+//! this cut (Native `list-item` `icon="{p.icon}"`; Codex uses the
+//! OpenAI mark). Still not Waku colored status-dot overlays.
 //! Disabling does not
 //! move unstarted drafts / last_provider (Faku new sessions stay fx;
 //! drafts.json has no provider).
@@ -215,7 +217,27 @@ pub const ProviderRow = struct {
     /// when formatted from a count template.
     model_count_label: []const u8 = "",
     has_model_count: bool = false,
+    /// Leading Native `app:provider-*` mark. Codex uses the OpenAI
+    /// registry name (`app:provider-openai`). Static, not arena-owned.
+    icon: []const u8 = "",
 };
+
+/// Waku `provider-*.svg` registry name for a catalog id. Codex uses
+/// the OpenAI mark. Markup binds `icon="{p.icon}"` on the Providers
+/// `list-item`.
+pub fn iconName(id: protocol.ProviderId) []const u8 {
+    return switch (id) {
+        .fx => "app:provider-fx",
+        .claude => "app:provider-claude",
+        .codex => "app:provider-openai",
+        .amp => "app:provider-amp",
+        .grok => "app:provider-grok",
+        .opencode => "app:provider-opencode",
+        .cursor => "app:provider-cursor",
+        .pi => "app:provider-pi",
+        .kimi => "app:provider-kimi",
+    };
+}
 
 pub fn catalogLen() usize {
     return std.meta.tags(protocol.ProviderId).len;
@@ -473,6 +495,7 @@ pub fn rowFor(model: *const Model, id: protocol.ProviderId, arena: std.mem.Alloc
         .has_version = version.len > 0,
         .model_count_label = model_count_label,
         .has_model_count = model_count_label.len > 0,
+        .icon = iconName(id),
     };
 }
 
@@ -1890,6 +1913,31 @@ test "rowFor paints model_count when Available with a catalog; disabled wins; No
     try testing.expectEqualStrings("9 個のモデル", rowFor(&model, .claude, arena).model_count_label);
     setProviderEnabled(&model, .cursor, false);
     try testing.expectEqualStrings("新規タスクでは無効", rowFor(&model, .cursor, arena).model_count_label);
+}
+
+test "rowFor icon is app:provider-* for each ProviderId; Codex uses OpenAI mark" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var model = Model{};
+
+    try testing.expectEqualStrings("app:provider-fx", iconName(.fx));
+    try testing.expectEqualStrings("app:provider-claude", iconName(.claude));
+    try testing.expectEqualStrings("app:provider-openai", iconName(.codex));
+    try testing.expectEqualStrings("app:provider-amp", iconName(.amp));
+    try testing.expectEqualStrings("app:provider-grok", iconName(.grok));
+    try testing.expectEqualStrings("app:provider-opencode", iconName(.opencode));
+    try testing.expectEqualStrings("app:provider-cursor", iconName(.cursor));
+    try testing.expectEqualStrings("app:provider-pi", iconName(.pi));
+    try testing.expectEqualStrings("app:provider-kimi", iconName(.kimi));
+    try testing.expect(!std.mem.eql(u8, iconName(.codex), "app:provider-codex"));
+
+    for (std.meta.tags(protocol.ProviderId)) |id| {
+        const row = rowFor(&model, id, arena);
+        try testing.expectEqualStrings(iconName(id), row.icon);
+        try testing.expect(std.mem.startsWith(u8, row.icon, "app:provider-"));
+    }
 }
 
 fn findPendingVersion(fx: *Effects, id: protocol.ProviderId) ?@TypeOf(fx.pendingSpawnAt(0).?) {
