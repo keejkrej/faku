@@ -4373,7 +4373,7 @@ test "settings_page extras persist on sessions.json; missing or unknown load gen
     _ = source.appendTurn(id, .user, "remember settings page");
     try saveSession(&source, id, allocator, io);
 
-    const pages = [_]skills.Page{ .general, .appearance, .providers, .skills, .usage, .computer_use };
+    const pages = [_]skills.Page{ .general, .appearance, .providers, .skills, .usage, .daemon, .computer_use };
     for (pages) |page| {
         source.settings_page = page;
         persistSettingsIfPossible(&source);

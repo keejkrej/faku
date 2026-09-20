@@ -338,6 +338,9 @@
               <if test="{settings_nav_usage_visible}">
                 <button variant="ghost" size="sm" icon="app:chart-column" selected="{settings_page_usage}" role="treeitem" on-press="set_settings_page_usage">{settings_nav_usage}</button>
               </if>
+              <if test="{settings_nav_daemon_visible}">
+                <button variant="ghost" size="sm" icon="app:server" selected="{settings_page_daemon}" role="treeitem" on-press="set_settings_page_daemon">{settings_nav_daemon}</button>
+              </if>
               <if test="{settings_nav_computer_use_visible}">
                 <button variant="ghost" size="sm" icon="app:cursor-spark" selected="{settings_page_computer_use}" role="treeitem" on-press="set_settings_page_computer_use">{settings_nav_computer_use}</button>
               </if>
@@ -976,6 +979,29 @@
             </row>
           </if>
           <else>
+          <if test="{settings_page_daemon}">
+            <row grow="1" main="center">
+              <column grow="1" max-width="720" gap="10" padding="14">
+                <text><span weight="bold">{settings_page_heading}</span></text>
+                <card size="sm" padding="10">
+                  <column gap="8">
+                    <text>{daemon_settings_external_title}</text>
+                    <text wrap="true" foreground="text_muted">{daemon_settings_external_description}</text>
+                  </column>
+                </card>
+                <card size="sm" padding="10">
+                  <column gap="8">
+                    <text>{daemon_settings_credentials_title}</text>
+                    <text>{daemon_settings_websocket_url_label}</text>
+                    <text wrap="false" overflow="ellipsis">{daemon_settings_address_display}</text>
+                    <text>{daemon_settings_status_label}</text>
+                    <text wrap="false" overflow="ellipsis">{daemon_settings_status_display}</text>
+                  </column>
+                </card>
+              </column>
+            </row>
+          </if>
+          <else>
           <if test="{settings_page_computer_use}">
             <row grow="1" main="center">
               <column grow="1" max-width="720" gap="10" padding="14">
@@ -1073,6 +1099,7 @@
             </column>
           </row>
           </if>
+          </else>
           </else>
           </else>
           </else>

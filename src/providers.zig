@@ -72,8 +72,10 @@
 //! Leftovers: full onboarding / OAuth / auto-install; Pi ACP /
 //! long-lived RPC (steer / follow_up / session resume); Claude ACP; `--continue`; circular GPUI gauge;
 //! LiteLLM rate-table; T3 layered Usage chart; amend/force and
-//! remote `--track` over daemon (local already); Daemon hosting
-//! page + Native-blocked UI. Version badge ships
+//! remote `--track` over daemon (local already); Native-blocked UI
+//! (gauge / chart fill / DevTools / edge fades / sticky / KaTeX).
+//! Settings Daemon first-cut ships this cut (nav + external-only
+//! page). Version badge ships
 //! this cut (runtime `{binary} --version` parse; muted `v{version}`
 //! beside Available names). Refresh-in-card ships this cut.
 //! model_count ships this cut (static Waku `fallback_models`

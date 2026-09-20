@@ -11,6 +11,7 @@ Waku Rust/TS.
 | `bot.svg` | `app:bot` | Providers |
 | `package.svg` | `app:package` | Skills |
 | `chart-column.svg` | `app:chart-column` | Usage |
+| `server.svg` | `app:server` | Daemon |
 | `cursor-spark.svg` | `app:cursor-spark` | Computer Use |
 
 General uses the built-in Native `settings` icon (`icon="settings"`),

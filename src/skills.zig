@@ -448,18 +448,21 @@ pub const unix_remove_argv_len: usize = 9;
 pub const windows_remove_argv_len: usize = 6;
 
 /// Settings sidebar page. Chrome is General | Appearance |
-/// Providers | Skills | Usage | Computer Use. Computer Use is a
-/// first-cut Unavailable page (no Native Screen Recording /
-/// Accessibility APIs). Persists as `settings_page` on
-/// `sessions.json` extras (`general` / `appearance` / `providers` /
-/// `skills` / `usage` / `computer_use`). Missing / unknown / empty
-/// loads as General. Skill rows stay runtime-only.
+/// Providers | Skills | Usage | Daemon | Computer Use. Daemon is a
+/// first-cut external-only page (Faku does not host/expose a managed
+/// daemon). Computer Use is a first-cut Unavailable page (no Native
+/// Screen Recording / Accessibility APIs). Persists as
+/// `settings_page` on `sessions.json` extras (`general` /
+/// `appearance` / `providers` / `skills` / `usage` / `daemon` /
+/// `computer_use`). Missing / unknown / empty loads as General.
+/// Skill rows stay runtime-only.
 pub const Page = enum {
     general,
     appearance,
     providers,
     skills,
     usage,
+    daemon,
     computer_use,
 
     pub fn persistName(self: Page) []const u8 {
@@ -469,6 +472,7 @@ pub const Page = enum {
             .providers => "providers",
             .skills => "skills",
             .usage => "usage",
+            .daemon => "daemon",
             .computer_use => "computer_use",
         };
     }
@@ -479,6 +483,7 @@ pub const Page = enum {
         if (std.mem.eql(u8, value, "providers")) return .providers;
         if (std.mem.eql(u8, value, "skills")) return .skills;
         if (std.mem.eql(u8, value, "usage")) return .usage;
+        if (std.mem.eql(u8, value, "daemon")) return .daemon;
         if (std.mem.eql(u8, value, "computer_use")) return .computer_use;
         return .general;
     }
@@ -4443,7 +4448,7 @@ test "hydrate name from SKILL.md frontmatter in a temp project" {
     try std.testing.expectEqualStrings("Do the thing.", model.skill_body_storage[0..model.skill_body_len]);
 }
 
-test "Page includes appearance, usage, and computer_use; default stays general" {
+test "Page includes appearance, usage, daemon, and computer_use; default stays general" {
     var model = Model{};
     try std.testing.expectEqual(Page.general, model.settings_page);
     model.settings_page = .appearance;
@@ -4451,14 +4456,19 @@ test "Page includes appearance, usage, and computer_use; default stays general" 
     try std.testing.expect(model.settings_page != .providers);
     try std.testing.expect(model.settings_page != .skills);
     try std.testing.expect(model.settings_page != .usage);
+    try std.testing.expect(model.settings_page != .daemon);
     try std.testing.expect(model.settings_page != .computer_use);
     model.settings_page = .usage;
     try std.testing.expectEqual(Page.usage, model.settings_page);
     try std.testing.expect(model.settings_page != .appearance);
     try std.testing.expect(model.settings_page != .general);
+    model.settings_page = .daemon;
+    try std.testing.expectEqual(Page.daemon, model.settings_page);
+    try std.testing.expect(model.settings_page != .usage);
+    try std.testing.expect(model.settings_page != .computer_use);
     model.settings_page = .computer_use;
     try std.testing.expectEqual(Page.computer_use, model.settings_page);
-    try std.testing.expect(model.settings_page != .usage);
+    try std.testing.expect(model.settings_page != .daemon);
     try std.testing.expect(model.settings_page != .general);
 }
 
@@ -4468,6 +4478,7 @@ test "Page persistName and fromPersist roundtrip; missing or unknown is general"
     try std.testing.expectEqualStrings("providers", Page.providers.persistName());
     try std.testing.expectEqualStrings("skills", Page.skills.persistName());
     try std.testing.expectEqualStrings("usage", Page.usage.persistName());
+    try std.testing.expectEqualStrings("daemon", Page.daemon.persistName());
     try std.testing.expectEqualStrings("computer_use", Page.computer_use.persistName());
     try std.testing.expectEqual(Page.general, Page.fromPersist(""));
     try std.testing.expectEqual(Page.general, Page.fromPersist("nope"));
@@ -4477,6 +4488,7 @@ test "Page persistName and fromPersist roundtrip; missing or unknown is general"
     try std.testing.expectEqual(Page.providers, Page.fromPersist("providers"));
     try std.testing.expectEqual(Page.skills, Page.fromPersist("skills"));
     try std.testing.expectEqual(Page.usage, Page.fromPersist("usage"));
+    try std.testing.expectEqual(Page.daemon, Page.fromPersist("daemon"));
     try std.testing.expectEqual(Page.computer_use, Page.fromPersist("computer_use"));
 }
 

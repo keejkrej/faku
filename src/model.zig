@@ -191,13 +191,15 @@ pub fn sanitizeCodeFontSize(size: u32) u8 {
     return default_code_font_size;
 }
 
-/// Settings nav display order. No Daemon page this cut.
+/// Settings nav display order. Waku SETTINGS_PAGES: Daemon sits
+/// between Usage and Computer Use.
 pub const settings_nav_pages = [_]skills.Page{
     .general,
     .appearance,
     .providers,
     .skills,
     .usage,
+    .daemon,
     .computer_use,
 };
 
@@ -658,6 +660,7 @@ pub const Msg = union(enum) {
     set_settings_page_providers,
     set_settings_page_skills,
     set_settings_page_usage,
+    set_settings_page_daemon,
     set_settings_page_computer_use,
     /// Settings nav Up/Down through tabs left visible by search
     /// (Waku `cycle_settings_page`). Keyboard-only; handlers no-op
@@ -5423,6 +5426,10 @@ pub const Model = struct {
         return model.settings_page == .usage;
     }
 
+    pub fn settings_page_daemon(model: *const Model) bool {
+        return model.settings_page == .daemon;
+    }
+
     pub fn settings_page_computer_use(model: *const Model) bool {
         return model.settings_page == .computer_use;
     }
@@ -5440,6 +5447,7 @@ pub const Model = struct {
             .appearance => chrome.appearance,
             .providers => chrome.providers,
             .usage => chrome.usage,
+            .daemon => chrome.daemon,
             .computer_use => chrome.computer_use,
             .skills => "",
         };
@@ -5585,6 +5593,73 @@ pub const Model = struct {
     /// evolvable.
     pub fn clear_goal_label(model: *const Model) []const u8 {
         return model.goalActionChrome().clear_goal;
+    }
+
+    /// Settings Daemon pack title. Wording matches
+    /// `settings_nav_daemon` / `settings_page_heading` but stays a
+    /// dedicated getter so `DaemonSettingsChrome` does not couple to
+    /// Settings nav. Content page heading is `settings_page_heading`.
+    pub fn daemon_settings_title(model: *const Model) []const u8 {
+        return model.daemonSettingsChrome().title;
+    }
+
+    /// Settings Daemon External daemon card title.
+    pub fn daemon_settings_external_title(model: *const Model) []const u8 {
+        return model.daemonSettingsChrome().external_title;
+    }
+
+    /// Settings Daemon External daemon muted description. Product
+    /// name Faku. Honest: this cut does not host/expose a managed
+    /// daemon.
+    pub fn daemon_settings_external_description(model: *const Model) []const u8 {
+        return model.daemonSettingsChrome().external_description;
+    }
+
+    /// Settings Daemon Connection details card title.
+    pub fn daemon_settings_credentials_title(model: *const Model) []const u8 {
+        return model.daemonSettingsChrome().credentials_title;
+    }
+
+    /// Settings Daemon WebSocket URL / address field label.
+    pub fn daemon_settings_websocket_url_label(model: *const Model) []const u8 {
+        return model.daemonSettingsChrome().websocket_url;
+    }
+
+    /// Settings Daemon Status row label. Display-only; no live
+    /// WebSocket phase this cut.
+    pub fn daemon_settings_status_label(model: *const Model) []const u8 {
+        return model.daemonSettingsChrome().status;
+    }
+
+    /// Localized Not configured. Used when the persisted General
+    /// daemon address is empty.
+    pub fn daemon_settings_not_configured_label(model: *const Model) []const u8 {
+        return model.daemonSettingsChrome().not_configured;
+    }
+
+    /// True when the persisted General daemon address is empty.
+    pub fn daemon_settings_not_configured(model: *const Model) bool {
+        return model.lastDaemonAddress().len == 0;
+    }
+
+    /// Inverse of `daemon_settings_not_configured`.
+    pub fn daemon_settings_has_address(model: *const Model) bool {
+        return !model.daemon_settings_not_configured();
+    }
+
+    /// Connection-details address value: the same persisted string
+    /// General edits, or Not configured when empty.
+    pub fn daemon_settings_address_display(model: *const Model) []const u8 {
+        const addr = model.lastDaemonAddress();
+        if (addr.len == 0) return model.daemon_settings_not_configured_label();
+        return addr;
+    }
+
+    /// Status row value. Empty → Not configured. Address present →
+    /// that same persisted string (no invented Connected/Disconnected
+    /// phase).
+    pub fn daemon_settings_status_display(model: *const Model) []const u8 {
+        return model.daemon_settings_address_display();
     }
 
     /// Settings Computer Use pack title. Wording matches
@@ -5989,6 +6064,10 @@ pub const Model = struct {
         return i18n.computerUseChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn daemonSettingsChrome(model: *const Model) i18n.DaemonSettingsChrome {
+        return i18n.daemonSettingsChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn usageViewChrome(model: *const Model) i18n.UsageViewChrome {
         return i18n.usageViewChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6259,6 +6338,10 @@ pub const Model = struct {
         return model.settingsChrome().usage;
     }
 
+    pub fn settings_nav_daemon(model: *const Model) []const u8 {
+        return model.settingsChrome().daemon;
+    }
+
     pub fn settings_nav_computer_use(model: *const Model) []const u8 {
         return model.settingsChrome().computer_use;
     }
@@ -6295,6 +6378,7 @@ pub const Model = struct {
             .providers => chrome.providers_keywords,
             .skills => chrome.skills_keywords,
             .usage => chrome.usage_keywords,
+            .daemon => chrome.daemon_keywords,
             .computer_use => chrome.computer_use_keywords,
         };
     }
@@ -6354,6 +6438,10 @@ pub const Model = struct {
 
     pub fn settings_nav_usage_visible(model: *const Model) bool {
         return model.settingsNavPageVisible(.usage);
+    }
+
+    pub fn settings_nav_daemon_visible(model: *const Model) bool {
+        return model.settingsNavPageVisible(.daemon);
     }
 
     pub fn settings_nav_computer_use_visible(model: *const Model) bool {
