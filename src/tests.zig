@@ -15917,10 +15917,21 @@ test "settings Daemon tab sits between Usage and Computer Use; external-only, em
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{daemon_settings_address_display}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{daemon_settings_status_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{daemon_settings_status_display}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{daemon_settings_disconnect_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{daemon_settings_forget_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{daemon_settings_reconnect_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{daemon_settings_copy_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"daemon_disconnect\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"daemon_forget\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"daemon_reconnect\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"daemon_copy_url\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">External daemon</text>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Connection details</text>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">WebSocket URL</text>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Not configured</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Disconnect</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Forget daemon</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Reconnect</text>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Expose</text>"));
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"apply_daemon") == null);
 
@@ -15930,6 +15941,10 @@ test "settings Daemon tab sits between Usage and Computer Use; external-only, em
     try testing.expect(!empty.settings_page_daemon());
     try testing.expect(empty.daemon_settings_not_configured());
     try testing.expect(!empty.daemon_settings_has_address());
+    try testing.expect(!empty.daemon_settings_show_disconnect());
+    try testing.expect(!empty.daemon_settings_show_forget());
+    try testing.expect(!empty.daemon_settings_show_reconnect());
+    try testing.expect(!empty.daemon_settings_show_copy());
     try testing.expectEqualStrings("Not configured", empty.daemon_settings_address_display());
     try testing.expectEqualStrings("Not configured", empty.daemon_settings_status_display());
     try testing.expectEqualStrings("External daemon", empty.daemon_settings_external_title());
@@ -16004,11 +16019,19 @@ test "settings Daemon tab sits between Usage and Computer Use; external-only, em
     try testing.expect(!model.daemon_settings_not_configured());
     try testing.expectEqualStrings("127.0.0.1:8787", model.daemon_settings_address_display());
     try testing.expectEqualStrings("127.0.0.1:8787", model.daemon_settings_status_display());
+    try testing.expect(model.daemon_settings_show_disconnect());
+    try testing.expect(model.daemon_settings_show_forget());
+    try testing.expect(model.daemon_settings_show_copy());
+    try testing.expect(!model.daemon_settings_show_reconnect());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "127.0.0.1:8787");
     try testing.expect(findNthByText(tree.root, .text, "127.0.0.1:8787", 1) != null);
     try testing.expect(findByText(tree.root, .text, "Not configured") == null);
     try testing.expect(findByText(tree.root, .button, "Expose") == null);
+    _ = try expectButtonMsg(tree, "Disconnect", .daemon_disconnect);
+    _ = try expectButtonMsg(tree, "Forget daemon", .daemon_forget);
+    _ = try expectButtonMsg(tree, "Copy", .daemon_copy_url);
+    try testing.expect(findByText(tree.root, .button, "Reconnect") == null);
 
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("守护进程", model.daemon_settings_title());
@@ -16017,11 +16040,19 @@ test "settings Daemon tab sits between Usage and Computer Use; external-only, em
     try testing.expectEqualStrings("连接信息", model.daemon_settings_credentials_title());
     try testing.expectEqualStrings("WebSocket 地址", model.daemon_settings_websocket_url_label());
     try testing.expectEqualStrings("状态", model.daemon_settings_status_label());
+    try testing.expectEqualStrings("断开连接", model.daemon_settings_disconnect_label());
+    try testing.expectEqualStrings("忘记守护进程", model.daemon_settings_forget_label());
+    try testing.expectEqualStrings("复制", model.daemon_settings_copy_label());
     try testing.expectEqualStrings("127.0.0.1:8787", model.daemon_settings_address_display());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "守护进程");
     _ = try expectByText(tree.root, .text, "外部守护进程");
     _ = try expectByText(tree.root, .text, "连接信息");
+    _ = try expectButtonMsg(tree, "断开连接", .daemon_disconnect);
+    _ = try expectButtonMsg(tree, "忘记守护进程", .daemon_forget);
+    _ = try expectButtonMsg(tree, "复制", .daemon_copy_url);
+    try testing.expect(findByText(tree.root, .button, "Disconnect") == null);
+    try testing.expect(findByText(tree.root, .button, "Reconnect") == null);
     try testing.expect((try expectButtonMsg(tree, "守护进程", .set_settings_page_daemon)).state.selected);
     try testing.expect(findByText(tree.root, .text, "Daemon") == null);
     try testing.expect(findByText(tree.root, .text, "External daemon") == null);
@@ -16029,11 +16060,18 @@ test "settings Daemon tab sits between Usage and Computer Use; external-only, em
 
     main.update(&model, .{ .settings_daemon_edit = .clear }, &fx);
     try testing.expect(model.daemon_settings_not_configured());
+    try testing.expect(!model.daemon_settings_show_disconnect());
+    try testing.expect(!model.daemon_settings_show_forget());
+    try testing.expect(!model.daemon_settings_show_reconnect());
+    try testing.expect(!model.daemon_settings_show_copy());
     try testing.expectEqualStrings("未配置", model.daemon_settings_address_display());
     try testing.expectEqualStrings("未配置", model.daemon_settings_status_display());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "未配置");
     try testing.expect(findByText(tree.root, .text, "Not configured") == null);
+    try testing.expect(findByText(tree.root, .button, "断开连接") == null);
+    try testing.expect(findByText(tree.root, .button, "忘记守护进程") == null);
+    try testing.expect(findByText(tree.root, .button, "重新连接") == null);
 
     model.language_preference = .japanese;
     try testing.expectEqualStrings("デーモン", model.daemon_settings_title());
@@ -16062,6 +16100,163 @@ test "settings Daemon tab sits between Usage and Computer Use; external-only, em
     model.setSystemLocaleId("ja_JP.UTF-8");
     try testing.expectEqualStrings("デーモン", model.daemon_settings_title());
     try testing.expectEqualStrings("未設定", model.daemon_settings_not_configured_label());
+}
+
+test "settings Daemon Disconnect Forget Reconnect and Copy; forget persists; disconnect gates sidecars" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-daemon-forget", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var empty = Model{};
+    try testing.expect(!empty.daemon_disconnected);
+    try testing.expectEqual(@as(usize, 0), empty.sidecarDaemonAddress().len);
+    try testing.expect(!empty.daemon_settings_show_disconnect());
+    try testing.expect(!empty.daemon_settings_show_forget());
+    try testing.expect(!empty.daemon_settings_show_reconnect());
+    try testing.expect(!empty.daemon_settings_show_copy());
+    main.update(&empty, .daemon_disconnect, &fx);
+    main.update(&empty, .daemon_forget, &fx);
+    main.update(&empty, .daemon_reconnect, &fx);
+    main.update(&empty, .daemon_copy_url, &fx);
+    try testing.expect(!empty.daemon_disconnected);
+    try testing.expectEqual(@as(usize, 0), empty.lastDaemonAddress().len);
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+
+    var model = boot.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    try store.saveSession(&model, model.selected, testing.allocator, testing.io);
+
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    try testing.expectEqualStrings("127.0.0.1:8787", model.sidecarDaemonAddress());
+
+    model.setDaemonAddress("10.0.0.8:9");
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    try testing.expectEqualStrings("10.0.0.8:9", model.sidecarDaemonAddress());
+    try testing.expect(model.daemon_settings_show_disconnect());
+    try testing.expect(model.daemon_settings_show_forget());
+    try testing.expect(model.daemon_settings_show_copy());
+    try testing.expect(!model.daemon_settings_show_reconnect());
+    try testing.expectEqualStrings("127.0.0.1:8787", model.daemon_settings_address_display());
+    try testing.expectEqualStrings("127.0.0.1:8787", model.daemon_settings_status_display());
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_daemon, &fx);
+    var tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Disconnect", .daemon_disconnect);
+    _ = try expectButtonMsg(tree, "Forget daemon", .daemon_forget);
+    const copy_url = try expectButtonMsg(tree, "Copy", .daemon_copy_url);
+    try testing.expect(findByText(tree.root, .button, "Reconnect") == null);
+
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    main.update(&model, tree.msgForPointer(copy_url.id, .up).?, &fx);
+    try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    const written = fx.pendingClipboardAt(0).?;
+    try testing.expectEqual(sidecar_keys.copy_turn_key, written.key);
+    try testing.expectEqual(native_sdk.EffectClipboardOp.write, written.op);
+    try testing.expectEqualStrings("127.0.0.1:8787", written.text);
+
+    main.update(&model, .daemon_disconnect, &fx);
+    try testing.expect(model.daemon_disconnected);
+    try testing.expectEqual(@as(usize, 0), model.sidecarDaemonAddress().len);
+    try testing.expectEqualStrings("10.0.0.8:9", model.daemonAddress());
+    try testing.expectEqualStrings("127.0.0.1:8787", model.lastDaemonAddress());
+    try testing.expectEqualStrings("127.0.0.1:8787", model.daemon_settings_address_display());
+    try testing.expectEqualStrings("Disconnected", model.daemon_settings_status_display());
+    try testing.expect(!model.daemon_settings_show_disconnect());
+    try testing.expect(model.daemon_settings_show_forget());
+    try testing.expect(model.daemon_settings_show_reconnect());
+    try testing.expect(model.daemon_settings_show_copy());
+    try testing.expectEqual(@as(usize, 0), store.resolveDaemonMirrorAddress(&model).len);
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Disconnect") == null);
+    _ = try expectButtonMsg(tree, "Forget daemon", .daemon_forget);
+    _ = try expectButtonMsg(tree, "Reconnect", .daemon_reconnect);
+    _ = try expectByText(tree.root, .text, "Disconnected");
+    _ = try expectByText(tree.root, .text, "127.0.0.1:8787");
+
+    model.setDaemonAddress("");
+    try testing.expectEqualStrings("127.0.0.1:8787", model.lastDaemonAddress());
+    try testing.expect(model.daemon_disconnected);
+    try testing.expectEqual(@as(usize, 0), model.sidecarDaemonAddress().len);
+    _ = model.appendTurn(model.selected, .user, "started");
+    const before_persist = fx.pendingSpawnCount();
+    store.persistIfPossible(&model, model.selected, &fx);
+    try testing.expectEqual(before_persist, fx.pendingSpawnCount());
+
+    var still = Model{};
+    still.setStoreDir(dir);
+    still.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&still, testing.allocator, testing.io));
+    try testing.expectEqualStrings("127.0.0.1:8787", still.lastDaemonAddress());
+    try testing.expect(!still.daemon_disconnected);
+    try testing.expectEqualStrings("127.0.0.1:8787", still.sidecarDaemonAddress());
+
+    main.update(&model, .daemon_reconnect, &fx);
+    try testing.expect(!model.daemon_disconnected);
+    try testing.expectEqualStrings("127.0.0.1:8787", model.sidecarDaemonAddress());
+    try testing.expectEqualStrings("127.0.0.1:8787", model.daemon_settings_status_display());
+    try testing.expect(model.daemon_settings_show_disconnect());
+    try testing.expect(!model.daemon_settings_show_reconnect());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Disconnect", .daemon_disconnect);
+    try testing.expect(findByText(tree.root, .button, "Reconnect") == null);
+
+    main.update(&model, .daemon_disconnect, &fx);
+    main.update(&model, .daemon_forget, &fx);
+    try testing.expect(!model.daemon_disconnected);
+    try testing.expectEqual(@as(usize, 0), model.daemonAddress().len);
+    try testing.expectEqual(@as(usize, 0), model.lastDaemonAddress().len);
+    try testing.expectEqual(@as(usize, 0), model.settings_daemon().len);
+    try testing.expectEqual(@as(usize, 0), model.sidecarDaemonAddress().len);
+    try testing.expect(model.daemon_settings_not_configured());
+    try testing.expect(!model.daemon_settings_show_disconnect());
+    try testing.expect(!model.daemon_settings_show_forget());
+    try testing.expect(!model.daemon_settings_show_reconnect());
+    try testing.expect(!model.daemon_settings_show_copy());
+    try testing.expectEqualStrings("Not configured", model.daemon_settings_address_display());
+    try testing.expectEqualStrings("Not configured", model.daemon_settings_status_display());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Not configured");
+    try testing.expect(findByText(tree.root, .button, "Disconnect") == null);
+    try testing.expect(findByText(tree.root, .button, "Forget daemon") == null);
+    try testing.expect(findByText(tree.root, .button, "Reconnect") == null);
+
+    var forgotten = Model{};
+    forgotten.setStoreDir(dir);
+    forgotten.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&forgotten, testing.allocator, testing.io));
+    try testing.expectEqual(@as(usize, 0), forgotten.lastDaemonAddress().len);
+    try testing.expectEqual(@as(usize, 0), forgotten.daemonAddress().len);
+    try testing.expect(!forgotten.daemon_disconnected);
+    try testing.expectEqual(@as(usize, 0), forgotten.sidecarDaemonAddress().len);
+
+    model.language_preference = .simplified_chinese;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    main.update(&model, .daemon_disconnect, &fx);
+    try testing.expectEqualStrings("已断开", model.daemon_settings_status_display());
+    try testing.expectEqualStrings("断开连接", model.daemon_settings_disconnect_label());
+    try testing.expectEqualStrings("忘记守护进程", model.daemon_settings_forget_label());
+    try testing.expectEqualStrings("重新连接", model.daemon_settings_reconnect_label());
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("接続解除済み", model.daemon_settings_status_display());
+    try testing.expectEqualStrings("接続を解除", model.daemon_settings_disconnect_label());
+    try testing.expectEqualStrings("デーモンを削除", model.daemon_settings_forget_label());
+    try testing.expectEqualStrings("再接続", model.daemon_settings_reconnect_label());
+    try testing.expectEqualStrings("コピー", model.daemon_settings_copy_label());
 }
 
 test "theme preference defaults to System; Light/Dark force scheme regardless of OS" {

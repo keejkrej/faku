@@ -5,8 +5,9 @@
 //! Send on `newWorktree` queues the prompt, shows Creating worktree…,
 //! and reuses `git_checkout.beginWorktreeAdd` (same spawn / retry /
 //! candidate path as New worktree…) when no daemon address is set.
-//! When `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is
-//! set, Send prefers hello + `WorkspaceOperation::CreateWorktree`
+//! When `sidecarDaemonAddress` is set (live `WAKU_DAEMON_ADDRESS` or
+//! persisted `last_daemon_address`; empty while Settings Daemon
+//! Disconnect), Send prefers hello + `WorkspaceOperation::CreateWorktree`
 //! (nil request-frame session/runtime ids; snake_case operation
 //! fields; ok is `worktreeCreated` path + branch). Native 4 KiB
 //! stdin overflow falls back to local `git worktree add`. Success

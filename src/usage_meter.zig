@@ -5,8 +5,9 @@
 //! Opening the panel shows local context occupancy and, when the
 //! selected provider is Claude / Codex / OpenCode / Grok, plan
 //! rate-limit lanes from a best-effort one-shot hello +
-//! `fetchPlanUsage`. `WAKU_DAEMON_ADDRESS` or persisted
-//! `last_daemon_address` is required for the sidecar; missing address
+//! `fetchPlanUsage`. `sidecarDaemonAddress` (live `WAKU_DAEMON_ADDRESS`
+//! or persisted `last_daemon_address`; empty while Settings Daemon
+//! Disconnect) is required for the sidecar; missing address
 //! keeps local context and a muted connect hint. JSON-null `usage` is
 //! unconfigured. Unknown-command / parse miss keep a prior snapshot
 //! or a muted error. Native 4 KiB stdin overflow does not toast.

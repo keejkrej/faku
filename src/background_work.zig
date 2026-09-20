@@ -2,8 +2,9 @@
 //! `Command::StopBackgroundWork`.
 //!
 //! When the right-panel Background tab is selected or Environment
-//! Summary opens, and `WAKU_DAEMON_ADDRESS` or persisted
-//! `last_daemon_address` is set **and** the selected session has a
+//! Summary opens, and `sidecarDaemonAddress` is set (live
+//! `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address`; empty
+//! while Settings Daemon Disconnect) **and** the selected session has a
 //! usable `runtimeId`, Faku one-shots hello + `refreshBackgroundWork`
 //! (request-frame `sessionId` + `runtimeId`, same as cancel / steer /
 //! goal). Ok is typically Ack; `backgroundWork` events on sidecar

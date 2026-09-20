@@ -6,8 +6,9 @@
 //! non-empty `project_path` that exists, Faku prefers hello + daemon
 //! `WorkspaceOperation::InspectBranches` (list) and
 //! `WorkspaceOperation::CheckoutBranch` (local-head checkout / New
-//! branch create) when `WAKU_DAEMON_ADDRESS` or persisted
-//! `last_daemon_address` is set, else `fx.spawn`s
+//! branch create) when `sidecarDaemonAddress` is set (live
+//! `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address`; empty
+//! while Settings Daemon Disconnect), else `fx.spawn`s
 //! `git for-each-ref --format=%(refname)%00%(worktreepath) refs/heads refs/remotes`
 //! through the same `/bin/sh -c` chdir workaround `fx ask` uses
 //! (`fx_ask_chdir_script`). `%(refname)` (not `:short`) is required
@@ -104,8 +105,7 @@
 //! status and leave `project_path` alone. Success retargets the
 //! selected session `project_path` to the dest actually used. First-cut
 //! daemon `WorkspaceOperation::Push` ships as a best-effort sidecar when
-//! `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set and
-//! Force is off (nil sessionId / runtimeId, `{ "type": "push", "cwd" }`;
+//! `sidecarDaemonAddress` is set and Force is off (nil sessionId / runtimeId, `{ "type": "push", "cwd" }`;
 //! no force flag on daemon Push). Force stays local `git push --force`
 //! / set-upstream force. Upstream / show_current / remotes probes stay
 //! local git. First-cut daemon `WorkspaceOperation::CreateWorktree`

@@ -1,7 +1,8 @@
 //! First-cut daemon `WorkspaceOperation::DiscoverSlashCommands`.
 //!
-//! When `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is
-//! set and the selected session has a usable non-empty `project_path`,
+//! When `sidecarDaemonAddress` is set (live `WAKU_DAEMON_ADDRESS` or
+//! persisted `last_daemon_address`; empty while Settings Daemon
+//! Disconnect) and the selected session has a usable non-empty `project_path`,
 //! Faku prefers hello + `discoverSlashCommands` to seed the composer
 //! `/` slash-prefix card (`session.available_commands`, same list ACP
 //! `available_commands_update` paints). Composer `command_rows` then

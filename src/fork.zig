@@ -9,8 +9,9 @@
 //! `checkpoint.zig`. Msg routing and Model fields stay in
 //! `main.zig`. First-cut daemon `WorkspaceOperation::CaptureTurnStart`
 //! is a best-effort sidecar after local Send capture when
-//! `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set
-//! (hello + `{ "type": "captureTurnStart", "cwd", "sessionId",
+//! `sidecarDaemonAddress` is set (live `WAKU_DAEMON_ADDRESS` or
+//! persisted `last_daemon_address`; empty while Settings Daemon
+//! Disconnect) (hello + `{ "type": "captureTurnStart", "cwd", "sessionId",
 //! "turnCount" }`; ok is workspace Ack). Local
 //! `captureTurnStartCommit` / `refs/faku/...` stay canonical for
 //! `worktree_snapshot_sha`. First-cut daemon

@@ -134,8 +134,9 @@
 //! right-panel Diff tab hosts this same body (not a second git
 //! probe stack).
 //! First-cut daemon `WorkspaceOperation::CollectReviewDiff` ships
-//! when `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address`
-//! is set: hello + CollectReviewDiff for Branch / Uncommitted /
+//! when `sidecarDaemonAddress` is set (live `WAKU_DAEMON_ADDRESS` or
+//! persisted `last_daemon_address`; empty while Settings Daemon
+//! Disconnect): hello + CollectReviewDiff for Branch / Uncommitted /
 //! Staged / Unstaged / Committed on open / refresh / source-switch
 //! (same moments as today's local numstat probes). Ok nested
 //! `reviewDiff.data` paints the file list from `numstat` (cap 64)

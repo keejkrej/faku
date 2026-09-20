@@ -3,8 +3,9 @@
 //! Native has no `fx.pickFile`. `Runtime.showOpenDialog` is a host-bridge
 //! / WebView API, not an fx effect the TEA loop can call. Pick folder
 //! prefers hello + daemon `WorkspaceOperation::BrowseDirectory` when
-//! `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set
-//! (in-app directory browser; initial probe `path: null` ⇒ daemon
+//! `sidecarDaemonAddress` is set (live `WAKU_DAEMON_ADDRESS` or
+//! persisted `last_daemon_address`; empty while Settings Daemon
+//! Disconnect) (in-app directory browser; initial probe `path: null` ⇒ daemon
 //! home). Local OS `osascript` / `zenity` / `kdialog` / PowerShell
 //! FolderBrowserDialog stays the fallback and remains the path when
 //! there is no daemon address. Native 4 KiB stdin overflow / spawn

@@ -52,7 +52,9 @@
 //! prompt that `startPrompt` ships to every provider and stores as
 //! the user turn; untitled titles still use the original draft.
 //! Runtime-only (not `sessions.json`). When
-//! `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set,
+//! `sidecarDaemonAddress` is set (live `WAKU_DAEMON_ADDRESS` or
+//! persisted `last_daemon_address`; empty while Settings Daemon
+//! Disconnect),
 //! refresh / ensure prefer one-shot `faku daemon-proxy` hello +
 //! `loadSkills` (one `[projectName, projectPath]` tuple for the
 //! current probe path). Ok `skillsCatalog` replaces `skill_store`.
@@ -1183,8 +1185,7 @@ pub fn refresh(model: *Model, fx: *Effects) void {
 }
 
 fn daemonMirrorAddress(model: *const Model) []const u8 {
-    if (model.daemonAddress().len > 0) return model.daemonAddress();
-    return model.lastDaemonAddress();
+    return model.sidecarDaemonAddress();
 }
 
 fn projectLabel(path: []const u8) []const u8 {

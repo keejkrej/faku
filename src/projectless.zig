@@ -7,8 +7,9 @@
 //! legacy `~/.waku/<YYYY-MM-DD>/…` / bare `~/.waku`) — and no
 //! unstarted non-legacy projectless draft exists to select, Faku
 //! prefers hello + `createProjectlessWorkspace` `{ prompt: null }`
-//! when `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is
-//! set.
+//! when `sidecarDaemonAddress` is set (live `WAKU_DAEMON_ADDRESS` or
+//! persisted `last_daemon_address`; empty while Settings Daemon
+//! Disconnect).
 //! Ok nested `projectlessWorkspace.cwd` becomes the new session
 //! cwd and `last_project_path`. Native 4 KiB stdin overflow /
 //! sidecar failure / non-ok / unusable parse / empty cwd fall back
