@@ -2,7 +2,7 @@
 //!
 //! Transcript / session / project-path clipboard writes,
 //! Settings Providers fx install/login command copy, OpenCode 2
-//! `{binary} serve` copy, and
+//! `{binary} serve` copy, DeepSeek `{binary} web` copy, and
 //! successful-stream notify title/body live here. Msg routing and
 //! Model fields stay in `main.zig`. Behavior is unchanged from the
 //! former `main` copy and notify helpers, plus composer Copy path.

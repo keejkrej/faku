@@ -459,6 +459,19 @@
 //! does not spawn serve; in-app HTTP/SSE serve client still
 //! deferred; on-press stays `copy_opencode2_serve`; command text
 //! stays English)
+//! plus Settings Providers DeepSeek Copy web command
+//! (same `ProvidersDeepseekWebChrome` strings; EN Copy web
+//! command / zh-CN 复制 web 命令 / ja web コマンドをコピー;
+//! distinct from `ProvidersChrome` Copy install / Copy login,
+//! `ProvidersOpencodeAttachChrome`, and
+//! `ProvidersOpencodeServeChrome` so web-copy chrome stays
+//! independently evolvable; DeepSeek expanded row when Available;
+//! clipboard `{binary} web` via `providers.binaryFor` (documented
+//! `dsh web` alias for `--profile web`); honor
+//! `provider_binary_overrides`; hide / no-op when Not found; Faku
+//! does not spawn web; Harness HTTP/SSE / in-app web client still
+//! deferred; on-press stays `copy_deepseek_web`; command text
+//! stays English)
 //! plus Settings Providers model-count / disabled caption
 //! (same `ProvidersModelCountChrome` strings; English matches
 //! Waku `providers.model_count_one` / `model_count_many` /
@@ -470,7 +483,7 @@
 //! `ProvidersChrome` / `ProvidersDetailChrome` /
 //! `ProvidersEnableNamedChrome` / `ProvidersCodingAgentsChrome` /
 //! `ProvidersBinaryOverrideChrome` / `ProvidersOpencodeAttachChrome` /
-//! `ProvidersOpencodeServeChrome`
+//! `ProvidersOpencodeServeChrome` / `ProvidersDeepseekWebChrome`
 //! so the caption stays independently evolvable; Available + disabled paints
 //! disabled_for_new_tasks; Available + enabled + count>0 paints
 //! one/many; empty-catalog / Not found omit)
@@ -909,8 +922,8 @@
 //! Settings Providers / Skills / Usage Refresh `on-press` stay
 //! English (`refresh_providers` / `refresh_skills` /
 //! `refresh_usage_history`). Settings Providers Apply / Copy install /
-//! Copy login / Copy serve `on-press` stay English (`apply_session_provider` /
-//! `copy_fx_install` / `copy_fx_login` / `copy_opencode2_serve`). Refresh goal / plan Refresh `on-press`
+//! Copy login / Copy serve / Copy web `on-press` stay English (`apply_session_provider` /
+//! `copy_fx_install` / `copy_fx_login` / `copy_opencode2_serve` / `copy_deepseek_web`). Refresh goal / plan Refresh `on-press`
 //! stay English (`goal_refresh` / `refresh_plan_usage`). Set goal /
 //! Clear goal `on-press` stay English (`goal_set` / `goal_clear`).
 //! Composer Goal empty label (`No goal`) follows the resolved
@@ -4764,7 +4777,7 @@ const providers_detail_chrome_en: ProvidersDetailChrome = .{
     .pi_transport_note = "Live Send is one-shot pi --mode rpc --no-session when Available (RPC images when attached).",
     .ohmypi_transport_note = "Live Send is one-shot omp --mode rpc --yolo --no-session when Available (RPC images when attached).",
     .opencode2_transport_note = "Live Send is one-shot opencode2 run --format json --auto when Available (`--file` when attached; `--attach {url}` when opencode2_attach_url is set). Unavailable stays demo. User-owned serve; in-app HTTP/SSE serve client still deferred. Not opencode acp (that is the OpenCode row).",
-    .deepseek_transport_note = "Live Send is one-shot dsh --profile acp via acp-proxy when Available. Unavailable stays demo. No image attach this cut (Harness HTTP/SSE / web / headless stay out).",
+    .deepseek_transport_note = "Live Send is one-shot dsh --profile acp via acp-proxy when Available. Unavailable stays demo. No image attach this cut. User-owned dsh web; Copy web command ships (clipboard only; Faku does not spawn web). Harness HTTP/SSE / in-app web client still deferred.",
     .fx_login_note = "Faku does not detect auth state from the --help probe. Copy is a convenience, not sign-in UI or OAuth.",
     .fx_login_codex_note = "Optional: fx login grok / fx login codex (no Gateway required).",
     .other_install_hint = "Install that CLI on PATH, then Refresh.",
@@ -4783,7 +4796,7 @@ const providers_detail_chrome_zh_cn: ProvidersDetailChrome = .{
     .pi_transport_note = "可用时，实际 Send 是一次性 pi --mode rpc --no-session（附加时使用 RPC images）。",
     .ohmypi_transport_note = "可用时，实际 Send 是一次性 omp --mode rpc --yolo --no-session（附加时使用 RPC images）。",
     .opencode2_transport_note = "可用时，实际 Send 是一次性 opencode2 run --format json --auto（附加时使用 `--file`；设置了 opencode2_attach_url 时使用 `--attach {url}`）。不可用时仍为演示。serve 由用户自行启动；应用内 HTTP/SSE serve 客户端仍延后。不是 opencode acp（那是单独的 OpenCode 行）。",
-    .deepseek_transport_note = "可用时，实际 Send 是通过 acp-proxy 的一次性 dsh --profile acp。不可用时仍为演示。本轮不附加图片（Harness HTTP/SSE / web / headless 仍延后）。",
+    .deepseek_transport_note = "可用时，实际 Send 是通过 acp-proxy 的一次性 dsh --profile acp。不可用时仍为演示。本轮不附加图片。dsh web 由用户自行启动；Copy web 命令仅复制剪贴板（Faku 不会启动 web）。Harness HTTP/SSE / 应用内 web 客户端仍延后。",
     .fx_login_note = "Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。",
     .fx_login_codex_note = "可选：fx login grok / fx login codex（无需 Gateway）。",
     .other_install_hint = "将该 CLI 安装到 PATH，然后刷新。",
@@ -4802,7 +4815,7 @@ const providers_detail_chrome_ja: ProvidersDetailChrome = .{
     .pi_transport_note = "利用可能なとき、実際の Send はワンショット pi --mode rpc --no-session です（添付時は RPC images）。",
     .ohmypi_transport_note = "利用可能なとき、実際の Send はワンショット omp --mode rpc --yolo --no-session です（添付時は RPC images）。",
     .opencode2_transport_note = "利用可能なとき、実際の Send はワンショット opencode2 run --format json --auto です（添付時は `--file`。opencode2_attach_url が設定されているときは `--attach {url}`）。利用不可のときはデモのままです。serve はユーザー側で起動します。アプリ内 HTTP/SSE serve クライアントは後回しです。opencode acp ではありません（それは別の OpenCode 行です）。",
-    .deepseek_transport_note = "利用可能なとき、実際の Send は acp-proxy 経由のワンショット dsh --profile acp です。利用不可のときはデモのままです。この段階では画像添付なし（Harness HTTP/SSE / web / headless は後回し）。",
+    .deepseek_transport_note = "利用可能なとき、実際の Send は acp-proxy 経由のワンショット dsh --profile acp です。利用不可のときはデモのままです。この段階では画像添付なし。dsh web はユーザー側で起動します。Copy web はクリップボードのみです（Faku は web を起動しません）。Harness HTTP/SSE / アプリ内 web クライアントは後回しです。",
     .fx_login_note = "Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。",
     .fx_login_codex_note = "任意: fx login grok / fx login codex（Gateway は不要）。",
     .other_install_hint = "その CLI を PATH にインストールしてから更新してください。",
@@ -4994,6 +5007,34 @@ const providers_opencode_serve_chrome_ja: ProvidersOpencodeServeChrome = .{
     .copy_serve = "serve コマンドをコピー",
 };
 
+/// Settings Providers DeepSeek Copy web command for the resolved
+/// locale. Same resolve path as ProvidersChrome. Distinct from
+/// `ProvidersChrome` Copy install / Copy login,
+/// `ProvidersOpencodeAttachChrome`, and
+/// `ProvidersOpencodeServeChrome` so web-copy chrome stays
+/// independently evolvable. DeepSeek expanded row when Available.
+/// Clipboard `{binary} web` (documented `dsh web` alias for
+/// `--profile web`; honor `provider_binary_overrides` /
+/// `providers.binaryFor`; default `dsh`); hide / no-op when
+/// Not found. Faku does not spawn web; Harness HTTP/SSE / in-app
+/// web client still deferred. Wire ids / on-press stay English
+/// (`copy_deepseek_web`). Command text stays English.
+pub const ProvidersDeepseekWebChrome = struct {
+    copy_web: []const u8,
+};
+
+const providers_deepseek_web_chrome_en: ProvidersDeepseekWebChrome = .{
+    .copy_web = "Copy web command",
+};
+
+const providers_deepseek_web_chrome_zh_cn: ProvidersDeepseekWebChrome = .{
+    .copy_web = "复制 web 命令",
+};
+
+const providers_deepseek_web_chrome_ja: ProvidersDeepseekWebChrome = .{
+    .copy_web = "web コマンドをコピー",
+};
+
 /// Capped scratch for `formatProvidersModelCount`. Templates plus a
 /// Latin `{d}` count stay short in every locale.
 pub const providers_model_count_label_max: usize = 64;
@@ -5006,7 +5047,7 @@ pub const providers_model_count_label_max: usize = 64;
 /// `ProvidersChrome` / `ProvidersDetailChrome` /
 /// `ProvidersEnableNamedChrome` / `ProvidersCodingAgentsChrome` /
 /// `ProvidersBinaryOverrideChrome` / `ProvidersOpencodeAttachChrome` /
-/// `ProvidersOpencodeServeChrome`
+/// `ProvidersOpencodeServeChrome` / `ProvidersDeepseekWebChrome`
 /// so the caption stays independently evolvable. Templates keep Waku `%{count}` slots;
 /// numbers stay Latin. Available + disabled paints
 /// `disabled_for_new_tasks` (not the count). Available + enabled
@@ -7264,13 +7305,29 @@ pub fn providersOpencodeServeChromeFor(preference: LanguagePreference, system_lo
     };
 }
 
+/// Settings Providers DeepSeek Copy web command for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from ProvidersChrome Copy install / Copy login,
+/// ProvidersOpencodeAttachChrome, and ProvidersOpencodeServeChrome
+/// so web-copy chrome stays independently evolvable. Wire ids /
+/// on-press stay English (`copy_deepseek_web`). Command text stays
+/// English.
+pub fn providersDeepseekWebChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ProvidersDeepseekWebChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => providers_deepseek_web_chrome_zh_cn,
+        .japanese => providers_deepseek_web_chrome_ja,
+        .system, .english => providers_deepseek_web_chrome_en,
+    };
+}
+
 /// Settings Providers muted model-count / disabled caption for the
 /// resolved locale. Callers pass Model `language_preference` +
 /// `system_locale_id`; this file does not read process env. Distinct
 /// from ProvidersChrome / ProvidersDetailChrome /
 /// ProvidersEnableNamedChrome / ProvidersCodingAgentsChrome /
 /// ProvidersBinaryOverrideChrome / ProvidersOpencodeAttachChrome /
-/// ProvidersOpencodeServeChrome so
+/// ProvidersOpencodeServeChrome / ProvidersDeepseekWebChrome so
 /// the caption stays independently evolvable. English matches Waku `providers.model_count_one` /
 /// `model_count_many` / `disabled_for_new_tasks`. Numbers stay
 /// Latin. Wire ids stay English.
@@ -11617,7 +11674,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
         providersDetailChromeFor(.english, "").opencode2_transport_note,
     );
     try testing.expectEqualStrings(
-        "Live Send is one-shot dsh --profile acp via acp-proxy when Available. Unavailable stays demo. No image attach this cut (Harness HTTP/SSE / web / headless stay out).",
+        "Live Send is one-shot dsh --profile acp via acp-proxy when Available. Unavailable stays demo. No image attach this cut. User-owned dsh web; Copy web command ships (clipboard only; Faku does not spawn web). Harness HTTP/SSE / in-app web client still deferred.",
         providersDetailChromeFor(.english, "").deepseek_transport_note,
     );
     try testing.expectEqualStrings(
@@ -11655,7 +11712,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 pi --mode rpc --no-session（附加时使用 RPC images）。", providersDetailChromeFor(.simplified_chinese, "").pi_transport_note);
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 omp --mode rpc --yolo --no-session（附加时使用 RPC images）。", providersDetailChromeFor(.simplified_chinese, "").ohmypi_transport_note);
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 opencode2 run --format json --auto（附加时使用 `--file`；设置了 opencode2_attach_url 时使用 `--attach {url}`）。不可用时仍为演示。serve 由用户自行启动；应用内 HTTP/SSE serve 客户端仍延后。不是 opencode acp（那是单独的 OpenCode 行）。", providersDetailChromeFor(.simplified_chinese, "").opencode2_transport_note);
-    try testing.expectEqualStrings("可用时，实际 Send 是通过 acp-proxy 的一次性 dsh --profile acp。不可用时仍为演示。本轮不附加图片（Harness HTTP/SSE / web / headless 仍延后）。", providersDetailChromeFor(.simplified_chinese, "").deepseek_transport_note);
+    try testing.expectEqualStrings("可用时，实际 Send 是通过 acp-proxy 的一次性 dsh --profile acp。不可用时仍为演示。本轮不附加图片。dsh web 由用户自行启动；Copy web 命令仅复制剪贴板（Faku 不会启动 web）。Harness HTTP/SSE / 应用内 web 客户端仍延后。", providersDetailChromeFor(.simplified_chinese, "").deepseek_transport_note);
     try testing.expectEqualStrings("Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。", providersDetailChromeFor(.simplified_chinese, "").fx_login_note);
     try testing.expectEqualStrings("可选：fx login grok / fx login codex（无需 Gateway）。", providersDetailChromeFor(.simplified_chinese, "").fx_login_codex_note);
     try testing.expectEqualStrings("将该 CLI 安装到 PATH，然后刷新。", providersDetailChromeFor(.simplified_chinese, "").other_install_hint);
@@ -11672,7 +11729,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット pi --mode rpc --no-session です（添付時は RPC images）。", providersDetailChromeFor(.japanese, "").pi_transport_note);
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット omp --mode rpc --yolo --no-session です（添付時は RPC images）。", providersDetailChromeFor(.japanese, "").ohmypi_transport_note);
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット opencode2 run --format json --auto です（添付時は `--file`。opencode2_attach_url が設定されているときは `--attach {url}`）。利用不可のときはデモのままです。serve はユーザー側で起動します。アプリ内 HTTP/SSE serve クライアントは後回しです。opencode acp ではありません（それは別の OpenCode 行です）。", providersDetailChromeFor(.japanese, "").opencode2_transport_note);
-    try testing.expectEqualStrings("利用可能なとき、実際の Send は acp-proxy 経由のワンショット dsh --profile acp です。利用不可のときはデモのままです。この段階では画像添付なし（Harness HTTP/SSE / web / headless は後回し）。", providersDetailChromeFor(.japanese, "").deepseek_transport_note);
+    try testing.expectEqualStrings("利用可能なとき、実際の Send は acp-proxy 経由のワンショット dsh --profile acp です。利用不可のときはデモのままです。この段階では画像添付なし。dsh web はユーザー側で起動します。Copy web はクリップボードのみです（Faku は web を起動しません）。Harness HTTP/SSE / アプリ内 web クライアントは後回しです。", providersDetailChromeFor(.japanese, "").deepseek_transport_note);
     try testing.expectEqualStrings("Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。", providersDetailChromeFor(.japanese, "").fx_login_note);
     try testing.expectEqualStrings("任意: fx login grok / fx login codex（Gateway は不要）。", providersDetailChromeFor(.japanese, "").fx_login_codex_note);
     try testing.expectEqualStrings("その CLI を PATH にインストールしてから更新してください。", providersDetailChromeFor(.japanese, "").other_install_hint);
@@ -11896,6 +11953,22 @@ test "providersOpencodeServeChromeFor english default; zh and ja chrome; english
     try testing.expect(!std.mem.eql(u8, providersOpencodeServeChromeFor(.english, "").copy_serve, providersChromeFor(.english, "").copy_install));
     try testing.expect(!std.mem.eql(u8, providersOpencodeServeChromeFor(.english, "").copy_serve, providersChromeFor(.english, "").copy_login));
     try testing.expect(!std.mem.eql(u8, providersOpencodeServeChromeFor(.english, "").copy_serve, providersOpencodeAttachChromeFor(.english, "").attach_url));
+}
+
+test "providersDeepseekWebChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Copy web command", providersDeepseekWebChromeFor(.english, "ja").copy_web);
+    try testing.expectEqualStrings("Copy web command", providersDeepseekWebChromeFor(.english, "").copy_web);
+    try testing.expectEqualStrings("Copy web command", providersDeepseekWebChromeFor(.system, "").copy_web);
+    try testing.expectEqualStrings("复制 web 命令", providersDeepseekWebChromeFor(.simplified_chinese, "").copy_web);
+    try testing.expectEqualStrings("web コマンドをコピー", providersDeepseekWebChromeFor(.japanese, "").copy_web);
+    try testing.expectEqualStrings("复制 web 命令", providersDeepseekWebChromeFor(.system, "zh_CN.UTF-8").copy_web);
+    try testing.expectEqualStrings("web コマンドをコピー", providersDeepseekWebChromeFor(.system, "ja_JP.UTF-8").copy_web);
+    try testing.expectEqualStrings("Copy web command", providersDeepseekWebChromeFor(.english, "zh_CN.UTF-8").copy_web);
+    try testing.expect(!std.mem.eql(u8, providersDeepseekWebChromeFor(.english, "").copy_web, providersChromeFor(.english, "").copy_install));
+    try testing.expect(!std.mem.eql(u8, providersDeepseekWebChromeFor(.english, "").copy_web, providersChromeFor(.english, "").copy_login));
+    try testing.expect(!std.mem.eql(u8, providersDeepseekWebChromeFor(.english, "").copy_web, providersOpencodeServeChromeFor(.english, "").copy_serve));
+    try testing.expect(!std.mem.eql(u8, providersDeepseekWebChromeFor(.english, "").copy_web, providersOpencodeAttachChromeFor(.english, "").attach_url));
 }
 
 test "formatProvidersBinaryOverride substitutes %{provider} / %{path} / %{command}; empty still paints" {

@@ -578,6 +578,11 @@
                               <button variant="ghost" size="sm" on-press="copy_opencode2_serve">{copy_opencode2_serve_label}</button>
                             </if>
                           </if>
+                          <if test="{p.show_deepseek_web}">
+                            <if test="{can_copy_deepseek_web}">
+                              <button variant="ghost" size="sm" on-press="copy_deepseek_web">{copy_deepseek_web_label}</button>
+                            </if>
+                          </if>
                         </column>
                       </card>
                     </if>

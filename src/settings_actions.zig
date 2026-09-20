@@ -656,6 +656,10 @@ pub fn handleCopyOpencode2Serve(model: *Model, fx: *Effects) void {
     providers.copyOpencode2Serve(model, fx);
 }
 
+pub fn handleCopyDeepseekWeb(model: *Model, fx: *Effects) void {
+    providers.copyDeepseekWeb(model, fx);
+}
+
 pub fn handleSkillsFilterEdit(model: *Model, edit: canvas.TextInputEvent) void {
     model.applySkillsFilter(edit);
 }
