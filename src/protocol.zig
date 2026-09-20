@@ -9,13 +9,16 @@
 //! First-party provider (this port's differentiator; Waku does not ship
 //! it): the keejkrej/fx fork (https://github.com/keejkrej/fx). Live first
 //! path is one-shot `fx acp` (see main.zig / acp.zig). Probed ACP stdio
-//! providers (cursor / opencode / kimi `acp`, grok `agent stdio`) reuse
-//! that sidecar. Native stdin is one buffer at spawn time; this is not
-//! a long-lived ACP loop. `fx ask --image` stays the fx image path (fx
-//! ACP rejects image blocks). Probed ACP stdio (cursor / opencode /
-//! kimi / grok) may attach official ACP v1 image content blocks on
-//! `session/prompt`. Probe `$HOME/.fx/bin/fx`, leftover `~/.local/bin/fx`,
-//! then PATH. Missing binary keeps the demo timer.
+//! providers (cursor / opencode / kimi `acp`, grok `agent stdio`,
+//! deepseek `--profile acp`) reuse that sidecar. Native stdin is one
+//! buffer at spawn time; this is not a long-lived ACP loop. `fx ask
+//! --image` stays the fx image path (fx ACP rejects image blocks).
+//! Probed ACP stdio (cursor / opencode / kimi / grok) may attach
+//! official ACP v1 image content blocks on `session/prompt`. DeepSeek
+//! fail-closes to demo when a composer image is attached (official
+//! dsh ACP advertises no image capability). Probe `$HOME/.fx/bin/fx`,
+//! leftover `~/.local/bin/fx`, then PATH. Missing binary keeps the
+//! demo timer.
 //!
 //! Catalog is `loadTaskState`. There is no `listSessions` / `createSession`
 //! RPC. A new session is a client-built AgentSession persisted with
@@ -542,6 +545,11 @@ pub const BARE_ACP_TRANSPORT = [_][]const u8{FX_TRANSPORT};
 /// `session/set_mode` / `FX_PERMISSION_MODE` like the other ACP
 /// ids; this cut does not pass `--always-approve`.
 pub const GROK_ACP_TRANSPORT = [_][]const u8{ "agent", "stdio" };
+/// Official DeepSeek Harness ACP stdio. Documented `dsh --profile acp`
+/// (deepseek-ai/deepseek-harness ACP automation server / Zed
+/// `command: dsh`, `args: ["--profile","acp"]`). Not `dsh acp`.
+/// Not `--profile headless` this cut.
+pub const DEEPSEEK_ACP_TRANSPORT = [_][]const u8{ "--profile", "acp" };
 pub const FX_ASK_ARGV_HEAD = [_][]const u8{ "fx", "ask" };
 /// Install: keejkrej/fx `releases/latest/download/install` → ~/.fx/bin/fx
 /// (not fx.sh). Leftover ~/.local/bin/fx stays a probe fallback only.
@@ -637,7 +645,7 @@ pub const ProviderId = enum {
     /// prompt when attached, not ACP). Not Pi / Oh My Pi RPC (that is
     /// a separate one-shot `{binary} --mode rpc` spawn,
     /// stdin prompt JSONL, documented RPC `images` when attached, not
-    /// ACP). Not Grok `agent stdio`. First-cut kimi is one-shot `kimi acp` via
+    /// ACP). Not Grok `agent stdio`. Not DeepSeek `--profile acp`. First-cut kimi is one-shot `kimi acp` via
     /// acp-proxy (not long-lived; no invented flags).
     pub fn speaksBareAcp(id: ProviderId) bool {
         return switch (id) {
@@ -658,18 +666,20 @@ pub const ProviderId = enum {
 
     /// True when Faku can spawn one-shot ACP stdio for this id after
     /// the daemon/fx branches. Bare `acp` (cursor, opencode, kimi) plus
-    /// Grok `agent stdio`. fx stays on the first-party branch.
+    /// Grok `agent stdio` plus DeepSeek `--profile acp`. fx stays on
+    /// the first-party branch.
     pub fn speaksAcpStdio(id: ProviderId) bool {
-        return id.speaksBareAcp() or id == .grok;
+        return id.speaksBareAcp() or id == .grok or id == .deepseek;
     }
 
     /// Transport argv after the binary. Bare-acp ids and fx get
-    /// `acp`; grok gets `agent stdio`. Empty for ids that do not
-    /// speak ACP stdio this cut.
+    /// `acp`; grok gets `agent stdio`; deepseek gets `--profile acp`.
+    /// Empty for ids that do not speak ACP stdio this cut.
     pub fn acpTransportArgv(id: ProviderId) []const []const u8 {
         return switch (id) {
             .fx, .cursor, .opencode, .kimi => &BARE_ACP_TRANSPORT,
             .grok => &GROK_ACP_TRANSPORT,
+            .deepseek => &DEEPSEEK_ACP_TRANSPORT,
             else => &.{},
         };
     }
@@ -5888,6 +5898,7 @@ test "start defaults to first-party fx over acp" {
     try std.testing.expect(ProviderId.opencode.speaksAcpStdio());
     try std.testing.expect(ProviderId.kimi.speaksAcpStdio());
     try std.testing.expect(ProviderId.grok.speaksAcpStdio());
+    try std.testing.expect(ProviderId.deepseek.speaksAcpStdio());
     try std.testing.expect(!ProviderId.fx.speaksAcpStdio());
     try std.testing.expect(!ProviderId.claude.speaksAcpStdio());
     try std.testing.expect(!ProviderId.codex.speaksAcpStdio());
@@ -5926,8 +5937,10 @@ test "start defaults to first-party fx over acp" {
     try std.testing.expectEqualStrings("DeepSeek", ProviderId.deepseek.displayName());
     try std.testing.expect(!ProviderId.deepseek.speaksBareAcp());
     try std.testing.expect(!ProviderId.deepseek.speaksPiRpc());
-    try std.testing.expect(!ProviderId.deepseek.speaksAcpStdio());
-    try std.testing.expectEqual(@as(usize, 0), ProviderId.deepseek.acpTransportArgv().len);
+    try std.testing.expect(ProviderId.deepseek.speaksAcpStdio());
+    try std.testing.expectEqual(@as(usize, 2), ProviderId.deepseek.acpTransportArgv().len);
+    try std.testing.expectEqualStrings("--profile", ProviderId.deepseek.acpTransportArgv()[0]);
+    try std.testing.expectEqualStrings("acp", ProviderId.deepseek.acpTransportArgv()[1]);
     try std.testing.expectEqualStrings("acp", ProviderId.fx.acpTransportArgv()[0]);
     try std.testing.expectEqual(@as(usize, 2), ProviderId.grok.acpTransportArgv().len);
     try std.testing.expectEqualStrings("agent", ProviderId.grok.acpTransportArgv()[0]);
@@ -5937,6 +5950,8 @@ test "start defaults to first-party fx over acp" {
     try std.testing.expectEqual(@as(usize, 0), ProviderId.amp.acpTransportArgv().len);
     try std.testing.expectEqualStrings("agent", GROK_ACP_TRANSPORT[0]);
     try std.testing.expectEqualStrings("stdio", GROK_ACP_TRANSPORT[1]);
+    try std.testing.expectEqualStrings("--profile", DEEPSEEK_ACP_TRANSPORT[0]);
+    try std.testing.expectEqualStrings("acp", DEEPSEEK_ACP_TRANSPORT[1]);
 }
 
 test "writeStart includes reasoningEffort when set and omits when empty" {

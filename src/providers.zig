@@ -24,8 +24,10 @@
 //! on a disabled or uninstalled provider still works and still fetches
 //! when selected. New
 //! sessions stay `.fx`. Live Send for probed ACP stdio providers
-//! (cursor, opencode, kimi, grok) is `spawn.startPrompt` (first-cut ACP v1
-//! image content blocks when a composer image is attached); Available Claude
+//! (cursor, opencode, kimi, grok, deepseek) is `spawn.startPrompt`
+//! (first-cut ACP v1 image content blocks when a composer image is
+//! attached, except DeepSeek which fail-closes to demo — official dsh
+//! ACP advertises no image capability); Available Claude
 //! is one-shot print-mode stream-json (`claude -p --output-format
 //! stream-json --verbose --include-partial-messages
 //! --forward-subagent-text`; documented
@@ -51,7 +53,9 @@
 //! `PiFlavor::OhMyPi` full-access arg `--yolo`; `--no-session` is a
 //! documented omp flag used by Waku model discovery). OpenCode 2 is
 //! catalog + PATH `--help` probe only this cut (live HTTP/SSE Send
-//! stays demo). fx
+//! stays demo). Available DeepSeek is one-shot `dsh --profile acp`
+//! via acp-proxy (not `dsh acp`; composer image fail-closes to demo;
+//! Harness HTTP/SSE / web / `--profile headless` stay out). fx
 //! Not found copies the verified keejkrej/fx install script
 //! (Unix `releases/latest/download/install` curl|bash into `~/.fx/bin`;
 //! Windows `install.ps1` irm|iex on the same latest release; clipboard
@@ -79,7 +83,9 @@
 //! long-lived RPC (steer / follow_up / session resume); Claude ACP; `--continue`; circular GPUI gauge;
 //! LiteLLM rate-table; T3 layered Usage chart; amend/force and
 //! remote `--track` over daemon (local already); Native-blocked UI
-//! (gauge / chart fill / DevTools / edge fades / sticky / KaTeX).
+//! (gauge / chart fill / DevTools / edge fades / sticky / KaTeX);
+//! OpenCode 2 HTTP/SSE Send; DeepSeek Harness HTTP/SSE / web /
+//! `--profile headless`.
 //! Settings Daemon first-cut ships this cut (nav + external-only
 //! page). Version badge ships
 //! this cut (runtime `{binary} --version` parse; muted `v{version}`
@@ -105,7 +111,9 @@
 //! --no-session`, same stdin / images path) ship this cut (not ACP,
 //! not a long-lived RPC loop, not `--mode json`, not permissions
 //! bypass). OpenCode 2 catalog + PATH probe ships this cut (display
-//! **OpenCode 2**; live HTTP/SSE Send stays demo). Appearance theme,
+//! **OpenCode 2**; live HTTP/SSE Send stays demo). DeepSeek one-shot
+//! `dsh --profile acp` via acp-proxy ships this cut (display **DeepSeek**;
+//! no image attach; Harness HTTP/SSE / web / headless stay out). Appearance theme,
 //! Usage, and Computer Use first-cut pages ship (Computer Use is
 //! Unavailable / Off; no Native helper). Not Waku install/auth.
 
@@ -1001,7 +1009,7 @@ test "selectProvider; detail names binary, fx path, probe status, and one-shot a
     try testing.expect(!protocol.ProviderId.opencode2.speaksAcpStdio());
     try testing.expect(!protocol.ProviderId.deepseek.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.deepseek.speaksPiRpc());
-    try testing.expect(!protocol.ProviderId.deepseek.speaksAcpStdio());
+    try testing.expect(protocol.ProviderId.deepseek.speaksAcpStdio());
     try testing.expect(protocol.ProviderId.grok.speaksAcpStdio());
     try testing.expect(protocol.ProviderId.cursor.speaksAcpStdio());
     try testing.expect(protocol.ProviderId.kimi.speaksAcpStdio());

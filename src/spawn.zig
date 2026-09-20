@@ -13,10 +13,11 @@
 //! before spawn; untitled titles keep the original draft.
 //!
 //! Non-fx live Send this cut: `ProviderId.speaksAcpStdio` (cursor /
-//! opencode / kimi bare `acp`, grok `agent stdio`) when
-//! `providers.isAvailable`. Same one-shot `faku acp-proxy -- {binary}
-//! …transport…` as fx. `reply_path` stays `.fx` so ACP stream parsing
-//! (`fx_spawn_acp` / `fx_line` / `fx_exit`) is unchanged. After that,
+//! opencode / kimi bare `acp`, grok `agent stdio`, deepseek
+//! `--profile acp`) when `providers.isAvailable`. Same one-shot
+//! `faku acp-proxy -- {binary} …transport…` as fx. `reply_path` stays
+//! `.fx` so ACP stream parsing (`fx_spawn_acp` / `fx_line` /
+//! `fx_exit`) is unchanged. After that,
 //! Available Claude is one-shot `{binary} -p --output-format
 //! stream-json --verbose --include-partial-messages
 //! --forward-subagent-text {prompt}`
@@ -54,11 +55,15 @@
 //! text_delta` / `delta`, not json-mode top-level `type:text_delta`,
 //! not prose / raw JSON dump). OpenCode 2 has no live Send this cut
 //! (HTTP/SSE service driver deferred; Available still stays demo).
+//! Available DeepSeek is one-shot `dsh --profile acp` via acp-proxy
+//! (not `dsh acp`; not Harness HTTP/SSE / web / `--profile headless`).
 //! Composer image attach on cursor / opencode / kimi / grok uses official
 //! ACP v1 image content blocks (base64 + mimeType) on the one-shot
-//! acp-proxy `session/prompt`. fx still uses `fx ask --image` (no
-//! ACP image blocks). Overflow / missing / unknown type fail closed
-//! to demo.
+//! acp-proxy `session/prompt`. DeepSeek fail-closes to demo when a
+//! composer image is attached (official dsh ACP advertises no image
+//! capability; do not silently drop; do not invent image blocks).
+//! fx still uses `fx ask --image` (no ACP image blocks). Overflow /
+//! missing / unknown type fail closed to demo.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -139,9 +144,12 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
     }
     if (session.provider.speaksAcpStdio() and providers.isAvailable(model, session.provider)) {
         // Official ACP v1 image content blocks on session/prompt when
-        // a composer image is attached (non-fx only). Missing /
-        // unreadable / unknown type / overflow fail closed to demo.
-        // fx never takes this branch (not speaksAcpStdio).
+        // a composer image is attached (cursor / opencode / kimi /
+        // grok). DeepSeek fail-closes to demo in startAcpProxy when a
+        // composer image is attached (official dsh ACP has no image
+        // capability). Missing / unreadable / unknown type / overflow
+        // fail closed to demo. fx never takes this branch (not
+        // speaksAcpStdio).
         const binary = providers.binaryFor(model, session.provider);
         // Reuse fx spawn keys / fx_line / fx_exit / reply_path=.fx
         // so handleAcpLine keeps working. Not a new ReplyPath alias.
@@ -306,20 +314,26 @@ pub fn startFxAcp(model: *Model, fx: *Effects, session: *const Session, prompt: 
 /// One-shot `faku acp-proxy -- {binary} …transport…` with the
 /// existing ACP stdin batch. Transport comes from
 /// `ProviderId.acpTransportArgv` (`acp` for fx / cursor / opencode /
-/// kimi, `agent stdio` for grok). fx still prefixes `FX_MODEL` /
-/// `FX_PERMISSION_MODE` via `/usr/bin/env` (same as before).
-/// Permission also rides `session/set_mode` in the batch. Empty
-/// binary or empty transport is a no-op.
+/// kimi, `agent stdio` for grok, `--profile acp` for deepseek). fx
+/// still prefixes `FX_MODEL` / `FX_PERMISSION_MODE` via `/usr/bin/env`
+/// (same as before). Permission also rides `session/set_mode` in the
+/// batch. Empty binary or empty transport is a no-op.
 ///
 /// Non-fx ACP stdio may attach one official image content block
-/// when the composer draft has an image path. fx never gets image
-/// blocks here (callers route fx images to `fx ask --image`).
-/// Missing / unreadable / unknown type / overflow return false so
-/// `startPrompt` fail-closes to demo.
+/// when the composer draft has an image path, except DeepSeek:
+/// official dsh ACP advertises no image capability, so a composer
+/// image fail-closes to demo (do not silently drop; do not invent
+/// image blocks). fx never gets image blocks here (callers route fx
+/// images to `fx ask --image`). Missing / unreadable / unknown type
+/// / overflow return false so `startPrompt` fail-closes to demo.
 pub fn startAcpProxy(model: *Model, fx: *Effects, session: *const Session, binary: []const u8, prompt: []const u8) bool {
     if (binary.len == 0) return false;
     const transport = session.provider.acpTransportArgv();
     if (transport.len == 0) return false;
+    // Official dsh ACP baseline prompts have no image capability.
+    // Fail closed to demo rather than dropping the attach or inventing
+    // an image content block.
+    if (session.provider == .deepseek and model.draftImagePath().len > 0) return false;
     const cwd = model.resolveAcpCwd(session);
     const resume_id = session.fxSessionId();
     const model_id = session.model();
@@ -332,9 +346,11 @@ pub fn startAcpProxy(model: *Model, fx: *Effects, session: *const Session, binar
     var stdin_buf: [acp.stdin_cap]u8 = undefined;
     var image_raw: [acp.max_image_bytes]u8 = undefined;
     var image: ?acp.ImageContent = null;
-    // fx REJECTS image blocks. Only probed ACP stdio (cursor /
-    // opencode / kimi / grok) may attach ImageContent on session/prompt.
-    const image_path = if (session.provider.speaksAcpStdio()) model.draftImagePath() else "";
+    // fx REJECTS image blocks. DeepSeek already returned false above
+    // when a composer image is attached. Only probed ACP stdio (cursor
+    // / opencode / kimi / grok) may attach ImageContent on
+    // session/prompt.
+    const image_path = if (session.provider.speaksAcpStdio() and session.provider != .deepseek) model.draftImagePath() else "";
     if (image_path.len > 0) {
         const io = model.store_io orelse return false;
         const mime = acp.mimeTypeForImagePath(image_path) orelse return false;
@@ -1096,7 +1112,7 @@ test "kimi unavailable stays demo" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
-test "speaksBareAcp is true for cursor, opencode, and kimi; speaksAcpStdio also covers grok" {
+test "speaksBareAcp is true for cursor, opencode, and kimi; speaksAcpStdio also covers grok and deepseek" {
     const testing = std.testing;
     try testing.expect(protocol.ProviderId.cursor.speaksBareAcp());
     try testing.expect(protocol.ProviderId.opencode.speaksBareAcp());
@@ -1119,17 +1135,20 @@ test "speaksBareAcp is true for cursor, opencode, and kimi; speaksAcpStdio also 
     try testing.expect(protocol.ProviderId.opencode.speaksAcpStdio());
     try testing.expect(protocol.ProviderId.kimi.speaksAcpStdio());
     try testing.expect(protocol.ProviderId.grok.speaksAcpStdio());
+    try testing.expect(protocol.ProviderId.deepseek.speaksAcpStdio());
     try testing.expect(!protocol.ProviderId.fx.speaksAcpStdio());
     try testing.expect(!protocol.ProviderId.claude.speaksAcpStdio());
     try testing.expect(!protocol.ProviderId.amp.speaksAcpStdio());
     try testing.expect(!protocol.ProviderId.opencode2.speaksAcpStdio());
-    try testing.expect(!protocol.ProviderId.deepseek.speaksAcpStdio());
     try testing.expectEqualStrings("acp", protocol.ProviderId.kimi.acpTransportArgv()[0]);
     try testing.expectEqual(@as(usize, 1), protocol.ProviderId.kimi.acpTransportArgv().len);
     try testing.expectEqual(@as(usize, 0), protocol.ProviderId.amp.acpTransportArgv().len);
     try testing.expectEqual(@as(usize, 2), protocol.ProviderId.grok.acpTransportArgv().len);
     try testing.expectEqualStrings("agent", protocol.ProviderId.grok.acpTransportArgv()[0]);
     try testing.expectEqualStrings("stdio", protocol.ProviderId.grok.acpTransportArgv()[1]);
+    try testing.expectEqual(@as(usize, 2), protocol.ProviderId.deepseek.acpTransportArgv().len);
+    try testing.expectEqualStrings("--profile", protocol.ProviderId.deepseek.acpTransportArgv()[0]);
+    try testing.expectEqualStrings("acp", protocol.ProviderId.deepseek.acpTransportArgv()[1]);
 }
 
 test "cursor unavailable stays demo" {
@@ -2285,24 +2304,123 @@ test "opencode2 Available still stays demo (HTTP service driver deferred)" {
     try testing.expect(!protocol.ProviderId.opencode2.speaksAcpStdio());
 }
 
-test "deepseek Available still stays demo (Harness HTTP / session driver deferred)" {
+test "deepseek + cli_available selects acp-proxy dsh --profile acp" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    const id = model.addSession("deepseek thread", .deepseek);
+    model.cli_available[@intFromEnum(protocol.ProviderId.deepseek)] = true;
+
+    startPrompt(&model, &fx, id, "hello deepseek");
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_acp);
+    try testing.expect(!model.fx_spawn_pi_json);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
+    try testing.expect(testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(testArgvHas(request.argv, "--"));
+    try testing.expect(testArgvHas(request.argv, "dsh"));
+    try testing.expect(testArgvHas(request.argv, "--profile"));
+    try testing.expect(testArgvHas(request.argv, "acp"));
+    try testing.expect(!testArgvHas(request.argv, "headless"));
+    try testing.expect(!testArgvHas(request.argv, "agent"));
+    try testing.expect(!testArgvHas(request.argv, "stdio"));
+    try testing.expect(!testArgvHas(request.argv, "ask"));
+    try testing.expect(!testArgvHas(request.argv, "fx"));
+    try testing.expect(!testArgvHas(request.argv, "cursor-agent"));
+    try testing.expect(!testArgvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    const dash = testArgvIndex(request.argv, "--") orelse return error.MissingDash;
+    const binary_at = testArgvIndex(request.argv, "dsh") orelse return error.MissingBinary;
+    const profile_at = testArgvIndex(request.argv, "--profile") orelse return error.MissingProfile;
+    const acp_at = testArgvIndex(request.argv, "acp") orelse return error.MissingAcp;
+    try testing.expect(dash < binary_at);
+    try testing.expectEqual(binary_at + 1, profile_at);
+    try testing.expectEqual(profile_at + 1, acp_at);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"initialize\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/new\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/set_mode\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/prompt\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "hello deepseek") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"image\"") == null);
+    try testing.expect(!protocol.ProviderId.deepseek.speaksBareAcp());
+    try testing.expect(!protocol.ProviderId.deepseek.speaksPiRpc());
+    try testing.expect(protocol.ProviderId.deepseek.speaksAcpStdio());
+}
+
+test "deepseek unavailable stays demo" {
     const testing = std.testing;
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
     var model = Model{};
-    model.setSidecarPath("faku");
-    model.cli_available[@intFromEnum(protocol.ProviderId.deepseek)] = true;
-    const id = model.addSession("deepseek thread", .deepseek);
-    startPrompt(&model, &fx, id, "hello deepseek");
+    const id = model.addSession("deepseek missing", .deepseek);
+    startPrompt(&model, &fx, id, "no dsh");
     try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
-    try testing.expect(!model.fx_spawn_pi_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
-    try testing.expect(!protocol.ProviderId.deepseek.speaksBareAcp());
-    try testing.expect(!protocol.ProviderId.deepseek.speaksPiRpc());
-    try testing.expect(!protocol.ProviderId.deepseek.speaksAcpStdio());
+}
+
+test "deepseek + composer image stays demo (fail closed; no ACP image blocks)" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/dsh-shot.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.deepseek)] = true;
+    const id = model.addSession("deepseek image", .deepseek);
+    model.selected = id;
+    model.setDraftImagePath(image);
+
+    startPrompt(&model, &fx, id, "describe this");
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expectEqualStrings("", model.lastSpawnImagePath());
+}
+
+test "fx path stays preferred when provider is fx even if deepseek is available" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.deepseek)] = true;
+    const id = model.addSession("fx first", .fx);
+
+    startPrompt(&model, &fx, id, "keep fx");
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(testArgvHas(request.argv, "fx"));
+    try testing.expect(testArgvHas(request.argv, "acp"));
+    try testing.expect(!testArgvHas(request.argv, "dsh"));
+    try testing.expect(!testArgvHas(request.argv, "--profile"));
+    try testing.expect(!testArgvHas(request.argv, "ask"));
 }
 
 test "ohmypi image attach uses RPC images on the stdin prompt command" {

@@ -2438,22 +2438,78 @@ test "send with opencode2 Available still starts the demo timer" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
-test "send with deepseek Available still starts the demo timer" {
+test "send with deepseek cli_available spawns acp-proxy dsh --profile acp and streams session/update" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
 
     var model = Model{};
     model.fx_probe_started = true;
+    model.setSidecarPath("faku");
     model.cli_available[@intFromEnum(protocol.ProviderId.deepseek)] = true;
     const id = model.addSession("deepseek send", .deepseek);
     model.selected = id;
+
     main.update(&model, .{ .draft_edit = .{ .insert_text = "hello deepseek" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_acp);
+    try testing.expect(!model.fx_spawn_pi_json);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
+    try testing.expect(argvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(argvHas(request.argv, "--"));
+    try testing.expect(argvHas(request.argv, "dsh"));
+    try testing.expect(argvHas(request.argv, "--profile"));
+    try testing.expect(argvHas(request.argv, "acp"));
+    try testing.expect(!argvHas(request.argv, "headless"));
+    try testing.expect(!argvHas(request.argv, "agent"));
+    try testing.expect(!argvHas(request.argv, "stdio"));
+    try testing.expect(!argvHas(request.argv, "ask"));
+    try testing.expect(!argvHas(request.argv, "fx"));
+    try testing.expect(!argvHas(request.argv, "cursor-agent"));
+    try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    const binary_at = argvIndex(request.argv, "dsh") orelse return error.MissingBinary;
+    const profile_at = argvIndex(request.argv, "--profile") orelse return error.MissingProfile;
+    const acp_at = argvIndex(request.argv, "acp") orelse return error.MissingAcp;
+    try testing.expectEqual(binary_at + 1, profile_at);
+    try testing.expectEqual(profile_at + 1, acp_at);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"initialize\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/new\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/set_mode\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/prompt\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "hello deepseek") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"image\"") == null);
+
+    const before_len = lastAssistant(&model).len;
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"hello from dsh --profile acp\"}}}}");
+    drainEffects(&model, &fx);
+    try testing.expect(lastAssistant(&model).len > before_len);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from dsh --profile acp") != null);
+
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+}
+
+test "send with deepseek unavailable still starts the demo timer" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    const id = model.addSession("deepseek missing", .deepseek);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "no dsh" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
     try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
-    try testing.expect(!model.fx_spawn_pi_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
