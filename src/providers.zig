@@ -20,7 +20,11 @@
 //! (string; missing / empty / overflow → empty = cold `run`) and
 //! copies `{binary} serve` when Available (`copyOpencode2Serve`;
 //! honor `provider_binary_overrides` / `binaryFor`; hide / no-op
-//! when Not found; clipboard only, never spawns serve). The
+//! when Not found; clipboard only, never spawns serve). DeepSeek
+//! expanded row copies `{binary} web` when Available
+//! (`copyDeepseekWeb`; documented `dsh web` alias for `--profile
+//! web`; honor `provider_binary_overrides` / `binaryFor`; hide /
+//! no-op when Not found; clipboard only, never spawns web). The
 //! Enable/Disable chip is disable-flag-only
 //! (user can toggle regardless of install). `providerEnabled` (the
 //! plan-usage `maybeRefresh` gate) is `!disabled && isAvailable`.
@@ -62,7 +66,9 @@
 //! `opencode2_attach_url` is set; not `opencode acp`; user-owned
 //! serve; Copy serve command ships; in-app HTTP/SSE serve client stays deferred). Available DeepSeek is one-shot `dsh --profile acp`
 //! via acp-proxy (not `dsh acp`; composer image fail-closes to demo;
-//! Harness HTTP/SSE / web / `--profile headless` stay out). fx
+//! Copy web command ships; Harness HTTP/SSE / in-app web client stay
+//! deferred; `--profile headless` ships on empty-Commit… generate
+//! only). fx
 //! Not found copies the verified keejkrej/fx install script
 //! (Unix `releases/latest/download/install` curl|bash into `~/.fx/bin`;
 //! Windows `install.ps1` irm|iex on the same latest release; clipboard
@@ -86,7 +92,10 @@
 //! user-owned serve; Faku only passes `--attach`). Copy serve command
 //! follows `i18n.ProvidersOpencodeServeChrome` (clipboard
 //! `{binary} serve` when Available; honor override; hide / no-op
-//! when Not found). Model-count /
+//! when Not found). Copy web command follows
+//! `i18n.ProvidersDeepseekWebChrome` (clipboard `{binary} web` when
+//! Available; honor override; hide / no-op when Not found; Faku
+//! does not spawn web). Model-count /
 //! disabled caption follows `i18n.ProvidersModelCountChrome`
 //! (static Waku `fallback_models` lengths; Latin digits). Tests do not
 //! need a live daemon or any real CLI install.
@@ -97,8 +106,10 @@
 //! remote `--track` over daemon (local already); Native-blocked UI
 //! (gauge / chart fill / DevTools / edge fades / sticky / KaTeX);
 //! OpenCode 2 HTTP/SSE serve client (Copy serve command ships;
-//! Faku still does not spawn serve); DeepSeek Harness HTTP/SSE / web /
-//! `--profile headless`.
+//! Faku still does not spawn serve); DeepSeek Harness HTTP/SSE /
+//! in-app web client (Copy web command ships; Faku still does not
+//! spawn web). `--profile headless` ships on empty-Commit…
+//! generate only.
 //! Settings Daemon first-cut ships this cut (nav + external-only
 //! page). Version badge ships
 //! this cut (runtime `{binary} --version` parse; muted `v{version}`
@@ -131,7 +142,9 @@
 //! `--attach {url}` when `opencode2_attach_url` is set; user-owned
 //! serve; Copy serve command ships; in-app HTTP/SSE serve client still deferred). DeepSeek one-shot
 //! `dsh --profile acp` via acp-proxy ships this cut (display **DeepSeek**;
-//! no image attach; Harness HTTP/SSE / web / headless stay out). Appearance theme,
+//! no image attach; Copy web command ships; Harness HTTP/SSE / in-app
+//! web client still deferred; `--profile headless` ships on
+//! empty-Commit… generate only). Appearance theme,
 //! Usage, and Computer Use first-cut pages ship (Computer Use is
 //! Unavailable / Off; no Native helper). Not Waku install/auth.
 
@@ -199,6 +212,9 @@ pub const copy_login_label = providers_chrome_en.copy_login;
 /// English default from `i18n.ProvidersOpencodeServeChrome`. Distinct
 /// from Copy install / Copy login.
 pub const copy_serve_label = i18n.providersOpencodeServeChromeFor(.english, "").copy_serve;
+/// English default from `i18n.ProvidersDeepseekWebChrome`. Distinct
+/// from Copy install / Copy login / Copy serve.
+pub const copy_web_label = i18n.providersDeepseekWebChromeFor(.english, "").copy_web;
 pub const fx_login_note = providers_detail_chrome_en.fx_login_note;
 pub const fx_login_codex_note = providers_detail_chrome_en.fx_login_codex_note;
 pub const other_install_hint = providers_detail_chrome_en.other_install_hint;
@@ -250,6 +266,9 @@ pub const ProviderRow = struct {
     /// OpenCode 2 expanded row only. Markup gates the Serve attach
     /// URL field on this flag.
     show_opencode_attach: bool = false,
+    /// DeepSeek expanded row only. Markup gates Copy web command on
+    /// this flag so the button never paints on unrelated rows.
+    show_deepseek_web: bool = false,
     /// Persisted `opencode2_attach_url` is non-empty (Reset visible).
     has_opencode_attach: bool = false,
     /// Painted `v{token}` when Available and the `--version` parse
@@ -594,6 +613,7 @@ pub fn rowFor(model: *const Model, id: protocol.ProviderId, arena: std.mem.Alloc
         .binary_path_description = binaryPathDescriptionFor(model, id, arena),
         .show_opencode_attach = id == .opencode2,
         .has_opencode_attach = id == .opencode2 and model.opencode2AttachUrl().len > 0,
+        .show_deepseek_web = id == .deepseek,
         .version = version,
         .has_version = version.len > 0,
         .model_count_label = model_count_label,
@@ -779,6 +799,33 @@ pub fn copyOpencode2Serve(model: *const Model, fx: *Effects) void {
     if (!canCopyOpencode2Serve(model)) return;
     var buf: [opencode2_serve_command_max]u8 = undefined;
     copy_helpers.copyText(fx, opencode2ServeCommand(model, &buf));
+}
+
+/// `{binary} web` scratch: override path cap plus the documented
+/// DeepSeek CLI web alias. Same class as `opencode2_serve_command_max`.
+pub const deepseek_web_command_max: usize = model_exports.max_fx_path + " web".len;
+
+/// Documented DeepSeek Harness CLI `web` (hardcoded alias for
+/// `--profile web`; https://github.com/deepseek-ai/deepseek-harness).
+/// Binary is `providers.binaryFor` (override, else PATH `dsh`).
+pub fn deepseekWebCommand(model: *const Model, buf: []u8) []const u8 {
+    const binary = binaryFor(model, .deepseek);
+    if (binary.len == 0) return "";
+    return std.fmt.bufPrint(buf, "{s} web", .{binary}) catch "";
+}
+
+/// DeepSeek PATH `--help` probe found it. Clipboard-only gate for
+/// Copy web command; does not spawn `web` or probe HTTP/SSE.
+pub fn canCopyDeepseekWeb(model: *const Model) bool {
+    return isAvailable(model, .deepseek);
+}
+
+/// Copy `{binary} web`. No-op when the button would be hidden
+/// (DeepSeek Not found / unset). Does not spawn web.
+pub fn copyDeepseekWeb(model: *const Model, fx: *Effects) void {
+    if (!canCopyDeepseekWeb(model)) return;
+    var buf: [deepseek_web_command_max]u8 = undefined;
+    copy_helpers.copyText(fx, deepseekWebCommand(model, &buf));
 }
 
 pub fn close(model: *Model, fx: *Effects) void {
@@ -1338,6 +1385,7 @@ test "copy command strings are the verified keejkrej/fx install / login commands
     try std.testing.expectEqualStrings("Copy install command", copy_install_label);
     try std.testing.expectEqualStrings("Copy login command", copy_login_label);
     try std.testing.expectEqualStrings("Copy serve command", copy_serve_label);
+    try std.testing.expectEqualStrings("Copy web command", copy_web_label);
 }
 
 test "fxInstallCommandForOs picks Unix curl|bash vs Windows irm|iex" {
@@ -1356,24 +1404,28 @@ test "install/login copy predicates: fx missing, fx available, other missing" {
     try std.testing.expect(!canCopyFxInstall(&model));
     try std.testing.expect(!canCopyFxLogin(&model));
     try std.testing.expect(!canCopyOpencode2Serve(&model));
+    try std.testing.expect(!canCopyDeepseekWeb(&model));
     try std.testing.expect(!showsOtherInstallHint(&model));
 
     selectProvider(&model, rowId(.fx));
     try std.testing.expect(canCopyFxInstall(&model));
     try std.testing.expect(!canCopyFxLogin(&model));
     try std.testing.expect(!canCopyOpencode2Serve(&model));
+    try std.testing.expect(!canCopyDeepseekWeb(&model));
     try std.testing.expect(!showsOtherInstallHint(&model));
 
     model.fx_available = true;
     try std.testing.expect(!canCopyFxInstall(&model));
     try std.testing.expect(canCopyFxLogin(&model));
     try std.testing.expect(!canCopyOpencode2Serve(&model));
+    try std.testing.expect(!canCopyDeepseekWeb(&model));
     try std.testing.expect(!showsOtherInstallHint(&model));
 
     selectProvider(&model, rowId(.claude));
     try std.testing.expect(!canCopyFxInstall(&model));
     try std.testing.expect(!canCopyFxLogin(&model));
     try std.testing.expect(!canCopyOpencode2Serve(&model));
+    try std.testing.expect(!canCopyDeepseekWeb(&model));
     try std.testing.expect(showsOtherInstallHint(&model));
 
     model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
@@ -1498,6 +1550,75 @@ test "opencode2ServeCommand is binaryFor plus serve; override binary; unavailabl
     copyOpencode2Serve(&model, &missing_fx);
     try testing.expectEqual(@as(usize, 0), missing_fx.pendingClipboardCount());
     try testing.expectEqual(@as(usize, 0), missing_fx.pendingSpawnCount());
+}
+
+test "deepseekWebCommand is binaryFor plus web; override binary; unavailable copy is a no-op" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    var buf: [deepseek_web_command_max]u8 = undefined;
+    try testing.expectEqualStrings("dsh", binaryFor(&model, .deepseek));
+    try testing.expectEqualStrings("dsh web", deepseekWebCommand(&model, &buf));
+    try testing.expectEqualStrings("Copy web command", copy_web_label);
+    try testing.expect(!canCopyDeepseekWeb(&model));
+    try testing.expect(!canCopyOpencode2Serve(&model));
+    copyDeepseekWeb(&model, &fx);
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+
+    selectProvider(&model, rowId(.deepseek));
+    copyDeepseekWeb(&model, &fx);
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+
+    model.cli_available[@intFromEnum(protocol.ProviderId.deepseek)] = true;
+    try testing.expect(canCopyDeepseekWeb(&model));
+    try testing.expect(!canCopyOpencode2Serve(&model));
+    copyDeepseekWeb(&model, &fx);
+    try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    const copied = fx.pendingClipboardAt(0).?;
+    try testing.expectEqual(sidecar_keys.copy_turn_key, copied.key);
+    try testing.expectEqual(@import("native_sdk").EffectClipboardOp.write, copied.op);
+    try testing.expectEqualStrings("dsh web", copied.text);
+
+    model.setProviderBinaryOverride(.deepseek, "/opt/custom-dsh");
+    try testing.expectEqualStrings("/opt/custom-dsh", binaryFor(&model, .deepseek));
+    try testing.expectEqualStrings("/opt/custom-dsh web", deepseekWebCommand(&model, &buf));
+    var override_fx = Effects.init(testing.allocator);
+    defer override_fx.deinit();
+    override_fx.executor = .fake;
+    copyDeepseekWeb(&model, &override_fx);
+    try testing.expectEqual(@as(usize, 1), override_fx.pendingClipboardCount());
+    try testing.expectEqualStrings("/opt/custom-dsh web", override_fx.pendingClipboardAt(0).?.text);
+    try testing.expectEqual(@as(usize, 0), override_fx.pendingSpawnCount());
+
+    model.cli_available[@intFromEnum(protocol.ProviderId.deepseek)] = false;
+    try testing.expect(!canCopyDeepseekWeb(&model));
+    var missing_fx = Effects.init(testing.allocator);
+    defer missing_fx.deinit();
+    missing_fx.executor = .fake;
+    copyDeepseekWeb(&model, &missing_fx);
+    try testing.expectEqual(@as(usize, 0), missing_fx.pendingClipboardCount());
+    try testing.expectEqual(@as(usize, 0), missing_fx.pendingSpawnCount());
+}
+
+test "OpenCode 2 Available does not unlock DeepSeek Copy web; DeepSeek Available does not unlock Copy serve" {
+    const testing = std.testing;
+    var model = Model{};
+    try testing.expect(!canCopyOpencode2Serve(&model));
+    try testing.expect(!canCopyDeepseekWeb(&model));
+
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    try testing.expect(canCopyOpencode2Serve(&model));
+    try testing.expect(!canCopyDeepseekWeb(&model));
+
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = false;
+    model.cli_available[@intFromEnum(protocol.ProviderId.deepseek)] = true;
+    try testing.expect(!canCopyOpencode2Serve(&model));
+    try testing.expect(canCopyDeepseekWeb(&model));
 }
 
 test "providerEnabled is not-disabled AND probe-installed; chip is disable-flag-only" {
@@ -1901,6 +2022,10 @@ test "applyAttachUrl empty clears; OpenCode 2 row only; switching applies pendin
     try testing.expect(!rowFor(&model, .claude, arena).show_opencode_attach);
     try testing.expect(rowFor(&model, .opencode2, arena).show_opencode_attach);
     try testing.expect(!rowFor(&model, .opencode2, arena).has_opencode_attach);
+    try testing.expect(!rowFor(&model, .fx, arena).show_deepseek_web);
+    try testing.expect(!rowFor(&model, .claude, arena).show_deepseek_web);
+    try testing.expect(!rowFor(&model, .opencode2, arena).show_deepseek_web);
+    try testing.expect(rowFor(&model, .deepseek, arena).show_deepseek_web);
 
     try testing.expect(toggleExpanded(&model, &fx, rowId(.opencode2)));
     model.opencode2_attach_buffer.set("  http://localhost:4096  ");

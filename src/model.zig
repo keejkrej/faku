@@ -814,6 +814,9 @@ pub const Msg = union(enum) {
     /// Settings Providers OpenCode 2: copy `{binary} serve`. Clipboard
     /// only; does not spawn serve. Hidden / no-op when Not found.
     copy_opencode2_serve,
+    /// Settings Providers DeepSeek: copy `{binary} web`. Clipboard
+    /// only; does not spawn web. Hidden / no-op when Not found.
+    copy_deepseek_web,
     cycle_access,
     cycle_interaction,
     cycle_effort,
@@ -5577,6 +5580,14 @@ pub const Model = struct {
         return model.providersOpencodeServeChrome().copy_serve;
     }
 
+    /// Settings Providers DeepSeek Copy web command. `on-press`
+    /// stays `copy_deepseek_web`. Command text stays English.
+    /// Distinct from Copy install / Copy login (`ProvidersChrome`)
+    /// and Copy serve (`ProvidersOpencodeServeChrome`).
+    pub fn copy_deepseek_web_label(model: *const Model) []const u8 {
+        return model.providersDeepseekWebChrome().copy_web;
+    }
+
     /// Settings Providers Coding agents card title. Distinct from
     /// `settings_page_heading` / `settings_nav_providers` /
     /// `Chrome.providers`. Refresh lives in this card.
@@ -6323,6 +6334,10 @@ pub const Model = struct {
         return i18n.providersOpencodeServeChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn providersDeepseekWebChrome(model: *const Model) i18n.ProvidersDeepseekWebChrome {
+        return i18n.providersDeepseekWebChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn skillsSelectChrome(model: *const Model) i18n.SkillsSelectChrome {
         return i18n.skillsSelectChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6753,6 +6768,13 @@ pub const Model = struct {
     /// (same class as fx Copy install / Copy login).
     pub fn can_copy_opencode2_serve(model: *const Model) bool {
         return model.settings_page == .providers and providers.canCopyOpencode2Serve(model);
+    }
+
+    /// Settings Providers DeepSeek Copy web command. True when
+    /// DeepSeek is Available. Markup hides the button otherwise
+    /// (same class as OpenCode 2 Copy serve).
+    pub fn can_copy_deepseek_web(model: *const Model) bool {
+        return model.settings_page == .providers and providers.canCopyDeepseekWeb(model);
     }
 
     pub fn has_other_install_hint(model: *const Model) bool {

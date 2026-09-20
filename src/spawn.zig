@@ -70,7 +70,8 @@
 //! `fx_session_id`. Unavailable OpenCode 2 stays demo. In-app
 //! HTTP/SSE serve client stays deferred.
 //! Available DeepSeek is one-shot `dsh --profile acp` via acp-proxy
-//! (not `dsh acp`; not Harness HTTP/SSE / web / `--profile headless`).
+//! (not `dsh acp`; not Harness HTTP/SSE / in-app web; `--profile
+//! headless` is empty-Commit… generate only).
 //! Composer image attach on cursor / opencode / kimi / grok uses official
 //! ACP v1 image content blocks (base64 + mimeType) on the one-shot
 //! acp-proxy `session/prompt`. DeepSeek fail-closes to demo when a

@@ -310,6 +310,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .copy_fx_install => settings_actions.handleCopyFxInstall(model, fx),
         .copy_fx_login => settings_actions.handleCopyFxLogin(model, fx),
         .copy_opencode2_serve => settings_actions.handleCopyOpencode2Serve(model, fx),
+        .copy_deepseek_web => settings_actions.handleCopyDeepseekWeb(model, fx),
         .cycle_access => settings_actions.handleCycleAccess(model, fx),
         .cycle_interaction => settings_actions.handleCycleInteraction(model, fx),
         .cycle_effort => settings_actions.handleCycleEffort(model, fx),
