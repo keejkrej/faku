@@ -96,7 +96,10 @@
 //! disabled paints Disabled for new tasks; empty-catalog /
 //! Not found omit). Provider row icons (`app:provider-*`) ship
 //! this cut (Native `list-item` `icon="{p.icon}"`; Codex uses the
-//! OpenAI mark). Still not Waku colored status-dot overlays.
+//! OpenAI mark). Colored status-dot overlays ship this cut (Native
+//! `●` with `foreground="success"` when Available and
+//! `foreground="text_muted"` when Not found; `{p.status}` stays
+//! beside the glyph so availability is not color-only).
 //! Disabling does not
 //! move unstarted drafts / last_provider (Faku new sessions stay fx;
 //! drafts.json has no provider).
@@ -242,6 +245,14 @@ pub const ProviderRow = struct {
     /// Leading Native `app:provider-*` mark. Codex uses the OpenAI
     /// registry name (`app:provider-openai`). Static, not arena-owned.
     icon: []const u8 = "",
+    /// Colored Native status-dot overlay flags. `rowFor` sets them
+    /// from `isAvailable` (same source as `{p.status}`). Markup
+    /// paints `●` with `foreground="success"` when Available and
+    /// `text_muted` when Not found; `{p.status}` stays beside the
+    /// glyph so availability is not color-only. Complementary: one
+    /// is true, the other false.
+    status_available: bool = false,
+    status_missing: bool = false,
 };
 
 /// Waku `provider-*.svg` registry name for a catalog id. Codex uses
@@ -497,7 +508,8 @@ pub fn rowFor(model: *const Model, id: protocol.ProviderId, arena: std.mem.Alloc
     const enabled = !model.disabled_providers[@intFromEnum(id)];
     const pack = chrome(model);
     const token = cli_version.providerVersion(model, id);
-    const version = if (isAvailable(model, id)) versionLabelFor(token, arena) else "";
+    const available = isAvailable(model, id);
+    const version = if (available) versionLabelFor(token, arena) else "";
     const model_count_label = modelCountLabelFor(model, id, enabled, arena);
     return .{
         .id = rid,
@@ -521,6 +533,8 @@ pub fn rowFor(model: *const Model, id: protocol.ProviderId, arena: std.mem.Alloc
         .model_count_label = model_count_label,
         .has_model_count = model_count_label.len > 0,
         .icon = iconName(id),
+        .status_available = available,
+        .status_missing = !available,
     };
 }
 
@@ -774,8 +788,12 @@ test "fx status from model fields without spawning; non-fx defaults Not found" {
     try std.testing.expect(fx_row.first_party);
     try std.testing.expectEqualStrings(first_party_label, fx_row.first_party_label);
     try std.testing.expectEqualStrings(available_status, fx_row.status);
+    try std.testing.expect(fx_row.status_available);
+    try std.testing.expect(!fx_row.status_missing);
     try std.testing.expect(!rowFor(&model, .claude, arena).first_party);
     try std.testing.expectEqualStrings("", rowFor(&model, .claude, arena).first_party_label);
+    try std.testing.expect(!rowFor(&model, .claude, arena).status_available);
+    try std.testing.expect(rowFor(&model, .claude, arena).status_missing);
 }
 
 test "non-fx success exit is Available; non-zero is Not found; fx stays on fx_available" {
@@ -807,7 +825,11 @@ test "non-fx success exit is Available; non-zero is Not found; fx stays on fx_av
     model.fx_available = true;
     try std.testing.expectEqualStrings(available_status, statusFor(&model, .fx));
     try std.testing.expectEqualStrings(available_status, rowFor(&model, .claude, arena).status);
+    try std.testing.expect(rowFor(&model, .claude, arena).status_available);
+    try std.testing.expect(!rowFor(&model, .claude, arena).status_missing);
     try std.testing.expectEqualStrings(missing_status, rowFor(&model, .codex, arena).status);
+    try std.testing.expect(!rowFor(&model, .codex, arena).status_available);
+    try std.testing.expect(rowFor(&model, .codex, arena).status_missing);
 }
 
 test "selectProvider; detail names binary, fx path, probe status, and one-shot acp-proxy" {
@@ -2063,6 +2085,55 @@ test "rowFor icon is app:provider-* for each ProviderId; Codex uses OpenAI mark"
         try testing.expectEqualStrings(iconName(id), row.icon);
         try testing.expect(std.mem.startsWith(u8, row.icon, "app:provider-"));
     }
+}
+
+test "rowFor status_available / status_missing follow isAvailable; Not found vs probe Available" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const missing_fx = rowFor(&model, .fx, arena);
+    try testing.expect(!missing_fx.status_available);
+    try testing.expect(missing_fx.status_missing);
+    try testing.expectEqualStrings(missing_status, missing_fx.status);
+    const missing_claude = rowFor(&model, .claude, arena);
+    try testing.expect(!missing_claude.status_available);
+    try testing.expect(missing_claude.status_missing);
+    try testing.expectEqualStrings(missing_status, missing_claude.status);
+
+    model.fx_available = true;
+    const available_fx = rowFor(&model, .fx, arena);
+    try testing.expect(available_fx.status_available);
+    try testing.expect(!available_fx.status_missing);
+    try testing.expectEqualStrings(available_status, available_fx.status);
+    try testing.expect(!rowFor(&model, .claude, arena).status_available);
+    try testing.expect(rowFor(&model, .claude, arena).status_missing);
+
+    cli_probe.handleCliProbeExit(&model, &fx, .{
+        .key = cli_probe.probeKey(.claude),
+        .reason = .exited,
+        .code = 0,
+    });
+    const available_claude = rowFor(&model, .claude, arena);
+    try testing.expect(available_claude.status_available);
+    try testing.expect(!available_claude.status_missing);
+    try testing.expectEqualStrings(available_status, available_claude.status);
+
+    cli_probe.handleCliProbeExit(&model, &fx, .{
+        .key = cli_probe.probeKey(.codex),
+        .reason = .exited,
+        .code = 127,
+    });
+    const missing_codex = rowFor(&model, .codex, arena);
+    try testing.expect(!missing_codex.status_available);
+    try testing.expect(missing_codex.status_missing);
+    try testing.expectEqualStrings(missing_status, missing_codex.status);
 }
 
 fn findPendingVersion(fx: *Effects, id: protocol.ProviderId) ?@TypeOf(fx.pendingSpawnAt(0).?) {
