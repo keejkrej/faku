@@ -38613,14 +38613,19 @@ test "Settings Providers OpenCode 2 Copy serve command when Available; Not found
     try testing.expect(!model.can_copy_opencode2_serve());
     main.update(&model, .{ .toggle_provider_expanded = providers.rowId(.opencode2) }, &fx);
     var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Serve attach URL");
     try testing.expect(findByText(tree.root, .button, "Copy serve command") == null);
-    main.update(&model, .copy_opencode2_serve, &fx);
-    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
-    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    var noop_fx = Effects.init(testing.allocator);
+    defer noop_fx.deinit();
+    noop_fx.executor = .fake;
+    main.update(&model, .copy_opencode2_serve, &noop_fx);
+    try testing.expectEqual(@as(usize, 0), noop_fx.pendingClipboardCount());
+    try testing.expectEqual(@as(usize, 0), noop_fx.pendingSpawnCount());
 
     model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
     try testing.expect(model.can_copy_opencode2_serve());
     tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Serve attach URL");
     const serve = try expectButtonMsg(tree, "Copy serve command", .copy_opencode2_serve);
     var serve_fx = Effects.init(testing.allocator);
     defer serve_fx.deinit();
