@@ -9620,7 +9620,8 @@ pub const Model = struct {
     /// Used as `fx ask --image`, `codex exec --image`, Amp execute-mode
     /// `@{path}` in the `-x` prompt, Claude
     /// print-mode path-in-prompt, and non-fx ACP stdio image content
-    /// blocks (cursor / opencode / kimi / grok). Pi RPC does not use
+    /// blocks (cursor / opencode / kimi / grok). DeepSeek fail-closes
+    /// to demo instead of attaching. Pi RPC does not use
     /// this omit-missing path: a composer image fail-closes like ACP
     /// (read into documented RPC `images`). Missing files omit the attach
     /// for fx/Claude/Codex/Amp; ACP stdio and Pi RPC fail-close to demo.

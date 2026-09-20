@@ -4738,7 +4738,7 @@ const providers_detail_chrome_en: ProvidersDetailChrome = .{
     .pi_transport_note = "Live Send is one-shot pi --mode rpc --no-session when Available (RPC images when attached).",
     .ohmypi_transport_note = "Live Send is one-shot omp --mode rpc --yolo --no-session when Available (RPC images when attached).",
     .opencode2_transport_note = "OpenCode 2 is catalog and PATH --help probe only this cut. Live Send stays demo (HTTP service driver deferred).",
-    .deepseek_transport_note = "DeepSeek is catalog and PATH --help probe only this cut. Live Send stays demo (Harness HTTP / session driver deferred).",
+    .deepseek_transport_note = "Live Send is one-shot dsh --profile acp via acp-proxy when Available. Unavailable stays demo. No image attach this cut (Harness HTTP/SSE / web / headless stay out).",
     .fx_login_note = "Faku does not detect auth state from the --help probe. Copy is a convenience, not sign-in UI or OAuth.",
     .fx_login_codex_note = "Optional: fx login grok / fx login codex (no Gateway required).",
     .other_install_hint = "Install that CLI on PATH, then Refresh.",
@@ -4757,7 +4757,7 @@ const providers_detail_chrome_zh_cn: ProvidersDetailChrome = .{
     .pi_transport_note = "可用时，实际 Send 是一次性 pi --mode rpc --no-session（附加时使用 RPC images）。",
     .ohmypi_transport_note = "可用时，实际 Send 是一次性 omp --mode rpc --yolo --no-session（附加时使用 RPC images）。",
     .opencode2_transport_note = "本轮 OpenCode 2 仅为目录与 PATH --help 探测。Send 仍为演示（HTTP 服务驱动延后）。",
-    .deepseek_transport_note = "本轮 DeepSeek 仅为目录与 PATH --help 探测。Send 仍为演示（Harness HTTP / 会话驱动延后）。",
+    .deepseek_transport_note = "可用时，实际 Send 是通过 acp-proxy 的一次性 dsh --profile acp。不可用时仍为演示。本轮不附加图片（Harness HTTP/SSE / web / headless 仍延后）。",
     .fx_login_note = "Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。",
     .fx_login_codex_note = "可选：fx login grok / fx login codex（无需 Gateway）。",
     .other_install_hint = "将该 CLI 安装到 PATH，然后刷新。",
@@ -4776,7 +4776,7 @@ const providers_detail_chrome_ja: ProvidersDetailChrome = .{
     .pi_transport_note = "利用可能なとき、実際の Send はワンショット pi --mode rpc --no-session です（添付時は RPC images）。",
     .ohmypi_transport_note = "利用可能なとき、実際の Send はワンショット omp --mode rpc --yolo --no-session です（添付時は RPC images）。",
     .opencode2_transport_note = "この段階の OpenCode 2 はカタログと PATH --help のプローブのみです。Send はデモのままです（HTTP サービスドライバは後回し）。",
-    .deepseek_transport_note = "この段階の DeepSeek はカタログと PATH --help のプローブのみです。Send はデモのままです（Harness HTTP / セッションドライバは後回し）。",
+    .deepseek_transport_note = "利用可能なとき、実際の Send は acp-proxy 経由のワンショット dsh --profile acp です。利用不可のときはデモのままです。この段階では画像添付なし（Harness HTTP/SSE / web / headless は後回し）。",
     .fx_login_note = "Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。",
     .fx_login_codex_note = "任意: fx login grok / fx login codex（Gateway は不要）。",
     .other_install_hint = "その CLI を PATH にインストールしてから更新してください。",
@@ -11503,7 +11503,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
         providersDetailChromeFor(.english, "").opencode2_transport_note,
     );
     try testing.expectEqualStrings(
-        "DeepSeek is catalog and PATH --help probe only this cut. Live Send stays demo (Harness HTTP / session driver deferred).",
+        "Live Send is one-shot dsh --profile acp via acp-proxy when Available. Unavailable stays demo. No image attach this cut (Harness HTTP/SSE / web / headless stay out).",
         providersDetailChromeFor(.english, "").deepseek_transport_note,
     );
     try testing.expectEqualStrings(
@@ -11541,7 +11541,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 pi --mode rpc --no-session（附加时使用 RPC images）。", providersDetailChromeFor(.simplified_chinese, "").pi_transport_note);
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 omp --mode rpc --yolo --no-session（附加时使用 RPC images）。", providersDetailChromeFor(.simplified_chinese, "").ohmypi_transport_note);
     try testing.expectEqualStrings("本轮 OpenCode 2 仅为目录与 PATH --help 探测。Send 仍为演示（HTTP 服务驱动延后）。", providersDetailChromeFor(.simplified_chinese, "").opencode2_transport_note);
-    try testing.expectEqualStrings("本轮 DeepSeek 仅为目录与 PATH --help 探测。Send 仍为演示（Harness HTTP / 会话驱动延后）。", providersDetailChromeFor(.simplified_chinese, "").deepseek_transport_note);
+    try testing.expectEqualStrings("可用时，实际 Send 是通过 acp-proxy 的一次性 dsh --profile acp。不可用时仍为演示。本轮不附加图片（Harness HTTP/SSE / web / headless 仍延后）。", providersDetailChromeFor(.simplified_chinese, "").deepseek_transport_note);
     try testing.expectEqualStrings("Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。", providersDetailChromeFor(.simplified_chinese, "").fx_login_note);
     try testing.expectEqualStrings("可选：fx login grok / fx login codex（无需 Gateway）。", providersDetailChromeFor(.simplified_chinese, "").fx_login_codex_note);
     try testing.expectEqualStrings("将该 CLI 安装到 PATH，然后刷新。", providersDetailChromeFor(.simplified_chinese, "").other_install_hint);
@@ -11558,7 +11558,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット pi --mode rpc --no-session です（添付時は RPC images）。", providersDetailChromeFor(.japanese, "").pi_transport_note);
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット omp --mode rpc --yolo --no-session です（添付時は RPC images）。", providersDetailChromeFor(.japanese, "").ohmypi_transport_note);
     try testing.expectEqualStrings("この段階の OpenCode 2 はカタログと PATH --help のプローブのみです。Send はデモのままです（HTTP サービスドライバは後回し）。", providersDetailChromeFor(.japanese, "").opencode2_transport_note);
-    try testing.expectEqualStrings("この段階の DeepSeek はカタログと PATH --help のプローブのみです。Send はデモのままです（Harness HTTP / セッションドライバは後回し）。", providersDetailChromeFor(.japanese, "").deepseek_transport_note);
+    try testing.expectEqualStrings("利用可能なとき、実際の Send は acp-proxy 経由のワンショット dsh --profile acp です。利用不可のときはデモのままです。この段階では画像添付なし（Harness HTTP/SSE / web / headless は後回し）。", providersDetailChromeFor(.japanese, "").deepseek_transport_note);
     try testing.expectEqualStrings("Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。", providersDetailChromeFor(.japanese, "").fx_login_note);
     try testing.expectEqualStrings("任意: fx login grok / fx login codex（Gateway は不要）。", providersDetailChromeFor(.japanese, "").fx_login_codex_note);
     try testing.expectEqualStrings("その CLI を PATH にインストールしてから更新してください。", providersDetailChromeFor(.japanese, "").other_install_hint);

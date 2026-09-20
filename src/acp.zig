@@ -1,6 +1,6 @@
 //! Agent Client Protocol (ACP) JSON-RPC 2.0 helpers for one-shot ACP
 //! via `acp-proxy` (`fx acp`, probed `cursor-agent acp` /
-//! `opencode acp`, `kimi acp`, `grok agent stdio`).
+//! `opencode acp`, `kimi acp`, `grok agent stdio`, `dsh --profile acp`).
 //!
 //! Official methods (https://fx.sh/docs/using-fx/acp): initialize,
 //! session/new, session/load, session/resume, session/close, session/list,
@@ -21,7 +21,10 @@
 //!
 //! Non-fx ACP stdio (cursor / opencode / kimi `acp`, grok `agent stdio`) may
 //! attach one official ACP v1 image content block on `session/prompt`
-//! (`type`/`data` base64/`mimeType`; optional `uri` omitted). fx
+//! (`type`/`data` base64/`mimeType`; optional `uri` omitted). DeepSeek
+//! `dsh --profile acp` is ACP stdio but fail-closes when a composer
+//! image is attached (official dsh ACP advertises no image
+//! capability). fx
 //! rejects image blocks — the fx ACP batch stays text-only (`fx ask
 //! --image` is the fx image path). Missing / unreadable / unknown
 //! type / overflow fail closed; never a truncated image in the batch.
