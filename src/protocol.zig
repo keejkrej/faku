@@ -645,7 +645,9 @@ pub const ProviderId = enum {
     /// prompt when attached, not ACP). Not Pi / Oh My Pi RPC (that is
     /// a separate one-shot `{binary} --mode rpc` spawn,
     /// stdin prompt JSONL, documented RPC `images` when attached, not
-    /// ACP). Not Grok `agent stdio`. Not DeepSeek `--profile acp`. First-cut kimi is one-shot `kimi acp` via
+    /// ACP). Not OpenCode 2 `run --format json` (that is a separate
+    /// one-shot `{binary} run` spawn, not `opencode acp`). Not Grok
+    /// `agent stdio`. Not DeepSeek `--profile acp`. First-cut kimi is one-shot `kimi acp` via
     /// acp-proxy (not long-lived; no invented flags).
     pub fn speaksBareAcp(id: ProviderId) bool {
         return switch (id) {
@@ -662,6 +664,13 @@ pub const ProviderId = enum {
             .pi, .ohmypi => true,
             else => false,
         };
+    }
+
+    /// True when Faku can spawn one-shot OpenCode 2 `run --format json`
+    /// for this id (`startOpencodeRun` / `fx_spawn_opencode_run_json`).
+    /// Not ACP — `opencode acp` is `ProviderId.opencode`.
+    pub fn speaksOpencodeRun(id: ProviderId) bool {
+        return id == .opencode2;
     }
 
     /// True when Faku can spawn one-shot ACP stdio for this id after
@@ -5894,6 +5903,11 @@ test "start defaults to first-party fx over acp" {
     try std.testing.expect(!ProviderId.opencode2.speaksPiRpc());
     try std.testing.expect(!ProviderId.deepseek.speaksPiRpc());
     try std.testing.expect(!ProviderId.fx.speaksPiRpc());
+    try std.testing.expect(ProviderId.opencode2.speaksOpencodeRun());
+    try std.testing.expect(!ProviderId.opencode.speaksOpencodeRun());
+    try std.testing.expect(!ProviderId.claude.speaksOpencodeRun());
+    try std.testing.expect(!ProviderId.pi.speaksOpencodeRun());
+    try std.testing.expect(!ProviderId.fx.speaksOpencodeRun());
     try std.testing.expect(ProviderId.cursor.speaksAcpStdio());
     try std.testing.expect(ProviderId.opencode.speaksAcpStdio());
     try std.testing.expect(ProviderId.kimi.speaksAcpStdio());
@@ -5927,6 +5941,10 @@ test "start defaults to first-party fx over acp" {
     try std.testing.expect(!ProviderId.opencode2.speaksBareAcp());
     try std.testing.expect(!ProviderId.opencode2.speaksPiRpc());
     try std.testing.expect(!ProviderId.opencode2.speaksAcpStdio());
+    try std.testing.expect(ProviderId.opencode2.speaksOpencodeRun());
+    try std.testing.expect(!ProviderId.opencode.speaksOpencodeRun());
+    try std.testing.expect(!ProviderId.fx.speaksOpencodeRun());
+    try std.testing.expect(!ProviderId.pi.speaksOpencodeRun());
     try std.testing.expectEqual(@as(usize, 0), ProviderId.opencode2.acpTransportArgv().len);
     try std.testing.expectEqual(ProviderId.deepseek, ProviderId.fromWire("deepseek").?);
     try std.testing.expect(ProviderId.fromWire("deepSeek") == null);

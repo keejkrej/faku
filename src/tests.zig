@@ -2418,22 +2418,93 @@ test "send with ohmypi unavailable still starts the demo timer" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
-test "send with opencode2 Available still starts the demo timer" {
+test "send with opencode2 cli_available spawns run --format json --auto and streams type text parts" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
 
     var model = Model{};
     model.fx_probe_started = true;
+    model.setSidecarPath("faku");
     model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
     const id = model.addSession("opencode2 send", .opencode2);
     model.selected = id;
     main.update(&model, .{ .draft_edit = .{ .insert_text = "hello opencode2" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(!model.fx_spawn_pi_json);
+    try testing.expect(!model.fx_spawn_claude_json);
+    try testing.expect(model.fx_spawn_opencode_run_json);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
+    try testing.expect(argvHas(request.argv, "opencode2"));
+    try testing.expect(argvHas(request.argv, "run"));
+    try testing.expect(argvHas(request.argv, "--format"));
+    try testing.expect(argvHas(request.argv, "json"));
+    try testing.expect(argvHas(request.argv, "--auto"));
+    try testing.expect(argvHas(request.argv, "hello opencode2"));
+    try testing.expect(!argvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(!argvHas(request.argv, "acp"));
+    try testing.expect(!argvHas(request.argv, "serve"));
+    try testing.expect(!argvHas(request.argv, "--attach"));
+    try testing.expect(!argvHas(request.argv, "--continue"));
+    try testing.expect(!argvHas(request.argv, "--session"));
+    try testing.expect(!argvHas(request.argv, "--file"));
+    try testing.expect(!argvHas(request.argv, "ask"));
+    try testing.expect(!argvHas(request.argv, "fx"));
+    try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expectEqualStrings("", request.stdin);
+    const binary_at = argvIndex(request.argv, "opencode2") orelse return error.MissingBinary;
+    const run_at = argvIndex(request.argv, "run") orelse return error.MissingRun;
+    const format_at = argvIndex(request.argv, "--format") orelse return error.MissingFormat;
+    const json_at = argvIndex(request.argv, "json") orelse return error.MissingJson;
+    const auto_at = argvIndex(request.argv, "--auto") orelse return error.MissingAuto;
+    const prompt_at = argvIndex(request.argv, "hello opencode2") orelse return error.MissingPrompt;
+    try testing.expectEqual(binary_at + 1, run_at);
+    try testing.expectEqual(run_at + 1, format_at);
+    try testing.expectEqual(format_at + 1, json_at);
+    try testing.expectEqual(json_at + 1, auto_at);
+    try testing.expectEqual(auto_at + 1, prompt_at);
+
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"type\":\"step_start\",\"timestamp\":1,\"sessionID\":\"oc2-send-1\"}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("oc2-send-1", model.sessionById(id).?.fxSessionId());
+    try testing.expectEqualStrings("", lastAssistant(&model));
+
+    const before_len = lastAssistant(&model).len;
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"type\":\"text\",\"timestamp\":2,\"sessionID\":\"oc2-send-1\",\"part\":{\"text\":\"hello from opencode2 run json\",\"time\":{\"end\":3}}}");
+    drainEffects(&model, &fx);
+    try testing.expect(lastAssistant(&model).len > before_len);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from opencode2 run json") != null);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "sessionID") == null);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "\"type\":\"text\"") == null);
+
+    try fx.feedExit(effect_keys.fx_ask_key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+}
+
+test "send with opencode2 unavailable still starts the demo timer" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    const id = model.addSession("opencode2 missing", .opencode2);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "no opencode2" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
     try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(!model.fx_spawn_pi_json);
+    try testing.expect(!model.fx_spawn_opencode_run_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }

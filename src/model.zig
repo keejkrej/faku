@@ -2320,6 +2320,12 @@ pub const Model = struct {
     /// JSON is not dumped into the transcript). Distinct from
     /// `fx_spawn_pi_json` — Claude's wire format is not Pi's.
     fx_spawn_claude_json: bool = false,
+    /// OpenCode 2 `run --format json` stdout is NDJSON events, not
+    /// assistant prose. When true, `handleFxLine` routes to the
+    /// OpenCode run parser (`type == "text"` / `part.text`; raw JSON
+    /// is not dumped into the transcript). Distinct from Claude / Pi
+    /// — OpenCode's `sessionID` / `part` shape is not theirs. Not ACP.
+    fx_spawn_opencode_run_json: bool = false,
     /// Journaled wall-clock ms from `fx.wallMs` (or a test pin). 0 means
     /// grouping treats missing `updated_at` as Today and relative-time
     /// labels stay omitted.
@@ -3134,6 +3140,7 @@ pub const Model = struct {
         "fx_spawn_acp",
         "fx_spawn_pi_json",
         "fx_spawn_claude_json",
+        "fx_spawn_opencode_run_json",
         "daemonAddress",
         "setDaemonAddress",
         "lastDaemonAddress",
