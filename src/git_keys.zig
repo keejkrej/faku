@@ -147,14 +147,14 @@ pub const skills_remove_key_first = skills.skills_remove_key_first;
 pub const file_preview_issue_link_key_first = file_preview_issue_link.key_first;
 /// One-shot Settings Providers non-fx `{binary} --help` probes.
 /// Distinct from skills remove (590+). Band is 600+ `@intFromEnum(id)`
-/// so claude=601 … ohmypi=609. fx stays on `fx_probe_key` (3).
+/// so claude=601 … opencode2=610. fx stays on `fx_probe_key` (3).
 pub const cli_probe_key_first = cli_probe.cli_probe_key_first;
 /// One-shot Settings Providers `{binary} --version` probes (runtime
-/// badge). Distinct from cli_probe 600–609. Band is 610+
-/// `@intFromEnum(id)` so fx=610 … ohmypi=619.
+/// badge). Distinct from cli_probe 600–610. Band is 620+
+/// `@intFromEnum(id)` so fx=620 … opencode2=630.
 pub const cli_version_key_first = cli_version.cli_version_key_first;
 /// One-shot LiteLLM rate-table curl (`-o` into the Faku data dir).
-/// Distinct from cli_probe (600+) and cli_version (610+). Fixed key
+/// Distinct from cli_probe (600+) and cli_version (620+). Fixed key
 /// 650. Browser `page_title` curl is 660–699 (`browser_pane` /
 /// `sidecar_keys`).
 pub const litellm_rates_key = litellm_rates.litellm_rates_key;
@@ -215,6 +215,6 @@ test "git/review/skills/probe spawn keys match owning modules" {
     try std.testing.expectEqual(@as(u64, 580), skills_rename_key_first);
     try std.testing.expectEqual(@as(u64, 590), skills_remove_key_first);
     try std.testing.expectEqual(@as(u64, 600), cli_probe_key_first);
-    try std.testing.expectEqual(@as(u64, 610), cli_version_key_first);
+    try std.testing.expectEqual(@as(u64, 620), cli_version_key_first);
     try std.testing.expectEqual(@as(u64, 650), litellm_rates_key);
 }

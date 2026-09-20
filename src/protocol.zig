@@ -573,6 +573,7 @@ pub const ProviderId = enum {
     pi,
     kimi,
     ohmypi,
+    opencode2,
 
     pub const default = ProviderId.fx;
 
@@ -588,15 +589,18 @@ pub const ProviderId = enum {
             .pi => "pi",
             .kimi => "kimi",
             .ohmypi => "ohmypi",
+            .opencode2 => "opencode2",
         };
     }
 
     /// Settings / palette display. Waku `ProviderKind::display_name`
-    /// for Oh My Pi is `"Oh My Pi"` (not the `omp` binary). Other ids
-    /// keep today's wire-name catalog labels.
+    /// for Oh My Pi is `"Oh My Pi"` (not the `omp` binary) and for
+    /// OpenCode 2 is `"OpenCode 2"` (not the `opencode2` binary).
+    /// Other ids keep today's wire-name catalog labels.
     pub fn displayName(id: ProviderId) []const u8 {
         return switch (id) {
             .ohmypi => "Oh My Pi",
+            .opencode2 => "OpenCode 2",
             .fx, .claude, .codex, .amp, .grok, .opencode, .cursor, .pi, .kimi => id.wireName(),
         };
     }
@@ -613,6 +617,7 @@ pub const ProviderId = enum {
             .pi => "pi",
             .kimi => "kimi",
             .ohmypi => "omp",
+            .opencode2 => "opencode2",
         };
     }
 
@@ -666,8 +671,8 @@ pub const ProviderId = enum {
 
     /// Waku `ProviderKind` serde camelCase (enum tag `rename_all` only).
     /// Distinct from Faku `wireName()` (`opencode` vs `"openCode"`,
-    /// `ohmypi` vs `"ohMyPi"`). Faku does not invent `deepSeek` /
-    /// `openCode2`.
+    /// `ohmypi` vs `"ohMyPi"`, `opencode2` vs `"openCode2"`). Faku
+    /// does not invent `deepSeek`.
     pub fn daemonProviderKind(id: ProviderId) []const u8 {
         return switch (id) {
             .fx => "fx",
@@ -680,6 +685,7 @@ pub const ProviderId = enum {
             .pi => "pi",
             .kimi => "kimi",
             .ohmypi => "ohMyPi",
+            .opencode2 => "openCode2",
         };
     }
 
@@ -5646,6 +5652,13 @@ test "workspace request wraps camelCase discoverSlashCommands with openCode mapp
     try std.testing.expectEqual(ProviderId.ohmypi, ProviderId.fromWire("ohmypi").?);
     try std.testing.expect(ProviderId.fromWire("omp") == null);
     try std.testing.expect(ProviderId.fromWire("ohMyPi") == null);
+    try std.testing.expectEqualStrings("openCode2", ProviderId.opencode2.daemonProviderKind());
+    try std.testing.expectEqualStrings("opencode2", ProviderId.opencode2.wireName());
+    try std.testing.expectEqualStrings("opencode2", ProviderId.opencode2.defaultBinary());
+    try std.testing.expectEqualStrings("OpenCode 2", ProviderId.opencode2.displayName());
+    try std.testing.expectEqual(ProviderId.opencode2, ProviderId.fromWire("opencode2").?);
+    try std.testing.expect(ProviderId.fromWire("openCode2") == null);
+    try std.testing.expectEqual(ProviderId.opencode, ProviderId.fromWire("opencode").?);
 
     var tiny: [32]u8 = undefined;
     try std.testing.expectError(error.NoSpaceLeft, writeWorkspace(
@@ -5850,9 +5863,11 @@ test "start defaults to first-party fx over acp" {
     try std.testing.expect(!ProviderId.grok.speaksBareAcp());
     try std.testing.expect(!ProviderId.pi.speaksBareAcp());
     try std.testing.expect(!ProviderId.ohmypi.speaksBareAcp());
+    try std.testing.expect(!ProviderId.opencode2.speaksBareAcp());
     try std.testing.expect(ProviderId.pi.speaksPiRpc());
     try std.testing.expect(ProviderId.ohmypi.speaksPiRpc());
     try std.testing.expect(!ProviderId.kimi.speaksPiRpc());
+    try std.testing.expect(!ProviderId.opencode2.speaksPiRpc());
     try std.testing.expect(!ProviderId.fx.speaksPiRpc());
     try std.testing.expect(ProviderId.cursor.speaksAcpStdio());
     try std.testing.expect(ProviderId.opencode.speaksAcpStdio());
@@ -5876,6 +5891,17 @@ test "start defaults to first-party fx over acp" {
     try std.testing.expectEqualStrings("ohMyPi", ProviderId.ohmypi.daemonProviderKind());
     try std.testing.expectEqualStrings("Oh My Pi", ProviderId.ohmypi.displayName());
     try std.testing.expect(!ProviderId.ohmypi.speaksAcpStdio());
+    try std.testing.expectEqual(ProviderId.opencode2, ProviderId.fromWire("opencode2").?);
+    try std.testing.expect(ProviderId.fromWire("openCode2") == null);
+    try std.testing.expectEqual(ProviderId.opencode, ProviderId.fromWire("opencode").?);
+    try std.testing.expectEqualStrings("opencode2", ProviderId.opencode2.wireName());
+    try std.testing.expectEqualStrings("opencode2", ProviderId.opencode2.defaultBinary());
+    try std.testing.expectEqualStrings("openCode2", ProviderId.opencode2.daemonProviderKind());
+    try std.testing.expectEqualStrings("OpenCode 2", ProviderId.opencode2.displayName());
+    try std.testing.expect(!ProviderId.opencode2.speaksBareAcp());
+    try std.testing.expect(!ProviderId.opencode2.speaksPiRpc());
+    try std.testing.expect(!ProviderId.opencode2.speaksAcpStdio());
+    try std.testing.expectEqual(@as(usize, 0), ProviderId.opencode2.acpTransportArgv().len);
     try std.testing.expectEqualStrings("acp", ProviderId.fx.acpTransportArgv()[0]);
     try std.testing.expectEqual(@as(usize, 2), ProviderId.grok.acpTransportArgv().len);
     try std.testing.expectEqualStrings("agent", ProviderId.grok.acpTransportArgv()[0]);

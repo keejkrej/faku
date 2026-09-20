@@ -4718,6 +4718,7 @@ pub const ProvidersDetailChrome = struct {
     amp_transport_note: []const u8,
     pi_transport_note: []const u8,
     ohmypi_transport_note: []const u8,
+    opencode2_transport_note: []const u8,
     fx_login_note: []const u8,
     fx_login_codex_note: []const u8,
     other_install_hint: []const u8,
@@ -4735,6 +4736,7 @@ const providers_detail_chrome_en: ProvidersDetailChrome = .{
     .amp_transport_note = "Live Send is one-shot amp -x / --execute when Available (`@path` when attached).",
     .pi_transport_note = "Live Send is one-shot pi --mode rpc --no-session when Available (RPC images when attached).",
     .ohmypi_transport_note = "Live Send is one-shot omp --mode rpc --yolo --no-session when Available (RPC images when attached).",
+    .opencode2_transport_note = "OpenCode 2 is catalog and PATH --help probe only this cut. Live Send stays demo (HTTP service driver deferred).",
     .fx_login_note = "Faku does not detect auth state from the --help probe. Copy is a convenience, not sign-in UI or OAuth.",
     .fx_login_codex_note = "Optional: fx login grok / fx login codex (no Gateway required).",
     .other_install_hint = "Install that CLI on PATH, then Refresh.",
@@ -4752,6 +4754,7 @@ const providers_detail_chrome_zh_cn: ProvidersDetailChrome = .{
     .amp_transport_note = "可用时，实际 Send 是一次性 amp -x / --execute（附加时使用 `@path`）。",
     .pi_transport_note = "可用时，实际 Send 是一次性 pi --mode rpc --no-session（附加时使用 RPC images）。",
     .ohmypi_transport_note = "可用时，实际 Send 是一次性 omp --mode rpc --yolo --no-session（附加时使用 RPC images）。",
+    .opencode2_transport_note = "本轮 OpenCode 2 仅为目录与 PATH --help 探测。Send 仍为演示（HTTP 服务驱动延后）。",
     .fx_login_note = "Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。",
     .fx_login_codex_note = "可选：fx login grok / fx login codex（无需 Gateway）。",
     .other_install_hint = "将该 CLI 安装到 PATH，然后刷新。",
@@ -4769,6 +4772,7 @@ const providers_detail_chrome_ja: ProvidersDetailChrome = .{
     .amp_transport_note = "利用可能なとき、実際の Send はワンショット amp -x / --execute です（添付時は `@path`）。",
     .pi_transport_note = "利用可能なとき、実際の Send はワンショット pi --mode rpc --no-session です（添付時は RPC images）。",
     .ohmypi_transport_note = "利用可能なとき、実際の Send はワンショット omp --mode rpc --yolo --no-session です（添付時は RPC images）。",
+    .opencode2_transport_note = "この段階の OpenCode 2 はカタログと PATH --help のプローブのみです。Send はデモのままです（HTTP サービスドライバは後回し）。",
     .fx_login_note = "Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。",
     .fx_login_codex_note = "任意: fx login grok / fx login codex（Gateway は不要）。",
     .other_install_hint = "その CLI を PATH にインストールしてから更新してください。",
@@ -11491,6 +11495,10 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
         providersDetailChromeFor(.english, "").ohmypi_transport_note,
     );
     try testing.expectEqualStrings(
+        "OpenCode 2 is catalog and PATH --help probe only this cut. Live Send stays demo (HTTP service driver deferred).",
+        providersDetailChromeFor(.english, "").opencode2_transport_note,
+    );
+    try testing.expectEqualStrings(
         "Faku does not detect auth state from the --help probe. Copy is a convenience, not sign-in UI or OAuth.",
         providersDetailChromeFor(.english, "").fx_login_note,
     );
@@ -11524,6 +11532,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 amp -x / --execute（附加时使用 `@path`）。", providersDetailChromeFor(.simplified_chinese, "").amp_transport_note);
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 pi --mode rpc --no-session（附加时使用 RPC images）。", providersDetailChromeFor(.simplified_chinese, "").pi_transport_note);
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 omp --mode rpc --yolo --no-session（附加时使用 RPC images）。", providersDetailChromeFor(.simplified_chinese, "").ohmypi_transport_note);
+    try testing.expectEqualStrings("本轮 OpenCode 2 仅为目录与 PATH --help 探测。Send 仍为演示（HTTP 服务驱动延后）。", providersDetailChromeFor(.simplified_chinese, "").opencode2_transport_note);
     try testing.expectEqualStrings("Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。", providersDetailChromeFor(.simplified_chinese, "").fx_login_note);
     try testing.expectEqualStrings("可选：fx login grok / fx login codex（无需 Gateway）。", providersDetailChromeFor(.simplified_chinese, "").fx_login_codex_note);
     try testing.expectEqualStrings("将该 CLI 安装到 PATH，然后刷新。", providersDetailChromeFor(.simplified_chinese, "").other_install_hint);
@@ -11539,6 +11548,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット amp -x / --execute です（添付時は `@path`）。", providersDetailChromeFor(.japanese, "").amp_transport_note);
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット pi --mode rpc --no-session です（添付時は RPC images）。", providersDetailChromeFor(.japanese, "").pi_transport_note);
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット omp --mode rpc --yolo --no-session です（添付時は RPC images）。", providersDetailChromeFor(.japanese, "").ohmypi_transport_note);
+    try testing.expectEqualStrings("この段階の OpenCode 2 はカタログと PATH --help のプローブのみです。Send はデモのままです（HTTP サービスドライバは後回し）。", providersDetailChromeFor(.japanese, "").opencode2_transport_note);
     try testing.expectEqualStrings("Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。", providersDetailChromeFor(.japanese, "").fx_login_note);
     try testing.expectEqualStrings("任意: fx login grok / fx login codex（Gateway は不要）。", providersDetailChromeFor(.japanese, "").fx_login_codex_note);
     try testing.expectEqualStrings("その CLI を PATH にインストールしてから更新してください。", providersDetailChromeFor(.japanese, "").other_install_hint);

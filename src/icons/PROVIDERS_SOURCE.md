@@ -3,8 +3,8 @@
 Brand marks taken from [egoist/waku](https://github.com/egoist/waku)
 `assets/icons/provider-*.svg` (GPL-3.0) and adapted to `currentColor`
 for Native. Faku mapping and registration code stays GPL-3.0-only.
-Do not copy Waku Rust/TS. OpenCode2 / DeepSeek marks stay
-out (no matching `protocol.ProviderId` this cut).
+Do not copy Waku Rust/TS. DeepSeek marks stay out (no matching
+`protocol.ProviderId` this cut).
 
 | Waku file | Registry name | ProviderId |
 | --- | --- | --- |
@@ -18,6 +18,7 @@ out (no matching `protocol.ProviderId` this cut).
 | `provider-pi.svg` | `app:provider-pi` | pi |
 | `provider-kimi.svg` | `app:provider-kimi` | kimi |
 | `provider-ohmypi.svg` | `app:provider-ohmypi` | ohmypi |
+| `provider-opencode2.svg` | `app:provider-opencode2` | opencode2 |
 
 Codex uses the OpenAI mark in Waku (`provider-openai.svg`); there is
 no `provider-codex.svg`.
@@ -35,6 +36,11 @@ Pi's evenodd hole would fill solid, so `provider-pi.svg` is the same
 Oh My Pi's Waku mark is a linearGradient `url(#…)` paint Native
 cannot keep, so `provider-ohmypi.svg` is the same π path with
 `fill="currentColor"` (original viewBox kept).
+OpenCode 2's evenodd frame plus `fill-opacity=".28"` inner bars would
+paint solid, so `provider-opencode2.svg` is the window as separate
+`<rect>`s (original viewBox kept) plus the Waku red `#D95A50` "2"
+badge as a literal fill. Inner bars are solid `currentColor` because
+Native ignores `fill-opacity`.
 
 Availability is the existing status / model_count caption, not a Waku
 GPUI colored overlay dot. Native `list-item` `icon=` is one leading

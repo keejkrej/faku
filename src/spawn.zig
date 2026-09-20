@@ -52,7 +52,8 @@
 //! true` so stdout lines use the Pi JSONL parser in `lines.zig`
 //! (RPC `message_update` / `assistantMessageEvent.type ==
 //! text_delta` / `delta`, not json-mode top-level `type:text_delta`,
-//! not prose / raw JSON dump).
+//! not prose / raw JSON dump). OpenCode 2 has no live Send this cut
+//! (HTTP/SSE service driver deferred; Available still stays demo).
 //! Composer image attach on cursor / opencode / kimi / grok uses official
 //! ACP v1 image content blocks (base64 + mimeType) on the one-shot
 //! acp-proxy `session/prompt`. fx still uses `fx ask --image` (no
@@ -1107,8 +1108,10 @@ test "speaksBareAcp is true for cursor, opencode, and kimi; speaksAcpStdio also 
     try testing.expect(!protocol.ProviderId.grok.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.pi.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.ohmypi.speaksBareAcp());
+    try testing.expect(!protocol.ProviderId.opencode2.speaksBareAcp());
     try testing.expect(protocol.ProviderId.pi.speaksPiRpc());
     try testing.expect(protocol.ProviderId.ohmypi.speaksPiRpc());
+    try testing.expect(!protocol.ProviderId.opencode2.speaksPiRpc());
     try testing.expect(!protocol.ProviderId.kimi.speaksPiRpc());
     try testing.expect(protocol.ProviderId.cursor.speaksAcpStdio());
     try testing.expect(protocol.ProviderId.opencode.speaksAcpStdio());
@@ -1117,6 +1120,7 @@ test "speaksBareAcp is true for cursor, opencode, and kimi; speaksAcpStdio also 
     try testing.expect(!protocol.ProviderId.fx.speaksAcpStdio());
     try testing.expect(!protocol.ProviderId.claude.speaksAcpStdio());
     try testing.expect(!protocol.ProviderId.amp.speaksAcpStdio());
+    try testing.expect(!protocol.ProviderId.opencode2.speaksAcpStdio());
     try testing.expectEqualStrings("acp", protocol.ProviderId.kimi.acpTransportArgv()[0]);
     try testing.expectEqual(@as(usize, 1), protocol.ProviderId.kimi.acpTransportArgv().len);
     try testing.expectEqual(@as(usize, 0), protocol.ProviderId.amp.acpTransportArgv().len);
@@ -2256,6 +2260,26 @@ test "ohmypi unavailable stays demo" {
     try testing.expect(!model.fx_spawn_pi_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "opencode2 Available still stays demo (HTTP service driver deferred)" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = Model{};
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    const id = model.addSession("opencode2 thread", .opencode2);
+    startPrompt(&model, &fx, id, "hello opencode2");
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(!model.fx_spawn_pi_json);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expect(!protocol.ProviderId.opencode2.speaksBareAcp());
+    try testing.expect(!protocol.ProviderId.opencode2.speaksPiRpc());
+    try testing.expect(!protocol.ProviderId.opencode2.speaksAcpStdio());
 }
 
 test "ohmypi image attach uses RPC images on the stdin prompt command" {
