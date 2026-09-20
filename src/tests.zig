@@ -38513,6 +38513,70 @@ test "Settings Providers expand chevron + binary override persist; captions; pro
     try testing.expect(findByText(tree.root, .text, "Binary path") == null);
 }
 
+test "Settings Providers OpenCode 2 expanded row paints Serve attach URL; fx row omits it; apply/Reset" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = boot.initialModel();
+    try testing.expectEqualStrings("Serve attach URL", model.providers_opencode_attach_label());
+    try testing.expectEqualStrings(
+        i18n.providersOpencodeAttachChromeFor(.english, "").attach_url_description,
+        model.providers_opencode_attach_description(),
+    );
+    try testing.expect(std.mem.indexOf(u8, model.providers_opencode_attach_description(), "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, model.providers_opencode_attach_description(), "Waku") == null);
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_providers, &fx);
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "Serve attach URL") == null);
+    try testing.expect(findByText(tree.root, .text_field, "Serve attach URL") == null);
+
+    main.update(&model, .{ .toggle_provider_expanded = 1 }, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Binary path");
+    try testing.expect(findByText(tree.root, .text, "Serve attach URL") == null);
+    try testing.expect(findByText(tree.root, .text_field, "Serve attach URL") == null);
+
+    main.update(&model, .{ .toggle_provider_expanded = providers.rowId(.opencode2) }, &fx);
+    try testing.expectEqual(providers.rowId(.opencode2), model.provider_expanded_id);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Serve attach URL");
+    _ = try expectByText(tree.root, .text_field, "Serve attach URL");
+    try testing.expect(findTextContaining(tree.root, "Start opencode2 serve yourself") != null);
+    try testing.expect(findTextContaining(tree.root, "Faku only passes --attach") != null);
+    try testing.expect(findTextContaining(tree.root, "Start opencode2 serve yourself. Faku only passes --attach") != null);
+    try testing.expect(findByText(tree.root, .button, "Reset") == null);
+
+    main.update(&model, .{ .opencode2_attach_edit = .{ .insert_text = "http://localhost:4096" } }, &fx);
+    try testing.expectEqualStrings("http://localhost:4096", model.opencode2_attach_draft());
+    main.update(&model, .apply_opencode2_attach, &fx);
+    try testing.expectEqualStrings("http://localhost:4096", model.opencode2AttachUrl());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Reset", .clear_opencode2_attach);
+
+    main.update(&model, .clear_opencode2_attach, &fx);
+    try testing.expectEqualStrings("", model.opencode2AttachUrl());
+    try testing.expectEqualStrings("", model.opencode2_attach_draft());
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("Serve 附加 URL", model.providers_opencode_attach_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Serve 附加 URL");
+    try testing.expect(findByText(tree.root, .text, "Serve attach URL") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("Serve 接続 URL", model.providers_opencode_attach_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Serve 接続 URL");
+    try testing.expect(findByText(tree.root, .text, "Serve attach URL") == null);
+}
+
 test "Settings Providers version badge paints v{version} when --version parse succeeds; Not found has none; Refresh clears" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

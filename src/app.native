@@ -567,6 +567,14 @@
                           <if test="{p.has_override_caption}">
                             <text wrap="true" foreground="text_muted">{p.override_caption}</text>
                           </if>
+                          <if test="{p.show_opencode_attach}">
+                            <text><span weight="bold">{providers_opencode_attach_label}</span></text>
+                            <text wrap="true" foreground="text_muted">{providers_opencode_attach_description}</text>
+                            <text-field text="{opencode2_attach_draft}" on-input="opencode2_attach_edit" on-submit="apply_opencode2_attach" label="{providers_opencode_attach_label}" />
+                            <if test="{p.has_opencode_attach}">
+                              <button variant="ghost" size="sm" on-press="clear_opencode2_attach">{providers_reset_label}</button>
+                            </if>
+                          </if>
                         </column>
                       </card>
                     </if>

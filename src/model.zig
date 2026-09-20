@@ -97,6 +97,10 @@ pub const max_draft = 512;
 pub const max_queued = 16;
 pub const max_queued_text = 1024;
 pub const max_fx_path = 256;
+/// OpenCode 2 `sessions.json` extras `opencode2_attach_url` plus the
+/// expanded-row draft. Same cap as other path/URL drafts. Missing /
+/// empty / overflow → empty (cold `run`, no `--attach`).
+pub const max_opencode2_attach_url = 256;
 /// Runtime-only `{binary} --version` token (Waku `parse_cli_version`).
 /// No extra `v` prefix; markup/`rowFor` paints `v{version}`.
 pub const max_cli_version = 64;
@@ -446,7 +450,8 @@ pub const UsageMeterRow = usage_meter.Row;
 /// `toggle_provider_expanded:{p.id}` never bind 0. Apply sets
 /// `session.provider`; live Send is `spawn.startPrompt`.
 /// Enable/Disable persists `disabled_providers`. Expand + Binary
-/// path persist `provider_binary_overrides`.
+/// path persist `provider_binary_overrides`. OpenCode 2 expanded
+/// Serve attach URL persists `opencode2_attach_url`.
 pub const ProviderRow = providers.ProviderRow;
 
 /// Composer model picker row. `row_id` is a 1-based Native `for` key.
@@ -790,6 +795,16 @@ pub const Msg = union(enum) {
     /// Settings Providers: clear the expanded row's persisted
     /// override (Reset). Re-probes PATH.
     clear_provider_path_override,
+    /// Settings Providers OpenCode 2 expanded Serve attach URL
+    /// field `on-input`. Draft only until Return / expand-switch /
+    /// Reset.
+    opencode2_attach_edit: canvas.TextInputEvent,
+    /// Settings Providers: apply the OpenCode 2 attach URL draft
+    /// (empty clears). `on-submit` / expand-switch.
+    apply_opencode2_attach,
+    /// Settings Providers: clear the OpenCode 2 attach URL (Reset).
+    /// Empty persist = cold `run` (no `--attach`).
+    clear_opencode2_attach,
     apply_session_provider,
     /// Settings Providers: copy verified fx install command. Clipboard only.
     copy_fx_install,
@@ -1573,6 +1588,10 @@ pub const Model = struct {
     /// Applied on Return / expand-switch; Reset clears. Not persisted
     /// (the applied override lives in `provider_binary_override_*`).
     provider_override_buffer: canvas.TextBuffer(max_fx_path) = .{},
+    /// Runtime-only OpenCode 2 Serve attach URL draft. Applied on
+    /// Return / expand-switch; Reset clears. Not persisted (the
+    /// applied URL lives in `opencode2_attach_url_*`).
+    opencode2_attach_buffer: canvas.TextBuffer(max_opencode2_attach_url) = .{},
     /// Runtime-only last PATH `--help` probe exit stamp (`now_ms`).
     /// Not persisted on `sessions.json`. 0 hides the Providers
     /// Coding agents Checked … caption (boot / Refresh mid-flight).
@@ -2137,6 +2156,11 @@ pub const Model = struct {
     /// path object; omit empty). Missing / unknown → no overrides.
     provider_binary_override_storage: [protocol.provider_id_count][max_fx_path]u8 = [_][max_fx_path]u8{[_]u8{0} ** max_fx_path} ** protocol.provider_id_count,
     provider_binary_override_len: [protocol.provider_id_count]usize = [_]usize{0} ** protocol.provider_id_count,
+    /// Persisted OpenCode 2 attach URL. `sessions.json` extras
+    /// `opencode2_attach_url` (string; missing / empty / overflow →
+    /// empty = cold `run`). Not a daemon field. Empty = no `--attach`.
+    opencode2_attach_url_storage: [max_opencode2_attach_url]u8 = [_]u8{0} ** max_opencode2_attach_url,
+    opencode2_attach_url_len: usize = 0,
     /// Runtime-only non-fx `--help` probe results. Index is
     /// `@intFromEnum(ProviderId)`. Slot 0 (fx) is unused — fx stays
     /// on `fx_available` / `fx_probe`. Not persisted.
@@ -2501,6 +2525,7 @@ pub const Model = struct {
         "providersDetailChrome",
         "providersCodingAgentsChrome",
         "providersBinaryOverrideChrome",
+        "providersOpencodeAttachChrome",
         "skillsEnableChrome",
         "skillsEnableStatusChrome",
         "skillsTrashChrome",
@@ -2517,10 +2542,17 @@ pub const Model = struct {
         "provider_binary_override_len",
         "providerBinaryOverride",
         "setProviderBinaryOverride",
+        "opencode2_attach_url_storage",
+        "opencode2_attach_url_len",
+        "opencode2AttachUrl",
+        "setOpencode2AttachUrl",
         "provider_selected_id",
         "provider_expanded_id",
         "provider_override_buffer",
         "applyProviderOverrideEdit",
+        "opencode2_attach_buffer",
+        "applyOpencode2AttachEdit",
+        "providersOpencodeAttachChrome",
         "provider_detection_checked_at_ms",
         "settings_search_buffer",
         "applySettingsSearch",
@@ -5581,6 +5613,48 @@ pub const Model = struct {
         model.provider_override_buffer.apply(edit);
     }
 
+    /// Settings Providers OpenCode 2 Serve attach URL field label.
+    /// Localized via `i18n.ProvidersOpencodeAttachChrome`. OpenCode 2
+    /// expanded row only.
+    pub fn providers_opencode_attach_label(model: *const Model) []const u8 {
+        return model.providersOpencodeAttachChrome().attach_url;
+    }
+
+    /// Settings Providers OpenCode 2 Serve attach URL description.
+    /// Localized via `i18n.ProvidersOpencodeAttachChrome`. Product
+    /// strings say Faku, not Waku. User-owned serve; Faku only
+    /// passes `--attach`.
+    pub fn providers_opencode_attach_description(model: *const Model) []const u8 {
+        return model.providersOpencodeAttachChrome().attach_url_description;
+    }
+
+    /// Expanded OpenCode 2 Serve attach URL draft. `on-input` stays
+    /// `opencode2_attach_edit`. Typed URL stays data.
+    pub fn opencode2_attach_draft(model: *const Model) []const u8 {
+        return model.opencode2_attach_buffer.text();
+    }
+
+    pub fn applyOpencode2AttachEdit(model: *Model, edit: canvas.TextInputEvent) void {
+        model.opencode2_attach_buffer.apply(edit);
+    }
+
+    /// Persisted OpenCode 2 attach URL. Empty = cold `run` (no `--attach`).
+    pub fn opencode2AttachUrl(model: *const Model) []const u8 {
+        return model.opencode2_attach_url_storage[0..model.opencode2_attach_url_len];
+    }
+
+    /// Set or clear persisted `opencode2_attach_url`. Empty /
+    /// whitespace / overflow (longer than `max_opencode2_attach_url`)
+    /// clears (cold `run`).
+    pub fn setOpencode2AttachUrl(model: *Model, url: []const u8) void {
+        const trimmed = std.mem.trim(u8, url, " \t\r\n");
+        if (trimmed.len == 0 or trimmed.len > max_opencode2_attach_url) {
+            model.opencode2_attach_url_len = 0;
+            return;
+        }
+        writeFixed(&model.opencode2_attach_url_storage, &model.opencode2_attach_url_len, trimmed);
+    }
+
     /// Persisted binary-path override for `id`. Empty = PATH detect.
     pub fn providerBinaryOverride(model: *const Model, id: protocol.ProviderId) []const u8 {
         const index = @intFromEnum(id);
@@ -6211,6 +6285,10 @@ pub const Model = struct {
 
     fn providersBinaryOverrideChrome(model: *const Model) i18n.ProvidersBinaryOverrideChrome {
         return i18n.providersBinaryOverrideChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn providersOpencodeAttachChrome(model: *const Model) i18n.ProvidersOpencodeAttachChrome {
+        return i18n.providersOpencodeAttachChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     fn skillsSelectChrome(model: *const Model) i18n.SkillsSelectChrome {
@@ -7179,6 +7257,7 @@ pub const Model = struct {
         model.provider_selected_id = 0;
         model.provider_expanded_id = 0;
         model.provider_override_buffer.clear();
+        model.opencode2_attach_buffer.clear();
         model.usage_view = .daily;
         model.settings_search_buffer.clear();
         usage_history.clearProjectFilter(model);

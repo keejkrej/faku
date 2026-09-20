@@ -16,7 +16,9 @@
 //! `provider_binary_overrides` (wireName → path object; omit empty)
 //! on that same bag. One expanded row at a time (runtime-only
 //! `provider_expanded_id`); switching applies the previous draft.
-//! The Enable/Disable chip is disable-flag-only
+//! OpenCode 2 expanded row also persists optional `opencode2_attach_url`
+//! (string; missing / empty / overflow → empty = cold `run`). The
+//! Enable/Disable chip is disable-flag-only
 //! (user can toggle regardless of install). `providerEnabled` (the
 //! plan-usage `maybeRefresh` gate) is `!disabled && isAvailable`.
 //! Disabled or Not-found / unset skips background plan-usage refresh
@@ -53,8 +55,9 @@
 //! `PiFlavor::OhMyPi` full-access arg `--yolo`; `--no-session` is a
 //! documented omp flag used by Waku model discovery). Available OpenCode 2 is
 //! one-shot `{binary} run --format json --auto` (documented `--session`
-//! / `--model` / `--file`; not `opencode acp`; HTTP/SSE `serve` stays
-//! deferred). Available DeepSeek is one-shot `dsh --profile acp`
+//! / `--model` / `--file`; documented `--attach {url}` when
+//! `opencode2_attach_url` is set; not `opencode acp`; user-owned
+//! serve; in-app HTTP/SSE serve client stays deferred). Available DeepSeek is one-shot `dsh --profile acp`
 //! via acp-proxy (not `dsh acp`; composer image fail-closes to demo;
 //! Harness HTTP/SSE / web / `--profile headless` stay out). fx
 //! Not found copies the verified keejkrej/fx install script
@@ -75,7 +78,9 @@
 //! card via `i18n.SettingsRefreshChrome`; Skills / Usage Refresh
 //! stay in the Settings header). Expand chevron Show/Hide %{provider} settings and
 //! Binary path override follow `i18n.ProvidersBinaryOverrideChrome`
-//! (Faku, not Waku, in product-named strings). Model-count /
+//! (Faku, not Waku, in product-named strings). OpenCode 2 Serve attach
+//! URL follows `i18n.ProvidersOpencodeAttachChrome` (Faku, not Waku;
+//! user-owned serve; Faku only passes `--attach`). Model-count /
 //! disabled caption follows `i18n.ProvidersModelCountChrome`
 //! (static Waku `fallback_models` lengths; Latin digits). Tests do not
 //! need a live daemon or any real CLI install.
@@ -85,7 +90,7 @@
 //! LiteLLM rate-table; T3 layered Usage chart; amend/force and
 //! remote `--track` over daemon (local already); Native-blocked UI
 //! (gauge / chart fill / DevTools / edge fades / sticky / KaTeX);
-//! OpenCode 2 HTTP/SSE Send; DeepSeek Harness HTTP/SSE / web /
+//! OpenCode 2 HTTP/SSE serve client; DeepSeek Harness HTTP/SSE / web /
 //! `--profile headless`.
 //! Settings Daemon first-cut ships this cut (nav + external-only
 //! page). Version badge ships
@@ -115,8 +120,9 @@
 //! --no-session`, same stdin / images path) ship this cut (not ACP,
 //! not a long-lived RPC loop, not `--mode json`, not permissions
 //! bypass). OpenCode 2 one-shot `run --format json --auto` ships this
-//! cut (display **OpenCode 2**; not `opencode acp`; HTTP/SSE `serve`
-//! still deferred). DeepSeek one-shot
+//! cut (display **OpenCode 2**; not `opencode acp`; documented
+//! `--attach {url}` when `opencode2_attach_url` is set; user-owned
+//! serve; in-app HTTP/SSE serve client still deferred). DeepSeek one-shot
 //! `dsh --profile acp` via acp-proxy ships this cut (display **DeepSeek**;
 //! no image attach; Harness HTTP/SSE / web / headless stay out). Appearance theme,
 //! Usage, and Computer Use first-cut pages ship (Computer Use is
@@ -231,6 +237,11 @@ pub const ProviderRow = struct {
     has_override_caption: bool = false,
     /// Binary path description with %{provider}. Arena-owned.
     binary_path_description: []const u8 = "",
+    /// OpenCode 2 expanded row only. Markup gates the Serve attach
+    /// URL field on this flag.
+    show_opencode_attach: bool = false,
+    /// Persisted `opencode2_attach_url` is non-empty (Reset visible).
+    has_opencode_attach: bool = false,
     /// Painted `v{token}` when Available and the `--version` parse
     /// succeeded. Empty otherwise. Arena-owned. Latin data, not i18n.
     version: []const u8 = "",
@@ -366,6 +377,14 @@ fn seedOverrideDraft(model: *Model, id: protocol.ProviderId) void {
     model.provider_override_buffer.set(model.providerBinaryOverride(id));
 }
 
+fn seedAttachDraft(model: *Model, id: protocol.ProviderId) void {
+    if (id == .opencode2) {
+        model.opencode2_attach_buffer.set(model.opencode2AttachUrl());
+    } else {
+        model.opencode2_attach_buffer.clear();
+    }
+}
+
 /// Apply the expanded row's Binary path draft. Empty / whitespace
 /// clears the override (PATH detect). Restarts that provider's
 /// `--help` probe when the stored path changes. Returns true when
@@ -395,6 +414,37 @@ pub fn clearPathOverride(model: *Model, fx: *Effects) bool {
     return true;
 }
 
+/// Apply the OpenCode 2 expanded row's Serve attach URL draft.
+/// Empty / whitespace / overflow clears (cold `run`). Returns true
+/// when the persisted URL changed. No-op when another row is expanded.
+pub fn applyAttachUrl(model: *Model) bool {
+    const id = fromRowId(model.provider_expanded_id) orelse return false;
+    if (id != .opencode2) return false;
+    const trimmed = std.mem.trim(u8, model.opencode2_attach_buffer.text(), " \t\r\n");
+    const current = model.opencode2AttachUrl();
+    if (std.mem.eql(u8, trimmed, current)) return false;
+    model.setOpencode2AttachUrl(trimmed);
+    model.opencode2_attach_buffer.set(model.opencode2AttachUrl());
+    return true;
+}
+
+/// Clear the OpenCode 2 attach URL and draft. Returns true when a
+/// URL was cleared. No-op when another row is expanded.
+pub fn clearAttachUrl(model: *Model) bool {
+    const id = fromRowId(model.provider_expanded_id) orelse return false;
+    if (id != .opencode2) {
+        model.opencode2_attach_buffer.clear();
+        return false;
+    }
+    if (model.opencode2AttachUrl().len == 0) {
+        model.opencode2_attach_buffer.clear();
+        return false;
+    }
+    model.setOpencode2AttachUrl("");
+    model.opencode2_attach_buffer.clear();
+    return true;
+}
+
 fn restartProbeFor(model: *Model, fx: *Effects, id: protocol.ProviderId) void {
     if (id == .fx) {
         if (model.providerBinaryOverride(.fx).len > 0) {
@@ -417,15 +467,19 @@ pub fn toggleExpanded(model: *Model, fx: *Effects, row_id: u32) bool {
     const id = fromRowId(row_id) orelse return false;
     if (model.provider_expanded_id != 0 and model.provider_expanded_id != row_id) {
         _ = applyPathOverride(model, fx);
+        _ = applyAttachUrl(model);
     }
     if (model.provider_expanded_id == row_id) {
         _ = applyPathOverride(model, fx);
+        _ = applyAttachUrl(model);
         model.provider_expanded_id = 0;
         model.provider_override_buffer.clear();
+        model.opencode2_attach_buffer.clear();
         return true;
     }
     model.provider_expanded_id = row_id;
     seedOverrideDraft(model, id);
+    seedAttachDraft(model, id);
     return true;
 }
 
@@ -528,6 +582,8 @@ pub fn rowFor(model: *const Model, id: protocol.ProviderId, arena: std.mem.Alloc
         .override_caption = overrideCaptionFor(model, id, arena),
         .has_override_caption = true,
         .binary_path_description = binaryPathDescriptionFor(model, id, arena),
+        .show_opencode_attach = id == .opencode2,
+        .has_opencode_attach = id == .opencode2 and model.opencode2AttachUrl().len > 0,
         .version = version,
         .has_version = version.len > 0,
         .model_count_label = model_count_label,
@@ -691,8 +747,10 @@ pub fn copyFxLogin(model: *const Model, fx: *Effects) void {
 
 pub fn close(model: *Model, fx: *Effects) void {
     _ = applyPathOverride(model, fx);
+    _ = applyAttachUrl(model);
     model.provider_expanded_id = 0;
     model.provider_override_buffer.clear();
+    model.opencode2_attach_buffer.clear();
     model.provider_selected_id = 0;
 }
 
@@ -1733,6 +1791,49 @@ test "applyPathOverride empty clears; captions invalid vs using; binaryFor prefe
     try testing.expect(clearPathOverride(&model, &fx));
     try testing.expectEqualStrings("", model.providerBinaryOverride(.claude));
     try testing.expectEqualStrings("", model.provider_override_buffer.text());
+}
+
+test "applyAttachUrl empty clears; OpenCode 2 row only; switching applies pending draft" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    try testing.expect(!applyAttachUrl(&model));
+    try testing.expect(!clearAttachUrl(&model));
+    try testing.expect(!rowFor(&model, .fx, arena).show_opencode_attach);
+    try testing.expect(!rowFor(&model, .claude, arena).show_opencode_attach);
+    try testing.expect(rowFor(&model, .opencode2, arena).show_opencode_attach);
+    try testing.expect(!rowFor(&model, .opencode2, arena).has_opencode_attach);
+
+    try testing.expect(toggleExpanded(&model, &fx, rowId(.opencode2)));
+    model.opencode2_attach_buffer.set("  http://localhost:4096  ");
+    try testing.expect(applyAttachUrl(&model));
+    try testing.expectEqualStrings("http://localhost:4096", model.opencode2AttachUrl());
+    try testing.expectEqualStrings("http://localhost:4096", model.opencode2_attach_buffer.text());
+    try testing.expect(rowFor(&model, .opencode2, arena).has_opencode_attach);
+
+    try testing.expect(toggleExpanded(&model, &fx, rowId(.fx)));
+    try testing.expectEqualStrings("http://localhost:4096", model.opencode2AttachUrl());
+    try testing.expectEqualStrings("", model.opencode2_attach_buffer.text());
+    try testing.expect(!applyAttachUrl(&model));
+
+    try testing.expect(toggleExpanded(&model, &fx, rowId(.opencode2)));
+    try testing.expectEqualStrings("http://localhost:4096", model.opencode2_attach_buffer.text());
+    model.opencode2_attach_buffer.set("");
+    try testing.expect(applyAttachUrl(&model));
+    try testing.expectEqualStrings("", model.opencode2AttachUrl());
+    try testing.expect(!rowFor(&model, .opencode2, arena).has_opencode_attach);
+
+    model.setOpencode2AttachUrl("http://127.0.0.1:4096");
+    model.opencode2_attach_buffer.set("http://127.0.0.1:4096");
+    try testing.expect(clearAttachUrl(&model));
+    try testing.expectEqualStrings("", model.opencode2AttachUrl());
+    try testing.expectEqualStrings("", model.opencode2_attach_buffer.text());
 }
 
 test "no override captions: detected_at / detected_as / searches_path; zh and ja expand labels" {
