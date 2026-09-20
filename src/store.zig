@@ -4051,7 +4051,7 @@ test "disabled_providers persist round-trip; enabling clears; missing/unknown st
     try testing.expect(!missing.disabled_providers[@intFromEnum(protocol.ProviderId.fx)]);
 
     try writeRaw(io, dir,
-        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"disabled_providers":["claude","nope","claude","grok","ohmypi","opencode2"],"sessions":[{"id":1,"title":"legacy","provider":"ohmypi","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"disabled_providers":["claude","nope","claude","grok","ohmypi","opencode2","deepseek"],"sessions":[{"id":1,"title":"legacy","provider":"ohmypi","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
     );
     var unknown = Model{};
     unknown.setStoreDir(dir);
@@ -4060,6 +4060,7 @@ test "disabled_providers persist round-trip; enabling clears; missing/unknown st
     try testing.expect(unknown.disabled_providers[@intFromEnum(protocol.ProviderId.grok)]);
     try testing.expect(unknown.disabled_providers[@intFromEnum(protocol.ProviderId.ohmypi)]);
     try testing.expect(unknown.disabled_providers[@intFromEnum(protocol.ProviderId.opencode2)]);
+    try testing.expect(unknown.disabled_providers[@intFromEnum(protocol.ProviderId.deepseek)]);
     try testing.expect(!unknown.disabled_providers[@intFromEnum(protocol.ProviderId.codex)]);
     try testing.expect(!unknown.disabled_providers[@intFromEnum(protocol.ProviderId.fx)]);
     try testing.expectEqual(protocol.ProviderId.ohmypi, unknown.session_store[0].provider);

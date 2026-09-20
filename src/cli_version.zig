@@ -23,8 +23,8 @@
 //! show a badge.
 //!
 //! Spawn key is `cli_version_key_first + @intFromEnum(id)` so fx=620
-//! … opencode2=630. Distinct from `fx_probe_key` (3), `cli_probe_key_first`
-//! 600 + ProviderId (claude=601 … opencode2=610; fx slot unused), skills
+//! … opencode2=630, deepseek=631. Distinct from `fx_probe_key` (3), `cli_probe_key_first`
+//! 600 + ProviderId (claude=601 … opencode2=610, deepseek=611; fx slot unused), skills
 //! scan (530+) / rename (580+) / remove (590+), litellm (650),
 //! Browser `page_title` (660–699), pty (700..703), daemon (4+),
 //! fx spawn (64+). Refresh cancels the same fixed key per id.
@@ -224,11 +224,13 @@ test "versionKey is per-id including fx and skips cli_probe / fx_probe / litellm
     try std.testing.expectEqual(@as(u64, 628), versionKey(.kimi));
     try std.testing.expectEqual(@as(u64, 629), versionKey(.ohmypi));
     try std.testing.expectEqual(@as(u64, 630), versionKey(.opencode2));
+    try std.testing.expectEqual(@as(u64, 631), versionKey(.deepseek));
     try std.testing.expect(versionKey(.fx) != @as(u64, 3));
     try std.testing.expect(versionKey(.claude) != @as(u64, 601));
     try std.testing.expect(versionKey(.kimi) != @as(u64, 608));
     try std.testing.expect(versionKey(.ohmypi) != @as(u64, 609));
     try std.testing.expect(versionKey(.opencode2) != @as(u64, 610));
+    try std.testing.expect(versionKey(.deepseek) != @as(u64, 611));
     try std.testing.expect(versionKey(.fx) != effect_keys.fx_ask_key);
     try std.testing.expect(versionKey(.fx) != effect_keys.daemon_proxy_key_first);
     try std.testing.expectEqual(protocol.ProviderId.fx, fromVersionKey(620).?);
@@ -236,14 +238,16 @@ test "versionKey is per-id including fx and skips cli_probe / fx_probe / litellm
     try std.testing.expectEqual(protocol.ProviderId.kimi, fromVersionKey(628).?);
     try std.testing.expectEqual(protocol.ProviderId.ohmypi, fromVersionKey(629).?);
     try std.testing.expectEqual(protocol.ProviderId.opencode2, fromVersionKey(630).?);
+    try std.testing.expectEqual(protocol.ProviderId.deepseek, fromVersionKey(631).?);
     try std.testing.expect(fromVersionKey(600) == null);
     try std.testing.expect(fromVersionKey(601) == null);
     try std.testing.expect(fromVersionKey(3) == null);
     try std.testing.expect(fromVersionKey(609) == null);
     try std.testing.expect(fromVersionKey(610) == null);
+    try std.testing.expect(fromVersionKey(611) == null);
     try std.testing.expect(fromVersionKey(619) == null);
-    try std.testing.expect(fromVersionKey(631) == null);
-    try std.testing.expect(versionKey(.opencode2) < @as(u64, 650));
+    try std.testing.expect(fromVersionKey(632) == null);
+    try std.testing.expect(versionKey(.deepseek) < @as(u64, 650));
 }
 
 test "parseCliVersion matches Waku version_tests banners" {

@@ -147,11 +147,11 @@ pub const skills_remove_key_first = skills.skills_remove_key_first;
 pub const file_preview_issue_link_key_first = file_preview_issue_link.key_first;
 /// One-shot Settings Providers non-fx `{binary} --help` probes.
 /// Distinct from skills remove (590+). Band is 600+ `@intFromEnum(id)`
-/// so claude=601 … opencode2=610. fx stays on `fx_probe_key` (3).
+/// so claude=601 … opencode2=610, deepseek=611. fx stays on `fx_probe_key` (3).
 pub const cli_probe_key_first = cli_probe.cli_probe_key_first;
 /// One-shot Settings Providers `{binary} --version` probes (runtime
-/// badge). Distinct from cli_probe 600–610. Band is 620+
-/// `@intFromEnum(id)` so fx=620 … opencode2=630.
+/// badge). Distinct from cli_probe 600–611. Band is 620+
+/// `@intFromEnum(id)` so fx=620 … opencode2=630, deepseek=631.
 pub const cli_version_key_first = cli_version.cli_version_key_first;
 /// One-shot LiteLLM rate-table curl (`-o` into the Faku data dir).
 /// Distinct from cli_probe (600+) and cli_version (620+). Fixed key
