@@ -451,7 +451,8 @@ pub const UsageMeterRow = usage_meter.Row;
 /// `session.provider`; live Send is `spawn.startPrompt`.
 /// Enable/Disable persists `disabled_providers`. Expand + Binary
 /// path persist `provider_binary_overrides`. OpenCode 2 expanded
-/// Serve attach URL persists `opencode2_attach_url`.
+/// Serve attach URL persists `opencode2_attach_url`. Copy serve
+/// command copies `{binary} serve` when Available.
 pub const ProviderRow = providers.ProviderRow;
 
 /// Composer model picker row. `row_id` is a 1-based Native `for` key.
@@ -810,6 +811,9 @@ pub const Msg = union(enum) {
     copy_fx_install,
     /// Settings Providers: copy `fx login`. Clipboard only; not OAuth.
     copy_fx_login,
+    /// Settings Providers OpenCode 2: copy `{binary} serve`. Clipboard
+    /// only; does not spawn serve. Hidden / no-op when Not found.
+    copy_opencode2_serve,
     cycle_access,
     cycle_interaction,
     cycle_effort,
@@ -2537,6 +2541,7 @@ pub const Model = struct {
         "providersCodingAgentsChrome",
         "providersBinaryOverrideChrome",
         "providersOpencodeAttachChrome",
+        "providersOpencodeServeChrome",
         "skillsEnableChrome",
         "skillsEnableStatusChrome",
         "skillsTrashChrome",
@@ -2564,6 +2569,7 @@ pub const Model = struct {
         "opencode2_attach_buffer",
         "applyOpencode2AttachEdit",
         "providersOpencodeAttachChrome",
+        "providersOpencodeServeChrome",
         "provider_detection_checked_at_ms",
         "settings_search_buffer",
         "applySettingsSearch",
@@ -5564,6 +5570,13 @@ pub const Model = struct {
         return model.providersChrome().copy_login;
     }
 
+    /// Settings Providers OpenCode 2 Copy serve command. `on-press`
+    /// stays `copy_opencode2_serve`. Command text stays English.
+    /// Distinct from Copy install / Copy login (`ProvidersChrome`).
+    pub fn copy_opencode2_serve_label(model: *const Model) []const u8 {
+        return model.providersOpencodeServeChrome().copy_serve;
+    }
+
     /// Settings Providers Coding agents card title. Distinct from
     /// `settings_page_heading` / `settings_nav_providers` /
     /// `Chrome.providers`. Refresh lives in this card.
@@ -6306,6 +6319,10 @@ pub const Model = struct {
         return i18n.providersOpencodeAttachChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn providersOpencodeServeChrome(model: *const Model) i18n.ProvidersOpencodeServeChrome {
+        return i18n.providersOpencodeServeChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn skillsSelectChrome(model: *const Model) i18n.SkillsSelectChrome {
         return i18n.skillsSelectChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6729,6 +6746,13 @@ pub const Model = struct {
 
     pub fn can_copy_fx_login(model: *const Model) bool {
         return model.settings_page == .providers and providers.canCopyFxLogin(model);
+    }
+
+    /// Settings Providers OpenCode 2 Copy serve command. True when
+    /// OpenCode 2 is Available. Markup hides the button otherwise
+    /// (same class as fx Copy install / Copy login).
+    pub fn can_copy_opencode2_serve(model: *const Model) bool {
+        return model.settings_page == .providers and providers.canCopyOpencode2Serve(model);
     }
 
     pub fn has_other_install_hint(model: *const Model) bool {

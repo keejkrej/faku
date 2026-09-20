@@ -17,7 +17,10 @@
 //! on that same bag. One expanded row at a time (runtime-only
 //! `provider_expanded_id`); switching applies the previous draft.
 //! OpenCode 2 expanded row also persists optional `opencode2_attach_url`
-//! (string; missing / empty / overflow → empty = cold `run`). The
+//! (string; missing / empty / overflow → empty = cold `run`) and
+//! copies `{binary} serve` when Available (`copyOpencode2Serve`;
+//! honor `provider_binary_overrides` / `binaryFor`; hide / no-op
+//! when Not found; clipboard only, never spawns serve). The
 //! Enable/Disable chip is disable-flag-only
 //! (user can toggle regardless of install). `providerEnabled` (the
 //! plan-usage `maybeRefresh` gate) is `!disabled && isAvailable`.
@@ -57,7 +60,7 @@
 //! one-shot `{binary} run --format json --auto` (documented `--session`
 //! / `--model` / `--file`; documented `--attach {url}` when
 //! `opencode2_attach_url` is set; not `opencode acp`; user-owned
-//! serve; in-app HTTP/SSE serve client stays deferred). Available DeepSeek is one-shot `dsh --profile acp`
+//! serve; Copy serve command ships; in-app HTTP/SSE serve client stays deferred). Available DeepSeek is one-shot `dsh --profile acp`
 //! via acp-proxy (not `dsh acp`; composer image fail-closes to demo;
 //! Harness HTTP/SSE / web / `--profile headless` stay out). fx
 //! Not found copies the verified keejkrej/fx install script
@@ -80,7 +83,10 @@
 //! Binary path override follow `i18n.ProvidersBinaryOverrideChrome`
 //! (Faku, not Waku, in product-named strings). OpenCode 2 Serve attach
 //! URL follows `i18n.ProvidersOpencodeAttachChrome` (Faku, not Waku;
-//! user-owned serve; Faku only passes `--attach`). Model-count /
+//! user-owned serve; Faku only passes `--attach`). Copy serve command
+//! follows `i18n.ProvidersOpencodeServeChrome` (clipboard
+//! `{binary} serve` when Available; honor override; hide / no-op
+//! when Not found). Model-count /
 //! disabled caption follows `i18n.ProvidersModelCountChrome`
 //! (static Waku `fallback_models` lengths; Latin digits). Tests do not
 //! need a live daemon or any real CLI install.
@@ -90,7 +96,8 @@
 //! LiteLLM rate-table; T3 layered Usage chart; amend/force and
 //! remote `--track` over daemon (local already); Native-blocked UI
 //! (gauge / chart fill / DevTools / edge fades / sticky / KaTeX);
-//! OpenCode 2 HTTP/SSE serve client; DeepSeek Harness HTTP/SSE / web /
+//! OpenCode 2 HTTP/SSE serve client (Copy serve command ships;
+//! Faku still does not spawn serve); DeepSeek Harness HTTP/SSE / web /
 //! `--profile headless`.
 //! Settings Daemon first-cut ships this cut (nav + external-only
 //! page). Version badge ships
@@ -122,7 +129,7 @@
 //! bypass). OpenCode 2 one-shot `run --format json --auto` ships this
 //! cut (display **OpenCode 2**; not `opencode acp`; documented
 //! `--attach {url}` when `opencode2_attach_url` is set; user-owned
-//! serve; in-app HTTP/SSE serve client still deferred). DeepSeek one-shot
+//! serve; Copy serve command ships; in-app HTTP/SSE serve client still deferred). DeepSeek one-shot
 //! `dsh --profile acp` via acp-proxy ships this cut (display **DeepSeek**;
 //! no image attach; Harness HTTP/SSE / web / headless stay out). Appearance theme,
 //! Usage, and Computer Use first-cut pages ship (Computer Use is
@@ -189,6 +196,9 @@ pub const fx_install_command_windows = "irm https://github.com/keejkrej/fx/relea
 pub const fx_login_command = "fx login";
 pub const copy_install_label = providers_chrome_en.copy_install;
 pub const copy_login_label = providers_chrome_en.copy_login;
+/// English default from `i18n.ProvidersOpencodeServeChrome`. Distinct
+/// from Copy install / Copy login.
+pub const copy_serve_label = i18n.providersOpencodeServeChromeFor(.english, "").copy_serve;
 pub const fx_login_note = providers_detail_chrome_en.fx_login_note;
 pub const fx_login_codex_note = providers_detail_chrome_en.fx_login_codex_note;
 pub const other_install_hint = providers_detail_chrome_en.other_install_hint;
@@ -743,6 +753,32 @@ pub fn copyFxInstall(model: *const Model, fx: *Effects) void {
 pub fn copyFxLogin(model: *const Model, fx: *Effects) void {
     if (!canCopyFxLogin(model)) return;
     copy_helpers.copyText(fx, fx_login_command);
+}
+
+/// `{binary} serve` scratch: override path cap plus the documented
+/// OpenCode CLI subcommand. Same class as `max_fx_path` argv[0].
+pub const opencode2_serve_command_max: usize = model_exports.max_fx_path + " serve".len;
+
+/// Documented OpenCode CLI `serve` (https://opencode.ai/docs/cli/#serve).
+/// Binary is `providers.binaryFor` (override, else PATH `opencode2`).
+pub fn opencode2ServeCommand(model: *const Model, buf: []u8) []const u8 {
+    const binary = binaryFor(model, .opencode2);
+    if (binary.len == 0) return "";
+    return std.fmt.bufPrint(buf, "{s} serve", .{binary}) catch "";
+}
+
+/// OpenCode 2 PATH `--help` probe found it. Clipboard-only gate for
+/// Copy serve command; does not spawn `serve` or probe HTTP/SSE.
+pub fn canCopyOpencode2Serve(model: *const Model) bool {
+    return isAvailable(model, .opencode2);
+}
+
+/// Copy `{binary} serve`. No-op when the button would be hidden
+/// (OpenCode 2 Not found / unset). Does not spawn serve.
+pub fn copyOpencode2Serve(model: *const Model, fx: *Effects) void {
+    if (!canCopyOpencode2Serve(model)) return;
+    var buf: [opencode2_serve_command_max]u8 = undefined;
+    copy_helpers.copyText(fx, opencode2ServeCommand(model, &buf));
 }
 
 pub fn close(model: *Model, fx: *Effects) void {
@@ -1301,6 +1337,7 @@ test "copy command strings are the verified keejkrej/fx install / login commands
     try std.testing.expectEqualStrings("fx login", fx_login_command);
     try std.testing.expectEqualStrings("Copy install command", copy_install_label);
     try std.testing.expectEqualStrings("Copy login command", copy_login_label);
+    try std.testing.expectEqualStrings("Copy serve command", copy_serve_label);
 }
 
 test "fxInstallCommandForOs picks Unix curl|bash vs Windows irm|iex" {
@@ -1318,21 +1355,25 @@ test "install/login copy predicates: fx missing, fx available, other missing" {
     var model = Model{};
     try std.testing.expect(!canCopyFxInstall(&model));
     try std.testing.expect(!canCopyFxLogin(&model));
+    try std.testing.expect(!canCopyOpencode2Serve(&model));
     try std.testing.expect(!showsOtherInstallHint(&model));
 
     selectProvider(&model, rowId(.fx));
     try std.testing.expect(canCopyFxInstall(&model));
     try std.testing.expect(!canCopyFxLogin(&model));
+    try std.testing.expect(!canCopyOpencode2Serve(&model));
     try std.testing.expect(!showsOtherInstallHint(&model));
 
     model.fx_available = true;
     try std.testing.expect(!canCopyFxInstall(&model));
     try std.testing.expect(canCopyFxLogin(&model));
+    try std.testing.expect(!canCopyOpencode2Serve(&model));
     try std.testing.expect(!showsOtherInstallHint(&model));
 
     selectProvider(&model, rowId(.claude));
     try std.testing.expect(!canCopyFxInstall(&model));
     try std.testing.expect(!canCopyFxLogin(&model));
+    try std.testing.expect(!canCopyOpencode2Serve(&model));
     try std.testing.expect(showsOtherInstallHint(&model));
 
     model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
@@ -1406,6 +1447,57 @@ test "copyFxInstall / copyFxLogin write verified commands; wrong state is a no-o
     copyFxLogin(&model, &other_fx);
     try testing.expectEqual(@as(usize, 0), other_fx.pendingClipboardCount());
     try testing.expectEqual(@as(usize, 0), other_fx.pendingSpawnCount());
+}
+
+test "opencode2ServeCommand is binaryFor plus serve; override binary; unavailable copy is a no-op" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    var buf: [opencode2_serve_command_max]u8 = undefined;
+    try testing.expectEqualStrings("opencode2", binaryFor(&model, .opencode2));
+    try testing.expectEqualStrings("opencode2 serve", opencode2ServeCommand(&model, &buf));
+    try testing.expectEqualStrings("Copy serve command", copy_serve_label);
+    try testing.expect(!canCopyOpencode2Serve(&model));
+    copyOpencode2Serve(&model, &fx);
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+
+    selectProvider(&model, rowId(.opencode2));
+    copyOpencode2Serve(&model, &fx);
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    try testing.expect(canCopyOpencode2Serve(&model));
+    copyOpencode2Serve(&model, &fx);
+    try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    const copied = fx.pendingClipboardAt(0).?;
+    try testing.expectEqual(sidecar_keys.copy_turn_key, copied.key);
+    try testing.expectEqual(@import("native_sdk").EffectClipboardOp.write, copied.op);
+    try testing.expectEqualStrings("opencode2 serve", copied.text);
+
+    model.setProviderBinaryOverride(.opencode2, "/opt/custom-opencode2");
+    try testing.expectEqualStrings("/opt/custom-opencode2", binaryFor(&model, .opencode2));
+    try testing.expectEqualStrings("/opt/custom-opencode2 serve", opencode2ServeCommand(&model, &buf));
+    var override_fx = Effects.init(testing.allocator);
+    defer override_fx.deinit();
+    override_fx.executor = .fake;
+    copyOpencode2Serve(&model, &override_fx);
+    try testing.expectEqual(@as(usize, 1), override_fx.pendingClipboardCount());
+    try testing.expectEqualStrings("/opt/custom-opencode2 serve", override_fx.pendingClipboardAt(0).?.text);
+    try testing.expectEqual(@as(usize, 0), override_fx.pendingSpawnCount());
+
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = false;
+    try testing.expect(!canCopyOpencode2Serve(&model));
+    var missing_fx = Effects.init(testing.allocator);
+    defer missing_fx.deinit();
+    missing_fx.executor = .fake;
+    copyOpencode2Serve(&model, &missing_fx);
+    try testing.expectEqual(@as(usize, 0), missing_fx.pendingClipboardCount());
+    try testing.expectEqual(@as(usize, 0), missing_fx.pendingSpawnCount());
 }
 
 test "providerEnabled is not-disabled AND probe-installed; chip is disable-flag-only" {
