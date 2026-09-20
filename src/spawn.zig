@@ -1109,9 +1109,11 @@ test "speaksBareAcp is true for cursor, opencode, and kimi; speaksAcpStdio also 
     try testing.expect(!protocol.ProviderId.pi.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.ohmypi.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.opencode2.speaksBareAcp());
+    try testing.expect(!protocol.ProviderId.deepseek.speaksBareAcp());
     try testing.expect(protocol.ProviderId.pi.speaksPiRpc());
     try testing.expect(protocol.ProviderId.ohmypi.speaksPiRpc());
     try testing.expect(!protocol.ProviderId.opencode2.speaksPiRpc());
+    try testing.expect(!protocol.ProviderId.deepseek.speaksPiRpc());
     try testing.expect(!protocol.ProviderId.kimi.speaksPiRpc());
     try testing.expect(protocol.ProviderId.cursor.speaksAcpStdio());
     try testing.expect(protocol.ProviderId.opencode.speaksAcpStdio());
@@ -1121,6 +1123,7 @@ test "speaksBareAcp is true for cursor, opencode, and kimi; speaksAcpStdio also 
     try testing.expect(!protocol.ProviderId.claude.speaksAcpStdio());
     try testing.expect(!protocol.ProviderId.amp.speaksAcpStdio());
     try testing.expect(!protocol.ProviderId.opencode2.speaksAcpStdio());
+    try testing.expect(!protocol.ProviderId.deepseek.speaksAcpStdio());
     try testing.expectEqualStrings("acp", protocol.ProviderId.kimi.acpTransportArgv()[0]);
     try testing.expectEqual(@as(usize, 1), protocol.ProviderId.kimi.acpTransportArgv().len);
     try testing.expectEqual(@as(usize, 0), protocol.ProviderId.amp.acpTransportArgv().len);
@@ -2280,6 +2283,26 @@ test "opencode2 Available still stays demo (HTTP service driver deferred)" {
     try testing.expect(!protocol.ProviderId.opencode2.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.opencode2.speaksPiRpc());
     try testing.expect(!protocol.ProviderId.opencode2.speaksAcpStdio());
+}
+
+test "deepseek Available still stays demo (Harness HTTP / session driver deferred)" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = Model{};
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.deepseek)] = true;
+    const id = model.addSession("deepseek thread", .deepseek);
+    startPrompt(&model, &fx, id, "hello deepseek");
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(!model.fx_spawn_pi_json);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expect(!protocol.ProviderId.deepseek.speaksBareAcp());
+    try testing.expect(!protocol.ProviderId.deepseek.speaksPiRpc());
+    try testing.expect(!protocol.ProviderId.deepseek.speaksAcpStdio());
 }
 
 test "ohmypi image attach uses RPC images on the stdin prompt command" {

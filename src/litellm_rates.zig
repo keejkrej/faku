@@ -597,8 +597,8 @@ fn testStoreDir(tmp: *const std.testing.TmpDir, buffer: []u8) ![]const u8 {
 
 test "litellm_rates_key sits above cli_probe / cli_version and is unused by OS sidecars" {
     try std.testing.expectEqual(@as(u64, 650), litellm_rates_key);
-    try std.testing.expect(litellm_rates_key > git_keys.cli_probe_key_first + 10);
-    try std.testing.expect(litellm_rates_key > git_keys.cli_version_key_first + 10);
+    try std.testing.expect(litellm_rates_key > git_keys.cli_probe_key_first + 11);
+    try std.testing.expect(litellm_rates_key > git_keys.cli_version_key_first + 11);
     try std.testing.expect(litellm_rates_key != 25);
     try std.testing.expect(litellm_rates_key != 31);
 }

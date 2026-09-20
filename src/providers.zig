@@ -156,6 +156,7 @@ pub const amp_transport_note = providers_detail_chrome_en.amp_transport_note;
 pub const pi_transport_note = providers_detail_chrome_en.pi_transport_note;
 pub const ohmypi_transport_note = providers_detail_chrome_en.ohmypi_transport_note;
 pub const opencode2_transport_note = providers_detail_chrome_en.opencode2_transport_note;
+pub const deepseek_transport_note = providers_detail_chrome_en.deepseek_transport_note;
 pub const apply_session_label = providers_chrome_en.apply;
 /// Working keejkrej/fx Unix install script on the latest GitHub Release.
 /// Copied to the clipboard on Unix hosts; never auto-run. Not fx.sh.
@@ -249,6 +250,7 @@ pub fn iconName(id: protocol.ProviderId) []const u8 {
         .kimi => "app:provider-kimi",
         .ohmypi => "app:provider-ohmypi",
         .opencode2 => "app:provider-opencode2",
+        .deepseek => "app:provider-deepseek",
     };
 }
 
@@ -328,14 +330,14 @@ fn modelCountChrome(model: *const Model) i18n.ProvidersModelCountChrome {
 
 /// Static Waku `fallback_models(provider)` lengths. Live discovery
 /// stays out this cut. Empty-catalog ids (fx / grok / kimi /
-/// opencode / pi / ohmypi / opencode2) return 0 — do not invent catalogs.
+/// opencode / pi / ohmypi / opencode2 / deepseek) return 0 — do not invent catalogs.
 pub fn fallbackModelCount(id: protocol.ProviderId) usize {
     return switch (id) {
         .amp => 4,
         .codex => 5,
         .claude => 9,
         .cursor => 1,
-        .fx, .grok, .kimi, .opencode, .pi, .ohmypi, .opencode2 => 0,
+        .fx, .grok, .kimi, .opencode, .pi, .ohmypi, .opencode2, .deepseek => 0,
     };
 }
 
@@ -564,6 +566,8 @@ pub fn detailText(model: *const Model, arena: std.mem.Allocator) []const u8 {
         notes.ohmypi_transport_note
     else if (id == .opencode2)
         notes.opencode2_transport_note
+    else if (id == .deepseek)
+        notes.deepseek_transport_note
     else if (id.speaksBareAcp())
         notes.acp_transport_note
     else
@@ -686,9 +690,9 @@ pub fn refresh(model: *Model, fx: *Effects) void {
 
 test "catalog lists every ProviderId; fx is row 1" {
     const tags = std.meta.tags(protocol.ProviderId);
-    try std.testing.expectEqual(@as(usize, 11), catalogLen());
+    try std.testing.expectEqual(@as(usize, 12), catalogLen());
     try std.testing.expectEqual(protocol.provider_id_count, catalogLen());
-    try std.testing.expectEqual(@as(usize, 11), tags.len);
+    try std.testing.expectEqual(@as(usize, 12), tags.len);
     try std.testing.expectEqual(protocol.ProviderId.fx, tags[0]);
     try std.testing.expectEqual(@as(u32, 1), rowId(.fx));
     try std.testing.expectEqual(@as(u32, 2), rowId(.claude));
@@ -696,14 +700,16 @@ test "catalog lists every ProviderId; fx is row 1" {
     try std.testing.expectEqual(@as(u32, 9), rowId(.kimi));
     try std.testing.expectEqual(@as(u32, 10), rowId(.ohmypi));
     try std.testing.expectEqual(@as(u32, 11), rowId(.opencode2));
+    try std.testing.expectEqual(@as(u32, 12), rowId(.deepseek));
     try std.testing.expectEqual(protocol.ProviderId.fx, fromRowId(1).?);
     try std.testing.expectEqual(protocol.ProviderId.claude, fromRowId(2).?);
     try std.testing.expectEqual(protocol.ProviderId.pi, fromRowId(8).?);
     try std.testing.expectEqual(protocol.ProviderId.kimi, fromRowId(9).?);
     try std.testing.expectEqual(protocol.ProviderId.ohmypi, fromRowId(10).?);
     try std.testing.expectEqual(protocol.ProviderId.opencode2, fromRowId(11).?);
+    try std.testing.expectEqual(protocol.ProviderId.deepseek, fromRowId(12).?);
     try std.testing.expect(fromRowId(0) == null);
-    try std.testing.expect(fromRowId(12) == null);
+    try std.testing.expect(fromRowId(13) == null);
     try std.testing.expectEqualStrings("fx", protocol.ProviderId.fx.wireName());
     try std.testing.expectEqualStrings("cursor-agent", protocol.ProviderId.cursor.defaultBinary());
     try std.testing.expectEqualStrings("kimi", protocol.ProviderId.kimi.wireName());
@@ -718,6 +724,11 @@ test "catalog lists every ProviderId; fx is row 1" {
     try std.testing.expectEqualStrings("openCode2", protocol.ProviderId.opencode2.daemonProviderKind());
     try std.testing.expectEqualStrings("OpenCode 2", protocol.ProviderId.opencode2.displayName());
     try std.testing.expectEqualStrings("app:provider-opencode2", iconName(.opencode2));
+    try std.testing.expectEqualStrings("deepseek", protocol.ProviderId.deepseek.wireName());
+    try std.testing.expectEqualStrings("dsh", protocol.ProviderId.deepseek.defaultBinary());
+    try std.testing.expectEqualStrings("deepSeek", protocol.ProviderId.deepseek.daemonProviderKind());
+    try std.testing.expectEqualStrings("DeepSeek", protocol.ProviderId.deepseek.displayName());
+    try std.testing.expectEqualStrings("app:provider-deepseek", iconName(.deepseek));
 }
 
 test "fx status from model fields without spawning; non-fx defaults Not found" {
@@ -965,6 +976,20 @@ test "selectProvider; detail names binary, fx path, probe status, and one-shot a
     try testing.expect(std.mem.indexOf(u8, opencode2_detail, ohmypi_transport_note) == null);
     try testing.expect(std.mem.indexOf(u8, opencode2_detail, fx_transport_note) == null);
 
+    model.cli_available[@intFromEnum(protocol.ProviderId.deepseek)] = true;
+    selectProvider(&model, rowId(.deepseek));
+    try testing.expectEqual(rowId(.deepseek), model.provider_selected_id);
+    const deepseek_detail = detailText(&model, testing.allocator);
+    defer if (deepseek_detail.len > 0) testing.allocator.free(deepseek_detail);
+    try testing.expect(std.mem.indexOf(u8, deepseek_detail, "DeepSeek") != null);
+    try testing.expect(std.mem.indexOf(u8, deepseek_detail, "dsh") != null);
+    try testing.expect(std.mem.indexOf(u8, deepseek_detail, available_status) != null);
+    try testing.expect(std.mem.indexOf(u8, deepseek_detail, deepseek_transport_note) != null);
+    try testing.expect(std.mem.indexOf(u8, deepseek_detail, catalog_detail_note) == null);
+    try testing.expect(std.mem.indexOf(u8, deepseek_detail, acp_transport_note) == null);
+    try testing.expect(std.mem.indexOf(u8, deepseek_detail, opencode2_transport_note) == null);
+    try testing.expect(std.mem.indexOf(u8, deepseek_detail, fx_transport_note) == null);
+
     try testing.expect(protocol.ProviderId.cursor.speaksBareAcp());
     try testing.expect(protocol.ProviderId.opencode.speaksBareAcp());
     try testing.expect(protocol.ProviderId.kimi.speaksBareAcp());
@@ -974,6 +999,9 @@ test "selectProvider; detail names binary, fx path, probe status, and one-shot a
     try testing.expect(!protocol.ProviderId.opencode2.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.opencode2.speaksPiRpc());
     try testing.expect(!protocol.ProviderId.opencode2.speaksAcpStdio());
+    try testing.expect(!protocol.ProviderId.deepseek.speaksBareAcp());
+    try testing.expect(!protocol.ProviderId.deepseek.speaksPiRpc());
+    try testing.expect(!protocol.ProviderId.deepseek.speaksAcpStdio());
     try testing.expect(protocol.ProviderId.grok.speaksAcpStdio());
     try testing.expect(protocol.ProviderId.cursor.speaksAcpStdio());
     try testing.expect(protocol.ProviderId.kimi.speaksAcpStdio());
@@ -1218,7 +1246,7 @@ test "install/login copy predicates: fx missing, fx available, other missing" {
     model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
     try std.testing.expect(!showsOtherInstallHint(&model));
 
-    const others = [_]protocol.ProviderId{ .codex, .amp, .grok, .opencode, .cursor, .pi, .kimi, .ohmypi, .opencode2 };
+    const others = [_]protocol.ProviderId{ .codex, .amp, .grok, .opencode, .cursor, .pi, .kimi, .ohmypi, .opencode2, .deepseek };
     for (others) |id| {
         selectProvider(&model, rowId(id));
         try std.testing.expect(!canCopyFxInstall(&model));
@@ -1921,6 +1949,7 @@ test "fallbackModelCount matches Waku fallback_models lengths" {
     try testing.expectEqual(@as(usize, 0), fallbackModelCount(.opencode));
     try testing.expectEqual(@as(usize, 0), fallbackModelCount(.ohmypi));
     try testing.expectEqual(@as(usize, 0), fallbackModelCount(.opencode2));
+    try testing.expectEqual(@as(usize, 0), fallbackModelCount(.deepseek));
 }
 
 test "rowFor paints model_count when Available with a catalog; disabled wins; Not found omits" {
@@ -1944,6 +1973,7 @@ test "rowFor paints model_count when Available with a catalog; disabled wins; No
     model.cli_available[@intFromEnum(protocol.ProviderId.pi)] = true;
     model.cli_available[@intFromEnum(protocol.ProviderId.ohmypi)] = true;
     model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    model.cli_available[@intFromEnum(protocol.ProviderId.deepseek)] = true;
 
     try testing.expect(rowFor(&model, .claude, arena).has_model_count);
     try testing.expectEqualStrings("9 models", rowFor(&model, .claude, arena).model_count_label);
@@ -1963,6 +1993,9 @@ test "rowFor paints model_count when Available with a catalog; disabled wins; No
     try testing.expect(!rowFor(&model, .opencode2, arena).has_model_count);
     try testing.expectEqualStrings("", rowFor(&model, .opencode2, arena).model_count_label);
     try testing.expectEqualStrings("OpenCode 2", rowFor(&model, .opencode2, arena).name);
+    try testing.expect(!rowFor(&model, .deepseek, arena).has_model_count);
+    try testing.expectEqualStrings("", rowFor(&model, .deepseek, arena).model_count_label);
+    try testing.expectEqualStrings("DeepSeek", rowFor(&model, .deepseek, arena).name);
 
     setProviderEnabled(&model, .claude, false);
     try testing.expect(rowFor(&model, .claude, arena).has_model_count);
@@ -2009,6 +2042,7 @@ test "rowFor icon is app:provider-* for each ProviderId; Codex uses OpenAI mark"
     try testing.expectEqualStrings("app:provider-kimi", iconName(.kimi));
     try testing.expectEqualStrings("app:provider-ohmypi", iconName(.ohmypi));
     try testing.expectEqualStrings("app:provider-opencode2", iconName(.opencode2));
+    try testing.expectEqualStrings("app:provider-deepseek", iconName(.deepseek));
     try testing.expect(!std.mem.eql(u8, iconName(.codex), "app:provider-codex"));
     try testing.expect(!std.mem.eql(u8, iconName(.opencode2), iconName(.opencode)));
 

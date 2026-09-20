@@ -3,8 +3,7 @@
 Brand marks taken from [egoist/waku](https://github.com/egoist/waku)
 `assets/icons/provider-*.svg` (GPL-3.0) and adapted to `currentColor`
 for Native. Faku mapping and registration code stays GPL-3.0-only.
-Do not copy Waku Rust/TS. DeepSeek marks stay out (no matching
-`protocol.ProviderId` this cut).
+Do not copy Waku Rust/TS.
 
 | Waku file | Registry name | ProviderId |
 | --- | --- | --- |
@@ -19,6 +18,7 @@ Do not copy Waku Rust/TS. DeepSeek marks stay out (no matching
 | `provider-kimi.svg` | `app:provider-kimi` | kimi |
 | `provider-ohmypi.svg` | `app:provider-ohmypi` | ohmypi |
 | `provider-opencode2.svg` | `app:provider-opencode2` | opencode2 |
+| `provider-deepseek.svg` | `app:provider-deepseek` | deepseek |
 
 Codex uses the OpenAI mark in Waku (`provider-openai.svg`); there is
 no `provider-codex.svg`.
@@ -41,6 +41,9 @@ paint solid, so `provider-opencode2.svg` is the window as separate
 `<rect>`s (original viewBox kept) plus the Waku red `#D95A50` "2"
 badge as a literal fill. Inner bars are solid `currentColor` because
 Native ignores `fill-opacity`.
+DeepSeek's Waku mark is a single `#000` path (`fill-rule="nonzero"`
+is ignored). `provider-deepseek.svg` keeps that path with
+`fill="currentColor"` (original viewBox kept).
 
 Availability is the existing status / model_count caption, not a Waku
 GPUI colored overlay dot. Native `list-item` `icon=` is one leading

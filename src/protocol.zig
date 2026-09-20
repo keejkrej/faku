@@ -574,6 +574,7 @@ pub const ProviderId = enum {
     kimi,
     ohmypi,
     opencode2,
+    deepseek,
 
     pub const default = ProviderId.fx;
 
@@ -590,17 +591,20 @@ pub const ProviderId = enum {
             .kimi => "kimi",
             .ohmypi => "ohmypi",
             .opencode2 => "opencode2",
+            .deepseek => "deepseek",
         };
     }
 
     /// Settings / palette display. Waku `ProviderKind::display_name`
-    /// for Oh My Pi is `"Oh My Pi"` (not the `omp` binary) and for
-    /// OpenCode 2 is `"OpenCode 2"` (not the `opencode2` binary).
+    /// for Oh My Pi is `"Oh My Pi"` (not the `omp` binary), for
+    /// OpenCode 2 is `"OpenCode 2"` (not the `opencode2` binary), and
+    /// for DeepSeek is `"DeepSeek"` (not the `dsh` binary).
     /// Other ids keep today's wire-name catalog labels.
     pub fn displayName(id: ProviderId) []const u8 {
         return switch (id) {
             .ohmypi => "Oh My Pi",
             .opencode2 => "OpenCode 2",
+            .deepseek => "DeepSeek",
             .fx, .claude, .codex, .amp, .grok, .opencode, .cursor, .pi, .kimi => id.wireName(),
         };
     }
@@ -618,6 +622,7 @@ pub const ProviderId = enum {
             .kimi => "kimi",
             .ohmypi => "omp",
             .opencode2 => "opencode2",
+            .deepseek => "dsh",
         };
     }
 
@@ -671,8 +676,8 @@ pub const ProviderId = enum {
 
     /// Waku `ProviderKind` serde camelCase (enum tag `rename_all` only).
     /// Distinct from Faku `wireName()` (`opencode` vs `"openCode"`,
-    /// `ohmypi` vs `"ohMyPi"`, `opencode2` vs `"openCode2"`). Faku
-    /// does not invent `deepSeek`.
+    /// `ohmypi` vs `"ohMyPi"`, `opencode2` vs `"openCode2"`,
+    /// `deepseek` vs `"deepSeek"`).
     pub fn daemonProviderKind(id: ProviderId) []const u8 {
         return switch (id) {
             .fx => "fx",
@@ -686,6 +691,7 @@ pub const ProviderId = enum {
             .kimi => "kimi",
             .ohmypi => "ohMyPi",
             .opencode2 => "openCode2",
+            .deepseek => "deepSeek",
         };
     }
 
@@ -5659,6 +5665,13 @@ test "workspace request wraps camelCase discoverSlashCommands with openCode mapp
     try std.testing.expectEqual(ProviderId.opencode2, ProviderId.fromWire("opencode2").?);
     try std.testing.expect(ProviderId.fromWire("openCode2") == null);
     try std.testing.expectEqual(ProviderId.opencode, ProviderId.fromWire("opencode").?);
+    try std.testing.expectEqualStrings("deepSeek", ProviderId.deepseek.daemonProviderKind());
+    try std.testing.expectEqualStrings("deepseek", ProviderId.deepseek.wireName());
+    try std.testing.expectEqualStrings("dsh", ProviderId.deepseek.defaultBinary());
+    try std.testing.expectEqualStrings("DeepSeek", ProviderId.deepseek.displayName());
+    try std.testing.expectEqual(ProviderId.deepseek, ProviderId.fromWire("deepseek").?);
+    try std.testing.expect(ProviderId.fromWire("deepSeek") == null);
+    try std.testing.expect(ProviderId.fromWire("dsh") == null);
 
     var tiny: [32]u8 = undefined;
     try std.testing.expectError(error.NoSpaceLeft, writeWorkspace(
@@ -5864,10 +5877,12 @@ test "start defaults to first-party fx over acp" {
     try std.testing.expect(!ProviderId.pi.speaksBareAcp());
     try std.testing.expect(!ProviderId.ohmypi.speaksBareAcp());
     try std.testing.expect(!ProviderId.opencode2.speaksBareAcp());
+    try std.testing.expect(!ProviderId.deepseek.speaksBareAcp());
     try std.testing.expect(ProviderId.pi.speaksPiRpc());
     try std.testing.expect(ProviderId.ohmypi.speaksPiRpc());
     try std.testing.expect(!ProviderId.kimi.speaksPiRpc());
     try std.testing.expect(!ProviderId.opencode2.speaksPiRpc());
+    try std.testing.expect(!ProviderId.deepseek.speaksPiRpc());
     try std.testing.expect(!ProviderId.fx.speaksPiRpc());
     try std.testing.expect(ProviderId.cursor.speaksAcpStdio());
     try std.testing.expect(ProviderId.opencode.speaksAcpStdio());
@@ -5902,6 +5917,17 @@ test "start defaults to first-party fx over acp" {
     try std.testing.expect(!ProviderId.opencode2.speaksPiRpc());
     try std.testing.expect(!ProviderId.opencode2.speaksAcpStdio());
     try std.testing.expectEqual(@as(usize, 0), ProviderId.opencode2.acpTransportArgv().len);
+    try std.testing.expectEqual(ProviderId.deepseek, ProviderId.fromWire("deepseek").?);
+    try std.testing.expect(ProviderId.fromWire("deepSeek") == null);
+    try std.testing.expect(ProviderId.fromWire("dsh") == null);
+    try std.testing.expectEqualStrings("deepseek", ProviderId.deepseek.wireName());
+    try std.testing.expectEqualStrings("dsh", ProviderId.deepseek.defaultBinary());
+    try std.testing.expectEqualStrings("deepSeek", ProviderId.deepseek.daemonProviderKind());
+    try std.testing.expectEqualStrings("DeepSeek", ProviderId.deepseek.displayName());
+    try std.testing.expect(!ProviderId.deepseek.speaksBareAcp());
+    try std.testing.expect(!ProviderId.deepseek.speaksPiRpc());
+    try std.testing.expect(!ProviderId.deepseek.speaksAcpStdio());
+    try std.testing.expectEqual(@as(usize, 0), ProviderId.deepseek.acpTransportArgv().len);
     try std.testing.expectEqualStrings("acp", ProviderId.fx.acpTransportArgv()[0]);
     try std.testing.expectEqual(@as(usize, 2), ProviderId.grok.acpTransportArgv().len);
     try std.testing.expectEqualStrings("agent", ProviderId.grok.acpTransportArgv()[0]);
