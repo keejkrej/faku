@@ -38285,6 +38285,10 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
 
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{p.first_party_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{p.status}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{p.status_available}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{p.status_missing}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "foreground=\"success\">●</text>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "foreground=\"text_muted\">●</text>"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{p.enable_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "icon=\"{p.icon}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{copy_fx_install_label}"));
@@ -38321,6 +38325,7 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "First-party default");
     _ = try expectByText(tree.root, .text, "Not found");
+    _ = try expectByText(tree.root, .text, "●");
     _ = try expectButtonMsg(tree, "Show fx settings", .{ .toggle_provider_expanded = 1 });
     _ = try expectButtonMsg(tree, "Disable fx", .{ .toggle_provider_enabled = 1 });
     _ = try expectButtonMsg(tree, "Copy install command", .copy_fx_install);

@@ -535,7 +535,17 @@
                             <text wrap="false" overflow="ellipsis" foreground="text_muted">{p.first_party_label}</text>
                           </if>
                         </row>
-                        <text wrap="false" overflow="ellipsis" foreground="text_muted">{p.status}</text>
+                        <row gap="4" cross="center">
+                          <if test="{p.status_available}">
+                            <text wrap="false" foreground="success">●</text>
+                          </if>
+                          <else>
+                            <if test="{p.status_missing}">
+                              <text wrap="false" foreground="text_muted">●</text>
+                            </if>
+                          </else>
+                          <text wrap="false" overflow="ellipsis" foreground="text_muted">{p.status}</text>
+                        </row>
                         <if test="{p.has_model_count}">
                           <text wrap="false" overflow="ellipsis" foreground="text_muted">{p.model_count_label}</text>
                         </if>
