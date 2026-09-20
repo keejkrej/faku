@@ -186,7 +186,7 @@ test "registerIcons resolves chrome and file-type app names" {
 
 test "app_icons names and shell window" {
     try std.testing.expectEqual(@as(usize, chrome_icons.len + file_type_icons.app_icons.len), app_icons.len);
-    try std.testing.expectEqual(@as(usize, 10), chrome_icons.len);
+    try std.testing.expectEqual(@as(usize, 11), chrome_icons.len);
     try std.testing.expectEqualStrings("minimize", app_icons[0].name);
     try std.testing.expectEqualStrings("maximize", app_icons[1].name);
     try std.testing.expectEqualStrings("stop", app_icons[2].name);
@@ -196,8 +196,9 @@ test "app_icons names and shell window" {
     try std.testing.expectEqualStrings("bot", app_icons[6].name);
     try std.testing.expectEqualStrings("package", app_icons[7].name);
     try std.testing.expectEqualStrings("chart-column", app_icons[8].name);
-    try std.testing.expectEqualStrings("cursor-spark", app_icons[9].name);
-    try std.testing.expectEqualStrings("zig", app_icons[10].name);
+    try std.testing.expectEqualStrings("server", app_icons[9].name);
+    try std.testing.expectEqualStrings("cursor-spark", app_icons[10].name);
+    try std.testing.expectEqualStrings("zig", app_icons[11].name);
     try std.testing.expectEqualStrings("file", app_icons[app_icons.len - 1].name);
     try std.testing.expectEqual(@as(usize, 1), shell_scene.windows.len);
     try std.testing.expectEqualStrings(main_window_label, shell_scene.windows[0].label);
