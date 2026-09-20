@@ -38739,6 +38739,16 @@ test "Settings Providers DeepSeek Copy web command when Available; Not found hid
     try testing.expectEqual(native_sdk.EffectClipboardOp.write, written.op);
     try testing.expectEqualStrings("dsh web", written.text);
 
+    main.update(&model, .{ .toggle_provider_expanded = 1 }, &fx);
+    try testing.expect(model.can_copy_deepseek_web());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Copy web command") == null);
+    try testing.expect(findByText(tree.root, .button, "Copy serve command") == null);
+
+    main.update(&model, .{ .toggle_provider_expanded = providers.rowId(.deepseek) }, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Copy web command", .copy_deepseek_web);
+
     model.setProviderBinaryOverride(.deepseek, "/opt/custom-dsh");
     var override_fx = Effects.init(testing.allocator);
     defer override_fx.deinit();
@@ -38748,12 +38758,6 @@ test "Settings Providers DeepSeek Copy web command when Available; Not found hid
     try testing.expectEqualStrings("/opt/custom-dsh web", override_fx.pendingClipboardAt(0).?.text);
     try testing.expectEqual(@as(usize, 0), override_fx.pendingSpawnCount());
 
-    main.update(&model, .{ .toggle_provider_expanded = 1 }, &fx);
-    tree = try buildTree(arena, &model);
-    try testing.expect(findByText(tree.root, .button, "Copy web command") == null);
-    try testing.expect(findByText(tree.root, .button, "Copy serve command") == null);
-
-    main.update(&model, .{ .toggle_provider_expanded = providers.rowId(.deepseek) }, &fx);
     model.language_preference = .simplified_chinese;
     try testing.expectEqualStrings("复制 web 命令", model.copy_deepseek_web_label());
     tree = try buildTree(arena, &model);
