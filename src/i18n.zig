@@ -448,6 +448,17 @@
 //! independently evolvable; OpenCode 2 expanded row only; on-press
 //! stays `apply_opencode2_attach` / `clear_opencode2_attach`; typed
 //! URL stays data)
+//! plus Settings Providers OpenCode 2 Copy serve command
+//! (same `ProvidersOpencodeServeChrome` strings; EN Copy serve
+//! command / zh-CN 复制 serve 命令 / ja serve コマンドをコピー;
+//! distinct from `ProvidersChrome` Copy install / Copy login and
+//! from `ProvidersOpencodeAttachChrome` so serve-copy chrome stays
+//! independently evolvable; OpenCode 2 expanded row when Available;
+//! clipboard `{binary} serve` via `providers.binaryFor`; honor
+//! `provider_binary_overrides`; hide / no-op when Not found; Faku
+//! does not spawn serve; in-app HTTP/SSE serve client still
+//! deferred; on-press stays `copy_opencode2_serve`; command text
+//! stays English)
 //! plus Settings Providers model-count / disabled caption
 //! (same `ProvidersModelCountChrome` strings; English matches
 //! Waku `providers.model_count_one` / `model_count_many` /
@@ -458,7 +469,8 @@
 //! 新規タスクでは無効; numbers stay Latin; distinct from
 //! `ProvidersChrome` / `ProvidersDetailChrome` /
 //! `ProvidersEnableNamedChrome` / `ProvidersCodingAgentsChrome` /
-//! `ProvidersBinaryOverrideChrome` / `ProvidersOpencodeAttachChrome`
+//! `ProvidersBinaryOverrideChrome` / `ProvidersOpencodeAttachChrome` /
+//! `ProvidersOpencodeServeChrome`
 //! so the caption stays independently evolvable; Available + disabled paints
 //! disabled_for_new_tasks; Available + enabled + count>0 paints
 //! one/many; empty-catalog / Not found omit)
@@ -897,8 +909,8 @@
 //! Settings Providers / Skills / Usage Refresh `on-press` stay
 //! English (`refresh_providers` / `refresh_skills` /
 //! `refresh_usage_history`). Settings Providers Apply / Copy install /
-//! Copy login `on-press` stay English (`apply_session_provider` /
-//! `copy_fx_install` / `copy_fx_login`). Refresh goal / plan Refresh `on-press`
+//! Copy login / Copy serve `on-press` stay English (`apply_session_provider` /
+//! `copy_fx_install` / `copy_fx_login` / `copy_opencode2_serve`). Refresh goal / plan Refresh `on-press`
 //! stay English (`goal_refresh` / `refresh_plan_usage`). Set goal /
 //! Clear goal `on-press` stay English (`goal_set` / `goal_clear`).
 //! Composer Goal empty label (`No goal`) follows the resolved
@@ -4956,6 +4968,32 @@ const providers_opencode_attach_chrome_ja: ProvidersOpencodeAttachChrome = .{
     .attach_url_description = "opencode2 serve は自分で起動してください。Faku は --attach を渡すだけです。空欄のときは通常の起動です。",
 };
 
+/// Settings Providers OpenCode 2 Copy serve command for the resolved
+/// locale. Same resolve path as ProvidersChrome. Distinct from
+/// `ProvidersChrome` Copy install / Copy login and from
+/// `ProvidersOpencodeAttachChrome` so serve-copy chrome stays
+/// independently evolvable. OpenCode 2 expanded row when Available.
+/// Clipboard `{binary} serve` (honor `provider_binary_overrides` /
+/// `providers.binaryFor`; default `opencode2`); hide / no-op when
+/// Not found. Faku does not spawn serve; in-app HTTP/SSE serve
+/// client still deferred. Wire ids / on-press stay English
+/// (`copy_opencode2_serve`). Command text stays English.
+pub const ProvidersOpencodeServeChrome = struct {
+    copy_serve: []const u8,
+};
+
+const providers_opencode_serve_chrome_en: ProvidersOpencodeServeChrome = .{
+    .copy_serve = "Copy serve command",
+};
+
+const providers_opencode_serve_chrome_zh_cn: ProvidersOpencodeServeChrome = .{
+    .copy_serve = "复制 serve 命令",
+};
+
+const providers_opencode_serve_chrome_ja: ProvidersOpencodeServeChrome = .{
+    .copy_serve = "serve コマンドをコピー",
+};
+
 /// Capped scratch for `formatProvidersModelCount`. Templates plus a
 /// Latin `{d}` count stay short in every locale.
 pub const providers_model_count_label_max: usize = 64;
@@ -4967,7 +5005,8 @@ pub const providers_model_count_label_max: usize = 64;
 /// `providers.disabled_for_new_tasks`. Distinct from
 /// `ProvidersChrome` / `ProvidersDetailChrome` /
 /// `ProvidersEnableNamedChrome` / `ProvidersCodingAgentsChrome` /
-/// `ProvidersBinaryOverrideChrome` / `ProvidersOpencodeAttachChrome`
+/// `ProvidersBinaryOverrideChrome` / `ProvidersOpencodeAttachChrome` /
+/// `ProvidersOpencodeServeChrome`
 /// so the caption stays independently evolvable. Templates keep Waku `%{count}` slots;
 /// numbers stay Latin. Available + disabled paints
 /// `disabled_for_new_tasks` (not the count). Available + enabled
@@ -7210,12 +7249,28 @@ pub fn providersOpencodeAttachChromeFor(preference: LanguagePreference, system_l
     };
 }
 
+/// Settings Providers OpenCode 2 Copy serve command for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from ProvidersChrome Copy install / Copy login and from
+/// ProvidersOpencodeAttachChrome so serve-copy chrome stays
+/// independently evolvable. Wire ids / on-press stay English
+/// (`copy_opencode2_serve`). Command text stays English.
+pub fn providersOpencodeServeChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ProvidersOpencodeServeChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => providers_opencode_serve_chrome_zh_cn,
+        .japanese => providers_opencode_serve_chrome_ja,
+        .system, .english => providers_opencode_serve_chrome_en,
+    };
+}
+
 /// Settings Providers muted model-count / disabled caption for the
 /// resolved locale. Callers pass Model `language_preference` +
 /// `system_locale_id`; this file does not read process env. Distinct
 /// from ProvidersChrome / ProvidersDetailChrome /
 /// ProvidersEnableNamedChrome / ProvidersCodingAgentsChrome /
-/// ProvidersBinaryOverrideChrome / ProvidersOpencodeAttachChrome so
+/// ProvidersBinaryOverrideChrome / ProvidersOpencodeAttachChrome /
+/// ProvidersOpencodeServeChrome so
 /// the caption stays independently evolvable. English matches Waku `providers.model_count_one` /
 /// `model_count_many` / `disabled_for_new_tasks`. Numbers stay
 /// Latin. Wire ids stay English.
@@ -11826,6 +11881,21 @@ test "providersOpencodeAttachChromeFor english default; zh and ja chrome; Faku n
     try testing.expect(std.mem.indexOf(u8, providersOpencodeAttachChromeFor(.simplified_chinese, "").attach_url_description, "Waku") == null);
     try testing.expect(std.mem.indexOf(u8, providersOpencodeAttachChromeFor(.japanese, "").attach_url_description, "Faku") != null);
     try testing.expect(std.mem.indexOf(u8, providersOpencodeAttachChromeFor(.japanese, "").attach_url_description, "Waku") == null);
+}
+
+test "providersOpencodeServeChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Copy serve command", providersOpencodeServeChromeFor(.english, "ja").copy_serve);
+    try testing.expectEqualStrings("Copy serve command", providersOpencodeServeChromeFor(.english, "").copy_serve);
+    try testing.expectEqualStrings("Copy serve command", providersOpencodeServeChromeFor(.system, "").copy_serve);
+    try testing.expectEqualStrings("复制 serve 命令", providersOpencodeServeChromeFor(.simplified_chinese, "").copy_serve);
+    try testing.expectEqualStrings("serve コマンドをコピー", providersOpencodeServeChromeFor(.japanese, "").copy_serve);
+    try testing.expectEqualStrings("复制 serve 命令", providersOpencodeServeChromeFor(.system, "zh_CN.UTF-8").copy_serve);
+    try testing.expectEqualStrings("serve コマンドをコピー", providersOpencodeServeChromeFor(.system, "ja_JP.UTF-8").copy_serve);
+    try testing.expectEqualStrings("Copy serve command", providersOpencodeServeChromeFor(.english, "zh_CN.UTF-8").copy_serve);
+    try testing.expect(!std.mem.eql(u8, providersOpencodeServeChromeFor(.english, "").copy_serve, providersChromeFor(.english, "").copy_install));
+    try testing.expect(!std.mem.eql(u8, providersOpencodeServeChromeFor(.english, "").copy_serve, providersChromeFor(.english, "").copy_login));
+    try testing.expect(!std.mem.eql(u8, providersOpencodeServeChromeFor(.english, "").copy_serve, providersOpencodeAttachChromeFor(.english, "").attach_url));
 }
 
 test "formatProvidersBinaryOverride substitutes %{provider} / %{path} / %{command}; empty still paints" {

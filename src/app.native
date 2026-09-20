@@ -574,6 +574,9 @@
                             <if test="{p.has_opencode_attach}">
                               <button variant="ghost" size="sm" on-press="clear_opencode2_attach">{providers_reset_label}</button>
                             </if>
+                            <if test="{can_copy_opencode2_serve}">
+                              <button variant="ghost" size="sm" on-press="copy_opencode2_serve">{copy_opencode2_serve_label}</button>
+                            </if>
                           </if>
                         </column>
                       </card>
