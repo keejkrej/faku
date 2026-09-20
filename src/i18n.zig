@@ -280,7 +280,10 @@
 //! but stays a dedicated field so the page title does not couple to
 //! Settings nav; product name Faku; distinct from
 //! `DaemonAddressChrome` / `DaemonDirChrome` / `ComputerUseChrome`;
-//! display-only external-client page; wire ids stay English)
+//! honest external-client page; Disconnect / Forget / Reconnect /
+//! Copy match Waku web when an address is present; no Expose /
+//! port Apply / token / restart / live Connecting/Connected/Error
+//! phase; wire ids stay English)
 //! plus Settings Usage Daily / Monthly / Projects view chips,
 //! Daily / Projects window chips, Cost|Tokens metric chips, and
 //! Daily-only Model|Days breakdown chips (same `UsageViewChrome`
@@ -3838,9 +3841,12 @@ const computer_use_chrome_ja: ComputerUseChrome = .{
 /// `Chrome.daemon` (守护进程 / デーモン) but lives here so the page
 /// title does not couple to Settings nav. Faku is always the
 /// external-client class: no Expose toggle, port Apply, token
-/// mint/reveal/regenerate, restart, or live WebSocket phase this
-/// cut. Connection details display the same persisted General
-/// daemon address. Wire ids stay English. Distinct from
+/// mint/reveal/regenerate, restart, or live Connecting/Connected/Error
+/// WebSocket phase. Disconnect / Forget / Reconnect / Copy match
+/// Waku web external-client chrome (`daemon.disconnect` /
+/// `daemon.forget` / `daemon.reconnect` / `daemon.phase_disconnected` /
+/// `common.copy`). Connection details display the same persisted
+/// General daemon address. Wire ids stay English. Distinct from
 /// `DaemonAddressChrome` / `DaemonDirChrome` / `ComputerUseChrome`.
 pub const DaemonSettingsChrome = struct {
     title: []const u8,
@@ -3850,6 +3856,11 @@ pub const DaemonSettingsChrome = struct {
     websocket_url: []const u8,
     status: []const u8,
     not_configured: []const u8,
+    disconnect: []const u8,
+    forget: []const u8,
+    reconnect: []const u8,
+    disconnected: []const u8,
+    copy: []const u8,
 };
 
 const daemon_settings_chrome_en: DaemonSettingsChrome = .{
@@ -3860,6 +3871,11 @@ const daemon_settings_chrome_en: DaemonSettingsChrome = .{
     .websocket_url = "WebSocket URL",
     .status = "Status",
     .not_configured = "Not configured",
+    .disconnect = "Disconnect",
+    .forget = "Forget daemon",
+    .reconnect = "Reconnect",
+    .disconnected = "Disconnected",
+    .copy = "Copy",
 };
 
 const daemon_settings_chrome_zh_cn: DaemonSettingsChrome = .{
@@ -3870,6 +3886,11 @@ const daemon_settings_chrome_zh_cn: DaemonSettingsChrome = .{
     .websocket_url = "WebSocket 地址",
     .status = "状态",
     .not_configured = "未配置",
+    .disconnect = "断开连接",
+    .forget = "忘记守护进程",
+    .reconnect = "重新连接",
+    .disconnected = "已断开",
+    .copy = "复制",
 };
 
 const daemon_settings_chrome_ja: DaemonSettingsChrome = .{
@@ -3880,6 +3901,11 @@ const daemon_settings_chrome_ja: DaemonSettingsChrome = .{
     .websocket_url = "WebSocket URL",
     .status = "状態",
     .not_configured = "未設定",
+    .disconnect = "接続を解除",
+    .forget = "デーモンを削除",
+    .reconnect = "再接続",
+    .disconnected = "接続解除済み",
+    .copy = "コピー",
 };
 
 /// Settings Usage Daily / Monthly / Projects view chips, Daily /
@@ -6782,8 +6808,10 @@ pub fn computerUseChromeFor(preference: LanguagePreference, system_locale_id: []
 /// this file does not read process env. Title wording matches
 /// `chromeFor` Daemon but stays a dedicated field. Product name
 /// Faku. Distinct from `daemonAddressChromeFor` /
-/// `daemonDirChromeFor` / `computerUseChromeFor`. Display-only;
-/// no Expose / Apply / token / restart / live phase this cut.
+/// `daemonDirChromeFor` / `computerUseChromeFor`. Honest
+/// external-client chrome: Disconnect / Forget / Reconnect / Copy;
+/// no Expose / Apply / token / restart / live Connecting/Connected/Error
+/// phase this cut.
 pub fn daemonSettingsChromeFor(preference: LanguagePreference, system_locale_id: []const u8) DaemonSettingsChrome {
     return switch (resolve(preference, system_locale_id)) {
         .simplified_chinese => daemon_settings_chrome_zh_cn,
@@ -10623,6 +10651,11 @@ test "daemonSettingsChromeFor english default; zh and ja chrome; english ignores
     try testing.expectEqualStrings("WebSocket URL", daemonSettingsChromeFor(.english, "").websocket_url);
     try testing.expectEqualStrings("Status", daemonSettingsChromeFor(.english, "").status);
     try testing.expectEqualStrings("Not configured", daemonSettingsChromeFor(.english, "").not_configured);
+    try testing.expectEqualStrings("Disconnect", daemonSettingsChromeFor(.english, "").disconnect);
+    try testing.expectEqualStrings("Forget daemon", daemonSettingsChromeFor(.english, "").forget);
+    try testing.expectEqualStrings("Reconnect", daemonSettingsChromeFor(.english, "").reconnect);
+    try testing.expectEqualStrings("Disconnected", daemonSettingsChromeFor(.english, "").disconnected);
+    try testing.expectEqualStrings("Copy", daemonSettingsChromeFor(.english, "").copy);
     try testing.expectEqualStrings(chromeFor(.english, "").daemon, daemonSettingsChromeFor(.english, "").title);
 
     try testing.expectEqualStrings("守护进程", daemonSettingsChromeFor(.simplified_chinese, "").title);
@@ -10635,6 +10668,11 @@ test "daemonSettingsChromeFor english default; zh and ja chrome; english ignores
     try testing.expectEqualStrings("WebSocket 地址", daemonSettingsChromeFor(.simplified_chinese, "").websocket_url);
     try testing.expectEqualStrings("状态", daemonSettingsChromeFor(.simplified_chinese, "").status);
     try testing.expectEqualStrings("未配置", daemonSettingsChromeFor(.simplified_chinese, "").not_configured);
+    try testing.expectEqualStrings("断开连接", daemonSettingsChromeFor(.simplified_chinese, "").disconnect);
+    try testing.expectEqualStrings("忘记守护进程", daemonSettingsChromeFor(.simplified_chinese, "").forget);
+    try testing.expectEqualStrings("重新连接", daemonSettingsChromeFor(.simplified_chinese, "").reconnect);
+    try testing.expectEqualStrings("已断开", daemonSettingsChromeFor(.simplified_chinese, "").disconnected);
+    try testing.expectEqualStrings("复制", daemonSettingsChromeFor(.simplified_chinese, "").copy);
     try testing.expectEqualStrings(chromeFor(.simplified_chinese, "").daemon, daemonSettingsChromeFor(.simplified_chinese, "").title);
 
     try testing.expectEqualStrings("デーモン", daemonSettingsChromeFor(.japanese, "").title);
@@ -10647,6 +10685,11 @@ test "daemonSettingsChromeFor english default; zh and ja chrome; english ignores
     try testing.expectEqualStrings("WebSocket URL", daemonSettingsChromeFor(.japanese, "").websocket_url);
     try testing.expectEqualStrings("状態", daemonSettingsChromeFor(.japanese, "").status);
     try testing.expectEqualStrings("未設定", daemonSettingsChromeFor(.japanese, "").not_configured);
+    try testing.expectEqualStrings("接続を解除", daemonSettingsChromeFor(.japanese, "").disconnect);
+    try testing.expectEqualStrings("デーモンを削除", daemonSettingsChromeFor(.japanese, "").forget);
+    try testing.expectEqualStrings("再接続", daemonSettingsChromeFor(.japanese, "").reconnect);
+    try testing.expectEqualStrings("接続解除済み", daemonSettingsChromeFor(.japanese, "").disconnected);
+    try testing.expectEqualStrings("コピー", daemonSettingsChromeFor(.japanese, "").copy);
     try testing.expectEqualStrings(chromeFor(.japanese, "").daemon, daemonSettingsChromeFor(.japanese, "").title);
 
     try testing.expectEqualStrings("守护进程", daemonSettingsChromeFor(.system, "zh_CN.UTF-8").title);

@@ -145,8 +145,9 @@ pub fn handleGoalSetStatus(model: *Model, fx: *Effects, status: []const u8) void
     });
 }
 
-/// Best-effort one-shot hello + `goal`. Live `WAKU_DAEMON_ADDRESS` or
-/// persisted `last_daemon_address`. Missing address is a no-op — fx ask /
+/// Best-effort one-shot hello + `goal`. `sidecarDaemonAddress` (live
+/// `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address`; empty
+/// while disconnected). Missing address is a no-op — fx ask /
 /// fx acp / demo do not fake Goal. Own spawn key.
 pub fn maybeSendGoal(model: *Model, fx: *Effects, session_id: u32, operation: protocol.GoalOperation) bool {
     const address = store.resolveDaemonMirrorAddress(model);

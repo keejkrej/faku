@@ -182,7 +182,7 @@ pub fn stopStream(model: *Model, fx: *Effects) void {
 /// still running, and attach/start reported `supportsSteer`. Unknown
 /// or false queues instead (same as Waku `session_can_steer`).
 fn canSteerLiveDaemonTurn(model: *const Model) bool {
-    if (model.daemonAddress().len == 0) return false;
+    if (model.daemon_disconnected or model.daemonAddress().len == 0) return false;
     if (model.daemon_spawn_key == 0 or !model.is_streaming()) return false;
     const session = model.sessionByIdConst(model.streaming_session) orelse return false;
     return session.supports_steer;
@@ -228,7 +228,7 @@ fn maybeSteerDaemonTurn(model: *Model, fx: *Effects, prompt: []const u8) bool {
 /// demo stay cancel-the-spawn only). Sidecar failure must not
 /// resurrect the turn already settled above.
 fn maybeCancelDaemonTurn(model: *Model, fx: *Effects, session_id: u32) void {
-    if (model.daemonAddress().len == 0) return;
+    if (model.daemon_disconnected or model.daemonAddress().len == 0) return;
     const session = model.sessionById(session_id) orelse return;
     var id_buf: [36]u8 = undefined;
     const wire_id = daemon_proxy.wireUuid(session.id, &id_buf);

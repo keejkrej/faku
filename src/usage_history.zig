@@ -1,7 +1,9 @@
 //! First-cut daemon `Command::LoadUsageHistory`.
 //!
 //! When Settings → Usage opens or Refresh is pressed and
-//! `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set,
+//! `sidecarDaemonAddress` is set (live `WAKU_DAEMON_ADDRESS` or
+//! persisted `last_daemon_address`; empty while Settings Daemon
+//! Disconnect),
 //! Faku one-shots hello + `loadUsageHistory` (`window` +
 //! `projectRoots` from unique local session `project_path` values,
 //! cap 32). Daily / Projects share a window selector

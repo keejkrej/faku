@@ -75,7 +75,9 @@
 //! Refuses to write until a successful
 //! load (`task_state_loaded`), same guard as waku-client. After a successful
 //! started-session save, a one-shot sidecar may send `saveTaskState` when
-//! `WAKU_DAEMON_ADDRESS` or `last_daemon_address` is set. Sidecar failure
+//! `sidecarDaemonAddress` is set (live `WAKU_DAEMON_ADDRESS` or
+//! persisted `last_daemon_address`; empty while Settings Daemon
+//! Disconnect). Sidecar failure
 //! does not roll back the local catalog. When the local catalog is missing
 //! and a daemon address is set, a one-shot sidecar may send `loadTaskState`
 //! and fill session skeletons. That daemon load does not run when the
@@ -600,10 +602,13 @@ fn applyFolderExtras(document: *Document, arena: std.mem.Allocator, model: *cons
     document.collapsed_folder_ids = collapsed;
 }
 
-/// Live `WAKU_DAEMON_ADDRESS` wins; otherwise the last persisted sidecar address.
+/// Sidecar prefer address: `sidecarDaemonAddress` (live
+/// `WAKU_DAEMON_ADDRESS` wins, else persisted `last_daemon_address`;
+/// empty while Settings Daemon Disconnect is set). Persist of
+/// `last_daemon_address` still writes the real last address while
+/// disconnected.
 pub fn resolveDaemonMirrorAddress(model: *const Model) []const u8 {
-    if (model.daemonAddress().len > 0) return model.daemonAddress();
-    return model.lastDaemonAddress();
+    return model.sidecarDaemonAddress();
 }
 
 /// First-run fill: hello + loadTaskState when the local catalog is missing

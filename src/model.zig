@@ -647,6 +647,18 @@ pub const Msg = union(enum) {
     settings_model_edit: canvas.TextInputEvent,
     settings_project_edit: canvas.TextInputEvent,
     settings_daemon_edit: canvas.TextInputEvent,
+    /// Settings Daemon Disconnect. Runtime-only; does not clear persist.
+    /// `on-press` stays `daemon_disconnect`.
+    daemon_disconnect,
+    /// Settings Daemon Forget daemon. Clears persist + runtime flag.
+    /// `on-press` stays `daemon_forget`.
+    daemon_forget,
+    /// Settings Daemon Reconnect. Clears runtime-only disconnect.
+    /// `on-press` stays `daemon_reconnect`.
+    daemon_reconnect,
+    /// Settings Daemon Copy WebSocket URL. Native `fx.writeClipboard`
+    /// via `copy.copyText`. `on-press` stays `daemon_copy_url`.
+    daemon_copy_url,
     settings_access_ask,
     settings_access_auto,
     settings_access_full,
@@ -2168,6 +2180,10 @@ pub const Model = struct {
     daemon_address_len: usize = 0,
     last_daemon_address_storage: [max_daemon_address]u8 = [_]u8{0} ** max_daemon_address,
     last_daemon_address_len: usize = 0,
+    /// Runtime-only Settings Daemon Disconnect. When true, sidecars
+    /// treat the daemon as absent even if env / `daemonAddress` /
+    /// `lastDaemonAddress` are set. Not persisted on `sessions.json`.
+    daemon_disconnected: bool = false,
     daemon_token_storage: [max_daemon_token]u8 = [_]u8{0} ** max_daemon_token,
     daemon_token_len: usize = 0,
     sidecar_path_storage: [max_sidecar_path]u8 = [_]u8{0} ** max_sidecar_path,
@@ -2934,6 +2950,9 @@ pub const Model = struct {
         "applySettingsModel",
         "applySettingsProject",
         "applySettingsDaemon",
+        "disconnectSettingsDaemon",
+        "forgetSettingsDaemon",
+        "reconnectSettingsDaemon",
         "setSettingsAccess",
         "setSettingsInteraction",
         "cycleSelectedAccess",
@@ -3044,6 +3063,7 @@ pub const Model = struct {
         "daemon_address_len",
         "last_daemon_address_storage",
         "last_daemon_address_len",
+        "daemon_disconnected",
         "daemon_token_storage",
         "daemon_token_len",
         "sidecar_path_storage",
@@ -3118,6 +3138,7 @@ pub const Model = struct {
         "setDaemonAddress",
         "lastDaemonAddress",
         "setLastDaemonAddress",
+        "sidecarDaemonAddress",
         "daemonToken",
         "setDaemonToken",
         "sidecarPath",
@@ -4792,7 +4813,7 @@ pub const Model = struct {
     }
 
     pub fn empty_hint(model: *const Model) []const u8 {
-        if (model.daemonAddress().len > 0) {
+        if (!model.daemon_disconnected and model.daemonAddress().len > 0) {
             return "Message the daemon sidecar. Send is one-shot hello/attachSession/start/prompt over ws://{addr}/v1 when no runtime id; later sends keep attach + prompt. Missing address keeps `fx ask` / demo.";
         }
         if (model.fx_available) {
@@ -5625,8 +5646,9 @@ pub const Model = struct {
         return model.daemonSettingsChrome().websocket_url;
     }
 
-    /// Settings Daemon Status row label. Display-only; no live
-    /// WebSocket phase this cut.
+    /// Settings Daemon Status row label. Display-only; Disconnected
+    /// when `daemon_disconnected`, else the persisted address / Not
+    /// configured. No live Connecting/Connected/Error phase.
     pub fn daemon_settings_status_label(model: *const Model) []const u8 {
         return model.daemonSettingsChrome().status;
     }
@@ -5635,6 +5657,36 @@ pub const Model = struct {
     /// daemon address is empty.
     pub fn daemon_settings_not_configured_label(model: *const Model) []const u8 {
         return model.daemonSettingsChrome().not_configured;
+    }
+
+    /// Settings Daemon Disconnect. Waku `daemon.disconnect`.
+    /// `on-press` stays `daemon_disconnect`.
+    pub fn daemon_settings_disconnect_label(model: *const Model) []const u8 {
+        return model.daemonSettingsChrome().disconnect;
+    }
+
+    /// Settings Daemon Forget daemon. Waku `daemon.forget`.
+    /// `on-press` stays `daemon_forget`.
+    pub fn daemon_settings_forget_label(model: *const Model) []const u8 {
+        return model.daemonSettingsChrome().forget;
+    }
+
+    /// Settings Daemon Reconnect. Waku `daemon.reconnect`.
+    /// `on-press` stays `daemon_reconnect`.
+    pub fn daemon_settings_reconnect_label(model: *const Model) []const u8 {
+        return model.daemonSettingsChrome().reconnect;
+    }
+
+    /// Localized Disconnected. Waku `daemon.phase_disconnected`.
+    pub fn daemon_settings_disconnected_label(model: *const Model) []const u8 {
+        return model.daemonSettingsChrome().disconnected;
+    }
+
+    /// Settings Daemon Copy on the WebSocket URL row. Waku
+    /// `common.copy`. Distinct from Skills Copy Path. `on-press`
+    /// stays `daemon_copy_url`.
+    pub fn daemon_settings_copy_label(model: *const Model) []const u8 {
+        return model.daemonSettingsChrome().copy;
     }
 
     /// True when the persisted General daemon address is empty.
@@ -5647,18 +5699,44 @@ pub const Model = struct {
         return !model.daemon_settings_not_configured();
     }
 
+    /// Disconnect: address present and not runtime-disconnected.
+    pub fn daemon_settings_show_disconnect(model: *const Model) bool {
+        return model.daemon_settings_has_address() and !model.daemon_disconnected;
+    }
+
+    /// Forget: address present (connected or disconnected).
+    pub fn daemon_settings_show_forget(model: *const Model) bool {
+        return model.daemon_settings_has_address();
+    }
+
+    /// Reconnect: disconnected with the persisted address still set.
+    /// Empty address does not show a connect dialog (Faku has none).
+    pub fn daemon_settings_show_reconnect(model: *const Model) bool {
+        return model.daemon_settings_has_address() and model.daemon_disconnected;
+    }
+
+    /// Copy WebSocket URL: address present (connected or disconnected).
+    pub fn daemon_settings_show_copy(model: *const Model) bool {
+        return model.daemon_settings_has_address();
+    }
+
     /// Connection-details address value: the same persisted string
-    /// General edits, or Not configured when empty.
+    /// General edits, or Not configured when empty. Disconnect does
+    /// not hide this string.
     pub fn daemon_settings_address_display(model: *const Model) []const u8 {
         const addr = model.lastDaemonAddress();
         if (addr.len == 0) return model.daemon_settings_not_configured_label();
         return addr;
     }
 
-    /// Status row value. Empty → Not configured. Address present →
-    /// that same persisted string (no invented Connected/Disconnected
-    /// phase).
+    /// Status row value. Empty → Not configured. Runtime disconnect
+    /// with a persisted address → Disconnected. Address present →
+    /// that same persisted string (no invented Connecting/Connected
+    /// boot phases).
     pub fn daemon_settings_status_display(model: *const Model) []const u8 {
+        if (model.daemon_disconnected and model.daemon_settings_has_address()) {
+            return model.daemon_settings_disconnected_label();
+        }
         return model.daemon_settings_address_display();
     }
 
@@ -7120,6 +7198,29 @@ pub const Model = struct {
     pub fn applySettingsDaemon(model: *Model, edit: canvas.TextInputEvent) void {
         model.settings_daemon_buffer.apply(edit);
         model.setLastDaemonAddress(std.mem.trim(u8, model.settings_daemon(), " \t\r\n"));
+    }
+
+    /// Settings Daemon Disconnect. Runtime-only; does not clear persist.
+    pub fn disconnectSettingsDaemon(model: *Model) void {
+        if (!model.daemon_settings_show_disconnect()) return;
+        model.daemon_disconnected = true;
+    }
+
+    /// Settings Daemon Forget. Clears live + persisted address, the
+    /// General text buffer, and the runtime disconnect flag.
+    pub fn forgetSettingsDaemon(model: *Model) void {
+        if (!model.daemon_settings_show_forget()) return;
+        model.setDaemonAddress("");
+        model.setLastDaemonAddress("");
+        model.settings_daemon_buffer.clear();
+        model.daemon_disconnected = false;
+    }
+
+    /// Settings Daemon Reconnect. Clears runtime-only disconnect so
+    /// sidecar prefer paths see the persisted address again.
+    pub fn reconnectSettingsDaemon(model: *Model) void {
+        if (!model.daemon_settings_show_reconnect()) return;
+        model.daemon_disconnected = false;
     }
 
     pub fn setSettingsAccess(model: *Model, mode: []const u8) void {
@@ -8879,8 +8980,9 @@ pub const Model = struct {
         return model.turnCount(model.selected) > 0;
     }
 
-    /// Composer `/goal` row. Live `WAKU_DAEMON_ADDRESS` or persisted
-    /// `last_daemon_address`. Hidden on fx ask / fx acp / demo.
+    /// Composer `/goal` row. `sidecarDaemonAddress` (live
+    /// `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address`,
+    /// empty while disconnected). Hidden on fx ask / fx acp / demo.
     pub fn show_goal(model: *const Model) bool {
         return store.resolveDaemonMirrorAddress(model).len > 0;
     }
@@ -9483,6 +9585,18 @@ pub const Model = struct {
 
     pub fn setLastDaemonAddress(model: *Model, addr: []const u8) void {
         writeFixed(&model.last_daemon_address_storage, &model.last_daemon_address_len, addr);
+    }
+
+    /// Sidecar prefer address. Empty while Settings Daemon
+    /// Disconnect is set, even if env / `daemonAddress` /
+    /// `lastDaemonAddress` are set. Else live `WAKU_DAEMON_ADDRESS`
+    /// (`daemonAddress`) wins, else persisted `last_daemon_address`.
+    /// Persist of `last_daemon_address` still writes the real last
+    /// address while disconnected.
+    pub fn sidecarDaemonAddress(model: *const Model) []const u8 {
+        if (model.daemon_disconnected) return "";
+        if (model.daemonAddress().len > 0) return model.daemonAddress();
+        return model.lastDaemonAddress();
     }
 
     pub fn daemonToken(model: *const Model) []const u8 {

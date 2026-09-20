@@ -993,9 +993,25 @@
                   <column gap="8">
                     <text>{daemon_settings_credentials_title}</text>
                     <text>{daemon_settings_websocket_url_label}</text>
-                    <text wrap="false" overflow="ellipsis">{daemon_settings_address_display}</text>
+                    <row gap="8" cross="center">
+                      <text wrap="false" overflow="ellipsis">{daemon_settings_address_display}</text>
+                      <if test="{daemon_settings_show_copy}">
+                        <button variant="ghost" size="sm" on-press="daemon_copy_url">{daemon_settings_copy_label}</button>
+                      </if>
+                    </row>
                     <text>{daemon_settings_status_label}</text>
                     <text wrap="false" overflow="ellipsis">{daemon_settings_status_display}</text>
+                    <row gap="8">
+                      <if test="{daemon_settings_show_disconnect}">
+                        <button variant="ghost" size="sm" on-press="daemon_disconnect">{daemon_settings_disconnect_label}</button>
+                      </if>
+                      <if test="{daemon_settings_show_forget}">
+                        <button variant="ghost" size="sm" on-press="daemon_forget">{daemon_settings_forget_label}</button>
+                      </if>
+                      <if test="{daemon_settings_show_reconnect}">
+                        <button variant="ghost" size="sm" on-press="daemon_reconnect">{daemon_settings_reconnect_label}</button>
+                      </if>
+                    </row>
                   </column>
                 </card>
               </column>

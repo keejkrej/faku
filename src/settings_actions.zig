@@ -27,6 +27,7 @@ const slash_commands = @import("slash_commands.zig");
 const pick_folder = @import("pick_folder.zig");
 const usage_history = @import("usage_history.zig");
 const usage_meter = @import("usage_meter.zig");
+const copy = @import("copy.zig");
 const litellm_rates = @import("litellm_rates.zig");
 const right_panel = @import("right_panel.zig");
 const browser_pane = @import("browser_pane.zig");
@@ -220,6 +221,24 @@ pub fn handleSettingsProjectEdit(model: *Model, edit: canvas.TextInputEvent) voi
 pub fn handleSettingsDaemonEdit(model: *Model, edit: canvas.TextInputEvent) void {
     model.applySettingsDaemon(edit);
     store.persistSettingsIfPossible(model);
+}
+
+pub fn handleDaemonDisconnect(model: *Model) void {
+    model.disconnectSettingsDaemon();
+}
+
+pub fn handleDaemonForget(model: *Model) void {
+    model.forgetSettingsDaemon();
+    store.persistSettingsIfPossible(model);
+}
+
+pub fn handleDaemonReconnect(model: *Model) void {
+    model.reconnectSettingsDaemon();
+}
+
+pub fn handleDaemonCopyUrl(model: *Model, fx: *Effects) void {
+    if (!model.daemon_settings_show_copy()) return;
+    copy.copyText(fx, model.lastDaemonAddress());
 }
 
 pub fn handleSettingsAccessAsk(model: *Model) void {

@@ -3,8 +3,9 @@
 //! Native has no git/workspace/file-index effect. When the selected
 //! session has a non-empty `project_path` that exists, Faku prefers
 //! hello + daemon `WorkspaceOperation::ListProjectFiles` when
-//! `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set
-//! (ok paints the Files cache from `projectFiles` file + dir
+//! `sidecarDaemonAddress` is set (live `WAKU_DAEMON_ADDRESS` or
+//! persisted `last_daemon_address`; empty while Settings Daemon
+//! Disconnect) (ok paints the Files cache from `projectFiles` file + dir
 //! entries). Native 4 KiB stdin overflow / sidecar failure / non-ok /
 //! missing entries / unusable parse fall back quietly to hello +
 //! `WorkspaceOperation::ListTree` (still the expand op for children
