@@ -49,7 +49,9 @@
 //! Available Oh My Pi is one-shot `omp --mode rpc --yolo --no-session`
 //! (same Pi RPC parser / stdin prompt JSONL / RPC `images`; Waku
 //! `PiFlavor::OhMyPi` full-access arg `--yolo`; `--no-session` is a
-//! documented omp flag used by Waku model discovery). fx
+//! documented omp flag used by Waku model discovery). OpenCode 2 is
+//! catalog + PATH `--help` probe only this cut (live HTTP/SSE Send
+//! stays demo). fx
 //! Not found copies the verified keejkrej/fx install script
 //! (Unix `releases/latest/download/install` curl|bash into `~/.fx/bin`;
 //! Windows `install.ps1` irm|iex on the same latest release; clipboard
@@ -102,7 +104,8 @@
 //! attached), and Oh My Pi RPC one-shot (`--mode rpc --yolo
 //! --no-session`, same stdin / images path) ship this cut (not ACP,
 //! not a long-lived RPC loop, not `--mode json`, not permissions
-//! bypass). Appearance theme,
+//! bypass). OpenCode 2 catalog + PATH probe ships this cut (display
+//! **OpenCode 2**; live HTTP/SSE Send stays demo). Appearance theme,
 //! Usage, and Computer Use first-cut pages ship (Computer Use is
 //! Unavailable / Off; no Native helper). Not Waku install/auth.
 
@@ -152,6 +155,7 @@ pub const codex_transport_note = providers_detail_chrome_en.codex_transport_note
 pub const amp_transport_note = providers_detail_chrome_en.amp_transport_note;
 pub const pi_transport_note = providers_detail_chrome_en.pi_transport_note;
 pub const ohmypi_transport_note = providers_detail_chrome_en.ohmypi_transport_note;
+pub const opencode2_transport_note = providers_detail_chrome_en.opencode2_transport_note;
 pub const apply_session_label = providers_chrome_en.apply;
 /// Working keejkrej/fx Unix install script on the latest GitHub Release.
 /// Copied to the clipboard on Unix hosts; never auto-run. Not fx.sh.
@@ -244,6 +248,7 @@ pub fn iconName(id: protocol.ProviderId) []const u8 {
         .pi => "app:provider-pi",
         .kimi => "app:provider-kimi",
         .ohmypi => "app:provider-ohmypi",
+        .opencode2 => "app:provider-opencode2",
     };
 }
 
@@ -323,14 +328,14 @@ fn modelCountChrome(model: *const Model) i18n.ProvidersModelCountChrome {
 
 /// Static Waku `fallback_models(provider)` lengths. Live discovery
 /// stays out this cut. Empty-catalog ids (fx / grok / kimi /
-/// opencode / pi / ohmypi) return 0 — do not invent catalogs.
+/// opencode / pi / ohmypi / opencode2) return 0 — do not invent catalogs.
 pub fn fallbackModelCount(id: protocol.ProviderId) usize {
     return switch (id) {
         .amp => 4,
         .codex => 5,
         .claude => 9,
         .cursor => 1,
-        .fx, .grok, .kimi, .opencode, .pi, .ohmypi => 0,
+        .fx, .grok, .kimi, .opencode, .pi, .ohmypi, .opencode2 => 0,
     };
 }
 
@@ -557,6 +562,8 @@ pub fn detailText(model: *const Model, arena: std.mem.Allocator) []const u8 {
         notes.pi_transport_note
     else if (id == .ohmypi)
         notes.ohmypi_transport_note
+    else if (id == .opencode2)
+        notes.opencode2_transport_note
     else if (id.speaksBareAcp())
         notes.acp_transport_note
     else
@@ -679,22 +686,24 @@ pub fn refresh(model: *Model, fx: *Effects) void {
 
 test "catalog lists every ProviderId; fx is row 1" {
     const tags = std.meta.tags(protocol.ProviderId);
-    try std.testing.expectEqual(@as(usize, 10), catalogLen());
+    try std.testing.expectEqual(@as(usize, 11), catalogLen());
     try std.testing.expectEqual(protocol.provider_id_count, catalogLen());
-    try std.testing.expectEqual(@as(usize, 10), tags.len);
+    try std.testing.expectEqual(@as(usize, 11), tags.len);
     try std.testing.expectEqual(protocol.ProviderId.fx, tags[0]);
     try std.testing.expectEqual(@as(u32, 1), rowId(.fx));
     try std.testing.expectEqual(@as(u32, 2), rowId(.claude));
     try std.testing.expectEqual(@as(u32, 8), rowId(.pi));
     try std.testing.expectEqual(@as(u32, 9), rowId(.kimi));
     try std.testing.expectEqual(@as(u32, 10), rowId(.ohmypi));
+    try std.testing.expectEqual(@as(u32, 11), rowId(.opencode2));
     try std.testing.expectEqual(protocol.ProviderId.fx, fromRowId(1).?);
     try std.testing.expectEqual(protocol.ProviderId.claude, fromRowId(2).?);
     try std.testing.expectEqual(protocol.ProviderId.pi, fromRowId(8).?);
     try std.testing.expectEqual(protocol.ProviderId.kimi, fromRowId(9).?);
     try std.testing.expectEqual(protocol.ProviderId.ohmypi, fromRowId(10).?);
+    try std.testing.expectEqual(protocol.ProviderId.opencode2, fromRowId(11).?);
     try std.testing.expect(fromRowId(0) == null);
-    try std.testing.expect(fromRowId(11) == null);
+    try std.testing.expect(fromRowId(12) == null);
     try std.testing.expectEqualStrings("fx", protocol.ProviderId.fx.wireName());
     try std.testing.expectEqualStrings("cursor-agent", protocol.ProviderId.cursor.defaultBinary());
     try std.testing.expectEqualStrings("kimi", protocol.ProviderId.kimi.wireName());
@@ -704,6 +713,11 @@ test "catalog lists every ProviderId; fx is row 1" {
     try std.testing.expectEqualStrings("ohMyPi", protocol.ProviderId.ohmypi.daemonProviderKind());
     try std.testing.expectEqualStrings("Oh My Pi", protocol.ProviderId.ohmypi.displayName());
     try std.testing.expectEqualStrings("app:provider-ohmypi", iconName(.ohmypi));
+    try std.testing.expectEqualStrings("opencode2", protocol.ProviderId.opencode2.wireName());
+    try std.testing.expectEqualStrings("opencode2", protocol.ProviderId.opencode2.defaultBinary());
+    try std.testing.expectEqualStrings("openCode2", protocol.ProviderId.opencode2.daemonProviderKind());
+    try std.testing.expectEqualStrings("OpenCode 2", protocol.ProviderId.opencode2.displayName());
+    try std.testing.expectEqualStrings("app:provider-opencode2", iconName(.opencode2));
 }
 
 test "fx status from model fields without spawning; non-fx defaults Not found" {
@@ -722,10 +736,12 @@ test "fx status from model fields without spawning; non-fx defaults Not found" {
     try std.testing.expectEqualStrings(missing_status, statusFor(&model, .pi));
     try std.testing.expectEqualStrings(missing_status, statusFor(&model, .kimi));
     try std.testing.expectEqualStrings(missing_status, statusFor(&model, .ohmypi));
+    try std.testing.expectEqualStrings(missing_status, statusFor(&model, .opencode2));
     try std.testing.expectEqualStrings("cursor-agent", binaryFor(&model, .cursor));
     try std.testing.expectEqualStrings("claude", binaryFor(&model, .claude));
     try std.testing.expectEqualStrings("kimi", binaryFor(&model, .kimi));
     try std.testing.expectEqualStrings("omp", binaryFor(&model, .ohmypi));
+    try std.testing.expectEqualStrings("opencode2", binaryFor(&model, .opencode2));
 
     model.fx_available = true;
     model.setFxPath("/tmp/faku-fx");
@@ -935,12 +951,29 @@ test "selectProvider; detail names binary, fx path, probe status, and one-shot a
     try testing.expect(std.mem.indexOf(u8, ohmypi_detail, acp_transport_note) == null);
     try testing.expect(std.mem.indexOf(u8, ohmypi_detail, fx_transport_note) == null);
 
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    selectProvider(&model, rowId(.opencode2));
+    try testing.expectEqual(rowId(.opencode2), model.provider_selected_id);
+    const opencode2_detail = detailText(&model, testing.allocator);
+    defer if (opencode2_detail.len > 0) testing.allocator.free(opencode2_detail);
+    try testing.expect(std.mem.indexOf(u8, opencode2_detail, "OpenCode 2") != null);
+    try testing.expect(std.mem.indexOf(u8, opencode2_detail, "opencode2") != null);
+    try testing.expect(std.mem.indexOf(u8, opencode2_detail, available_status) != null);
+    try testing.expect(std.mem.indexOf(u8, opencode2_detail, opencode2_transport_note) != null);
+    try testing.expect(std.mem.indexOf(u8, opencode2_detail, catalog_detail_note) == null);
+    try testing.expect(std.mem.indexOf(u8, opencode2_detail, acp_transport_note) == null);
+    try testing.expect(std.mem.indexOf(u8, opencode2_detail, ohmypi_transport_note) == null);
+    try testing.expect(std.mem.indexOf(u8, opencode2_detail, fx_transport_note) == null);
+
     try testing.expect(protocol.ProviderId.cursor.speaksBareAcp());
     try testing.expect(protocol.ProviderId.opencode.speaksBareAcp());
     try testing.expect(protocol.ProviderId.kimi.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.claude.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.fx.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.grok.speaksBareAcp());
+    try testing.expect(!protocol.ProviderId.opencode2.speaksBareAcp());
+    try testing.expect(!protocol.ProviderId.opencode2.speaksPiRpc());
+    try testing.expect(!protocol.ProviderId.opencode2.speaksAcpStdio());
     try testing.expect(protocol.ProviderId.grok.speaksAcpStdio());
     try testing.expect(protocol.ProviderId.cursor.speaksAcpStdio());
     try testing.expect(protocol.ProviderId.kimi.speaksAcpStdio());
@@ -1185,7 +1218,7 @@ test "install/login copy predicates: fx missing, fx available, other missing" {
     model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
     try std.testing.expect(!showsOtherInstallHint(&model));
 
-    const others = [_]protocol.ProviderId{ .codex, .amp, .grok, .opencode, .cursor, .pi, .kimi, .ohmypi };
+    const others = [_]protocol.ProviderId{ .codex, .amp, .grok, .opencode, .cursor, .pi, .kimi, .ohmypi, .opencode2 };
     for (others) |id| {
         selectProvider(&model, rowId(id));
         try std.testing.expect(!canCopyFxInstall(&model));
@@ -1887,6 +1920,7 @@ test "fallbackModelCount matches Waku fallback_models lengths" {
     try testing.expectEqual(@as(usize, 0), fallbackModelCount(.kimi));
     try testing.expectEqual(@as(usize, 0), fallbackModelCount(.opencode));
     try testing.expectEqual(@as(usize, 0), fallbackModelCount(.ohmypi));
+    try testing.expectEqual(@as(usize, 0), fallbackModelCount(.opencode2));
 }
 
 test "rowFor paints model_count when Available with a catalog; disabled wins; Not found omits" {
@@ -1909,6 +1943,7 @@ test "rowFor paints model_count when Available with a catalog; disabled wins; No
     model.fx_available = true;
     model.cli_available[@intFromEnum(protocol.ProviderId.pi)] = true;
     model.cli_available[@intFromEnum(protocol.ProviderId.ohmypi)] = true;
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
 
     try testing.expect(rowFor(&model, .claude, arena).has_model_count);
     try testing.expectEqualStrings("9 models", rowFor(&model, .claude, arena).model_count_label);
@@ -1925,6 +1960,9 @@ test "rowFor paints model_count when Available with a catalog; disabled wins; No
     try testing.expect(!rowFor(&model, .ohmypi, arena).has_model_count);
     try testing.expectEqualStrings("", rowFor(&model, .ohmypi, arena).model_count_label);
     try testing.expectEqualStrings("Oh My Pi", rowFor(&model, .ohmypi, arena).name);
+    try testing.expect(!rowFor(&model, .opencode2, arena).has_model_count);
+    try testing.expectEqualStrings("", rowFor(&model, .opencode2, arena).model_count_label);
+    try testing.expectEqualStrings("OpenCode 2", rowFor(&model, .opencode2, arena).name);
 
     setProviderEnabled(&model, .claude, false);
     try testing.expect(rowFor(&model, .claude, arena).has_model_count);
@@ -1970,7 +2008,9 @@ test "rowFor icon is app:provider-* for each ProviderId; Codex uses OpenAI mark"
     try testing.expectEqualStrings("app:provider-pi", iconName(.pi));
     try testing.expectEqualStrings("app:provider-kimi", iconName(.kimi));
     try testing.expectEqualStrings("app:provider-ohmypi", iconName(.ohmypi));
+    try testing.expectEqualStrings("app:provider-opencode2", iconName(.opencode2));
     try testing.expect(!std.mem.eql(u8, iconName(.codex), "app:provider-codex"));
+    try testing.expect(!std.mem.eql(u8, iconName(.opencode2), iconName(.opencode)));
 
     for (std.meta.tags(protocol.ProviderId)) |id| {
         const row = rowFor(&model, id, arena);

@@ -2418,6 +2418,26 @@ test "send with ohmypi unavailable still starts the demo timer" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
+test "send with opencode2 Available still starts the demo timer" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    const id = model.addSession("opencode2 send", .opencode2);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "hello opencode2" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(!model.fx_spawn_pi_json);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
 test "fx acp session/new cwd is session project_path when it exists" {
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -17201,6 +17221,7 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     try testing.expect(findCliProbeSpawn(&fx, .pi) != null);
     try testing.expect(findCliProbeSpawn(&fx, .kimi) != null);
     try testing.expect(findCliProbeSpawn(&fx, .ohmypi) != null);
+    try testing.expect(findCliProbeSpawn(&fx, .opencode2) != null);
 
     tree = try buildTree(arena, &model);
     const providers_on = try expectButtonMsg(tree, "Providers", .set_settings_page_providers);
@@ -17233,6 +17254,7 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     _ = try expectByText(tree.root, .list_item, "pi");
     _ = try expectByText(tree.root, .list_item, "kimi");
     _ = try expectByText(tree.root, .list_item, "Oh My Pi");
+    _ = try expectByText(tree.root, .list_item, "OpenCode 2");
     _ = try expectByText(tree.root, .text, "cursor-agent");
     _ = try expectByText(tree.root, .text, "claude");
     _ = try expectButtonMsg(tree, "Show fx settings", .{ .toggle_provider_expanded = 1 });
@@ -17386,6 +17408,16 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
     _ = try expectByText(tree.root, .button, "Disable Oh My Pi");
     _ = try expectByText(tree.root, .button, "Show Oh My Pi settings");
 
+    main.update(&model, .{ .select_provider = providers.rowId(.opencode2) }, &fx);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findTextContaining(tree.root, providers.opencode2_transport_note) != null);
+    try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) == null);
+    try testing.expect(findTextContaining(tree.root, providers.acp_transport_note) == null);
+    try testing.expect(findTextContaining(tree.root, providers.ohmypi_transport_note) == null);
+    try testing.expect(findTextContaining(tree.root, providers.other_install_hint) != null);
+    _ = try expectByText(tree.root, .button, "Disable OpenCode 2");
+    _ = try expectByText(tree.root, .button, "Show OpenCode 2 settings");
+
     const refresh = try expectButtonMsg(tree, "Refresh", .refresh_providers);
     main.update(&model, tree.msgForPointer(refresh.id, .up).?, &fx);
     try testing.expect(model.fx_probe_started);
@@ -17395,6 +17427,7 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
     try testing.expect(findCliProbeSpawn(&fx, .pi) != null);
     try testing.expect(findCliProbeSpawn(&fx, .kimi) != null);
     try testing.expect(findCliProbeSpawn(&fx, .ohmypi) != null);
+    try testing.expect(findCliProbeSpawn(&fx, .opencode2) != null);
 
     main.update(&model, .toggle_settings, &fx);
     try testing.expect(!model.settings_open);
