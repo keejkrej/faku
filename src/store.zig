@@ -4051,15 +4051,18 @@ test "disabled_providers persist round-trip; enabling clears; missing/unknown st
     try testing.expect(!missing.disabled_providers[@intFromEnum(protocol.ProviderId.fx)]);
 
     try writeRaw(io, dir,
-        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"disabled_providers":["claude","nope","claude","grok"],"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"disabled_providers":["claude","nope","claude","grok","ohmypi"],"sessions":[{"id":1,"title":"legacy","provider":"ohmypi","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
     );
     var unknown = Model{};
     unknown.setStoreDir(dir);
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&unknown, allocator, io));
     try testing.expect(unknown.disabled_providers[@intFromEnum(protocol.ProviderId.claude)]);
     try testing.expect(unknown.disabled_providers[@intFromEnum(protocol.ProviderId.grok)]);
+    try testing.expect(unknown.disabled_providers[@intFromEnum(protocol.ProviderId.ohmypi)]);
     try testing.expect(!unknown.disabled_providers[@intFromEnum(protocol.ProviderId.codex)]);
     try testing.expect(!unknown.disabled_providers[@intFromEnum(protocol.ProviderId.fx)]);
+    try testing.expectEqual(protocol.ProviderId.ohmypi, unknown.session_store[0].provider);
+    try testing.expectEqualStrings("Oh My Pi", unknown.session_store[0].provider_label());
 
     var source = Model{};
     source.task_state_loaded = true;

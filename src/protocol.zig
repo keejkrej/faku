@@ -572,6 +572,7 @@ pub const ProviderId = enum {
     cursor,
     pi,
     kimi,
+    ohmypi,
 
     pub const default = ProviderId.fx;
 
@@ -586,6 +587,17 @@ pub const ProviderId = enum {
             .cursor => "cursor",
             .pi => "pi",
             .kimi => "kimi",
+            .ohmypi => "ohmypi",
+        };
+    }
+
+    /// Settings / palette display. Waku `ProviderKind::display_name`
+    /// for Oh My Pi is `"Oh My Pi"` (not the `omp` binary). Other ids
+    /// keep today's wire-name catalog labels.
+    pub fn displayName(id: ProviderId) []const u8 {
+        return switch (id) {
+            .ohmypi => "Oh My Pi",
+            .fx, .claude, .codex, .amp, .grok, .opencode, .cursor, .pi, .kimi => id.wireName(),
         };
     }
 
@@ -600,6 +612,7 @@ pub const ProviderId = enum {
             .cursor => "cursor-agent",
             .pi => "pi",
             .kimi => "kimi",
+            .ohmypi => "omp",
         };
     }
 
@@ -611,14 +624,24 @@ pub const ProviderId = enum {
     /// exec (that is a separate one-shot `codex exec {prompt}` spawn,
     /// not ACP). Not Amp execute-mode (that is a separate one-shot
     /// `amp -x {prompt}` spawn, documented `@{path}` in the `-x`
-    /// prompt when attached, not ACP). Not Pi RPC (that is
-    /// a separate one-shot `pi --mode rpc --no-session` spawn,
+    /// prompt when attached, not ACP). Not Pi / Oh My Pi RPC (that is
+    /// a separate one-shot `{binary} --mode rpc` spawn,
     /// stdin prompt JSONL, documented RPC `images` when attached, not
     /// ACP). Not Grok `agent stdio`. First-cut kimi is one-shot `kimi acp` via
     /// acp-proxy (not long-lived; no invented flags).
     pub fn speaksBareAcp(id: ProviderId) bool {
         return switch (id) {
             .cursor, .opencode, .kimi => true,
+            else => false,
+        };
+    }
+
+    /// True when Faku can spawn one-shot Pi-family RPC (`--mode rpc`,
+    /// stdin prompt JSONL) for this id. Pi and Oh My Pi share
+    /// `startPiRpc` / `fx_spawn_pi_json`. Not ACP.
+    pub fn speaksPiRpc(id: ProviderId) bool {
+        return switch (id) {
+            .pi, .ohmypi => true,
             else => false,
         };
     }
@@ -642,8 +665,9 @@ pub const ProviderId = enum {
     }
 
     /// Waku `ProviderKind` serde camelCase (enum tag `rename_all` only).
-    /// Distinct from Faku `wireName()` (`opencode` vs `"openCode"`).
-    /// Faku does not invent `deepSeek` / `ohMyPi`.
+    /// Distinct from Faku `wireName()` (`opencode` vs `"openCode"`,
+    /// `ohmypi` vs `"ohMyPi"`). Faku does not invent `deepSeek` /
+    /// `openCode2`.
     pub fn daemonProviderKind(id: ProviderId) []const u8 {
         return switch (id) {
             .fx => "fx",
@@ -655,6 +679,7 @@ pub const ProviderId = enum {
             .cursor => "cursor",
             .pi => "pi",
             .kimi => "kimi",
+            .ohmypi => "ohMyPi",
         };
     }
 
@@ -5614,6 +5639,13 @@ test "workspace request wraps camelCase discoverSlashCommands with openCode mapp
     try std.testing.expectEqualStrings("opencode", ProviderId.opencode.wireName());
     try std.testing.expectEqualStrings("pi", ProviderId.pi.daemonProviderKind());
     try std.testing.expectEqualStrings("kimi", ProviderId.kimi.daemonProviderKind());
+    try std.testing.expectEqualStrings("ohMyPi", ProviderId.ohmypi.daemonProviderKind());
+    try std.testing.expectEqualStrings("ohmypi", ProviderId.ohmypi.wireName());
+    try std.testing.expectEqualStrings("omp", ProviderId.ohmypi.defaultBinary());
+    try std.testing.expectEqualStrings("Oh My Pi", ProviderId.ohmypi.displayName());
+    try std.testing.expectEqual(ProviderId.ohmypi, ProviderId.fromWire("ohmypi").?);
+    try std.testing.expect(ProviderId.fromWire("omp") == null);
+    try std.testing.expect(ProviderId.fromWire("ohMyPi") == null);
 
     var tiny: [32]u8 = undefined;
     try std.testing.expectError(error.NoSpaceLeft, writeWorkspace(
@@ -5817,6 +5849,11 @@ test "start defaults to first-party fx over acp" {
     try std.testing.expect(!ProviderId.amp.speaksBareAcp());
     try std.testing.expect(!ProviderId.grok.speaksBareAcp());
     try std.testing.expect(!ProviderId.pi.speaksBareAcp());
+    try std.testing.expect(!ProviderId.ohmypi.speaksBareAcp());
+    try std.testing.expect(ProviderId.pi.speaksPiRpc());
+    try std.testing.expect(ProviderId.ohmypi.speaksPiRpc());
+    try std.testing.expect(!ProviderId.kimi.speaksPiRpc());
+    try std.testing.expect(!ProviderId.fx.speaksPiRpc());
     try std.testing.expect(ProviderId.cursor.speaksAcpStdio());
     try std.testing.expect(ProviderId.opencode.speaksAcpStdio());
     try std.testing.expect(ProviderId.kimi.speaksAcpStdio());
@@ -5833,6 +5870,12 @@ test "start defaults to first-party fx over acp" {
     try std.testing.expectEqualStrings("kimi", ProviderId.kimi.wireName());
     try std.testing.expectEqualStrings("kimi", ProviderId.kimi.defaultBinary());
     try std.testing.expectEqual(ProviderId.kimi, ProviderId.fromWire("kimi").?);
+    try std.testing.expectEqual(ProviderId.ohmypi, ProviderId.fromWire("ohmypi").?);
+    try std.testing.expectEqualStrings("ohmypi", ProviderId.ohmypi.wireName());
+    try std.testing.expectEqualStrings("omp", ProviderId.ohmypi.defaultBinary());
+    try std.testing.expectEqualStrings("ohMyPi", ProviderId.ohmypi.daemonProviderKind());
+    try std.testing.expectEqualStrings("Oh My Pi", ProviderId.ohmypi.displayName());
+    try std.testing.expect(!ProviderId.ohmypi.speaksAcpStdio());
     try std.testing.expectEqualStrings("acp", ProviderId.fx.acpTransportArgv()[0]);
     try std.testing.expectEqual(@as(usize, 2), ProviderId.grok.acpTransportArgv().len);
     try std.testing.expectEqualStrings("agent", ProviderId.grok.acpTransportArgv()[0]);
