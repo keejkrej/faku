@@ -505,7 +505,7 @@ pub const Session = struct {
     }
 
     pub fn provider_label(self: *const Session) []const u8 {
-        return self.provider.wireName();
+        return self.provider.displayName();
     }
 
     /// A skeleton came from a stored row, so it has started even without turns.

@@ -614,6 +614,7 @@ test "pty_shell_key band is 700..703 and outside occupied bands" {
     try std.testing.expect(pty_shell_key > litellm_rates.litellm_rates_key);
     try std.testing.expect(pty_shell_key > browser_pane.page_title_key_last);
     try std.testing.expect(pty_shell_key_last != cli_probe.probeKey(.kimi));
+    try std.testing.expect(pty_shell_key_last != cli_probe.probeKey(.ohmypi));
 }
 
 test "default shell argv is the documented interactive login pick" {

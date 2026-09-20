@@ -40,12 +40,15 @@
 //! Available Pi is one-shot `{binary} --mode rpc --no-session`
 //! (stdin is one LF-terminated prompt JSONL command; Native closes
 //! stdin after that buffer; not ACP, not acp-proxy, not `--mode
-//! json`, not a long-lived RPC loop). Composer image attach uses
+//! json`, not a long-lived RPC loop). Available Oh My Pi is the same
+//! one-shot RPC path with `{binary}` `omp` (or override) and Waku
+//! `PiFlavor::OhMyPi` argv `--mode rpc --yolo` plus documented
+//! `--no-session`. Composer image attach uses
 //! documented RPC `images` on that prompt command (`ImageContent`:
 //! `type`/`data` base64/`mimeType`; png/jpeg/gif/webp; ~256KB raw
 //! like ACP). Missing / unreadable / unknown type / overflow fail
 //! closed to demo. There is no `--image` flag. `reply_path` stays
-//! `.fx` with `fx_spawn_acp = false`. Pi sets `fx_spawn_pi_json =
+//! `.fx` with `fx_spawn_acp = false`. Pi / Oh My Pi set `fx_spawn_pi_json =
 //! true` so stdout lines use the Pi JSONL parser in `lines.zig`
 //! (RPC `message_update` / `assistantMessageEvent.type ==
 //! text_delta` / `delta`, not json-mode top-level `type:text_delta`,
@@ -186,14 +189,17 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
             return;
         }
     }
-    if (session.provider == .pi and providers.isAvailable(model, .pi)) {
-        // Pi is not ACP. Official first-cut live Send is one-shot
-        // `pi --mode rpc --no-session` with one LF-terminated stdin
+    if (session.provider.speaksPiRpc() and providers.isAvailable(model, session.provider)) {
+        // Pi / Oh My Pi are not ACP. Official first-cut live Send is
+        // one-shot `{binary} --mode rpc` with one LF-terminated stdin
         // prompt JSONL command (Native closes stdin after write; keep
-        // reading stdout until settle). Documented RPC `images` on
-        // that command when a composer image exists. Missing /
-        // unreadable / unknown type / overflow fail closed to demo.
-        // There is no `--image` flag. Unavailable Pi stays demo.
+        // reading stdout until settle). Oh My Pi adds Waku
+        // `PiFlavor::OhMyPi` `--yolo` (full-access arg). Both pass
+        // documented `--no-session` (Waku omp model discovery uses
+        // it; Faku one-shot has no session-file resume). Documented
+        // RPC `images` on that command when a composer image exists.
+        // Missing / unreadable / unknown type / overflow fail closed
+        // to demo. There is no `--image` flag. Unavailable stays demo.
         if (startPiRpc(model, fx, session, prompt)) {
             model.reply_path = .fx;
             return;
@@ -814,28 +820,31 @@ pub fn writePiRpcPromptStdin(buf: []u8, prompt: []const u8, image: ?acp.ImageCon
     return cur.slice();
 }
 
-/// One-shot official Pi RPC:
-/// `{binary} --mode rpc --no-session` with one LF-terminated stdin
+/// One-shot official Pi-family RPC:
+/// `{binary} --mode rpc` with one LF-terminated stdin
 /// prompt JSONL command (`{"id":"1","type":"prompt","message":…}`).
-/// Native closes stdin after that buffer; stdout is read until
-/// process settle (ACP / daemon-proxy one-shot pattern). Composer
-/// image attach uses documented RPC `images` (`ImageContent` base64
-/// + mimeType; png/jpeg/gif/webp; `acp.max_image_bytes` raw). Missing
-/// / unreadable / unknown type / overflow return false so Send
-/// fail-closes to demo. There is no `--image` flag and no `@path`
-/// argv. `--no-session` is intentional (no session-file resume).
-/// `fx_spawn_pi_json` still means “Pi JSONL stdout parser” (RPC
-/// `message_update` / `text_delta`). Not ACP, not acp-proxy, not
-/// `--mode json`, not `-p` / `--print`, not `-a` / `--approve` /
-/// invented dangerously-* flags, not a long-lived stdin loop /
-/// steer / follow_up. Caller sets `reply_path` to `.fx` on success;
-/// `fx_spawn_acp` stays false. Project cwd reuses
-/// `fx_ask_chdir_script` (Native SpawnOptions has no cwd field);
-/// cwd / binary / flags stay argv slots — never interpolated into
-/// the chdir `-c` script. Empty binary is a no-op (PATH default
-/// is `pi`).
+/// Pi argv is `--mode rpc --no-session`. Oh My Pi argv matches Waku
+/// `PiFlavor::OhMyPi` access (`--mode rpc --yolo`) plus documented
+/// omp `--no-session` (Waku model discovery; Faku one-shot has no
+/// session-file resume). Native closes stdin after that buffer;
+/// stdout is read until process settle (ACP / daemon-proxy one-shot
+/// pattern). Composer image attach uses documented RPC `images`
+/// (`ImageContent` base64 + mimeType; png/jpeg/gif/webp;
+/// `acp.max_image_bytes` raw). Missing / unreadable / unknown type /
+/// overflow return false so Send fail-closes to demo. There is no
+/// `--image` flag and no `@path` argv. `fx_spawn_pi_json` still means
+/// “Pi JSONL stdout parser” (RPC `message_update` / `text_delta`).
+/// Not ACP, not acp-proxy, not `--mode json`, not `-p` / `--print`,
+/// not `-a` / `--approve` / invented dangerously-* flags, not a
+/// long-lived stdin loop / steer / follow_up. Caller sets
+/// `reply_path` to `.fx` on success; `fx_spawn_acp` stays false.
+/// Project cwd reuses `fx_ask_chdir_script` (Native SpawnOptions has
+/// no cwd field); cwd / binary / flags stay argv slots — never
+/// interpolated into the chdir `-c` script. Empty binary is a no-op
+/// (PATH default is `pi` / `omp`).
 pub fn startPiRpc(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) bool {
-    const binary = providers.binaryFor(model, .pi);
+    if (!session.provider.speaksPiRpc()) return false;
+    const binary = providers.binaryFor(model, session.provider);
     if (binary.len == 0) return false;
     const cwd = model.resolveSpawnCwd(session);
     const image_path = model.draftImagePath();
@@ -874,6 +883,10 @@ pub fn startPiRpc(model: *Model, fx: *Effects, session: *const Session, prompt: 
     n += 1;
     argv_buf[n] = "rpc";
     n += 1;
+    if (session.provider == .ohmypi) {
+        argv_buf[n] = "--yolo";
+        n += 1;
+    }
     argv_buf[n] = "--no-session";
     n += 1;
 
@@ -1093,6 +1106,10 @@ test "speaksBareAcp is true for cursor, opencode, and kimi; speaksAcpStdio also 
     try testing.expect(!protocol.ProviderId.amp.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.grok.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.pi.speaksBareAcp());
+    try testing.expect(!protocol.ProviderId.ohmypi.speaksBareAcp());
+    try testing.expect(protocol.ProviderId.pi.speaksPiRpc());
+    try testing.expect(protocol.ProviderId.ohmypi.speaksPiRpc());
+    try testing.expect(!protocol.ProviderId.kimi.speaksPiRpc());
     try testing.expect(protocol.ProviderId.cursor.speaksAcpStdio());
     try testing.expect(protocol.ProviderId.opencode.speaksAcpStdio());
     try testing.expect(protocol.ProviderId.kimi.speaksAcpStdio());
@@ -2164,6 +2181,169 @@ test "writePiRpcPromptStdin builds one LF-terminated prompt JSONL line" {
 
     var tiny: [8]u8 = undefined;
     try testing.expectError(error.NoSpaceLeft, writePiRpcPromptStdin(&tiny, "hello", null));
+}
+
+test "ohmypi + cli_available selects one-shot omp --mode rpc --yolo --no-session with stdin prompt" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    const id = model.addSession("ohmypi thread", .ohmypi);
+    model.cli_available[@intFromEnum(protocol.ProviderId.ohmypi)] = true;
+
+    startPrompt(&model, &fx, id, "hello omp");
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(model.fx_spawn_pi_json);
+    try testing.expect(!model.fx_spawn_claude_json);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
+    try testing.expect(testArgvHas(request.argv, "omp"));
+    try testing.expect(testArgvHas(request.argv, "--mode"));
+    try testing.expect(testArgvHas(request.argv, "rpc"));
+    try testing.expect(testArgvHas(request.argv, "--yolo"));
+    try testing.expect(testArgvHas(request.argv, "--no-session"));
+    try testing.expect(!testArgvHas(request.argv, "hello omp"));
+    try testing.expect(!testArgvHas(request.argv, "pi"));
+    try testing.expect(!testArgvHas(request.argv, "json"));
+    try testing.expect(!testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(!testArgvHas(request.argv, "acp"));
+    try testing.expect(!testArgvHas(request.argv, "agent"));
+    try testing.expect(!testArgvHas(request.argv, "stdio"));
+    try testing.expect(!testArgvHas(request.argv, "ask"));
+    try testing.expect(!testArgvHas(request.argv, "fx"));
+    try testing.expect(!testArgvHas(request.argv, "-x"));
+    try testing.expect(!testArgvHas(request.argv, "exec"));
+    try testing.expect(!testArgvHas(request.argv, "-p"));
+    try testing.expect(!testArgvHas(request.argv, "--print"));
+    try testing.expect(!testArgvHas(request.argv, "-a"));
+    try testing.expect(!testArgvHas(request.argv, "--approve"));
+    try testing.expect(!testArgvHas(request.argv, "--no-approve"));
+    try testing.expect(!testArgvHas(request.argv, "--dangerously-skip-permissions"));
+    try testing.expect(!testArgvHas(request.argv, "--dangerously-allow-all"));
+    try testing.expect(!testArgvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expect(!testArgvHas(request.argv, "--image"));
+    try testing.expectEqualStrings("{\"id\":\"1\",\"type\":\"prompt\",\"message\":\"hello omp\"}\n", request.stdin);
+    try testing.expectEqualStrings("", model.lastSpawnImagePath());
+    const binary_at = testArgvIndex(request.argv, "omp") orelse return error.MissingBinary;
+    const mode_at = testArgvIndex(request.argv, "--mode") orelse return error.MissingMode;
+    const rpc_at = testArgvIndex(request.argv, "rpc") orelse return error.MissingRpc;
+    const yolo_at = testArgvIndex(request.argv, "--yolo") orelse return error.MissingYolo;
+    const no_session_at = testArgvIndex(request.argv, "--no-session") orelse return error.MissingNoSession;
+    try testing.expectEqual(binary_at + 1, mode_at);
+    try testing.expectEqual(mode_at + 1, rpc_at);
+    try testing.expectEqual(rpc_at + 1, yolo_at);
+    try testing.expectEqual(yolo_at + 1, no_session_at);
+    try testing.expectEqual(no_session_at + 1, request.argv.len);
+}
+
+test "ohmypi unavailable stays demo" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = Model{};
+    const id = model.addSession("ohmypi missing", .ohmypi);
+    startPrompt(&model, &fx, id, "no omp");
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(!model.fx_spawn_pi_json);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "ohmypi image attach uses RPC images on the stdin prompt command" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/ohmypi-shot.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.ohmypi)] = true;
+    const id = model.addSession("ohmypi image", .ohmypi);
+    model.selected = id;
+    model.setDraftImagePath(image);
+
+    startPrompt(&model, &fx, id, "describe this");
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(model.fx_spawn_pi_json);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    try testing.expectEqualStrings(image, model.lastSpawnImagePath());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, "omp"));
+    try testing.expect(testArgvHas(request.argv, "--mode"));
+    try testing.expect(testArgvHas(request.argv, "rpc"));
+    try testing.expect(testArgvHas(request.argv, "--yolo"));
+    try testing.expect(testArgvHas(request.argv, "--no-session"));
+    try testing.expect(!testArgvHas(request.argv, "pi"));
+    try testing.expect(!testArgvHas(request.argv, "describe this"));
+    try testing.expect(!testArgvHas(request.argv, image));
+    try testing.expect(!testArgvHas(request.argv, "--image"));
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"prompt\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"message\":\"describe this\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"images\":[{\"type\":\"image\",\"data\":\"cG5n\",\"mimeType\":\"image/png\"}]") != null);
+    try testing.expect(std.mem.endsWith(u8, request.stdin, "\n"));
+}
+
+test "ohmypi binary override is argv[0]; unavailable image attach stays demo" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.ohmypi)] = true;
+    model.setProviderBinaryOverride(.ohmypi, "/opt/custom-omp");
+    const id = model.addSession("ohmypi override", .ohmypi);
+
+    startPrompt(&model, &fx, id, "hello override");
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_pi_json);
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, "/opt/custom-omp"));
+    try testing.expect(!testArgvHas(request.argv, "omp"));
+    try testing.expect(testArgvHas(request.argv, "--yolo"));
+    try testing.expect(testArgvHas(request.argv, "--no-session"));
+}
+
+test "ohmypi image attach missing file stays demo" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.ohmypi)] = true;
+    const id = model.addSession("ohmypi missing file", .ohmypi);
+    model.selected = id;
+    model.setDraftImagePath(".zig-cache/tmp/faku-ohmypi-image-missing.png");
+
+    startPrompt(&model, &fx, id, "describe this");
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(!model.fx_spawn_pi_json);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
 test "fx path stays preferred when provider is fx even if claude is available" {

@@ -118,6 +118,7 @@ const provider_grok_icon = parseProvider("grok");
 const provider_opencode_icon = parseProvider("opencode");
 const provider_pi_icon = parseProvider("pi");
 const provider_kimi_icon = parseProvider("kimi");
+const provider_ohmypi_icon = parseProvider("ohmypi");
 
 /// One table feeds boot registration and the model contract so chrome
 /// `icon="app:minimize"` / `app:maximize` / `app:stop` / `app:lock` /
@@ -149,6 +150,7 @@ const providers_icons = [_]canvas.icons.Entry{
     .{ .name = "provider-opencode", .icon = &provider_opencode_icon },
     .{ .name = "provider-pi", .icon = &provider_pi_icon },
     .{ .name = "provider-kimi", .icon = &provider_kimi_icon },
+    .{ .name = "provider-ohmypi", .icon = &provider_ohmypi_icon },
 };
 pub const app_icons = chrome_icons ++ providers_icons ++ file_type_icons.app_icons;
 
@@ -193,6 +195,7 @@ test "registerIcons resolves chrome and file-type app names" {
     try std.testing.expect(canvas.icons.resolve("app:provider-opencode") != null);
     try std.testing.expect(canvas.icons.resolve("app:provider-pi") != null);
     try std.testing.expect(canvas.icons.resolve("app:provider-kimi") != null);
+    try std.testing.expect(canvas.icons.resolve("app:provider-ohmypi") != null);
     try std.testing.expect(canvas.icons.resolve("app:lockfile") != null);
     try std.testing.expect(canvas.icons.resolve("app:exe") != null);
     try std.testing.expect(canvas.icons.resolve("app:nginx") != null);
@@ -225,7 +228,7 @@ test "registerIcons resolves chrome and file-type app names" {
 test "app_icons names and shell window" {
     try std.testing.expectEqual(@as(usize, chrome_icons.len + providers_icons.len + file_type_icons.app_icons.len), app_icons.len);
     try std.testing.expectEqual(@as(usize, 11), chrome_icons.len);
-    try std.testing.expectEqual(@as(usize, 9), providers_icons.len);
+    try std.testing.expectEqual(@as(usize, 10), providers_icons.len);
     try std.testing.expectEqualStrings("minimize", app_icons[0].name);
     try std.testing.expectEqualStrings("maximize", app_icons[1].name);
     try std.testing.expectEqualStrings("stop", app_icons[2].name);
@@ -246,7 +249,8 @@ test "app_icons names and shell window" {
     try std.testing.expectEqualStrings("provider-opencode", app_icons[17].name);
     try std.testing.expectEqualStrings("provider-pi", app_icons[18].name);
     try std.testing.expectEqualStrings("provider-kimi", app_icons[19].name);
-    try std.testing.expectEqualStrings("zig", app_icons[20].name);
+    try std.testing.expectEqualStrings("provider-ohmypi", app_icons[20].name);
+    try std.testing.expectEqualStrings("zig", app_icons[21].name);
     try std.testing.expectEqualStrings("file", app_icons[app_icons.len - 1].name);
     for (providers_icons) |entry| {
         try std.testing.expect(entry.icon.shapes.len > 0);

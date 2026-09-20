@@ -2346,6 +2346,78 @@ test "send with pi unavailable still starts the demo timer" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
+test "send with ohmypi cli_available spawns omp --mode rpc --yolo --no-session and streams message_update text_delta" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.ohmypi)] = true;
+    const id = model.addSession("ohmypi send", .ohmypi);
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "what files are here" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(model.fx_spawn_pi_json);
+    try testing.expect(!model.fx_spawn_claude_json);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
+    try testing.expect(argvHas(request.argv, "omp"));
+    try testing.expect(argvHas(request.argv, "--mode"));
+    try testing.expect(argvHas(request.argv, "rpc"));
+    try testing.expect(argvHas(request.argv, "--yolo"));
+    try testing.expect(argvHas(request.argv, "--no-session"));
+    try testing.expect(!argvHas(request.argv, "pi"));
+    try testing.expect(!argvHas(request.argv, "what files are here"));
+    try testing.expect(!argvHas(request.argv, "--approve"));
+    try testing.expect(!argvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expectEqualStrings("{\"id\":\"1\",\"type\":\"prompt\",\"message\":\"what files are here\"}\n", request.stdin);
+    const binary_at = argvIndex(request.argv, "omp") orelse return error.MissingBinary;
+    const mode_at = argvIndex(request.argv, "--mode") orelse return error.MissingMode;
+    const rpc_at = argvIndex(request.argv, "rpc") orelse return error.MissingRpc;
+    const yolo_at = argvIndex(request.argv, "--yolo") orelse return error.MissingYolo;
+    const no_session_at = argvIndex(request.argv, "--no-session") orelse return error.MissingNoSession;
+    try testing.expectEqual(binary_at + 1, mode_at);
+    try testing.expectEqual(mode_at + 1, rpc_at);
+    try testing.expectEqual(rpc_at + 1, yolo_at);
+    try testing.expectEqual(yolo_at + 1, no_session_at);
+
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"type\":\"message_update\",\"assistantMessageEvent\":{\"type\":\"text_delta\",\"delta\":\"hello from omp rpc\"}}");
+    drainEffects(&model, &fx);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from omp rpc") != null);
+
+    try fx.feedExit(effect_keys.fx_ask_key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+}
+
+test "send with ohmypi unavailable still starts the demo timer" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    const id = model.addSession("ohmypi missing", .ohmypi);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "no omp" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(!model.fx_spawn_pi_json);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
 test "fx acp session/new cwd is session project_path when it exists" {
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -17128,6 +17200,7 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     try testing.expect(findCliProbeSpawn(&fx, .claude) != null);
     try testing.expect(findCliProbeSpawn(&fx, .pi) != null);
     try testing.expect(findCliProbeSpawn(&fx, .kimi) != null);
+    try testing.expect(findCliProbeSpawn(&fx, .ohmypi) != null);
 
     tree = try buildTree(arena, &model);
     const providers_on = try expectButtonMsg(tree, "Providers", .set_settings_page_providers);
@@ -17159,6 +17232,7 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     _ = try expectByText(tree.root, .list_item, "cursor");
     _ = try expectByText(tree.root, .list_item, "pi");
     _ = try expectByText(tree.root, .list_item, "kimi");
+    _ = try expectByText(tree.root, .list_item, "Oh My Pi");
     _ = try expectByText(tree.root, .text, "cursor-agent");
     _ = try expectByText(tree.root, .text, "claude");
     _ = try expectButtonMsg(tree, "Show fx settings", .{ .toggle_provider_expanded = 1 });
@@ -17303,6 +17377,15 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
     try testing.expect(findByText(tree.root, .button, providers.copy_install_label) == null);
     try testing.expect(findByText(tree.root, .button, providers.copy_login_label) == null);
 
+    main.update(&model, .{ .select_provider = providers.rowId(.ohmypi) }, &fx);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findTextContaining(tree.root, providers.ohmypi_transport_note) != null);
+    try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) == null);
+    try testing.expect(findTextContaining(tree.root, providers.pi_transport_note) == null);
+    try testing.expect(findTextContaining(tree.root, providers.other_install_hint) != null);
+    _ = try expectByText(tree.root, .button, "Disable Oh My Pi");
+    _ = try expectByText(tree.root, .button, "Show Oh My Pi settings");
+
     const refresh = try expectButtonMsg(tree, "Refresh", .refresh_providers);
     main.update(&model, tree.msgForPointer(refresh.id, .up).?, &fx);
     try testing.expect(model.fx_probe_started);
@@ -17311,6 +17394,7 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
     try testing.expect(findCliProbeSpawn(&fx, .cursor) != null);
     try testing.expect(findCliProbeSpawn(&fx, .pi) != null);
     try testing.expect(findCliProbeSpawn(&fx, .kimi) != null);
+    try testing.expect(findCliProbeSpawn(&fx, .ohmypi) != null);
 
     main.update(&model, .toggle_settings, &fx);
     try testing.expect(!model.settings_open);

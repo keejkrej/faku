@@ -23,8 +23,8 @@
 //! show a badge.
 //!
 //! Spawn key is `cli_version_key_first + @intFromEnum(id)` so fx=610
-//! … kimi=618. Distinct from `fx_probe_key` (3), `cli_probe_key_first`
-//! 600 + ProviderId (claude=601 … kimi=608; fx slot unused), skills
+//! … ohmypi=619. Distinct from `fx_probe_key` (3), `cli_probe_key_first`
+//! 600 + ProviderId (claude=601 … ohmypi=609; fx slot unused), skills
 //! scan (530+) / rename (580+) / remove (590+), litellm (650),
 //! Browser `page_title` (660–699), pty (700..703), daemon (4+),
 //! fx spawn (64+). Refresh cancels the same fixed key per id.
@@ -222,20 +222,23 @@ test "versionKey is per-id including fx and skips cli_probe / fx_probe / litellm
     try std.testing.expectEqual(@as(u64, 616), versionKey(.cursor));
     try std.testing.expectEqual(@as(u64, 617), versionKey(.pi));
     try std.testing.expectEqual(@as(u64, 618), versionKey(.kimi));
+    try std.testing.expectEqual(@as(u64, 619), versionKey(.ohmypi));
     try std.testing.expect(versionKey(.fx) != @as(u64, 3));
     try std.testing.expect(versionKey(.claude) != @as(u64, 601));
     try std.testing.expect(versionKey(.kimi) != @as(u64, 608));
+    try std.testing.expect(versionKey(.ohmypi) != @as(u64, 609));
     try std.testing.expect(versionKey(.fx) != effect_keys.fx_ask_key);
     try std.testing.expect(versionKey(.fx) != effect_keys.daemon_proxy_key_first);
     try std.testing.expectEqual(protocol.ProviderId.fx, fromVersionKey(610).?);
     try std.testing.expectEqual(protocol.ProviderId.claude, fromVersionKey(611).?);
     try std.testing.expectEqual(protocol.ProviderId.kimi, fromVersionKey(618).?);
+    try std.testing.expectEqual(protocol.ProviderId.ohmypi, fromVersionKey(619).?);
     try std.testing.expect(fromVersionKey(600) == null);
     try std.testing.expect(fromVersionKey(601) == null);
     try std.testing.expect(fromVersionKey(3) == null);
     try std.testing.expect(fromVersionKey(609) == null);
-    try std.testing.expect(fromVersionKey(619) == null);
-    try std.testing.expect(versionKey(.kimi) < @as(u64, 650));
+    try std.testing.expect(fromVersionKey(620) == null);
+    try std.testing.expect(versionKey(.ohmypi) < @as(u64, 650));
 }
 
 test "parseCliVersion matches Waku version_tests banners" {
