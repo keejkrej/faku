@@ -24,6 +24,7 @@ pub const max_draft = model.max_draft;
 pub const max_queued = model.max_queued;
 pub const max_queued_text = model.max_queued_text;
 pub const max_fx_path = model.max_fx_path;
+pub const max_opencode2_attach_url = model.max_opencode2_attach_url;
 pub const max_cli_version = model.max_cli_version;
 pub const max_store_dir = model.max_store_dir;
 pub const max_project_path = session.max_project_path;
@@ -180,6 +181,7 @@ test "Model/Msg barrel types, caps, and defaults match owning modules" {
     try std.testing.expectEqual(@as(usize, 16), max_queued);
     try std.testing.expectEqual(@as(usize, 1024), max_queued_text);
     try std.testing.expectEqual(@as(usize, 256), max_fx_path);
+    try std.testing.expectEqual(@as(usize, 256), max_opencode2_attach_url);
     try std.testing.expectEqual(@as(usize, 64), max_cli_version);
     try std.testing.expectEqual(@as(usize, 512), max_store_dir);
     try std.testing.expectEqual(@as(usize, 512), max_project_path);

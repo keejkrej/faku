@@ -55,17 +55,20 @@
 //! text_delta` / `delta`, not json-mode top-level `type:text_delta`,
 //! not prose / raw JSON dump). Available OpenCode 2 is one-shot
 //! `{binary} run --format json --auto {prompt}` (empty stdin, not
-//! ACP, not `opencode acp`, not acp-proxy, not HTTP/SSE `serve`),
-//! with documented `--session {fx_session_id}` when that field is
-//! non-empty (first Send and Fork omit it), documented `--model`
-//! when the session model is non-empty (`provider/model` form; no
-//! invented catalog), and documented `--file {path}` when a
-//! composer image/file is attached. `--auto` is always set this cut
-//! so non-interactive Send does not hang (OpenCode run has no
-//! permission UI in Faku). `fx_spawn_opencode_run_json` routes
-//! NDJSON `type:"text"` / `part.text` in `lines.zig` and captures
-//! `sessionID` into `fx_session_id`. Unavailable OpenCode 2 stays
-//! demo. HTTP/SSE `serve` stays deferred.
+//! ACP, not `opencode acp`, not acp-proxy, not an in-app HTTP/SSE
+//! serve client), with documented `--attach {url}` when
+//! `opencode2_attach_url` trim is non-empty (user-owned `opencode2
+//! serve`; Faku does not spawn serve), documented `--session
+//! {fx_session_id}` when that field is non-empty (first Send and Fork
+//! omit it), documented `--model` when the session model is non-empty
+//! (`provider/model` form; no invented catalog), and documented
+//! `--file {path}` when a composer image/file is attached. `--auto`
+//! is always set this cut so non-interactive Send does not hang
+//! (OpenCode run has no permission UI in Faku).
+//! `fx_spawn_opencode_run_json` routes NDJSON `type:"text"` /
+//! `part.text` in `lines.zig` and captures `sessionID` into
+//! `fx_session_id`. Unavailable OpenCode 2 stays demo. In-app
+//! HTTP/SSE serve client stays deferred.
 //! Available DeepSeek is one-shot `dsh --profile acp` via acp-proxy
 //! (not `dsh acp`; not Harness HTTP/SSE / web / `--profile headless`).
 //! Composer image attach on cursor / opencode / kimi / grok uses official
@@ -958,9 +961,13 @@ pub fn startPiRpc(model: *Model, fx: *Effects, session: *const Session, prompt: 
 /// auto-approves permissions that are not explicitly denied; this
 /// cut always passes it so non-interactive Send does not hang
 /// (OpenCode run has no permission UI in Faku; leftover vs a true
-/// `ask` mode). When `session.fxSessionId()` is non-empty,
-/// documented `--session {id}` is two argv slots after `--auto`
-/// and before optional `--model` / `--file` / the prompt. Empty
+/// `ask` mode). When persisted `opencode2_attach_url` trim is
+/// non-empty, documented `--attach {url}` is two argv slots after
+/// `--auto` (user-owned `opencode2 serve`; Faku does not spawn
+/// serve). Empty URL omits both — never a bare `--attach`. When
+/// `session.fxSessionId()` is non-empty, documented `--session {id}`
+/// is two argv slots after `--auto` / optional `--attach` and
+/// before optional `--model` / `--file` / the prompt. Empty
 /// id omits both — never a bare `--session`. Not `--continue` /
 /// `-c`. Optional `--model {session.model()}` when that field is
 /// non-empty (documented `provider/model` form; no invented
@@ -971,12 +978,12 @@ pub fn startPiRpc(model: *Model, fx: *Effects, session: *const Session, prompt: 
 /// OpenCode run parser (live `type:"text"` / `part.text`, not a
 /// prose dump). Capture `sessionID` into `fx_session_id` for later
 /// `--session`. Not ACP, not `opencode acp` (that is
-/// `ProviderId.opencode`), not acp-proxy, not HTTP/SSE `serve`.
-/// Caller sets `reply_path` to `.fx` on success; `fx_spawn_acp`
-/// stays false. Project cwd reuses `fx_ask_chdir_script` (Native
-/// SpawnOptions has no cwd field; documented `--dir` would
-/// duplicate that house-style chdir). Empty binary is a no-op
-/// (PATH default is `opencode2`).
+/// `ProviderId.opencode`), not acp-proxy, not an in-app HTTP/SSE
+/// serve client. Caller sets `reply_path` to `.fx` on success;
+/// `fx_spawn_acp` stays false. Project cwd reuses
+/// `fx_ask_chdir_script` (Native SpawnOptions has no cwd field;
+/// documented `--dir` would duplicate that house-style chdir).
+/// Empty binary is a no-op (PATH default is `opencode2`).
 pub fn startOpencodeRun(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) bool {
     if (!session.provider.speaksOpencodeRun()) return false;
     const binary = providers.binaryFor(model, session.provider);
@@ -985,14 +992,15 @@ pub fn startOpencodeRun(model: *Model, fx: *Effects, session: *const Session, pr
     const resume_id = session.fxSessionId();
     const model_id = session.model();
     const file_path = model.resolveSpawnImage();
+    const attach_url = model.opencode2AttachUrl();
 
     model.setLastSpawnCwd(cwd);
     model.setLastSpawnImagePath(file_path);
 
     // chdir (5) + binary + run + --format + json + --auto +
-    // --session + id + --model + id + --file + path + prompt = 18.
-    // Keep headroom rather than truncating.
-    var argv_buf: [20][]const u8 = undefined;
+    // --attach + url + --session + id + --model + id + --file +
+    // path + prompt = 20. Keep headroom rather than truncating.
+    var argv_buf: [22][]const u8 = undefined;
     var n: usize = 0;
     if (cwd.len > 0) {
         argv_buf[n] = "/bin/sh";
@@ -1016,6 +1024,12 @@ pub fn startOpencodeRun(model: *Model, fx: *Effects, session: *const Session, pr
     n += 1;
     argv_buf[n] = "--auto";
     n += 1;
+    if (attach_url.len > 0) {
+        argv_buf[n] = "--attach";
+        n += 1;
+        argv_buf[n] = attach_url;
+        n += 1;
+    }
     if (resume_id.len > 0) {
         argv_buf[n] = "--session";
         n += 1;
@@ -2481,6 +2495,60 @@ test "opencode2 + cli_available selects run --format json --auto" {
     try testing.expectEqual(format_at + 1, json_at);
     try testing.expectEqual(json_at + 1, auto_at);
     try testing.expectEqual(auto_at + 1, prompt_at);
+}
+
+test "opencode2 + opencode2_attach_url passes --attach then the URL as separate slots" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    model.setOpencode2AttachUrl("http://localhost:4096");
+    const id = model.addSession("opencode2 attach", .opencode2);
+    startPrompt(&model, &fx, id, "hello attach");
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_opencode_run_json);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, "opencode2"));
+    try testing.expect(testArgvHas(request.argv, "run"));
+    try testing.expect(testArgvHas(request.argv, "--format"));
+    try testing.expect(testArgvHas(request.argv, "json"));
+    try testing.expect(testArgvHas(request.argv, "--auto"));
+    try testing.expect(testArgvHas(request.argv, "--attach"));
+    try testing.expect(testArgvHas(request.argv, "http://localhost:4096"));
+    try testing.expect(testArgvHas(request.argv, "hello attach"));
+    try testing.expect(!testArgvHas(request.argv, "serve"));
+    try testing.expect(!testArgvHas(request.argv, "--password"));
+    try testing.expect(!testArgvHas(request.argv, "--username"));
+    try testing.expect(!testArgvHas(request.argv, "opencode run --attach http://localhost:4096"));
+    const auto_at = testArgvIndex(request.argv, "--auto") orelse return error.MissingAuto;
+    const attach_at = testArgvIndex(request.argv, "--attach") orelse return error.MissingAttach;
+    const prompt_at = testArgvIndex(request.argv, "hello attach") orelse return error.MissingPrompt;
+    try testing.expectEqual(auto_at + 1, attach_at);
+    try testing.expectEqualStrings("http://localhost:4096", request.argv[attach_at + 1]);
+    try testing.expectEqual(attach_at + 2, prompt_at);
+}
+
+test "opencode2 whitespace-only attach URL omits --attach" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    model.setOpencode2AttachUrl("   ");
+    const id = model.addSession("opencode2 blank attach", .opencode2);
+    startPrompt(&model, &fx, id, "hello blank");
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(!testArgvHas(request.argv, "--attach"));
 }
 
 test "opencode2 unavailable stays demo" {

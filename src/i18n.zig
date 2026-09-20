@@ -434,6 +434,20 @@
 //! `toggle_provider_expanded` / `apply_provider_path_override` /
 //! `clear_provider_path_override`; wire names / typed paths stay
 //! English)
+//! plus Settings Providers OpenCode 2 Serve attach URL
+//! (same `ProvidersOpencodeAttachChrome` strings; EN Serve attach
+//! URL / Start opencode2 serve yourself. Faku only passes --attach.
+//! Leave empty for a cold run. / zh-CN Serve 附加 URL / 请自行启动
+//! opencode2 serve。Faku 只会传入 --attach。留空则为冷启动。 /
+//! ja Serve 接続 URL / opencode2 serve は自分で起動してください。
+//! Faku は --attach を渡すだけです。空欄のときは通常の起動です。;
+//! product-named strings say Faku, not Waku; distinct from
+//! `ProvidersChrome` / `ProvidersDetailChrome` /
+//! `ProvidersEnableNamedChrome` / `ProvidersCodingAgentsChrome` /
+//! `ProvidersBinaryOverrideChrome` so attach chrome stays
+//! independently evolvable; OpenCode 2 expanded row only; on-press
+//! stays `apply_opencode2_attach` / `clear_opencode2_attach`; typed
+//! URL stays data)
 //! plus Settings Providers model-count / disabled caption
 //! (same `ProvidersModelCountChrome` strings; English matches
 //! Waku `providers.model_count_one` / `model_count_many` /
@@ -444,8 +458,8 @@
 //! 新規タスクでは無効; numbers stay Latin; distinct from
 //! `ProvidersChrome` / `ProvidersDetailChrome` /
 //! `ProvidersEnableNamedChrome` / `ProvidersCodingAgentsChrome` /
-//! `ProvidersBinaryOverrideChrome` so the caption stays
-//! independently evolvable; Available + disabled paints
+//! `ProvidersBinaryOverrideChrome` / `ProvidersOpencodeAttachChrome`
+//! so the caption stays independently evolvable; Available + disabled paints
 //! disabled_for_new_tasks; Available + enabled + count>0 paints
 //! one/many; empty-catalog / Not found omit)
 //! plus Settings Skills empty-state Open a project / Scanning
@@ -4737,7 +4751,7 @@ const providers_detail_chrome_en: ProvidersDetailChrome = .{
     .amp_transport_note = "Live Send is one-shot amp -x / --execute when Available (`@path` when attached).",
     .pi_transport_note = "Live Send is one-shot pi --mode rpc --no-session when Available (RPC images when attached).",
     .ohmypi_transport_note = "Live Send is one-shot omp --mode rpc --yolo --no-session when Available (RPC images when attached).",
-    .opencode2_transport_note = "Live Send is one-shot opencode2 run --format json --auto when Available (`--file` when attached). Unavailable stays demo. HTTP/SSE serve still deferred. Not opencode acp (that is the OpenCode row).",
+    .opencode2_transport_note = "Live Send is one-shot opencode2 run --format json --auto when Available (`--file` when attached; `--attach {url}` when opencode2_attach_url is set). Unavailable stays demo. User-owned serve; in-app HTTP/SSE serve client still deferred. Not opencode acp (that is the OpenCode row).",
     .deepseek_transport_note = "Live Send is one-shot dsh --profile acp via acp-proxy when Available. Unavailable stays demo. No image attach this cut (Harness HTTP/SSE / web / headless stay out).",
     .fx_login_note = "Faku does not detect auth state from the --help probe. Copy is a convenience, not sign-in UI or OAuth.",
     .fx_login_codex_note = "Optional: fx login grok / fx login codex (no Gateway required).",
@@ -4756,7 +4770,7 @@ const providers_detail_chrome_zh_cn: ProvidersDetailChrome = .{
     .amp_transport_note = "可用时，实际 Send 是一次性 amp -x / --execute（附加时使用 `@path`）。",
     .pi_transport_note = "可用时，实际 Send 是一次性 pi --mode rpc --no-session（附加时使用 RPC images）。",
     .ohmypi_transport_note = "可用时，实际 Send 是一次性 omp --mode rpc --yolo --no-session（附加时使用 RPC images）。",
-    .opencode2_transport_note = "可用时，实际 Send 是一次性 opencode2 run --format json --auto（附加时使用 `--file`）。不可用时仍为演示。HTTP/SSE serve 仍延后。不是 opencode acp（那是单独的 OpenCode 行）。",
+    .opencode2_transport_note = "可用时，实际 Send 是一次性 opencode2 run --format json --auto（附加时使用 `--file`；设置了 opencode2_attach_url 时使用 `--attach {url}`）。不可用时仍为演示。serve 由用户自行启动；应用内 HTTP/SSE serve 客户端仍延后。不是 opencode acp（那是单独的 OpenCode 行）。",
     .deepseek_transport_note = "可用时，实际 Send 是通过 acp-proxy 的一次性 dsh --profile acp。不可用时仍为演示。本轮不附加图片（Harness HTTP/SSE / web / headless 仍延后）。",
     .fx_login_note = "Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。",
     .fx_login_codex_note = "可选：fx login grok / fx login codex（无需 Gateway）。",
@@ -4775,7 +4789,7 @@ const providers_detail_chrome_ja: ProvidersDetailChrome = .{
     .amp_transport_note = "利用可能なとき、実際の Send はワンショット amp -x / --execute です（添付時は `@path`）。",
     .pi_transport_note = "利用可能なとき、実際の Send はワンショット pi --mode rpc --no-session です（添付時は RPC images）。",
     .ohmypi_transport_note = "利用可能なとき、実際の Send はワンショット omp --mode rpc --yolo --no-session です（添付時は RPC images）。",
-    .opencode2_transport_note = "利用可能なとき、実際の Send はワンショット opencode2 run --format json --auto です（添付時は `--file`）。利用不可のときはデモのままです。HTTP/SSE serve は後回しです。opencode acp ではありません（それは別の OpenCode 行です）。",
+    .opencode2_transport_note = "利用可能なとき、実際の Send はワンショット opencode2 run --format json --auto です（添付時は `--file`。opencode2_attach_url が設定されているときは `--attach {url}`）。利用不可のときはデモのままです。serve はユーザー側で起動します。アプリ内 HTTP/SSE serve クライアントは後回しです。opencode acp ではありません（それは別の OpenCode 行です）。",
     .deepseek_transport_note = "利用可能なとき、実際の Send は acp-proxy 経由のワンショット dsh --profile acp です。利用不可のときはデモのままです。この段階では画像添付なし（Harness HTTP/SSE / web / headless は後回し）。",
     .fx_login_note = "Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。",
     .fx_login_codex_note = "任意: fx login grok / fx login codex（Gateway は不要）。",
@@ -4913,6 +4927,35 @@ const providers_binary_override_chrome_ja: ProvidersBinaryOverrideChrome = .{
     .reset = "リセット",
 };
 
+/// Settings Providers OpenCode 2 Serve attach URL for the resolved
+/// locale. Same resolve path as ProvidersChrome. Distinct from
+/// `ProvidersChrome` / `ProvidersDetailChrome` /
+/// `ProvidersEnableNamedChrome` / `ProvidersCodingAgentsChrome` /
+/// `ProvidersBinaryOverrideChrome` so attach chrome stays
+/// independently evolvable. Description says Faku, not Waku; the
+/// user must start `opencode2 serve` themselves. Wire ids / on-press
+/// stay English (`apply_opencode2_attach` / `clear_opencode2_attach`).
+/// Typed URL stays data.
+pub const ProvidersOpencodeAttachChrome = struct {
+    attach_url: []const u8,
+    attach_url_description: []const u8,
+};
+
+const providers_opencode_attach_chrome_en: ProvidersOpencodeAttachChrome = .{
+    .attach_url = "Serve attach URL",
+    .attach_url_description = "Start opencode2 serve yourself. Faku only passes --attach. Leave empty for a cold run.",
+};
+
+const providers_opencode_attach_chrome_zh_cn: ProvidersOpencodeAttachChrome = .{
+    .attach_url = "Serve 附加 URL",
+    .attach_url_description = "请自行启动 opencode2 serve。Faku 只会传入 --attach。留空则为冷启动。",
+};
+
+const providers_opencode_attach_chrome_ja: ProvidersOpencodeAttachChrome = .{
+    .attach_url = "Serve 接続 URL",
+    .attach_url_description = "opencode2 serve は自分で起動してください。Faku は --attach を渡すだけです。空欄のときは通常の起動です。",
+};
+
 /// Capped scratch for `formatProvidersModelCount`. Templates plus a
 /// Latin `{d}` count stay short in every locale.
 pub const providers_model_count_label_max: usize = 64;
@@ -4924,8 +4967,8 @@ pub const providers_model_count_label_max: usize = 64;
 /// `providers.disabled_for_new_tasks`. Distinct from
 /// `ProvidersChrome` / `ProvidersDetailChrome` /
 /// `ProvidersEnableNamedChrome` / `ProvidersCodingAgentsChrome` /
-/// `ProvidersBinaryOverrideChrome` so the caption stays
-/// independently evolvable. Templates keep Waku `%{count}` slots;
+/// `ProvidersBinaryOverrideChrome` / `ProvidersOpencodeAttachChrome`
+/// so the caption stays independently evolvable. Templates keep Waku `%{count}` slots;
 /// numbers stay Latin. Available + disabled paints
 /// `disabled_for_new_tasks` (not the count). Available + enabled
 /// with a static fallback catalog paints one/many. Empty-catalog
@@ -7151,13 +7194,29 @@ pub fn providersBinaryOverrideChromeFor(preference: LanguagePreference, system_l
     };
 }
 
+/// Settings Providers OpenCode 2 Serve attach URL for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from ProvidersChrome / ProvidersDetailChrome /
+/// ProvidersEnableNamedChrome / ProvidersCodingAgentsChrome /
+/// ProvidersBinaryOverrideChrome so attach chrome stays independently
+/// evolvable. Description says Faku, not Waku. Wire ids / on-press
+/// stay English.
+pub fn providersOpencodeAttachChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ProvidersOpencodeAttachChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => providers_opencode_attach_chrome_zh_cn,
+        .japanese => providers_opencode_attach_chrome_ja,
+        .system, .english => providers_opencode_attach_chrome_en,
+    };
+}
+
 /// Settings Providers muted model-count / disabled caption for the
 /// resolved locale. Callers pass Model `language_preference` +
 /// `system_locale_id`; this file does not read process env. Distinct
 /// from ProvidersChrome / ProvidersDetailChrome /
 /// ProvidersEnableNamedChrome / ProvidersCodingAgentsChrome /
-/// ProvidersBinaryOverrideChrome so the caption stays independently
-/// evolvable. English matches Waku `providers.model_count_one` /
+/// ProvidersBinaryOverrideChrome / ProvidersOpencodeAttachChrome so
+/// the caption stays independently evolvable. English matches Waku `providers.model_count_one` /
 /// `model_count_many` / `disabled_for_new_tasks`. Numbers stay
 /// Latin. Wire ids stay English.
 pub fn providersModelCountChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ProvidersModelCountChrome {
@@ -11499,7 +11558,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
         providersDetailChromeFor(.english, "").ohmypi_transport_note,
     );
     try testing.expectEqualStrings(
-        "Live Send is one-shot opencode2 run --format json --auto when Available (`--file` when attached). Unavailable stays demo. HTTP/SSE serve still deferred. Not opencode acp (that is the OpenCode row).",
+        "Live Send is one-shot opencode2 run --format json --auto when Available (`--file` when attached; `--attach {url}` when opencode2_attach_url is set). Unavailable stays demo. User-owned serve; in-app HTTP/SSE serve client still deferred. Not opencode acp (that is the OpenCode row).",
         providersDetailChromeFor(.english, "").opencode2_transport_note,
     );
     try testing.expectEqualStrings(
@@ -11540,7 +11599,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 amp -x / --execute（附加时使用 `@path`）。", providersDetailChromeFor(.simplified_chinese, "").amp_transport_note);
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 pi --mode rpc --no-session（附加时使用 RPC images）。", providersDetailChromeFor(.simplified_chinese, "").pi_transport_note);
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 omp --mode rpc --yolo --no-session（附加时使用 RPC images）。", providersDetailChromeFor(.simplified_chinese, "").ohmypi_transport_note);
-    try testing.expectEqualStrings("可用时，实际 Send 是一次性 opencode2 run --format json --auto（附加时使用 `--file`）。不可用时仍为演示。HTTP/SSE serve 仍延后。不是 opencode acp（那是单独的 OpenCode 行）。", providersDetailChromeFor(.simplified_chinese, "").opencode2_transport_note);
+    try testing.expectEqualStrings("可用时，实际 Send 是一次性 opencode2 run --format json --auto（附加时使用 `--file`；设置了 opencode2_attach_url 时使用 `--attach {url}`）。不可用时仍为演示。serve 由用户自行启动；应用内 HTTP/SSE serve 客户端仍延后。不是 opencode acp（那是单独的 OpenCode 行）。", providersDetailChromeFor(.simplified_chinese, "").opencode2_transport_note);
     try testing.expectEqualStrings("可用时，实际 Send 是通过 acp-proxy 的一次性 dsh --profile acp。不可用时仍为演示。本轮不附加图片（Harness HTTP/SSE / web / headless 仍延后）。", providersDetailChromeFor(.simplified_chinese, "").deepseek_transport_note);
     try testing.expectEqualStrings("Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。", providersDetailChromeFor(.simplified_chinese, "").fx_login_note);
     try testing.expectEqualStrings("可选：fx login grok / fx login codex（无需 Gateway）。", providersDetailChromeFor(.simplified_chinese, "").fx_login_codex_note);
@@ -11557,7 +11616,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット amp -x / --execute です（添付時は `@path`）。", providersDetailChromeFor(.japanese, "").amp_transport_note);
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット pi --mode rpc --no-session です（添付時は RPC images）。", providersDetailChromeFor(.japanese, "").pi_transport_note);
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット omp --mode rpc --yolo --no-session です（添付時は RPC images）。", providersDetailChromeFor(.japanese, "").ohmypi_transport_note);
-    try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット opencode2 run --format json --auto です（添付時は `--file`）。利用不可のときはデモのままです。HTTP/SSE serve は後回しです。opencode acp ではありません（それは別の OpenCode 行です）。", providersDetailChromeFor(.japanese, "").opencode2_transport_note);
+    try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット opencode2 run --format json --auto です（添付時は `--file`。opencode2_attach_url が設定されているときは `--attach {url}`）。利用不可のときはデモのままです。serve はユーザー側で起動します。アプリ内 HTTP/SSE serve クライアントは後回しです。opencode acp ではありません（それは別の OpenCode 行です）。", providersDetailChromeFor(.japanese, "").opencode2_transport_note);
     try testing.expectEqualStrings("利用可能なとき、実際の Send は acp-proxy 経由のワンショット dsh --profile acp です。利用不可のときはデモのままです。この段階では画像添付なし（Harness HTTP/SSE / web / headless は後回し）。", providersDetailChromeFor(.japanese, "").deepseek_transport_note);
     try testing.expectEqualStrings("Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。", providersDetailChromeFor(.japanese, "").fx_login_note);
     try testing.expectEqualStrings("任意: fx login grok / fx login codex（Gateway は不要）。", providersDetailChromeFor(.japanese, "").fx_login_codex_note);
@@ -11737,6 +11796,36 @@ test "providersBinaryOverrideChromeFor english default; zh and ja chrome; Faku n
     try testing.expect(std.mem.indexOf(u8, providersBinaryOverrideChromeFor(.japanese, "").binary_path_description, "Waku") == null);
     try testing.expect(std.mem.indexOf(u8, providersBinaryOverrideChromeFor(.japanese, "").searches_path, "Faku") != null);
     try testing.expect(std.mem.indexOf(u8, providersBinaryOverrideChromeFor(.japanese, "").searches_path, "Waku") == null);
+}
+
+test "providersOpencodeAttachChromeFor english default; zh and ja chrome; Faku not Waku; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Serve attach URL", providersOpencodeAttachChromeFor(.english, "ja").attach_url);
+    try testing.expectEqualStrings(
+        "Start opencode2 serve yourself. Faku only passes --attach. Leave empty for a cold run.",
+        providersOpencodeAttachChromeFor(.english, "").attach_url_description,
+    );
+    try testing.expectEqualStrings("Serve attach URL", providersOpencodeAttachChromeFor(.system, "").attach_url);
+    try testing.expectEqualStrings("Serve 附加 URL", providersOpencodeAttachChromeFor(.simplified_chinese, "").attach_url);
+    try testing.expectEqualStrings(
+        "请自行启动 opencode2 serve。Faku 只会传入 --attach。留空则为冷启动。",
+        providersOpencodeAttachChromeFor(.simplified_chinese, "").attach_url_description,
+    );
+    try testing.expectEqualStrings("Serve 接続 URL", providersOpencodeAttachChromeFor(.japanese, "").attach_url);
+    try testing.expectEqualStrings(
+        "opencode2 serve は自分で起動してください。Faku は --attach を渡すだけです。空欄のときは通常の起動です。",
+        providersOpencodeAttachChromeFor(.japanese, "").attach_url_description,
+    );
+    try testing.expectEqualStrings("Serve 附加 URL", providersOpencodeAttachChromeFor(.system, "zh_CN.UTF-8").attach_url);
+    try testing.expectEqualStrings("Serve 接続 URL", providersOpencodeAttachChromeFor(.system, "ja_JP.UTF-8").attach_url);
+    try testing.expectEqualStrings("Serve attach URL", providersOpencodeAttachChromeFor(.english, "zh_CN.UTF-8").attach_url);
+    try testing.expect(!std.mem.eql(u8, providersOpencodeAttachChromeFor(.english, "").attach_url, providersBinaryOverrideChromeFor(.english, "").binary_path));
+    try testing.expect(std.mem.indexOf(u8, providersOpencodeAttachChromeFor(.english, "").attach_url_description, "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, providersOpencodeAttachChromeFor(.english, "").attach_url_description, "Waku") == null);
+    try testing.expect(std.mem.indexOf(u8, providersOpencodeAttachChromeFor(.simplified_chinese, "").attach_url_description, "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, providersOpencodeAttachChromeFor(.simplified_chinese, "").attach_url_description, "Waku") == null);
+    try testing.expect(std.mem.indexOf(u8, providersOpencodeAttachChromeFor(.japanese, "").attach_url_description, "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, providersOpencodeAttachChromeFor(.japanese, "").attach_url_description, "Waku") == null);
 }
 
 test "formatProvidersBinaryOverride substitutes %{provider} / %{path} / %{command}; empty still paints" {

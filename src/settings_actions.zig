@@ -623,6 +623,20 @@ pub fn handleClearProviderPathOverride(model: *Model, fx: *Effects) void {
     store.persistSettingsIfPossible(model);
 }
 
+pub fn handleOpencode2AttachEdit(model: *Model, edit: canvas.TextInputEvent) void {
+    model.applyOpencode2AttachEdit(edit);
+}
+
+pub fn handleApplyOpencode2Attach(model: *Model) void {
+    if (!providers.applyAttachUrl(model)) return;
+    store.persistSettingsIfPossible(model);
+}
+
+pub fn handleClearOpencode2Attach(model: *Model) void {
+    if (!providers.clearAttachUrl(model)) return;
+    store.persistSettingsIfPossible(model);
+}
+
 pub fn handleApplySessionProvider(model: *Model, fx: *Effects) void {
     if (!providers.applyToSession(model)) return;
     store.persistIfPossible(model, model.selected, fx);
@@ -951,4 +965,31 @@ test "handleToggleProviderExpanded applies pending override; empty apply clears"
     handleClearProviderPathOverride(&model, &fx);
     try testing.expectEqualStrings("", model.providerBinaryOverride(.claude));
     try testing.expectEqualStrings("/opt/fx", model.providerBinaryOverride(.fx));
+}
+
+test "handleApplyOpencode2Attach persists; empty apply and Reset clear" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    handleToggleProviderExpanded(&model, &fx, providers.rowId(.opencode2));
+    try testing.expectEqual(providers.rowId(.opencode2), model.provider_expanded_id);
+    handleOpencode2AttachEdit(&model, .{ .insert_text = "http://localhost:4096" });
+    try testing.expectEqualStrings("http://localhost:4096", model.opencode2_attach_draft());
+    handleApplyOpencode2Attach(&model);
+    try testing.expectEqualStrings("http://localhost:4096", model.opencode2AttachUrl());
+
+    handleToggleProviderExpanded(&model, &fx, providers.rowId(.fx));
+    try testing.expectEqualStrings("http://localhost:4096", model.opencode2AttachUrl());
+    handleOpencode2AttachEdit(&model, .{ .insert_text = "http://ignored" });
+    handleApplyOpencode2Attach(&model);
+    try testing.expectEqualStrings("http://localhost:4096", model.opencode2AttachUrl());
+
+    handleToggleProviderExpanded(&model, &fx, providers.rowId(.opencode2));
+    try testing.expectEqualStrings("http://localhost:4096", model.opencode2_attach_draft());
+    handleClearOpencode2Attach(&model);
+    try testing.expectEqualStrings("", model.opencode2AttachUrl());
+    try testing.expectEqualStrings("", model.opencode2_attach_draft());
 }
