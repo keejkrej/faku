@@ -94,6 +94,10 @@ const package_icon = canvas.svg_icon.parseComptime(@embedFile("icons/package.svg
 /// built-in chart-column glyph.
 const chart_column_icon = canvas.svg_icon.parseComptime(@embedFile("icons/chart-column.svg"));
 
+/// Settings Daemon (Waku `icons/server.svg`). Native has no built-in
+/// server glyph. Stroke `#000` became `currentColor`.
+const server_icon = canvas.svg_icon.parseComptime(@embedFile("icons/server.svg"));
+
 /// Settings Computer Use (Waku `icons/cursor-spark.svg`). Native has
 /// no built-in cursor-spark glyph.
 const cursor_spark_icon = canvas.svg_icon.parseComptime(@embedFile("icons/cursor-spark.svg"));
@@ -101,7 +105,7 @@ const cursor_spark_icon = canvas.svg_icon.parseComptime(@embedFile("icons/cursor
 /// One table feeds boot registration and the model contract so chrome
 /// `icon="app:minimize"` / `app:maximize` / `app:stop` / `app:lock` /
 /// `app:globe` / `app:appearance` / `app:bot` / `app:package` /
-/// `app:chart-column` / `app:cursor-spark` and Files/Diff/`@`
+/// `app:chart-column` / `app:server` / `app:cursor-spark` and Files/Diff/`@`
 /// `app:zig` / `app:rust` / … are verified against what
 /// `registerIcons` installs.
 const chrome_icons = [_]canvas.icons.Entry{
@@ -114,6 +118,7 @@ const chrome_icons = [_]canvas.icons.Entry{
     .{ .name = "bot", .icon = &bot_icon },
     .{ .name = "package", .icon = &package_icon },
     .{ .name = "chart-column", .icon = &chart_column_icon },
+    .{ .name = "server", .icon = &server_icon },
     .{ .name = "cursor-spark", .icon = &cursor_spark_icon },
 };
 pub const app_icons = chrome_icons ++ file_type_icons.app_icons;
@@ -148,6 +153,7 @@ test "registerIcons resolves chrome and file-type app names" {
     try std.testing.expect(canvas.icons.resolve("app:bot") != null);
     try std.testing.expect(canvas.icons.resolve("app:package") != null);
     try std.testing.expect(canvas.icons.resolve("app:chart-column") != null);
+    try std.testing.expect(canvas.icons.resolve("app:server") != null);
     try std.testing.expect(canvas.icons.resolve("app:cursor-spark") != null);
     try std.testing.expect(canvas.icons.resolve("app:lockfile") != null);
     try std.testing.expect(canvas.icons.resolve("app:exe") != null);

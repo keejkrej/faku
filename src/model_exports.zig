@@ -133,7 +133,7 @@ test "Model/Msg barrel types, caps, and defaults match owning modules" {
     try std.testing.expectEqual(@as(u8, 14), sanitizeCodeFontSize(14));
     try std.testing.expectEqual(@as(u8, 14), sanitizeCodeFontSize(17));
     try std.testing.expectEqual(@as(u8, 11), sanitizeCodeFontSize(11));
-    try std.testing.expectEqual(@as(usize, 6), settings_nav_pages.len);
+    try std.testing.expectEqual(@as(usize, 7), settings_nav_pages.len);
     try std.testing.expectEqual(@as(?usize, 0), nextPickerHighlight(null, 3, true));
     try std.testing.expectEqual(@as(?usize, 2), nextPickerHighlight(null, 3, false));
     try std.testing.expect(writeFixed == session.writeFixed);

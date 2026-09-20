@@ -61,8 +61,8 @@
 //! evolvable) plus Settings chrome Search Settings placeholder and
 //! per-page nav keywords (same `SettingsSearchChrome` strings;
 //! English matches Waku `settings.search` / `settings.*_keywords`
-//! with daemon-connection words folded into General; no Daemon page
-//! pack; distinct from `SkillsSearchChrome` / `FilterChrome`) plus
+//! including `settings.daemon_keywords`; distinct from
+//! `SkillsSearchChrome` / `FilterChrome`) plus
 //! Settings chrome Back a11y (same `SettingsBackChrome` strings;
 //! EN Back / zh-CN 返回 / ja 戻る; distinct from
 //! `SidebarHistoryChrome` / `BrowserToolbarChrome` so packs stay
@@ -275,6 +275,12 @@
 //! `ComputerUseChrome` strings; title wording matches `Chrome.computer_use`
 //! but stays a dedicated field so the page title does not couple to
 //! Settings nav; wire ids stay English)
+//! plus Settings Daemon page body chrome (same
+//! `DaemonSettingsChrome` strings; title wording matches `Chrome.daemon`
+//! but stays a dedicated field so the page title does not couple to
+//! Settings nav; product name Faku; distinct from
+//! `DaemonAddressChrome` / `DaemonDirChrome` / `ComputerUseChrome`;
+//! display-only external-client page; wire ids stay English)
 //! plus Settings Usage Daily / Monthly / Projects view chips,
 //! Daily / Projects window chips, Cost|Tokens metric chips, and
 //! Daily-only Model|Days breakdown chips (same `UsageViewChrome`
@@ -632,8 +638,8 @@
 //! plus Settings chrome Search Settings placeholder and per-page
 //! nav keywords (same `SettingsSearchChrome` strings; English
 //! matches Waku `settings.search` / `settings.*_keywords`; EN
-//! Search Settings / zh-CN 搜索设置 / ja 設定を検索; General
-//! keywords fold daemon-connection words; no Daemon page pack;
+//! Search Settings / zh-CN 搜索设置 / ja 設定を検索; Daemon
+//! keywords live on `daemon_keywords`;
 //! distinct from `SkillsSearchChrome` / `FilterChrome`; Model
 //! getters `settings_search_placeholder` / nav `*_visible`; wire
 //! ids / on-input stay English `settings_search_edit`)
@@ -1011,6 +1017,7 @@ pub const Chrome = struct {
     providers: []const u8,
     skills: []const u8,
     usage: []const u8,
+    daemon: []const u8,
     computer_use: []const u8,
     theme: []const u8,
     light: []const u8,
@@ -1031,6 +1038,7 @@ const chrome_en: Chrome = .{
     .providers = "Providers",
     .skills = "Skills",
     .usage = "Usage",
+    .daemon = "Daemon",
     .computer_use = "Computer Use",
     .theme = "Theme",
     .light = "Light",
@@ -1051,6 +1059,7 @@ const chrome_zh_cn: Chrome = .{
     .providers = "提供商",
     .skills = "技能",
     .usage = "用量",
+    .daemon = "守护进程",
     .computer_use = "电脑使用",
     .theme = "主题",
     .light = "浅色",
@@ -1071,6 +1080,7 @@ const chrome_ja: Chrome = .{
     .providers = "プロバイダー",
     .skills = "スキル",
     .usage = "使用量",
+    .daemon = "デーモン",
     .computer_use = "コンピュータ使用",
     .theme = "テーマ",
     .light = "ライト",
@@ -3823,6 +3833,55 @@ const computer_use_chrome_ja: ComputerUseChrome = .{
     .no_always_allowed_apps = "常に許可するアプリはありません",
 };
 
+/// Settings Daemon page body chrome for the resolved locale.
+/// Same resolve path as ComputerUseChrome. Title wording matches
+/// `Chrome.daemon` (守护进程 / デーモン) but lives here so the page
+/// title does not couple to Settings nav. Faku is always the
+/// external-client class: no Expose toggle, port Apply, token
+/// mint/reveal/regenerate, restart, or live WebSocket phase this
+/// cut. Connection details display the same persisted General
+/// daemon address. Wire ids stay English. Distinct from
+/// `DaemonAddressChrome` / `DaemonDirChrome` / `ComputerUseChrome`.
+pub const DaemonSettingsChrome = struct {
+    title: []const u8,
+    external_title: []const u8,
+    external_description: []const u8,
+    credentials_title: []const u8,
+    websocket_url: []const u8,
+    status: []const u8,
+    not_configured: []const u8,
+};
+
+const daemon_settings_chrome_en: DaemonSettingsChrome = .{
+    .title = "Daemon",
+    .external_title = "External daemon",
+    .external_description = "This desktop connects to a daemon managed outside Faku. Configure its listener, browser origins, and token on that host. Faku does not expose or host a managed daemon this cut.",
+    .credentials_title = "Connection details",
+    .websocket_url = "WebSocket URL",
+    .status = "Status",
+    .not_configured = "Not configured",
+};
+
+const daemon_settings_chrome_zh_cn: DaemonSettingsChrome = .{
+    .title = "守护进程",
+    .external_title = "外部守护进程",
+    .external_description = "此桌面应用连接到由 Faku 之外管理的守护进程。请在对应主机上配置监听地址、浏览器来源和令牌。Faku 本轮不托管或暴露托管守护进程。",
+    .credentials_title = "连接信息",
+    .websocket_url = "WebSocket 地址",
+    .status = "状态",
+    .not_configured = "未配置",
+};
+
+const daemon_settings_chrome_ja: DaemonSettingsChrome = .{
+    .title = "デーモン",
+    .external_title = "外部デーモン",
+    .external_description = "このデスクトップは Faku の外部で管理されているデーモンに接続します。リスナー、ブラウザオリジン、トークンは接続先ホストで設定してください。Faku はこのカットでは管理デーモンをホスト／公開しません。",
+    .credentials_title = "接続情報",
+    .websocket_url = "WebSocket URL",
+    .status = "状態",
+    .not_configured = "未設定",
+};
+
 /// Settings Usage Daily / Monthly / Projects view chips, Daily /
 /// Projects window chips, Cost|Tokens metric chips, and Daily-only
 /// Model|Days breakdown chips for the resolved locale. Same resolve
@@ -5444,12 +5503,14 @@ const skills_search_chrome_ja: SkillsSearchChrome = .{
 /// SkillsSearchChrome / FilterChrome. English matches Waku
 /// `settings.search` / `settings.*_keywords`. Distinct from
 /// `SkillsSearchChrome` (Skills list) and `FilterChrome` (Usage
-/// Projects) so this pack stays independently evolvable. No Daemon
-/// page pack this cut; daemon-connection words fold into General
-/// (Faku keeps daemon address on General). Faku nav-label words
+/// Projects) so this pack stays independently evolvable. Daemon
+/// keywords match Waku `settings.daemon_keywords` (EN) and Waku
+/// zh-CN / ja locales. Faku keeps the daemon address editor on
+/// General. Faku nav-label words
 /// that differ from Waku (zh-CN Providers 提供商, Computer Use
 /// 电脑使用; ja Usage 使用量) sit on those packs so the visible
-/// tab remains searchable. Settings chrome reads this pack via
+/// tab remains searchable.
+/// Settings chrome reads this pack via
 /// Model `settings_search_placeholder` / nav visibility helpers.
 /// Wire ids / on-input stay English (`settings_search_edit`);
 /// filter text stays English (user-typed).
@@ -5460,36 +5521,40 @@ pub const SettingsSearchChrome = struct {
     providers_keywords: []const u8,
     skills_keywords: []const u8,
     usage_keywords: []const u8,
+    daemon_keywords: []const u8,
     computer_use_keywords: []const u8,
 };
 
 const settings_search_chrome_en: SettingsSearchChrome = .{
     .search = "Search Settings",
-    .general_keywords = "general local projects conversations privacy analytics telemetry anonymous sharing updates automatic sparkle version daemon server remote websocket host port",
+    .general_keywords = "general local projects conversations privacy analytics telemetry anonymous sharing updates automatic sparkle version",
     .appearance_keywords = "appearance theme system light dark language english chinese simplified",
     .providers_keywords = "providers agents models cli version install detect claude codex cursor opencode amp grok pi",
     .skills_keywords = "skills skill library agent disable enable delete claude codex cursor opencode pi amp shared",
     .usage_keywords = "usage tokens cost spend cache daily chart model breakdown history claude codex",
+    .daemon_keywords = "daemon server remote web network expose origin token port websocket",
     .computer_use_keywords = "computer use screen recording accessibility apps control codex",
 };
 
 const settings_search_chrome_zh_cn: SettingsSearchChrome = .{
     .search = "搜索设置",
-    .general_keywords = "通用 本地 项目 对话 隐私 匿名 使用数据 分析 分享 更新 自动 版本 daemon server remote websocket host port 守护进程 服务器 远程 主机 端口",
+    .general_keywords = "通用 本地 项目 对话 隐私 匿名 使用数据 分析 分享 更新 自动 版本",
     .appearance_keywords = "外观 主题 系统 浅色 深色 语言 英语 中文 简体",
     .providers_keywords = "服务商 提供商 智能体 模型 命令行 版本 安装 检测 claude codex cursor opencode amp grok pi",
     .skills_keywords = "技能 技能库 智能体 禁用 启用 删除 claude codex cursor opencode pi amp 共享",
     .usage_keywords = "用量 令牌 费用 支出 缓存 每日 图表 模型 明细 历史 claude codex",
+    .daemon_keywords = "守护进程 服务 远程 网页 网络 暴露 来源 令牌 端口 websocket",
     .computer_use_keywords = "电脑操作 电脑使用 屏幕录制 辅助功能 应用 控制 codex",
 };
 
 const settings_search_chrome_ja: SettingsSearchChrome = .{
     .search = "設定を検索",
-    .general_keywords = "一般 ローカル プロジェクト 会話 プライバシー 分析 テレメトリ 匿名 共有 アップデート 自動 バージョン daemon server remote websocket host port デーモン サーバー リモート ホスト ポート",
+    .general_keywords = "一般 ローカル プロジェクト 会話 プライバシー 分析 テレメトリ 匿名 共有 アップデート 自動 バージョン",
     .appearance_keywords = "外観 テーマ システム ライト ダーク 言語 英語 中国語 簡体字 日本語",
     .providers_keywords = "プロバイダー エージェント モデル CLI バージョン インストール 検出 claude codex cursor opencode amp grok pi",
     .skills_keywords = "スキル ライブラリ エージェント 無効 有効 削除 claude codex cursor opencode pi amp 共有",
     .usage_keywords = "使用状況 使用量 トークン コスト 支出 キャッシュ 日別 グラフ モデル 内訳 履歴 claude codex",
+    .daemon_keywords = "デーモン サーバー リモート ウェブ ネットワーク 公開 オリジン トークン ポート websocket",
     .computer_use_keywords = "コンピュータ 操作 コンピュータ使用 画面収録 アクセシビリティ アプリ 制御 codex",
 };
 
@@ -6712,6 +6777,21 @@ pub fn computerUseChromeFor(preference: LanguagePreference, system_locale_id: []
     };
 }
 
+/// Settings Daemon page body chrome for the resolved locale.
+/// Callers pass Model `language_preference` + `system_locale_id`;
+/// this file does not read process env. Title wording matches
+/// `chromeFor` Daemon but stays a dedicated field. Product name
+/// Faku. Distinct from `daemonAddressChromeFor` /
+/// `daemonDirChromeFor` / `computerUseChromeFor`. Display-only;
+/// no Expose / Apply / token / restart / live phase this cut.
+pub fn daemonSettingsChromeFor(preference: LanguagePreference, system_locale_id: []const u8) DaemonSettingsChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => daemon_settings_chrome_zh_cn,
+        .japanese => daemon_settings_chrome_ja,
+        .system, .english => daemon_settings_chrome_en,
+    };
+}
+
 /// Settings Usage Daily / Monthly / Projects view chips, Daily /
 /// Projects window chips, Cost|Tokens metric chips, and Daily-only
 /// Model|Days breakdown chips for the resolved locale. Callers pass
@@ -7384,8 +7464,8 @@ pub fn skillsSearchChromeFor(preference: LanguagePreference, system_locale_id: [
 /// `language_preference` + `system_locale_id`; this file does not
 /// read process env. Distinct from SkillsSearchChrome / FilterChrome
 /// so Settings nav search stays independently evolvable. English
-/// matches Waku `settings.search` / `settings.*_keywords`. No Daemon
-/// page pack; General keywords include daemon-connection words.
+/// matches Waku `settings.search` / `settings.*_keywords`. Daemon
+/// keywords live on `daemon_keywords` (Waku `settings.daemon_keywords`).
 /// Wire ids / on-input stay English (`settings_search_edit`).
 pub fn settingsSearchChromeFor(preference: LanguagePreference, system_locale_id: []const u8) SettingsSearchChrome {
     return switch (resolve(preference, system_locale_id)) {
@@ -10527,6 +10607,58 @@ test "computerUseChromeFor english default; zh and ja chrome; english ignores ja
     try testing.expectEqualStrings("Off", computerUseChromeFor(.english, "zh_CN.UTF-8").off);
 }
 
+test "daemonSettingsChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Daemon", daemonSettingsChromeFor(.english, "ja").title);
+    try testing.expectEqualStrings("Daemon", daemonSettingsChromeFor(.english, "").title);
+    try testing.expectEqualStrings("Daemon", daemonSettingsChromeFor(.system, "").title);
+    try testing.expectEqualStrings("External daemon", daemonSettingsChromeFor(.english, "").external_title);
+    try testing.expectEqualStrings(
+        "This desktop connects to a daemon managed outside Faku. Configure its listener, browser origins, and token on that host. Faku does not expose or host a managed daemon this cut.",
+        daemonSettingsChromeFor(.english, "").external_description,
+    );
+    try testing.expect(std.mem.indexOf(u8, daemonSettingsChromeFor(.english, "").external_description, "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, daemonSettingsChromeFor(.english, "").external_description, "Waku") == null);
+    try testing.expectEqualStrings("Connection details", daemonSettingsChromeFor(.english, "").credentials_title);
+    try testing.expectEqualStrings("WebSocket URL", daemonSettingsChromeFor(.english, "").websocket_url);
+    try testing.expectEqualStrings("Status", daemonSettingsChromeFor(.english, "").status);
+    try testing.expectEqualStrings("Not configured", daemonSettingsChromeFor(.english, "").not_configured);
+    try testing.expectEqualStrings(chromeFor(.english, "").daemon, daemonSettingsChromeFor(.english, "").title);
+
+    try testing.expectEqualStrings("守护进程", daemonSettingsChromeFor(.simplified_chinese, "").title);
+    try testing.expectEqualStrings("外部守护进程", daemonSettingsChromeFor(.simplified_chinese, "").external_title);
+    try testing.expectEqualStrings(
+        "此桌面应用连接到由 Faku 之外管理的守护进程。请在对应主机上配置监听地址、浏览器来源和令牌。Faku 本轮不托管或暴露托管守护进程。",
+        daemonSettingsChromeFor(.simplified_chinese, "").external_description,
+    );
+    try testing.expectEqualStrings("连接信息", daemonSettingsChromeFor(.simplified_chinese, "").credentials_title);
+    try testing.expectEqualStrings("WebSocket 地址", daemonSettingsChromeFor(.simplified_chinese, "").websocket_url);
+    try testing.expectEqualStrings("状态", daemonSettingsChromeFor(.simplified_chinese, "").status);
+    try testing.expectEqualStrings("未配置", daemonSettingsChromeFor(.simplified_chinese, "").not_configured);
+    try testing.expectEqualStrings(chromeFor(.simplified_chinese, "").daemon, daemonSettingsChromeFor(.simplified_chinese, "").title);
+
+    try testing.expectEqualStrings("デーモン", daemonSettingsChromeFor(.japanese, "").title);
+    try testing.expectEqualStrings("外部デーモン", daemonSettingsChromeFor(.japanese, "").external_title);
+    try testing.expectEqualStrings(
+        "このデスクトップは Faku の外部で管理されているデーモンに接続します。リスナー、ブラウザオリジン、トークンは接続先ホストで設定してください。Faku はこのカットでは管理デーモンをホスト／公開しません。",
+        daemonSettingsChromeFor(.japanese, "").external_description,
+    );
+    try testing.expectEqualStrings("接続情報", daemonSettingsChromeFor(.japanese, "").credentials_title);
+    try testing.expectEqualStrings("WebSocket URL", daemonSettingsChromeFor(.japanese, "").websocket_url);
+    try testing.expectEqualStrings("状態", daemonSettingsChromeFor(.japanese, "").status);
+    try testing.expectEqualStrings("未設定", daemonSettingsChromeFor(.japanese, "").not_configured);
+    try testing.expectEqualStrings(chromeFor(.japanese, "").daemon, daemonSettingsChromeFor(.japanese, "").title);
+
+    try testing.expectEqualStrings("守护进程", daemonSettingsChromeFor(.system, "zh_CN.UTF-8").title);
+    try testing.expectEqualStrings("未配置", daemonSettingsChromeFor(.system, "zh_CN.UTF-8").not_configured);
+    try testing.expectEqualStrings("デーモン", daemonSettingsChromeFor(.system, "ja_JP.UTF-8").title);
+    try testing.expectEqualStrings("未設定", daemonSettingsChromeFor(.system, "ja_JP.UTF-8").not_configured);
+    try testing.expectEqualStrings("Daemon", daemonSettingsChromeFor(.english, "ja_JP.UTF-8").title);
+    try testing.expectEqualStrings("Not configured", daemonSettingsChromeFor(.english, "zh_CN.UTF-8").not_configured);
+    try testing.expect(!std.mem.eql(u8, daemonSettingsChromeFor(.english, "").external_title, daemonAddressChromeFor(.english, "").placeholder));
+    try testing.expect(!std.mem.eql(u8, daemonSettingsChromeFor(.english, "").title, computerUseChromeFor(.english, "").title));
+}
+
 test "usageViewChromeFor english default; zh and ja chrome; latin day chips; english ignores ja LANG" {
     const testing = std.testing;
     try testing.expectEqualStrings("Daily", usageViewChromeFor(.english, "ja").daily);
@@ -12345,7 +12477,7 @@ test "settingsSearchChromeFor english default; zh and ja chrome; keywords; disti
     try testing.expectEqualStrings("Search Settings", settingsSearchChromeFor(.english, "").search);
     try testing.expectEqualStrings("Search Settings", settingsSearchChromeFor(.system, "").search);
     try testing.expectEqualStrings(
-        "general local projects conversations privacy analytics telemetry anonymous sharing updates automatic sparkle version daemon server remote websocket host port",
+        "general local projects conversations privacy analytics telemetry anonymous sharing updates automatic sparkle version",
         settingsSearchChromeFor(.english, "").general_keywords,
     );
     try testing.expectEqualStrings(
@@ -12365,13 +12497,17 @@ test "settingsSearchChromeFor english default; zh and ja chrome; keywords; disti
         settingsSearchChromeFor(.english, "").usage_keywords,
     );
     try testing.expectEqualStrings(
+        "daemon server remote web network expose origin token port websocket",
+        settingsSearchChromeFor(.english, "").daemon_keywords,
+    );
+    try testing.expectEqualStrings(
         "computer use screen recording accessibility apps control codex",
         settingsSearchChromeFor(.english, "").computer_use_keywords,
     );
 
     try testing.expectEqualStrings("搜索设置", settingsSearchChromeFor(.simplified_chinese, "").search);
     try testing.expectEqualStrings(
-        "通用 本地 项目 对话 隐私 匿名 使用数据 分析 分享 更新 自动 版本 daemon server remote websocket host port 守护进程 服务器 远程 主机 端口",
+        "通用 本地 项目 对话 隐私 匿名 使用数据 分析 分享 更新 自动 版本",
         settingsSearchChromeFor(.simplified_chinese, "").general_keywords,
     );
     try testing.expectEqualStrings(
@@ -12391,13 +12527,17 @@ test "settingsSearchChromeFor english default; zh and ja chrome; keywords; disti
         settingsSearchChromeFor(.simplified_chinese, "").usage_keywords,
     );
     try testing.expectEqualStrings(
+        "守护进程 服务 远程 网页 网络 暴露 来源 令牌 端口 websocket",
+        settingsSearchChromeFor(.simplified_chinese, "").daemon_keywords,
+    );
+    try testing.expectEqualStrings(
         "电脑操作 电脑使用 屏幕录制 辅助功能 应用 控制 codex",
         settingsSearchChromeFor(.simplified_chinese, "").computer_use_keywords,
     );
 
     try testing.expectEqualStrings("設定を検索", settingsSearchChromeFor(.japanese, "").search);
     try testing.expectEqualStrings(
-        "一般 ローカル プロジェクト 会話 プライバシー 分析 テレメトリ 匿名 共有 アップデート 自動 バージョン daemon server remote websocket host port デーモン サーバー リモート ホスト ポート",
+        "一般 ローカル プロジェクト 会話 プライバシー 分析 テレメトリ 匿名 共有 アップデート 自動 バージョン",
         settingsSearchChromeFor(.japanese, "").general_keywords,
     );
     try testing.expectEqualStrings(
@@ -12417,6 +12557,10 @@ test "settingsSearchChromeFor english default; zh and ja chrome; keywords; disti
         settingsSearchChromeFor(.japanese, "").usage_keywords,
     );
     try testing.expectEqualStrings(
+        "デーモン サーバー リモート ウェブ ネットワーク 公開 オリジン トークン ポート websocket",
+        settingsSearchChromeFor(.japanese, "").daemon_keywords,
+    );
+    try testing.expectEqualStrings(
         "コンピュータ 操作 コンピュータ使用 画面収録 アクセシビリティ アプリ 制御 codex",
         settingsSearchChromeFor(.japanese, "").computer_use_keywords,
     );
@@ -12431,8 +12575,10 @@ test "settingsSearchChromeFor english default; zh and ja chrome; keywords; disti
     try testing.expect(!std.mem.eql(u8, settingsSearchChromeFor(.japanese, "").search, skillsSearchChromeFor(.japanese, "").search));
     try testing.expect(!std.mem.eql(u8, settingsSearchChromeFor(.english, "").search, filterChromeFor(.english, "").filter_skills));
     try testing.expect(!std.mem.eql(u8, settingsSearchChromeFor(.english, "").search, filterChromeFor(.english, "").filter_projects));
-    try testing.expect(std.mem.indexOf(u8, settingsSearchChromeFor(.english, "").general_keywords, "daemon") != null);
-    try testing.expect(std.mem.indexOf(u8, settingsSearchChromeFor(.english, "").general_keywords, "websocket") != null);
+    try testing.expect(std.mem.indexOf(u8, settingsSearchChromeFor(.english, "").general_keywords, "daemon") == null);
+    try testing.expect(std.mem.indexOf(u8, settingsSearchChromeFor(.english, "").general_keywords, "websocket") == null);
+    try testing.expect(std.mem.indexOf(u8, settingsSearchChromeFor(.english, "").daemon_keywords, "daemon") != null);
+    try testing.expect(std.mem.indexOf(u8, settingsSearchChromeFor(.english, "").daemon_keywords, "websocket") != null);
     try testing.expect(std.mem.indexOf(u8, settingsSearchChromeFor(.simplified_chinese, "").providers_keywords, "提供商") != null);
     try testing.expect(std.mem.indexOf(u8, settingsSearchChromeFor(.japanese, "").usage_keywords, "使用量") != null);
 }

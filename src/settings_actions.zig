@@ -411,6 +411,10 @@ pub fn handleUsageProjectFilterEdit(model: *Model, edit: canvas.TextInputEvent) 
     store.persistSettingsIfPossible(model);
 }
 
+pub fn handleSetSettingsPageDaemon(model: *Model, fx: *Effects) void {
+    handleSetSettingsPage(model, fx, .daemon);
+}
+
 pub fn handleSetSettingsPageComputerUse(model: *Model, fx: *Effects) void {
     handleSetSettingsPage(model, fx, .computer_use);
 }
@@ -431,7 +435,7 @@ fn handleCycleSettingsPage(model: *Model, fx: *Effects, down: bool) void {
 
 fn handleSetSettingsPage(model: *Model, fx: *Effects, page: skills.Page) void {
     switch (page) {
-        .general, .appearance, .providers, .computer_use => {
+        .general, .appearance, .providers, .daemon, .computer_use => {
             leaveUsagePage(model);
             leaveSkillsPage(model, fx);
         },
@@ -446,7 +450,7 @@ fn handleSetSettingsPage(model: *Model, fx: *Effects, page: skills.Page) void {
             usage_history.refresh(model, fx);
             litellm_rates.ensure(model, fx);
         },
-        .general, .appearance, .computer_use => {},
+        .general, .appearance, .daemon, .computer_use => {},
     }
     store.persistSettingsIfPossible(model);
 }
@@ -513,7 +517,7 @@ fn resumeSettingsPage(model: *Model, fx: *Effects) void {
             usage_history.refresh(model, fx);
             litellm_rates.ensure(model, fx);
         },
-        .general, .appearance, .computer_use => {},
+        .general, .appearance, .daemon, .computer_use => {},
     }
 }
 

@@ -14419,6 +14419,7 @@ test "settings General and Skills pages switch; Skills empty without a project" 
     try testing.expect(!model.settings_page_providers());
     try testing.expect(!model.settings_page_appearance());
     try testing.expect(!model.settings_page_usage());
+    try testing.expect(!model.settings_page_daemon());
     try testing.expect(!model.settings_page_computer_use());
 
     var tree = try buildTree(arena, &model);
@@ -14432,13 +14433,16 @@ test "settings General and Skills pages switch; Skills empty without a project" 
     try testing.expect(!skills_tab.state.selected);
     const usage_tab = try expectButtonMsg(tree, "Usage", .set_settings_page_usage);
     try testing.expect(!usage_tab.state.selected);
+    const daemon_tab = try expectButtonMsg(tree, "Daemon", .set_settings_page_daemon);
+    try testing.expect(!daemon_tab.state.selected);
     const computer_use_tab = try expectButtonMsg(tree, "Computer Use", .set_settings_page_computer_use);
     try testing.expect(!computer_use_tab.state.selected);
     try testing.expect(pressableAppearsBefore(tree.root, "General", "Appearance"));
     try testing.expect(pressableAppearsBefore(tree.root, "Appearance", "Providers"));
     try testing.expect(pressableAppearsBefore(tree.root, "Providers", "Skills"));
     try testing.expect(pressableAppearsBefore(tree.root, "Skills", "Usage"));
-    try testing.expect(pressableAppearsBefore(tree.root, "Usage", "Computer Use"));
+    try testing.expect(pressableAppearsBefore(tree.root, "Usage", "Daemon"));
+    try testing.expect(pressableAppearsBefore(tree.root, "Daemon", "Computer Use"));
     _ = try expectByText(tree.root, .text, "Default model");
     try testing.expect(findByText(tree.root, .text, "Theme") == null);
     try testing.expect(findByText(tree.root, .text, "Language") == null);
@@ -14456,6 +14460,7 @@ test "settings General and Skills pages switch; Skills empty without a project" 
     try testing.expect(!model.settings_page_providers());
     try testing.expect(!model.settings_page_appearance());
     try testing.expect(!model.settings_page_usage());
+    try testing.expect(!model.settings_page_daemon());
     try testing.expect(!model.settings_page_computer_use());
     try testing.expectEqual(@as(u32, 0), model.skill_count);
 
@@ -14519,7 +14524,8 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     try testing.expect(pressableAppearsBefore(tree.root, "Appearance", "Providers"));
     try testing.expect(pressableAppearsBefore(tree.root, "Providers", "Skills"));
     try testing.expect(pressableAppearsBefore(tree.root, "Skills", "Usage"));
-    try testing.expect(pressableAppearsBefore(tree.root, "Usage", "Computer Use"));
+    try testing.expect(pressableAppearsBefore(tree.root, "Usage", "Daemon"));
+    try testing.expect(pressableAppearsBefore(tree.root, "Daemon", "Computer Use"));
     const appearance_tab = try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance);
     try testing.expect(!appearance_tab.state.selected);
     _ = try expectByText(tree.root, .text, "Default model");
@@ -14534,6 +14540,7 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     try testing.expect(!model.settings_page_providers());
     try testing.expect(!model.settings_page_skills());
     try testing.expect(!model.settings_page_usage());
+    try testing.expect(!model.settings_page_daemon());
     try testing.expect(!model.settings_page_computer_use());
 
     tree = try buildTree(arena, &model);
@@ -14895,7 +14902,8 @@ test "settings Usage tab sits after Skills; local context and thread-goal labels
     try testing.expect(model.settings_page_general());
     var tree = try buildTree(arena, &model);
     try testing.expect(pressableAppearsBefore(tree.root, "Skills", "Usage"));
-    try testing.expect(pressableAppearsBefore(tree.root, "Usage", "Computer Use"));
+    try testing.expect(pressableAppearsBefore(tree.root, "Usage", "Daemon"));
+    try testing.expect(pressableAppearsBefore(tree.root, "Daemon", "Computer Use"));
     const usage_tab = try expectButtonMsg(tree, "Usage", .set_settings_page_usage);
     try testing.expect(!usage_tab.state.selected);
     _ = try expectByText(tree.root, .text, "Default model");
@@ -15830,7 +15838,8 @@ test "settings Computer Use tab sits after Usage; Unavailable, Off, empty apps" 
     main.update(&model, .toggle_settings, &fx);
     try testing.expect(model.settings_page_general());
     var tree = try buildTree(arena, &model);
-    try testing.expect(pressableAppearsBefore(tree.root, "Usage", "Computer Use"));
+    try testing.expect(pressableAppearsBefore(tree.root, "Usage", "Daemon"));
+    try testing.expect(pressableAppearsBefore(tree.root, "Daemon", "Computer Use"));
     const computer_use_tab = try expectButtonMsg(tree, "Computer Use", .set_settings_page_computer_use);
     try testing.expect(!computer_use_tab.state.selected);
     _ = try expectByText(tree.root, .text, "Default model");
@@ -15858,6 +15867,7 @@ test "settings Computer Use tab sits after Usage; Unavailable, Off, empty apps" 
     try testing.expect(!(try expectButtonMsg(tree, "Providers", .set_settings_page_providers)).state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "Skills", .set_settings_page_skills)).state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "Usage", .set_settings_page_usage)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Daemon", .set_settings_page_daemon)).state.selected);
     try testing.expect(findByText(tree.root, .text, "Default model") == null);
     try testing.expect(findByText(tree.root, .text, "Theme") == null);
     try testing.expect(findByText(tree.root, .text, "Language") == null);
@@ -15866,6 +15876,8 @@ test "settings Computer Use tab sits after Usage; Unavailable, Off, empty apps" 
     try testing.expect(findByText(tree.root, .list_item, "fx") == null);
     try testing.expect(findByText(tree.root, .button, "Refresh") == null);
     try testing.expect(findByText(tree.root, .button, "Grant access") == null);
+    try testing.expect(findByText(tree.root, .text, "Expose") == null);
+    try testing.expect(findByText(tree.root, .text, "External daemon") == null);
     _ = try expectByText(tree.root, .text, "Computer Use");
     _ = try expectByText(tree.root, .text, "Availability");
     _ = try expectByText(tree.root, .text, "Unavailable");
@@ -15886,6 +15898,170 @@ test "settings Computer Use tab sits after Usage; Unavailable, Off, empty apps" 
     try testing.expect(findByText(tree.root, .text, "Unavailable") == null);
     try testing.expect(findByText(tree.root, .text, "Always-allowed apps") == null);
     try testing.expect(findByText(tree.root, .button, "Off") == null);
+}
+
+test "settings Daemon tab sits between Usage and Computer Use; external-only, empty Not configured" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "{daemon_settings_title}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{daemon_settings_external_title}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{daemon_settings_external_description}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{daemon_settings_credentials_title}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{daemon_settings_websocket_url_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{daemon_settings_address_display}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{daemon_settings_status_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{daemon_settings_status_display}"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">External daemon</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Connection details</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">WebSocket URL</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Not configured</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Expose</text>"));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"apply_daemon") == null);
+
+    var empty = Model{};
+    try testing.expectEqual(skills.Page.general, empty.settings_page);
+    try testing.expect(empty.settings_page_general());
+    try testing.expect(!empty.settings_page_daemon());
+    try testing.expect(empty.daemon_settings_not_configured());
+    try testing.expect(!empty.daemon_settings_has_address());
+    try testing.expectEqualStrings("Not configured", empty.daemon_settings_address_display());
+    try testing.expectEqualStrings("Not configured", empty.daemon_settings_status_display());
+    try testing.expectEqualStrings("External daemon", empty.daemon_settings_external_title());
+    try testing.expectEqualStrings(i18n.daemonSettingsChromeFor(.english, "").external_title, empty.daemon_settings_external_title());
+    try testing.expectEqualStrings(i18n.chromeFor(.english, "").daemon, empty.daemon_settings_title());
+    try testing.expectEqualStrings(empty.settings_nav_daemon(), empty.daemon_settings_title());
+    try testing.expect(std.mem.indexOf(u8, empty.daemon_settings_external_description(), "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, empty.daemon_settings_external_description(), "Waku") == null);
+    try testing.expect(std.mem.indexOf(u8, empty.daemon_settings_external_description(), "does not expose") != null);
+
+    var model = boot.initialModel();
+    try testing.expect(model.daemon_settings_not_configured());
+    try testing.expectEqualStrings("Not configured", model.daemon_settings_address_display());
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_page_general());
+    var tree = try buildTree(arena, &model);
+    try testing.expect(pressableAppearsBefore(tree.root, "Usage", "Daemon"));
+    try testing.expect(pressableAppearsBefore(tree.root, "Daemon", "Computer Use"));
+    const daemon_tab = try expectButtonMsg(tree, "Daemon", .set_settings_page_daemon);
+    try testing.expect(!daemon_tab.state.selected);
+    _ = try expectByText(tree.root, .text, "Default model");
+    try testing.expect(findByText(tree.root, .text, "External daemon") == null);
+    try testing.expect(findByText(tree.root, .text, "Connection details") == null);
+    try testing.expect(findByText(tree.root, .text, "Not configured") == null);
+
+    main.update(&model, tree.msgForPointer(daemon_tab.id, .up).?, &fx);
+    try testing.expect(model.settings_page_daemon());
+    try testing.expect(!model.settings_page_general());
+    try testing.expect(!model.settings_page_appearance());
+    try testing.expect(!model.settings_page_providers());
+    try testing.expect(!model.settings_page_skills());
+    try testing.expect(!model.settings_page_usage());
+    try testing.expect(!model.settings_page_computer_use());
+    try testing.expect(model.daemon_settings_not_configured());
+    try testing.expectEqualStrings("Not configured", model.daemon_settings_address_display());
+    try testing.expectEqualStrings("Not configured", model.daemon_settings_status_display());
+    try testing.expectEqualStrings("Daemon", model.settings_page_heading());
+    try testing.expectEqualStrings(model.daemon_settings_title(), model.settings_page_heading());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Daemon", .set_settings_page_daemon)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "General", .set_settings_page_general)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Usage", .set_settings_page_usage)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Computer Use", .set_settings_page_computer_use)).state.selected);
+    try testing.expect(findByText(tree.root, .text, "Default model") == null);
+    try testing.expect(findByText(tree.root, .text, "Theme") == null);
+    try testing.expect(findByText(tree.root, .text, "Context window") == null);
+    try testing.expect(findByText(tree.root, .text, "Unavailable") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Search skills…") == null);
+    try testing.expect(findByText(tree.root, .list_item, "fx") == null);
+    try testing.expect(findByText(tree.root, .button, "Refresh") == null);
+    try testing.expect(findByText(tree.root, .button, "Expose") == null);
+    try testing.expect(findByText(tree.root, .button, "Apply") == null);
+    try testing.expect(findByText(tree.root, .button, "Regenerate") == null);
+    try testing.expect(findByText(tree.root, .button, "Disconnect") == null);
+    try testing.expect(findByText(tree.root, .button, "Forget daemon") == null);
+    try testing.expect(findByText(tree.root, .button, "Reconnect") == null);
+    _ = try expectByText(tree.root, .text, "Daemon");
+    _ = try expectByText(tree.root, .text, "External daemon");
+    try testing.expect(findTextContaining(tree.root, "outside Faku") != null);
+    try testing.expect(findTextContaining(tree.root, "does not expose") != null);
+    _ = try expectByText(tree.root, .text, "Connection details");
+    _ = try expectByText(tree.root, .text, "WebSocket URL");
+    _ = try expectByText(tree.root, .text, "Status");
+    _ = try expectByText(tree.root, .text, "Not configured");
+    try testing.expect(findNthByText(tree.root, .text, "Not configured", 1) != null);
+
+    main.update(&model, .{ .settings_daemon_edit = .{ .insert_text = "127.0.0.1:8787" } }, &fx);
+    try testing.expectEqualStrings("127.0.0.1:8787", model.lastDaemonAddress());
+    try testing.expect(model.daemon_settings_has_address());
+    try testing.expect(!model.daemon_settings_not_configured());
+    try testing.expectEqualStrings("127.0.0.1:8787", model.daemon_settings_address_display());
+    try testing.expectEqualStrings("127.0.0.1:8787", model.daemon_settings_status_display());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "127.0.0.1:8787");
+    try testing.expect(findNthByText(tree.root, .text, "127.0.0.1:8787", 1) != null);
+    try testing.expect(findByText(tree.root, .text, "Not configured") == null);
+    try testing.expect(findByText(tree.root, .button, "Expose") == null);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("守护进程", model.daemon_settings_title());
+    try testing.expectEqualStrings(i18n.daemonSettingsChromeFor(.simplified_chinese, "").title, model.daemon_settings_title());
+    try testing.expectEqualStrings("外部守护进程", model.daemon_settings_external_title());
+    try testing.expectEqualStrings("连接信息", model.daemon_settings_credentials_title());
+    try testing.expectEqualStrings("WebSocket 地址", model.daemon_settings_websocket_url_label());
+    try testing.expectEqualStrings("状态", model.daemon_settings_status_label());
+    try testing.expectEqualStrings("127.0.0.1:8787", model.daemon_settings_address_display());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "守护进程");
+    _ = try expectByText(tree.root, .text, "外部守护进程");
+    _ = try expectByText(tree.root, .text, "连接信息");
+    try testing.expect((try expectButtonMsg(tree, "守护进程", .set_settings_page_daemon)).state.selected);
+    try testing.expect(findByText(tree.root, .text, "Daemon") == null);
+    try testing.expect(findByText(tree.root, .text, "External daemon") == null);
+    try testing.expect(findByText(tree.root, .text, "Not configured") == null);
+
+    main.update(&model, .{ .settings_daemon_edit = .clear }, &fx);
+    try testing.expect(model.daemon_settings_not_configured());
+    try testing.expectEqualStrings("未配置", model.daemon_settings_address_display());
+    try testing.expectEqualStrings("未配置", model.daemon_settings_status_display());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "未配置");
+    try testing.expect(findByText(tree.root, .text, "Not configured") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("デーモン", model.daemon_settings_title());
+    try testing.expectEqualStrings(i18n.daemonSettingsChromeFor(.japanese, "").title, model.daemon_settings_title());
+    try testing.expectEqualStrings("外部デーモン", model.daemon_settings_external_title());
+    try testing.expectEqualStrings("接続情報", model.daemon_settings_credentials_title());
+    try testing.expectEqualStrings("未設定", model.daemon_settings_not_configured_label());
+    try testing.expectEqualStrings("未設定", model.daemon_settings_address_display());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "デーモン");
+    _ = try expectByText(tree.root, .text, "外部デーモン");
+    _ = try expectByText(tree.root, .text, "未設定");
+    try testing.expect((try expectButtonMsg(tree, "デーモン", .set_settings_page_daemon)).state.selected);
+    try testing.expect(findByText(tree.root, .text, "未配置") == null);
+    try testing.expect(findByText(tree.root, .text, "Not configured") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Daemon", model.daemon_settings_title());
+    try testing.expectEqualStrings("Not configured", model.daemon_settings_address_display());
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("守护进程", model.daemon_settings_title());
+    try testing.expectEqualStrings("未配置", model.daemon_settings_not_configured_label());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("デーモン", model.daemon_settings_title());
+    try testing.expectEqualStrings("未設定", model.daemon_settings_not_configured_label());
 }
 
 test "theme preference defaults to System; Light/Dark force scheme regardless of OS" {
@@ -16765,6 +16941,7 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     try testing.expect(!(try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance)).state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "Skills", .set_settings_page_skills)).state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "Usage", .set_settings_page_usage)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Daemon", .set_settings_page_daemon)).state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "Computer Use", .set_settings_page_computer_use)).state.selected);
     _ = try expectButtonMsg(tree, "Refresh", .refresh_providers);
     try testing.expect(findByText(tree.root, .text, "Default model") == null);
@@ -28318,7 +28495,7 @@ test "Settings Skills search and Usage Projects filter chrome follow Appearance 
     try testing.expectEqualStrings("No matching projects", model.no_matching_projects_label());
 }
 
-test "Settings search chrome filters nav tabs by keywords; empty query shows all six" {
+test "Settings search chrome filters nav tabs by keywords; empty query shows all seven" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -28335,15 +28512,17 @@ test "Settings search chrome filters nav tabs by keywords; empty query shows all
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_nav_providers_visible}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_nav_skills_visible}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_nav_usage_visible}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_nav_daemon_visible}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_nav_computer_use_visible}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "icon=\"settings\" selected=\"{settings_page_general}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "icon=\"app:appearance\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "icon=\"app:bot\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "icon=\"app:package\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "icon=\"app:chart-column\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "icon=\"app:server\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "icon=\"app:cursor-spark\"") != null);
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "placeholder=\"Search Settings\""));
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "set_settings_page_daemon") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "set_settings_page_daemon") != null);
 
     var model = boot.initialModel();
     try testing.expectEqualStrings("Search Settings", model.settings_search_placeholder());
@@ -28356,6 +28535,7 @@ test "Settings search chrome filters nav tabs by keywords; empty query shows all
     try testing.expect(model.settings_nav_providers_visible());
     try testing.expect(model.settings_nav_skills_visible());
     try testing.expect(model.settings_nav_usage_visible());
+    try testing.expect(model.settings_nav_daemon_visible());
     try testing.expect(model.settings_nav_computer_use_visible());
 
     main.update(&model, .toggle_settings, &fx);
@@ -28368,6 +28548,7 @@ test "Settings search chrome filters nav tabs by keywords; empty query shows all
     _ = try expectButtonMsg(tree, "Providers", .set_settings_page_providers);
     _ = try expectButtonMsg(tree, "Skills", .set_settings_page_skills);
     _ = try expectButtonMsg(tree, "Usage", .set_settings_page_usage);
+    _ = try expectButtonMsg(tree, "Daemon", .set_settings_page_daemon);
     _ = try expectButtonMsg(tree, "Computer Use", .set_settings_page_computer_use);
     _ = try expectByText(tree.root, .text, "Default model");
 
@@ -28378,6 +28559,7 @@ test "Settings search chrome filters nav tabs by keywords; empty query shows all
     try testing.expect(model.settings_nav_providers_visible());
     try testing.expect(model.settings_nav_skills_visible());
     try testing.expect(model.settings_nav_usage_visible());
+    try testing.expect(model.settings_nav_daemon_visible());
     try testing.expect(model.settings_nav_computer_use_visible());
 
     main.update(&model, .{ .settings_search_edit = .clear }, &fx);
@@ -28388,6 +28570,7 @@ test "Settings search chrome filters nav tabs by keywords; empty query shows all
     try testing.expect(!model.settings_nav_providers_visible());
     try testing.expect(!model.settings_nav_skills_visible());
     try testing.expect(!model.settings_nav_usage_visible());
+    try testing.expect(!model.settings_nav_daemon_visible());
     try testing.expect(!model.settings_nav_computer_use_visible());
     try testing.expect(model.settings_page_general());
     tree = try buildTree(arena, &model);
@@ -28396,20 +28579,23 @@ test "Settings search chrome filters nav tabs by keywords; empty query shows all
     try testing.expect(findByText(tree.root, .button, "Providers") == null);
     try testing.expect(findByText(tree.root, .button, "Skills") == null);
     try testing.expect(findByText(tree.root, .button, "Usage") == null);
+    try testing.expect(findByText(tree.root, .button, "Daemon") == null);
     try testing.expect(findByText(tree.root, .button, "Computer Use") == null);
     _ = try expectByText(tree.root, .text, "Default model");
     try testing.expect(findByText(tree.root, .text, "Theme") == null);
 
     main.update(&model, .{ .settings_search_edit = .clear }, &fx);
     main.update(&model, .{ .settings_search_edit = .{ .insert_text = "daemon" } }, &fx);
-    try testing.expect(model.settings_nav_general_visible());
+    try testing.expect(!model.settings_nav_general_visible());
     try testing.expect(!model.settings_nav_appearance_visible());
     try testing.expect(!model.settings_nav_providers_visible());
     try testing.expect(!model.settings_nav_skills_visible());
     try testing.expect(!model.settings_nav_usage_visible());
+    try testing.expect(model.settings_nav_daemon_visible());
     try testing.expect(!model.settings_nav_computer_use_visible());
     tree = try buildTree(arena, &model);
-    _ = try expectButtonMsg(tree, "General", .set_settings_page_general);
+    _ = try expectButtonMsg(tree, "Daemon", .set_settings_page_daemon);
+    try testing.expect(findByText(tree.root, .button, "General") == null);
     try testing.expect(findByText(tree.root, .button, "Appearance") == null);
 
     main.update(&model, .{ .settings_search_edit = .clear }, &fx);
@@ -28419,6 +28605,7 @@ test "Settings search chrome filters nav tabs by keywords; empty query shows all
     try testing.expect(model.settings_nav_providers_visible());
     try testing.expect(model.settings_nav_skills_visible());
     try testing.expect(model.settings_nav_usage_visible());
+    try testing.expect(!model.settings_nav_daemon_visible());
     try testing.expect(!model.settings_nav_computer_use_visible());
 
     main.update(&model, .{ .settings_search_edit = .clear }, &fx);
@@ -28428,6 +28615,7 @@ test "Settings search chrome filters nav tabs by keywords; empty query shows all
     try testing.expect(!model.settings_nav_providers_visible());
     try testing.expect(!model.settings_nav_skills_visible());
     try testing.expect(!model.settings_nav_usage_visible());
+    try testing.expect(!model.settings_nav_daemon_visible());
     try testing.expect(!model.settings_nav_computer_use_visible());
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .button, "General") == null);
@@ -28442,6 +28630,7 @@ test "Settings search chrome filters nav tabs by keywords; empty query shows all
     try testing.expect(model.settings_nav_providers_visible());
     try testing.expect(model.settings_nav_skills_visible());
     try testing.expect(model.settings_nav_usage_visible());
+    try testing.expect(model.settings_nav_daemon_visible());
     try testing.expect(model.settings_nav_computer_use_visible());
     tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "General", .set_settings_page_general);
@@ -28449,6 +28638,7 @@ test "Settings search chrome filters nav tabs by keywords; empty query shows all
     _ = try expectButtonMsg(tree, "Providers", .set_settings_page_providers);
     _ = try expectButtonMsg(tree, "Skills", .set_settings_page_skills);
     _ = try expectButtonMsg(tree, "Usage", .set_settings_page_usage);
+    _ = try expectButtonMsg(tree, "Daemon", .set_settings_page_daemon);
     _ = try expectButtonMsg(tree, "Computer Use", .set_settings_page_computer_use);
 
     main.update(&model, .{ .settings_search_edit = .{ .insert_text = "theme" } }, &fx);
@@ -28531,7 +28721,7 @@ test "Settings nav Up/Down cycles filtered tabs; closed Settings ignores the Msg
     fx.executor = .fake;
 
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<tree label=\"{settings_title}\">"));
-    try testing.expectEqual(@as(usize, 6), std.mem.count(u8, main.app_markup, "role=\"treeitem\""));
+    try testing.expectEqual(@as(usize, 7), std.mem.count(u8, main.app_markup, "role=\"treeitem\""));
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "icon=\"settings\" selected=\"{settings_page_general}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "<search-field height=\"24\" text=\"{settings_search}\"") != null);
     var saw_down = false;
@@ -28603,7 +28793,7 @@ test "Settings nav Up/Down cycles filtered tabs; closed Settings ignores the Msg
     try testing.expect(model.settings_open);
     try testing.expect(model.settings_page_general());
     var pages: [model_exports.settings_nav_pages.len]skills.Page = undefined;
-    try testing.expectEqual(@as(usize, 6), model.visibleSettingsNavPages(&pages));
+    try testing.expectEqual(@as(usize, 7), model.visibleSettingsNavPages(&pages));
     try testing.expectEqual(skills.Page.appearance, model.nextVisibleSettingsPage(true).?);
     try testing.expectEqual(skills.Page.computer_use, model.nextVisibleSettingsPage(false).?);
 
@@ -28620,11 +28810,15 @@ test "Settings nav Up/Down cycles filtered tabs; closed Settings ignores the Msg
     main.update(&model, .cycle_settings_page_down, &fx);
     try testing.expect(model.settings_page_usage());
     main.update(&model, .cycle_settings_page_down, &fx);
+    try testing.expect(model.settings_page_daemon());
+    main.update(&model, .cycle_settings_page_down, &fx);
     try testing.expect(model.settings_page_computer_use());
     main.update(&model, .cycle_settings_page_down, &fx);
     try testing.expect(model.settings_page_general());
     main.update(&model, .cycle_settings_page_up, &fx);
     try testing.expect(model.settings_page_computer_use());
+    main.update(&model, .cycle_settings_page_up, &fx);
+    try testing.expect(model.settings_page_daemon());
     main.update(&model, .cycle_settings_page_up, &fx);
     try testing.expect(model.settings_page_usage());
 
@@ -28694,19 +28888,21 @@ test "Settings content page titles follow Appearance language; Skills omits the 
     defer fx.deinit();
     fx.executor = .fake;
 
-    try testing.expectEqual(@as(usize, 5), std.mem.count(u8, main.app_markup, "{settings_page_heading}"));
-    try testing.expectEqual(@as(usize, 5), std.mem.count(u8, main.app_markup, "<text><span weight=\"bold\">{settings_page_heading}</span></text>"));
+    try testing.expectEqual(@as(usize, 6), std.mem.count(u8, main.app_markup, "{settings_page_heading}"));
+    try testing.expectEqual(@as(usize, 6), std.mem.count(u8, main.app_markup, "<text><span weight=\"bold\">{settings_page_heading}</span></text>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "{has_settings_page_heading}"));
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_page_general}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_page_appearance}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_page_providers}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_page_usage}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_page_daemon}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{settings_page_computer_use}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "<if test=\"{settings_page_skills}\">") != null);
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">General</text>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Appearance</text>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Providers</text>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Usage</text>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Daemon</text>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Computer Use</text>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">Skills</text>"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<text>{settings_title}</text>"));
@@ -28762,6 +28958,16 @@ test "Settings content page titles follow Appearance language; Skills omits the 
     _ = try expectByText(tree.root, .text, "Usage");
     try testing.expect(findNthByText(tree.root, .text, "Usage", 1) == null);
 
+    main.update(&model, .set_settings_page_daemon, &fx);
+    try testing.expect(model.settings_page_daemon());
+    try testing.expect(model.has_settings_page_heading());
+    try testing.expectEqualStrings("Daemon", model.settings_page_heading());
+    try testing.expectEqualStrings(model.settings_nav_daemon(), model.settings_page_heading());
+    try testing.expectEqualStrings(model.daemon_settings_title(), model.settings_page_heading());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Daemon");
+    try testing.expect(findNthByText(tree.root, .text, "Daemon", 1) == null);
+
     main.update(&model, .set_settings_page_computer_use, &fx);
     try testing.expect(model.settings_page_computer_use());
     try testing.expect(model.has_settings_page_heading());
@@ -28811,6 +29017,11 @@ test "Settings content page titles follow Appearance language; Skills omits the 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "用量");
 
+    main.update(&model, .set_settings_page_daemon, &fx);
+    try testing.expectEqualStrings("守护进程", model.settings_page_heading());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "守护进程");
+
     main.update(&model, .set_settings_page_computer_use, &fx);
     try testing.expectEqualStrings("电脑使用", model.settings_page_heading());
     tree = try buildTree(arena, &model);
@@ -28848,6 +29059,11 @@ test "Settings content page titles follow Appearance language; Skills omits the 
     try testing.expectEqualStrings("使用量", model.settings_page_heading());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "使用量");
+
+    main.update(&model, .set_settings_page_daemon, &fx);
+    try testing.expectEqualStrings("デーモン", model.settings_page_heading());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "デーモン");
 
     main.update(&model, .set_settings_page_computer_use, &fx);
     try testing.expectEqualStrings("コンピュータ使用", model.settings_page_heading());
