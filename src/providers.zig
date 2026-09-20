@@ -51,9 +51,10 @@
 //! Available Oh My Pi is one-shot `omp --mode rpc --yolo --no-session`
 //! (same Pi RPC parser / stdin prompt JSONL / RPC `images`; Waku
 //! `PiFlavor::OhMyPi` full-access arg `--yolo`; `--no-session` is a
-//! documented omp flag used by Waku model discovery). OpenCode 2 is
-//! catalog + PATH `--help` probe only this cut (live HTTP/SSE Send
-//! stays demo). Available DeepSeek is one-shot `dsh --profile acp`
+//! documented omp flag used by Waku model discovery). Available OpenCode 2 is
+//! one-shot `{binary} run --format json --auto` (documented `--session`
+//! / `--model` / `--file`; not `opencode acp`; HTTP/SSE `serve` stays
+//! deferred). Available DeepSeek is one-shot `dsh --profile acp`
 //! via acp-proxy (not `dsh acp`; composer image fail-closes to demo;
 //! Harness HTTP/SSE / web / `--profile headless` stay out). fx
 //! Not found copies the verified keejkrej/fx install script
@@ -110,8 +111,9 @@
 //! attached), and Oh My Pi RPC one-shot (`--mode rpc --yolo
 //! --no-session`, same stdin / images path) ship this cut (not ACP,
 //! not a long-lived RPC loop, not `--mode json`, not permissions
-//! bypass). OpenCode 2 catalog + PATH probe ships this cut (display
-//! **OpenCode 2**; live HTTP/SSE Send stays demo). DeepSeek one-shot
+//! bypass). OpenCode 2 one-shot `run --format json --auto` ships this
+//! cut (display **OpenCode 2**; not `opencode acp`; HTTP/SSE `serve`
+//! still deferred). DeepSeek one-shot
 //! `dsh --profile acp` via acp-proxy ships this cut (display **DeepSeek**;
 //! no image attach; Harness HTTP/SSE / web / headless stay out). Appearance theme,
 //! Usage, and Computer Use first-cut pages ship (Computer Use is
@@ -1007,6 +1009,8 @@ test "selectProvider; detail names binary, fx path, probe status, and one-shot a
     try testing.expect(!protocol.ProviderId.opencode2.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.opencode2.speaksPiRpc());
     try testing.expect(!protocol.ProviderId.opencode2.speaksAcpStdio());
+    try testing.expect(protocol.ProviderId.opencode2.speaksOpencodeRun());
+    try testing.expect(!protocol.ProviderId.opencode.speaksOpencodeRun());
     try testing.expect(!protocol.ProviderId.deepseek.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.deepseek.speaksPiRpc());
     try testing.expect(protocol.ProviderId.deepseek.speaksAcpStdio());

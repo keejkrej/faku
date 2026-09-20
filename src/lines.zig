@@ -1,16 +1,17 @@
 //! Sidecar stdout / ACP / daemon line handlers and fx-exit routing.
 //!
 //! `handleFxLine` / `handleAcpLine` / `handlePiJsonLine` /
-//! `handleClaudeJsonLine` / `handleDaemonLine`, ACP apply helpers,
+//! `handleClaudeJsonLine` / `handleOpencodeRunJsonLine` / `handleDaemonLine`, ACP apply helpers,
 //! daemon goalUpdated apply, `handleFxExit`, `stripFxDiagnostics`,
 //! and `max_line_keep` live here. Callers import this module
 //! directly (`lines.stripFxDiagnostics`). Not re-exported from
 //! `main`. Maximize spawn/exit helpers live in `maximize_window.zig`.
 //! Probe helpers live in `fx_probe.zig`. Stream finish still comes
 //! from `stream.zig`. Behavior is unchanged from the former `main` line
-//! handlers except Pi `--mode rpc` JSONL and Claude `--output-format
-//! stream-json` stdout, which are parsed as JSON events instead of
-//! appended as prose. Pi live assistant text is RPC
+//! handlers except Pi `--mode rpc` JSONL, Claude `--output-format
+//! stream-json` stdout, and OpenCode 2 `run --format json` stdout, which
+//! are parsed as JSON events instead of appended as prose. Pi live
+//! assistant text is RPC
 //! `message_update` → `assistantMessageEvent.type == "text_delta"`
 //! → `delta` (not json-mode top-level `type:"text_delta"`). Claude `parent_tool_use_id` is subagent
 //! traffic (not main-turn append; live Subagent Background with a
@@ -21,6 +22,8 @@
 //! last-window log on that live row (newlines kept; CSI stripped
 //! for display; Environment Summary stays a one-line preview); it
 //! does not `appendToTurn` and does not register a new Monitor.
+//! OpenCode 2 live assistant text is NDJSON `type == "text"` with
+//! `part.text`; `sessionID` reuses `fx_session_id`. Not ACP.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -297,6 +300,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
     }
     if (model.fx_spawn_claude_json) {
         handleClaudeJsonLine(model, fx, line);
+        return;
+    }
+    if (model.fx_spawn_opencode_run_json) {
+        handleOpencodeRunJsonLine(model, fx, line);
         return;
     }
     const keep = line.line[0..@min(line.line.len, max_line_keep)];
@@ -883,6 +890,68 @@ fn handleClaudeJsonLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine
             if (model.turnById(model.stream_turn_id)) |turn| {
                 if (turn.body_len > 0) return;
             }
+            model.appendToTurn(model.stream_turn_id, parsed.text);
+        },
+    }
+}
+
+const OpencodeRunJsonKind = enum { ignore, session, text_delta };
+
+const OpencodeRunJsonParsed = struct {
+    kind: OpencodeRunJsonKind = .ignore,
+    session_id: []const u8 = "",
+    text: []const u8 = "",
+};
+
+/// Official OpenCode `run --format json` NDJSON line from
+/// anomalyco/opencode `run.ts`:
+/// `JSON.stringify({ type, timestamp, sessionID, ...data }) + EOL`.
+/// Text parts are `type == "text"` with `part.text` (CLI emits when
+/// `part.time?.end`; the emit still includes `part`). Unknown types,
+/// malformed JSON, and non-objects are `.ignore` (never assistant
+/// prose). `sessionID` from any event that carries it reuses
+/// `fx_session_id`. Not ACP, not Claude stream-json, not Pi RPC.
+fn parseOpencodeRunJsonLine(line: []const u8, allocator: std.mem.Allocator) OpencodeRunJsonParsed {
+    const trimmed = std.mem.trim(u8, line, " \t\r\n");
+    if (trimmed.len < 2 or trimmed[0] != '{') return .{};
+    const root = std.json.parseFromSliceLeaky(std.json.Value, allocator, trimmed, .{}) catch return .{};
+    const obj = switch (root) {
+        .object => |o| o,
+        else => return .{},
+    };
+    const session_id = jsonStringField(obj, "sessionID") orelse "";
+    const type_str = jsonStringField(obj, "type") orelse {
+        if (session_id.len == 0) return .{};
+        return .{ .kind = .session, .session_id = session_id };
+    };
+    if (std.mem.eql(u8, type_str, "text")) {
+        const part = jsonObjectField(obj, "part");
+        const text = if (part) |p| jsonStringField(p, "text") orelse "" else "";
+        if (session_id.len == 0 and text.len == 0) return .{};
+        if (text.len > 0) {
+            return .{ .kind = .text_delta, .session_id = session_id, .text = text };
+        }
+        return .{ .kind = .session, .session_id = session_id };
+    }
+    if (session_id.len == 0) return .{};
+    return .{ .kind = .session, .session_id = session_id };
+}
+
+fn handleOpencodeRunJsonLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
+    const keep = line.line[0..@min(line.line.len, max_line_keep)];
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const parsed = parseOpencodeRunJsonLine(keep, arena_state.allocator());
+    if (parsed.session_id.len > 0) {
+        if (model.sessionById(model.streaming_session)) |session| {
+            session.setFxSessionId(parsed.session_id);
+            store.persistIfPossible(model, session.id, fx);
+        }
+    }
+    switch (parsed.kind) {
+        .ignore, .session => {},
+        .text_delta => {
+            if (parsed.text.len == 0) return;
             model.appendToTurn(model.stream_turn_id, parsed.text);
         },
     }
@@ -2085,5 +2154,122 @@ test "claude json apply: matching tool_result fills Monitor preview; unknown Bas
     try testing.expectEqualStrings("secret", model.background_subagents[0].output());
     try testing.expectEqual(@as(u32, 1), model.background_monitor_count);
     try testing.expectEqualStrings("", piJsonTurnText(&model, turn_id));
+}
+
+test "opencode run json parser: type text part.text extracts; sessionID captured; unknown ignored" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const alloc = arena_state.allocator();
+
+    const text = parseOpencodeRunJsonLine(
+        "{\"type\":\"text\",\"timestamp\":1,\"sessionID\":\"oc2-sess-1\",\"part\":{\"type\":\"text\",\"text\":\"Hello\",\"time\":{\"end\":2}}}",
+        alloc,
+    );
+    try testing.expectEqual(OpencodeRunJsonKind.text_delta, text.kind);
+    try testing.expectEqualStrings("Hello", text.text);
+    try testing.expectEqualStrings("oc2-sess-1", text.session_id);
+
+    const tool = parseOpencodeRunJsonLine(
+        "{\"type\":\"tool_use\",\"timestamp\":1,\"sessionID\":\"oc2-sess-2\",\"part\":{\"type\":\"tool\"}}",
+        alloc,
+    );
+    try testing.expectEqual(OpencodeRunJsonKind.session, tool.kind);
+    try testing.expectEqualStrings("oc2-sess-2", tool.session_id);
+    try testing.expectEqualStrings("", tool.text);
+
+    const unknown = parseOpencodeRunJsonLine("{\"type\":\"step_start\"}", alloc);
+    try testing.expectEqual(OpencodeRunJsonKind.ignore, unknown.kind);
+
+    const malformed = parseOpencodeRunJsonLine("not json", alloc);
+    try testing.expectEqual(OpencodeRunJsonKind.ignore, malformed.kind);
+
+    const empty_text = parseOpencodeRunJsonLine(
+        "{\"type\":\"text\",\"sessionID\":\"oc2-sess-3\",\"part\":{\"text\":\"\"}}",
+        alloc,
+    );
+    try testing.expectEqual(OpencodeRunJsonKind.session, empty_text.kind);
+    try testing.expectEqualStrings("oc2-sess-3", empty_text.session_id);
+
+    const snake = parseOpencodeRunJsonLine(
+        "{\"type\":\"text\",\"session_id\":\"wrong\",\"part\":{\"text\":\"Nope\"}}",
+        alloc,
+    );
+    try testing.expectEqual(OpencodeRunJsonKind.text_delta, snake.kind);
+    try testing.expectEqualStrings("Nope", snake.text);
+    try testing.expectEqualStrings("", snake.session_id);
+}
+
+test "opencode run json apply: text parts append; raw JSON is not assistant prose; sessionID stored" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const sid = model.addSession("opencode2 json", .opencode2);
+    const turn_id = model.appendTurn(sid, .assistant, "");
+    model.phase = .streaming;
+    model.stream_turn_id = turn_id;
+    model.streaming_session = sid;
+    model.fx_spawn_opencode_run_json = true;
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"step_start\",\"timestamp\":1,\"sessionID\":\"oc2-init-1\"}",
+    });
+    try testing.expectEqualStrings("", piJsonTurnText(&model, turn_id));
+    try testing.expectEqualStrings("oc2-init-1", model.sessionById(sid).?.fxSessionId());
+
+    handleFxLine(&model, &fx, .{ .key = fx_ask_key, .line = "not json" });
+    try testing.expectEqualStrings("", piJsonTurnText(&model, turn_id));
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"tool_use\",\"sessionID\":\"oc2-init-1\",\"part\":{}}",
+    });
+    try testing.expectEqualStrings("", piJsonTurnText(&model, turn_id));
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"text\",\"timestamp\":2,\"sessionID\":\"oc2-init-1\",\"part\":{\"text\":\"Hel\",\"time\":{\"end\":3}}}",
+    });
+    try testing.expectEqualStrings("Hel", piJsonTurnText(&model, turn_id));
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"text\",\"timestamp\":3,\"sessionID\":\"oc2-later\",\"part\":{\"text\":\"lo\"}}",
+    });
+    try testing.expectEqualStrings("Hello", piJsonTurnText(&model, turn_id));
+    try testing.expectEqualStrings("oc2-later", model.sessionById(sid).?.fxSessionId());
+}
+
+test "opencode run json flag does not steal claude or pi parsers" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const sid = model.addSession("claude not opencode2", .claude);
+    const turn_id = model.appendTurn(sid, .assistant, "");
+    model.phase = .streaming;
+    model.stream_turn_id = turn_id;
+    model.streaming_session = sid;
+    model.fx_spawn_claude_json = true;
+    model.fx_spawn_opencode_run_json = false;
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"stream_event\",\"event\":{\"delta\":{\"type\":\"text_delta\",\"text\":\"from claude\"}}}",
+    });
+    try testing.expectEqualStrings("from claude", piJsonTurnText(&model, turn_id));
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"text\",\"sessionID\":\"should-not\",\"part\":{\"text\":\"from opencode\"}}",
+    });
+    try testing.expectEqualStrings("from claude", piJsonTurnText(&model, turn_id));
+    try testing.expectEqualStrings("", model.sessionById(sid).?.fxSessionId());
 }
 

@@ -2,7 +2,7 @@
 //!
 //! `startPrompt` path selection (daemon / fx acp / fx ask / probed
 //! ACP stdio via acp-proxy / Claude print-mode / Codex exec / Amp
-//! execute-mode / Pi RPC one-shot / demo), StartOptions mapping, and
+//! execute-mode / Pi RPC one-shot / OpenCode 2 run / demo), StartOptions mapping, and
 //! `takeFxAskSessionId` live here. Callers import this module
 //! directly (`spawn.startOptionsFromSession` /
 //! `spawn.takeFxAskSessionId` / `spawn.startPrompt`). Not
@@ -53,8 +53,19 @@
 //! true` so stdout lines use the Pi JSONL parser in `lines.zig`
 //! (RPC `message_update` / `assistantMessageEvent.type ==
 //! text_delta` / `delta`, not json-mode top-level `type:text_delta`,
-//! not prose / raw JSON dump). OpenCode 2 has no live Send this cut
-//! (HTTP/SSE service driver deferred; Available still stays demo).
+//! not prose / raw JSON dump). Available OpenCode 2 is one-shot
+//! `{binary} run --format json --auto {prompt}` (empty stdin, not
+//! ACP, not `opencode acp`, not acp-proxy, not HTTP/SSE `serve`),
+//! with documented `--session {fx_session_id}` when that field is
+//! non-empty (first Send and Fork omit it), documented `--model`
+//! when the session model is non-empty (`provider/model` form; no
+//! invented catalog), and documented `--file {path}` when a
+//! composer image/file is attached. `--auto` is always set this cut
+//! so non-interactive Send does not hang (OpenCode run has no
+//! permission UI in Faku). `fx_spawn_opencode_run_json` routes
+//! NDJSON `type:"text"` / `part.text` in `lines.zig` and captures
+//! `sessionID` into `fx_session_id`. Unavailable OpenCode 2 stays
+//! demo. HTTP/SSE `serve` stays deferred.
 //! Available DeepSeek is one-shot `dsh --profile acp` via acp-proxy
 //! (not `dsh acp`; not Harness HTTP/SSE / web / `--profile headless`).
 //! Composer image attach on cursor / opencode / kimi / grok uses official
@@ -123,6 +134,7 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
     model.streaming_session = session.id;
     model.fx_spawn_pi_json = false;
     model.fx_spawn_claude_json = false;
+    model.fx_spawn_opencode_run_json = false;
     environment_summary.clearDismissedSubagentIds(model);
     environment_summary.noteLiveProcess(model);
     if (!model.daemon_disconnected and model.daemonAddress().len > 0) {
@@ -210,6 +222,23 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
         // Missing / unreadable / unknown type / overflow fail closed
         // to demo. There is no `--image` flag. Unavailable stays demo.
         if (startPiRpc(model, fx, session, prompt)) {
+            model.reply_path = .fx;
+            return;
+        }
+    }
+    if (session.provider.speaksOpencodeRun() and providers.isAvailable(model, session.provider)) {
+        // OpenCode 2 is not ACP (`opencode acp` is ProviderId.opencode).
+        // Official first-cut live Send is one-shot `{binary} run
+        // --format json --auto {prompt}` (opencode.ai/docs/cli/).
+        // Later Sends pass documented `--session {fx_session_id}`
+        // when that field is non-empty; first Send and Fork omit it.
+        // Optional `--model` when the session model is non-empty.
+        // Documented `--file {path}` when a composer image/file is
+        // attached. `--auto` is always set this cut so Send does not
+        // hang on permission prompts (no interactive permission UI
+        // in Faku). Unavailable stays demo. HTTP/SSE serve is still
+        // deferred.
+        if (startOpencodeRun(model, fx, session, prompt)) {
             model.reply_path = .fx;
             return;
         }
@@ -919,6 +948,107 @@ pub fn startPiRpc(model: *Model, fx: *Effects, session: *const Session, prompt: 
     return true;
 }
 
+/// One-shot official OpenCode 2 non-interactive run:
+/// `{binary} run --format json --auto {prompt}`
+/// (https://opencode.ai/docs/cli/). Prompt is an argv slot after the
+/// flags (documented `opencode run [message..]`). `--format json`
+/// is NDJSON on stdout (`run.ts`:
+/// `JSON.stringify({ type, timestamp, sessionID, ...data }) + EOL`;
+/// text parts are `type == "text"` with `part.text`). `--auto`
+/// auto-approves permissions that are not explicitly denied; this
+/// cut always passes it so non-interactive Send does not hang
+/// (OpenCode run has no permission UI in Faku; leftover vs a true
+/// `ask` mode). When `session.fxSessionId()` is non-empty,
+/// documented `--session {id}` is two argv slots after `--auto`
+/// and before optional `--model` / `--file` / the prompt. Empty
+/// id omits both — never a bare `--session`. Not `--continue` /
+/// `-c`. Optional `--model {session.model()}` when that field is
+/// non-empty (documented `provider/model` form; no invented
+/// catalog). Composer image/file attach uses documented `--file
+/// {path}` (long form; `-f` unused). The path is its own argv
+/// slot — never interpolated into the chdir `-c` script. Empty
+/// stdin. `fx_spawn_opencode_run_json` routes stdout through the
+/// OpenCode run parser (live `type:"text"` / `part.text`, not a
+/// prose dump). Capture `sessionID` into `fx_session_id` for later
+/// `--session`. Not ACP, not `opencode acp` (that is
+/// `ProviderId.opencode`), not acp-proxy, not HTTP/SSE `serve`.
+/// Caller sets `reply_path` to `.fx` on success; `fx_spawn_acp`
+/// stays false. Project cwd reuses `fx_ask_chdir_script` (Native
+/// SpawnOptions has no cwd field; documented `--dir` would
+/// duplicate that house-style chdir). Empty binary is a no-op
+/// (PATH default is `opencode2`).
+pub fn startOpencodeRun(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) bool {
+    if (!session.provider.speaksOpencodeRun()) return false;
+    const binary = providers.binaryFor(model, session.provider);
+    if (binary.len == 0) return false;
+    const cwd = model.resolveSpawnCwd(session);
+    const resume_id = session.fxSessionId();
+    const model_id = session.model();
+    const file_path = model.resolveSpawnImage();
+
+    model.setLastSpawnCwd(cwd);
+    model.setLastSpawnImagePath(file_path);
+
+    // chdir (5) + binary + run + --format + json + --auto +
+    // --session + id + --model + id + --file + path + prompt = 18.
+    // Keep headroom rather than truncating.
+    var argv_buf: [20][]const u8 = undefined;
+    var n: usize = 0;
+    if (cwd.len > 0) {
+        argv_buf[n] = "/bin/sh";
+        n += 1;
+        argv_buf[n] = "-c";
+        n += 1;
+        argv_buf[n] = fx_ask_chdir_script;
+        n += 1;
+        argv_buf[n] = "sh";
+        n += 1;
+        argv_buf[n] = cwd;
+        n += 1;
+    }
+    argv_buf[n] = binary;
+    n += 1;
+    argv_buf[n] = "run";
+    n += 1;
+    argv_buf[n] = "--format";
+    n += 1;
+    argv_buf[n] = "json";
+    n += 1;
+    argv_buf[n] = "--auto";
+    n += 1;
+    if (resume_id.len > 0) {
+        argv_buf[n] = "--session";
+        n += 1;
+        argv_buf[n] = resume_id;
+        n += 1;
+    }
+    if (model_id.len > 0) {
+        argv_buf[n] = "--model";
+        n += 1;
+        argv_buf[n] = model_id;
+        n += 1;
+    }
+    if (file_path.len > 0) {
+        argv_buf[n] = "--file";
+        n += 1;
+        argv_buf[n] = file_path;
+        n += 1;
+    }
+    argv_buf[n] = prompt;
+    n += 1;
+
+    model.fx_spawn_acp = false;
+    model.fx_spawn_opencode_run_json = true;
+    fx.spawn(.{
+        .key = allocateFxSpawnKey(model),
+        .argv = argv_buf[0..n],
+        .stdin = "",
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
+}
+
 /// A stdout line that is a JSON object with a non-empty `session_id`.
 /// Copies the id into `dest` and returns the copied slice.
 pub fn takeFxAskSessionId(line: []const u8, dest: []u8) ?[]const u8 {
@@ -1131,6 +1261,10 @@ test "speaksBareAcp is true for cursor, opencode, and kimi; speaksAcpStdio also 
     try testing.expect(!protocol.ProviderId.opencode2.speaksPiRpc());
     try testing.expect(!protocol.ProviderId.deepseek.speaksPiRpc());
     try testing.expect(!protocol.ProviderId.kimi.speaksPiRpc());
+    try testing.expect(protocol.ProviderId.opencode2.speaksOpencodeRun());
+    try testing.expect(!protocol.ProviderId.opencode.speaksOpencodeRun());
+    try testing.expect(!protocol.ProviderId.pi.speaksOpencodeRun());
+    try testing.expect(!protocol.ProviderId.fx.speaksOpencodeRun());
     try testing.expect(protocol.ProviderId.cursor.speaksAcpStdio());
     try testing.expect(protocol.ProviderId.opencode.speaksAcpStdio());
     try testing.expect(protocol.ProviderId.kimi.speaksAcpStdio());
@@ -1140,6 +1274,8 @@ test "speaksBareAcp is true for cursor, opencode, and kimi; speaksAcpStdio also 
     try testing.expect(!protocol.ProviderId.claude.speaksAcpStdio());
     try testing.expect(!protocol.ProviderId.amp.speaksAcpStdio());
     try testing.expect(!protocol.ProviderId.opencode2.speaksAcpStdio());
+    try testing.expect(protocol.ProviderId.opencode2.speaksOpencodeRun());
+    try testing.expect(!protocol.ProviderId.opencode.speaksOpencodeRun());
     try testing.expectEqualStrings("acp", protocol.ProviderId.kimi.acpTransportArgv()[0]);
     try testing.expectEqual(@as(usize, 1), protocol.ProviderId.kimi.acpTransportArgv().len);
     try testing.expectEqual(@as(usize, 0), protocol.ProviderId.amp.acpTransportArgv().len);
@@ -2284,24 +2420,297 @@ test "ohmypi unavailable stays demo" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
-test "opencode2 Available still stays demo (HTTP service driver deferred)" {
+test "opencode2 + cli_available selects run --format json --auto" {
     const testing = std.testing;
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
+
     var model = Model{};
     model.setSidecarPath("faku");
     model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
     const id = model.addSession("opencode2 thread", .opencode2);
     startPrompt(&model, &fx, id, "hello opencode2");
-    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(!model.fx_spawn_pi_json);
-    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
-    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expect(!model.fx_spawn_claude_json);
+    try testing.expect(model.fx_spawn_opencode_run_json);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    try testing.expect(protocol.ProviderId.opencode2.speaksOpencodeRun());
     try testing.expect(!protocol.ProviderId.opencode2.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.opencode2.speaksPiRpc());
     try testing.expect(!protocol.ProviderId.opencode2.speaksAcpStdio());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(effect_keys.fx_ask_key, request.key);
+    try testing.expect(testArgvHas(request.argv, "opencode2"));
+    try testing.expect(testArgvHas(request.argv, "run"));
+    try testing.expect(testArgvHas(request.argv, "--format"));
+    try testing.expect(testArgvHas(request.argv, "json"));
+    try testing.expect(testArgvHas(request.argv, "--auto"));
+    try testing.expect(testArgvHas(request.argv, "hello opencode2"));
+    try testing.expect(!testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(!testArgvHas(request.argv, "acp"));
+    try testing.expect(!testArgvHas(request.argv, "agent"));
+    try testing.expect(!testArgvHas(request.argv, "stdio"));
+    try testing.expect(!testArgvHas(request.argv, "ask"));
+    try testing.expect(!testArgvHas(request.argv, "fx"));
+    try testing.expect(!testArgvHas(request.argv, "serve"));
+    try testing.expect(!testArgvHas(request.argv, "--attach"));
+    try testing.expect(!testArgvHas(request.argv, "--continue"));
+    try testing.expect(!testArgvHas(request.argv, "-c"));
+    try testing.expect(!testArgvHas(request.argv, "--session"));
+    try testing.expect(!testArgvHas(request.argv, "--model"));
+    try testing.expect(!testArgvHas(request.argv, "--file"));
+    try testing.expect(!testArgvHas(request.argv, "-f"));
+    try testing.expect(!testArgvHas(request.argv, "--dir"));
+    try testing.expect(!testArgvHas(request.argv, "--resume"));
+    try testing.expect(!testArgvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expectEqualStrings("", request.stdin);
+    try testing.expectEqualStrings("", model.lastSpawnImagePath());
+    const binary_at = testArgvIndex(request.argv, "opencode2") orelse return error.MissingBinary;
+    const run_at = testArgvIndex(request.argv, "run") orelse return error.MissingRun;
+    const format_at = testArgvIndex(request.argv, "--format") orelse return error.MissingFormat;
+    const json_at = testArgvIndex(request.argv, "json") orelse return error.MissingJson;
+    const auto_at = testArgvIndex(request.argv, "--auto") orelse return error.MissingAuto;
+    const prompt_at = testArgvIndex(request.argv, "hello opencode2") orelse return error.MissingPrompt;
+    try testing.expectEqual(binary_at + 1, run_at);
+    try testing.expectEqual(run_at + 1, format_at);
+    try testing.expectEqual(format_at + 1, json_at);
+    try testing.expectEqual(json_at + 1, auto_at);
+    try testing.expectEqual(auto_at + 1, prompt_at);
+}
+
+test "opencode2 unavailable stays demo" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = Model{};
+    const id = model.addSession("opencode2 missing", .opencode2);
+    startPrompt(&model, &fx, id, "no opencode2");
+    try testing.expectEqual(model_exports.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(!model.fx_spawn_pi_json);
+    try testing.expect(!model.fx_spawn_claude_json);
+    try testing.expect(!model.fx_spawn_opencode_run_json);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "opencode2 + stored fx_session_id resumes with --session {id}" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    const id = model.addSession("opencode2 resume", .opencode2);
+    if (model.sessionById(id)) |session| session.setFxSessionId("oc2-sess-resume-1");
+
+    startPrompt(&model, &fx, id, "continue that review");
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(model.fx_spawn_opencode_run_json);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, "opencode2"));
+    try testing.expect(testArgvHas(request.argv, "run"));
+    try testing.expect(testArgvHas(request.argv, "--format"));
+    try testing.expect(testArgvHas(request.argv, "json"));
+    try testing.expect(testArgvHas(request.argv, "--auto"));
+    try testing.expect(testArgvHas(request.argv, "--session"));
+    try testing.expect(testArgvHas(request.argv, "oc2-sess-resume-1"));
+    try testing.expect(testArgvHas(request.argv, "continue that review"));
+    try testing.expect(!testArgvHas(request.argv, "--continue"));
+    try testing.expect(!testArgvHas(request.argv, "-c"));
+    try testing.expect(!testArgvHas(request.argv, "--resume"));
+    try testing.expect(!testArgvHas(request.argv, "acp"));
+    try testing.expect(!testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expectEqualStrings("", request.stdin);
+    const auto_at = testArgvIndex(request.argv, "--auto") orelse return error.MissingAuto;
+    const session_at = testArgvIndex(request.argv, "--session") orelse return error.MissingSession;
+    const prompt_at = testArgvIndex(request.argv, "continue that review") orelse return error.MissingPrompt;
+    try testing.expectEqual(auto_at + 1, session_at);
+    try testing.expectEqualStrings("oc2-sess-resume-1", request.argv[session_at + 1]);
+    try testing.expectEqual(session_at + 2, prompt_at);
+}
+
+test "opencode2 + session model passes --model {id}" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    const id = model.addSession("opencode2 model", .opencode2);
+    if (model.sessionById(id)) |session| session.setModel("anthropic/claude-sonnet-4");
+
+    startPrompt(&model, &fx, id, "use this model");
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_opencode_run_json);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, "--model"));
+    try testing.expect(testArgvHas(request.argv, "anthropic/claude-sonnet-4"));
+    try testing.expect(!testArgvHas(request.argv, "--session"));
+    const auto_at = testArgvIndex(request.argv, "--auto") orelse return error.MissingAuto;
+    const model_at = testArgvIndex(request.argv, "--model") orelse return error.MissingModel;
+    const prompt_at = testArgvIndex(request.argv, "use this model") orelse return error.MissingPrompt;
+    try testing.expectEqual(auto_at + 1, model_at);
+    try testing.expectEqualStrings("anthropic/claude-sonnet-4", request.argv[model_at + 1]);
+    try testing.expectEqual(model_at + 2, prompt_at);
+}
+
+test "opencode2 image attach uses --file {path}" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/opencode2-shot.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    const id = model.addSession("opencode2 image", .opencode2);
+    model.selected = id;
+    model.setDraftImagePath(image);
+
+    startPrompt(&model, &fx, id, "describe this");
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(model.fx_spawn_opencode_run_json);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    try testing.expectEqualStrings(image, model.lastSpawnImagePath());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, "opencode2"));
+    try testing.expect(testArgvHas(request.argv, "run"));
+    try testing.expect(testArgvHas(request.argv, "--format"));
+    try testing.expect(testArgvHas(request.argv, "json"));
+    try testing.expect(testArgvHas(request.argv, "--auto"));
+    try testing.expect(testArgvHas(request.argv, "--file"));
+    try testing.expect(testArgvHas(request.argv, image));
+    try testing.expect(testArgvHas(request.argv, "describe this"));
+    try testing.expect(!testArgvHas(request.argv, "-f"));
+    try testing.expect(!testArgvHas(request.argv, "--image"));
+    try testing.expect(!testArgvHas(request.argv, "acp"));
+    try testing.expect(!testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expectEqualStrings("", request.stdin);
+    const auto_at = testArgvIndex(request.argv, "--auto") orelse return error.MissingAuto;
+    const file_at = testArgvIndex(request.argv, "--file") orelse return error.MissingFile;
+    const prompt_at = testArgvIndex(request.argv, "describe this") orelse return error.MissingPrompt;
+    try testing.expectEqual(auto_at + 1, file_at);
+    try testing.expectEqualStrings(image, request.argv[file_at + 1]);
+    try testing.expectEqual(file_at + 2, prompt_at);
+}
+
+test "opencode2 run reuses fx_ask_chdir_script when project cwd exists" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/opencode2-cwd", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("opencode2 cwd", .opencode2);
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    startPrompt(&model, &fx, id, "in project");
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(model.fx_spawn_opencode_run_json);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, "/bin/sh"));
+    try testing.expect(testArgvHas(request.argv, "-c"));
+    try testing.expect(testArgvHas(request.argv, fx_ask_chdir_script));
+    try testing.expect(testArgvHas(request.argv, project));
+    try testing.expect(testArgvHas(request.argv, "run"));
+    try testing.expect(testArgvHas(request.argv, "--format"));
+    try testing.expect(testArgvHas(request.argv, "json"));
+    try testing.expect(testArgvHas(request.argv, "--auto"));
+    try testing.expect(!testArgvHas(request.argv, "--dir"));
+    const binary_at = testArgvIndex(request.argv, "opencode2") orelse return error.MissingBinary;
+    const run_at = testArgvIndex(request.argv, "run") orelse return error.MissingRun;
+    try testing.expect(binary_at > 0);
+    try testing.expectEqual(binary_at + 1, run_at);
+    try testing.expectEqualStrings(project, request.argv[binary_at - 1]);
+}
+
+test "opencode2 binary override is argv[0]" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    model.setProviderBinaryOverride(.opencode2, "/opt/custom-opencode2");
+    const id = model.addSession("opencode2 override", .opencode2);
+
+    startPrompt(&model, &fx, id, "hello override");
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_opencode_run_json);
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, "/opt/custom-opencode2"));
+    try testing.expect(!testArgvHas(request.argv, "opencode2"));
+    try testing.expect(testArgvHas(request.argv, "run"));
+    try testing.expect(testArgvHas(request.argv, "--format"));
+    try testing.expect(testArgvHas(request.argv, "json"));
+    try testing.expect(testArgvHas(request.argv, "--auto"));
+}
+
+test "fx path stays preferred when provider is fx even if opencode2 is available" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    const id = model.addSession("fx first", .fx);
+
+    startPrompt(&model, &fx, id, "keep fx");
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_acp);
+    try testing.expect(!model.fx_spawn_opencode_run_json);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(testArgvHas(request.argv, "fx"));
+    try testing.expect(testArgvHas(request.argv, "acp"));
+    try testing.expect(!testArgvHas(request.argv, "opencode2"));
+    try testing.expect(!testArgvHas(request.argv, "run"));
+    try testing.expect(!testArgvHas(request.argv, "ask"));
 }
 
 test "deepseek + cli_available selects acp-proxy dsh --profile acp" {
