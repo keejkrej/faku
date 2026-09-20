@@ -4,9 +4,10 @@
 //! `shell_scene` is the single-window chromeless shell (`hidden_inset_tall`)
 //! that `UiApp.create` receives. `registerIcons` installs one table:
 //! minimize / maximize / stop / lock / globe / appearance / bot /
-//! package / chart-column / cursor-spark plus the Material
-//! file-type subset so markup `icon="app:minimize"` and bound
-//! `app:zig` / `app:rust` / `app:ruby` / … resolve. Callers import this
+//! package / chart-column / cursor-spark, Settings Providers brand
+//! marks (`app:provider-*`), plus the Material file-type subset so
+//! markup `icon="app:minimize"` and bound `app:zig` / `app:rust` /
+//! `app:ruby` / `app:provider-fx` / … resolve. Callers import this
 //! module directly (`shell.shell_scene` / `shell.registerIcons` /
 //! `shell.app_icons` / `shell.main_window_label` / `shell.window_width`).
 //! Native `native check` still requires `pub const app_icons` on the
@@ -102,12 +103,29 @@ const server_icon = canvas.svg_icon.parseComptime(@embedFile("icons/server.svg")
 /// no built-in cursor-spark glyph.
 const cursor_spark_icon = canvas.svg_icon.parseComptime(@embedFile("icons/cursor-spark.svg"));
 
+fn parseProvider(comptime name: []const u8) canvas.svg_icon.Icon {
+    return canvas.svg_icon.parseComptime(@embedFile("icons/provider-" ++ name ++ ".svg"));
+}
+
+/// Settings Providers row marks (Waku `icons/provider-*.svg`).
+/// Codex uses the OpenAI mark (`provider-openai.svg`).
+const provider_fx_icon = parseProvider("fx");
+const provider_claude_icon = parseProvider("claude");
+const provider_openai_icon = parseProvider("openai");
+const provider_cursor_icon = parseProvider("cursor");
+const provider_amp_icon = parseProvider("amp");
+const provider_grok_icon = parseProvider("grok");
+const provider_opencode_icon = parseProvider("opencode");
+const provider_pi_icon = parseProvider("pi");
+const provider_kimi_icon = parseProvider("kimi");
+
 /// One table feeds boot registration and the model contract so chrome
 /// `icon="app:minimize"` / `app:maximize` / `app:stop` / `app:lock` /
 /// `app:globe` / `app:appearance` / `app:bot` / `app:package` /
-/// `app:chart-column` / `app:server` / `app:cursor-spark` and Files/Diff/`@`
-/// `app:zig` / `app:rust` / … are verified against what
-/// `registerIcons` installs.
+/// `app:chart-column` / `app:server` / `app:cursor-spark`, Providers
+/// `app:provider-fx` / `app:provider-claude` / `app:provider-openai` /
+/// … and Files/Diff/`@` `app:zig` / `app:rust` / … are verified
+/// against what `registerIcons` installs.
 const chrome_icons = [_]canvas.icons.Entry{
     .{ .name = "minimize", .icon = &minimize_icon },
     .{ .name = "maximize", .icon = &maximize_icon },
@@ -121,7 +139,18 @@ const chrome_icons = [_]canvas.icons.Entry{
     .{ .name = "server", .icon = &server_icon },
     .{ .name = "cursor-spark", .icon = &cursor_spark_icon },
 };
-pub const app_icons = chrome_icons ++ file_type_icons.app_icons;
+const providers_icons = [_]canvas.icons.Entry{
+    .{ .name = "provider-fx", .icon = &provider_fx_icon },
+    .{ .name = "provider-claude", .icon = &provider_claude_icon },
+    .{ .name = "provider-openai", .icon = &provider_openai_icon },
+    .{ .name = "provider-cursor", .icon = &provider_cursor_icon },
+    .{ .name = "provider-amp", .icon = &provider_amp_icon },
+    .{ .name = "provider-grok", .icon = &provider_grok_icon },
+    .{ .name = "provider-opencode", .icon = &provider_opencode_icon },
+    .{ .name = "provider-pi", .icon = &provider_pi_icon },
+    .{ .name = "provider-kimi", .icon = &provider_kimi_icon },
+};
+pub const app_icons = chrome_icons ++ providers_icons ++ file_type_icons.app_icons;
 
 /// Install the app icon table once, before views build.
 pub fn registerIcons() void {
@@ -155,6 +184,15 @@ test "registerIcons resolves chrome and file-type app names" {
     try std.testing.expect(canvas.icons.resolve("app:chart-column") != null);
     try std.testing.expect(canvas.icons.resolve("app:server") != null);
     try std.testing.expect(canvas.icons.resolve("app:cursor-spark") != null);
+    try std.testing.expect(canvas.icons.resolve("app:provider-fx") != null);
+    try std.testing.expect(canvas.icons.resolve("app:provider-claude") != null);
+    try std.testing.expect(canvas.icons.resolve("app:provider-openai") != null);
+    try std.testing.expect(canvas.icons.resolve("app:provider-cursor") != null);
+    try std.testing.expect(canvas.icons.resolve("app:provider-amp") != null);
+    try std.testing.expect(canvas.icons.resolve("app:provider-grok") != null);
+    try std.testing.expect(canvas.icons.resolve("app:provider-opencode") != null);
+    try std.testing.expect(canvas.icons.resolve("app:provider-pi") != null);
+    try std.testing.expect(canvas.icons.resolve("app:provider-kimi") != null);
     try std.testing.expect(canvas.icons.resolve("app:lockfile") != null);
     try std.testing.expect(canvas.icons.resolve("app:exe") != null);
     try std.testing.expect(canvas.icons.resolve("app:nginx") != null);
@@ -185,8 +223,9 @@ test "registerIcons resolves chrome and file-type app names" {
 }
 
 test "app_icons names and shell window" {
-    try std.testing.expectEqual(@as(usize, chrome_icons.len + file_type_icons.app_icons.len), app_icons.len);
+    try std.testing.expectEqual(@as(usize, chrome_icons.len + providers_icons.len + file_type_icons.app_icons.len), app_icons.len);
     try std.testing.expectEqual(@as(usize, 11), chrome_icons.len);
+    try std.testing.expectEqual(@as(usize, 9), providers_icons.len);
     try std.testing.expectEqualStrings("minimize", app_icons[0].name);
     try std.testing.expectEqualStrings("maximize", app_icons[1].name);
     try std.testing.expectEqualStrings("stop", app_icons[2].name);
@@ -198,8 +237,20 @@ test "app_icons names and shell window" {
     try std.testing.expectEqualStrings("chart-column", app_icons[8].name);
     try std.testing.expectEqualStrings("server", app_icons[9].name);
     try std.testing.expectEqualStrings("cursor-spark", app_icons[10].name);
-    try std.testing.expectEqualStrings("zig", app_icons[11].name);
+    try std.testing.expectEqualStrings("provider-fx", app_icons[11].name);
+    try std.testing.expectEqualStrings("provider-claude", app_icons[12].name);
+    try std.testing.expectEqualStrings("provider-openai", app_icons[13].name);
+    try std.testing.expectEqualStrings("provider-cursor", app_icons[14].name);
+    try std.testing.expectEqualStrings("provider-amp", app_icons[15].name);
+    try std.testing.expectEqualStrings("provider-grok", app_icons[16].name);
+    try std.testing.expectEqualStrings("provider-opencode", app_icons[17].name);
+    try std.testing.expectEqualStrings("provider-pi", app_icons[18].name);
+    try std.testing.expectEqualStrings("provider-kimi", app_icons[19].name);
+    try std.testing.expectEqualStrings("zig", app_icons[20].name);
     try std.testing.expectEqualStrings("file", app_icons[app_icons.len - 1].name);
+    for (providers_icons) |entry| {
+        try std.testing.expect(entry.icon.shapes.len > 0);
+    }
     try std.testing.expectEqual(@as(usize, 1), shell_scene.windows.len);
     try std.testing.expectEqualStrings(main_window_label, shell_scene.windows[0].label);
     try std.testing.expectEqual(@as(usize, 5), shell_scene.windows[0].views.len);

@@ -38009,6 +38009,7 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{p.first_party_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{p.status}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{p.enable_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "icon=\"{p.icon}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{copy_fx_install_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{copy_fx_login_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{apply_session_provider_label}"));
@@ -38241,6 +38242,7 @@ test "Settings Providers version badge paints v{version} when --version parse su
 
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{p.has_version}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{p.version}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "icon=\"{p.icon}\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "mono=\"true\""));
     try testing.expect(cli_version.versionKey(.claude) != cli_probe.probeKey(.claude));
     try testing.expect(cli_version.versionKey(.fx) != fx_probe.fx_probe_key);
