@@ -1,7 +1,8 @@
 //! First-cut InspectCommit flags + include-unstaged Commit… / Commit
 //! and Push / Push-only / first-cut Amend, plus a one-shot
-//! CommitSnapshot numstat label and an fx-first empty-message
-//! `generate_message`, for the composer project row.
+//! CommitSnapshot numstat label and empty-message generate via the
+//! selected session's provider CLI (Waku `agent_arguments` parity;
+//! last-resort `fx ask`), for the composer project row.
 //!
 //! Native has no git effect. `canCommitGit` follows Waku `can_commit`:
 //! dirty probe idle, and staged or (include_unstaged and unstaged).
@@ -187,7 +188,9 @@
 //! `exit $LASTEXITCODE` keeps fx's status). Other Available
 //! providers use a PowerShell `-Args` splat (cwd, binary, then
 //! documented generate flags / prompt as later `$args` slots) or
-//! Unix `/usr/bin/env NO_COLOR=1 CI=1` after `fx_ask_chdir_script`.
+//! Unix `/bin/sh -c` with `generate_chdir_env_script` (`export
+//! NO_COLOR=1 CI=1`). Long documented flag lists stay literals in
+//! that script so Native `max_effect_argv` 16 is not exceeded.
 //! Push lives
 //! in `git_checkout.zig` and uses the same `git.exe -C` pattern
 //! (`probeSupported` is true on Windows). app.zon already includes
@@ -1362,6 +1365,7 @@ fn failNothingStaged(model: *Model) void {
 fn sessionProviderGenerateReady(model: *const Model) bool {
     const session = model.sessionByIdConst(model.selected) orelse return false;
     if (!providers.isAvailable(model, session.provider)) return false;
+    if (session.provider == .fx) return model.fxPath().len > 0;
     return generateInvocationBinary(model, session.provider).len > 0;
 }
 
@@ -5548,8 +5552,9 @@ test "empty plus DeepSeek Available one-shots dsh --profile headless and honors 
     try std.testing.expect(!isGitCommitGenerateArgv(gen.argv));
     try std.testing.expect(!isDaemonWorkspaceCommitArgv(gen.argv));
     try std.testing.expectEqualStrings("", gen.stdin);
+    try std.testing.expect(gen.argv.len <= git_commit_generate.max_effect_argv);
     const args = git_commit_generate.providerArgsFromGenerateArgv(gen.argv);
-    try std.testing.expect(std.mem.eql(u8, gen.argv[if (builtin.os.tag == .windows) 6 else 8], "/opt/custom/dsh"));
+    try std.testing.expectEqualStrings("/opt/custom/dsh", git_commit_generate.generateBinaryFromArgv(gen.argv));
     try std.testing.expectEqualStrings("--profile", args[0]);
     try std.testing.expectEqualStrings("headless", args[1]);
     try std.testing.expectEqualStrings(generate_prompt_include_unstaged, args[2]);
@@ -5652,10 +5657,12 @@ test "Amp generate writes settings JSON and deletes it after exit" {
     startCommit(&model, &fx);
     confirmCommit(&model, &fx);
     const gen = findPending(&fx, model.git_commit_generate_key, &git_commit_generate.isProviderGenerateArgv) orelse return error.MissingAmpGenerate;
-    const args = git_commit_generate.providerArgsFromGenerateArgv(gen.argv);
-    try std.testing.expectEqualStrings("--execute", args[0]);
-    try std.testing.expectEqualStrings("--settings-file", args[4]);
-    const settings_path = args[5];
+    try std.testing.expect(gen.argv.len <= git_commit_generate.max_effect_argv);
+    const script = git_commit_generate.generateScriptFromArgv(gen.argv);
+    try std.testing.expect(std.mem.indexOf(u8, script, "--execute") != null);
+    try std.testing.expect(std.mem.indexOf(u8, script, "--settings-file") != null);
+    const settings_path = git_commit_generate.ampSettingsPathFromGenerateArgv(gen.argv);
+    try std.testing.expect(settings_path.len > 0);
     try std.testing.expect(util.fileExists(std.testing.io, settings_path));
     const body = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, settings_path, std.testing.allocator, .limited(256));
     defer std.testing.allocator.free(body);
@@ -5663,11 +5670,19 @@ test "Amp generate writes settings JSON and deletes it after exit" {
     try std.testing.expect(std.mem.indexOf(u8, settings_path, "--mode") == null);
     var has_mode = false;
     var has_effort = false;
-    for (args, 0..) |arg, i| {
-        if (std.mem.eql(u8, arg, "--mode") and i + 1 < args.len)
-            has_mode = std.mem.eql(u8, args[i + 1], "amp-mode");
-        if (std.mem.eql(u8, arg, "--effort") and i + 1 < args.len)
-            has_effort = std.mem.eql(u8, args[i + 1], "max");
+    const args = git_commit_generate.providerArgsFromGenerateArgv(gen.argv);
+    if (args.len > 0) {
+        for (args, 0..) |arg, i| {
+            if (std.mem.eql(u8, arg, "--mode") and i + 1 < args.len)
+                has_mode = std.mem.eql(u8, args[i + 1], "amp-mode");
+            if (std.mem.eql(u8, arg, "--effort") and i + 1 < args.len)
+                has_effort = std.mem.eql(u8, args[i + 1], "max");
+        }
+    } else {
+        has_mode = std.mem.indexOf(u8, script, "--mode") != null and
+            std.mem.eql(u8, gen.argv[if (builtin.os.tag == .windows) 8 else 7], "amp-mode");
+        has_effort = std.mem.indexOf(u8, script, "--effort") != null and
+            std.mem.eql(u8, gen.argv[if (builtin.os.tag == .windows) 9 else 8], "max");
     }
     try std.testing.expect(has_mode);
     try std.testing.expect(has_effort);
@@ -5703,15 +5718,18 @@ test "Claude generate stays pinned and ignores session model" {
     startCommit(&model, &fx);
     confirmCommit(&model, &fx);
     const gen = findPending(&fx, model.git_commit_generate_key, &git_commit_generate.isProviderGenerateArgv) orelse return error.MissingClaudeGenerate;
+    try std.testing.expect(gen.argv.len <= git_commit_generate.max_effect_argv);
+    const script = git_commit_generate.generateScriptFromArgv(gen.argv);
+    try std.testing.expect(std.mem.indexOf(u8, script, "--print") != null);
+    try std.testing.expect(std.mem.indexOf(u8, script, "--output-format") != null);
+    try std.testing.expect(std.mem.indexOf(u8, script, git_commit_generate.claude_generate_model) != null);
+    try std.testing.expect(std.mem.indexOf(u8, script, git_commit_generate.claude_generate_effort) != null);
     const args = git_commit_generate.providerArgsFromGenerateArgv(gen.argv);
-    try std.testing.expectEqualStrings("--print", args[0]);
-    try std.testing.expectEqualStrings("text", args[2]);
-    try std.testing.expectEqualStrings(git_commit_generate.claude_generate_model, args[11]);
-    try std.testing.expectEqualStrings(git_commit_generate.claude_generate_effort, args[13]);
-    try std.testing.expectEqualStrings(generate_prompt_include_unstaged, args[args.len - 1]);
+    const prompt = if (args.len > 0) args[args.len - 1] else gen.argv[if (builtin.os.tag == .windows) 7 else 6];
+    try std.testing.expectEqualStrings(generate_prompt_include_unstaged, prompt);
     var i: usize = 0;
-    while (i < args.len) : (i += 1) {
-        try std.testing.expect(!std.mem.eql(u8, args[i], "sonnet-should-not-win"));
-        try std.testing.expect(!std.mem.eql(u8, args[i], "high"));
+    while (i < gen.argv.len) : (i += 1) {
+        try std.testing.expect(!std.mem.eql(u8, gen.argv[i], "sonnet-should-not-win"));
+        if (std.mem.eql(u8, gen.argv[i], "high")) return error.UnexpectedClaudeEffort;
     }
 }
