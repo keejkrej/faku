@@ -5040,7 +5040,8 @@ pub const ProvidersOpencodeHealthChrome = struct {
     checking: []const u8,
     reachable: []const u8,
     reachable_version: []const u8,
-    unreachable: []const u8,
+    /// English Unreachable. `@"unreachable"` because `unreachable` is a Zig keyword.
+    @"unreachable": []const u8,
 };
 
 const providers_opencode_health_chrome_en: ProvidersOpencodeHealthChrome = .{
@@ -5048,7 +5049,7 @@ const providers_opencode_health_chrome_en: ProvidersOpencodeHealthChrome = .{
     .checking = "Checking…",
     .reachable = "Reachable",
     .reachable_version = "Reachable · v%{version}",
-    .unreachable = "Unreachable",
+    .@"unreachable" = "Unreachable",
 };
 
 const providers_opencode_health_chrome_zh_cn: ProvidersOpencodeHealthChrome = .{
@@ -5056,7 +5057,7 @@ const providers_opencode_health_chrome_zh_cn: ProvidersOpencodeHealthChrome = .{
     .checking = "正在检查…",
     .reachable = "可达",
     .reachable_version = "可达 · v%{version}",
-    .unreachable = "不可达",
+    .@"unreachable" = "不可达",
 };
 
 const providers_opencode_health_chrome_ja: ProvidersOpencodeHealthChrome = .{
@@ -5064,7 +5065,7 @@ const providers_opencode_health_chrome_ja: ProvidersOpencodeHealthChrome = .{
     .checking = "確認中…",
     .reachable = "到達可能",
     .reachable_version = "到達可能 · v%{version}",
-    .unreachable = "到達不能",
+    .@"unreachable" = "到達不能",
 };
 
 /// Settings Providers DeepSeek Copy web command for the resolved
@@ -12052,17 +12053,17 @@ test "providersOpencodeHealthChromeFor english default; zh and ja chrome; englis
     try testing.expectEqualStrings("Checking…", providersOpencodeHealthChromeFor(.english, "").checking);
     try testing.expectEqualStrings("Reachable", providersOpencodeHealthChromeFor(.english, "").reachable);
     try testing.expectEqualStrings("Reachable · v%{version}", providersOpencodeHealthChromeFor(.english, "").reachable_version);
-    try testing.expectEqualStrings("Unreachable", providersOpencodeHealthChromeFor(.english, "").unreachable);
+    try testing.expectEqualStrings("Unreachable", providersOpencodeHealthChromeFor(.english, "").@"unreachable");
     try testing.expectEqualStrings("检查 serve", providersOpencodeHealthChromeFor(.simplified_chinese, "").check_serve);
     try testing.expectEqualStrings("正在检查…", providersOpencodeHealthChromeFor(.simplified_chinese, "").checking);
     try testing.expectEqualStrings("可达", providersOpencodeHealthChromeFor(.simplified_chinese, "").reachable);
     try testing.expectEqualStrings("可达 · v%{version}", providersOpencodeHealthChromeFor(.simplified_chinese, "").reachable_version);
-    try testing.expectEqualStrings("不可达", providersOpencodeHealthChromeFor(.simplified_chinese, "").unreachable);
+    try testing.expectEqualStrings("不可达", providersOpencodeHealthChromeFor(.simplified_chinese, "").@"unreachable");
     try testing.expectEqualStrings("serve を確認", providersOpencodeHealthChromeFor(.japanese, "").check_serve);
     try testing.expectEqualStrings("確認中…", providersOpencodeHealthChromeFor(.japanese, "").checking);
     try testing.expectEqualStrings("到達可能", providersOpencodeHealthChromeFor(.japanese, "").reachable);
     try testing.expectEqualStrings("到達可能 · v%{version}", providersOpencodeHealthChromeFor(.japanese, "").reachable_version);
-    try testing.expectEqualStrings("到達不能", providersOpencodeHealthChromeFor(.japanese, "").unreachable);
+    try testing.expectEqualStrings("到達不能", providersOpencodeHealthChromeFor(.japanese, "").@"unreachable");
     try testing.expectEqualStrings("检查 serve", providersOpencodeHealthChromeFor(.system, "zh_CN.UTF-8").check_serve);
     try testing.expectEqualStrings("serve を確認", providersOpencodeHealthChromeFor(.system, "ja_JP.UTF-8").check_serve);
     try testing.expectEqualStrings("Check serve", providersOpencodeHealthChromeFor(.english, "zh_CN.UTF-8").check_serve);

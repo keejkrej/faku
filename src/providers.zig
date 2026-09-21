@@ -962,7 +962,7 @@ pub fn healthStatusText(model: *const Model) []const u8 {
     return switch (model.opencode2_health_state) {
         .idle => "",
         .pending => pack.checking,
-        .fail => pack.unreachable,
+        .fail => pack.@"unreachable",
         .ok => blk: {
             const version = model.opencode2_health_version_storage[0..model.opencode2_health_version_len];
             if (version.len == 0) break :blk pack.reachable;
