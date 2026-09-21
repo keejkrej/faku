@@ -156,7 +156,8 @@ pub const cli_probe_key_first = cli_probe.cli_probe_key_first;
 pub const cli_version_key_first = cli_version.cli_version_key_first;
 /// One-shot LiteLLM rate-table curl (`-o` into the Faku data dir).
 /// Distinct from cli_probe (600+) and cli_version (620+). Fixed key
-/// 650. Browser `page_title` curl is 660–699 (`browser_pane` /
+/// 650. OpenCode 2 Check serve health curl is 651–659 (`providers`).
+/// Browser `page_title` curl is 660–699 (`browser_pane` /
 /// `sidecar_keys`).
 pub const litellm_rates_key = litellm_rates.litellm_rates_key;
 

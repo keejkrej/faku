@@ -38294,17 +38294,20 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{copy_fx_install_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{copy_fx_login_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{copy_opencode2_serve_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{check_opencode2_serve_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{copy_deepseek_web_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{apply_session_provider_label}"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, ">First-party default</text>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"copy_fx_install\">Copy install command</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"copy_fx_login\">Copy login command</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"copy_opencode2_serve\">Copy serve command</button>"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"check_opencode2_serve\">Check serve</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"copy_deepseek_web\">Copy web command</button>"));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"apply_session_provider\">Use for this session</button>"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"copy_fx_install\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"copy_fx_login\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"copy_opencode2_serve\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"check_opencode2_serve\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"copy_deepseek_web\""));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"apply_session_provider\""));
 
@@ -38313,16 +38316,19 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     try testing.expectEqualStrings("Copy install command", model.copy_fx_install_label());
     try testing.expectEqualStrings("Copy login command", model.copy_fx_login_label());
     try testing.expectEqualStrings("Copy serve command", model.copy_opencode2_serve_label());
+    try testing.expectEqualStrings("Check serve", model.check_opencode2_serve_label());
     try testing.expectEqualStrings("Copy web command", model.copy_deepseek_web_label());
     try testing.expectEqualStrings(i18n.providersChromeFor(.english, "").apply, model.apply_session_provider_label());
     try testing.expectEqualStrings(i18n.providersChromeFor(.english, "").copy_install, model.copy_fx_install_label());
     try testing.expectEqualStrings(i18n.providersChromeFor(.english, "").copy_login, model.copy_fx_login_label());
     try testing.expectEqualStrings(i18n.providersOpencodeServeChromeFor(.english, "").copy_serve, model.copy_opencode2_serve_label());
+    try testing.expectEqualStrings(i18n.providersOpencodeHealthChromeFor(.english, "").check_serve, model.check_opencode2_serve_label());
     try testing.expectEqualStrings(i18n.providersDeepseekWebChromeFor(.english, "").copy_web, model.copy_deepseek_web_label());
     try testing.expectEqualStrings(providers.apply_session_label, model.apply_session_provider_label());
     try testing.expectEqualStrings(providers.copy_install_label, model.copy_fx_install_label());
     try testing.expectEqualStrings(providers.copy_login_label, model.copy_fx_login_label());
     try testing.expectEqualStrings(providers.copy_serve_label, model.copy_opencode2_serve_label());
+    try testing.expectEqualStrings(providers.check_serve_label, model.check_opencode2_serve_label());
     try testing.expectEqualStrings(providers.copy_web_label, model.copy_deepseek_web_label());
 
     main.update(&model, .toggle_settings, &fx);
@@ -38353,6 +38359,7 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     try testing.expectEqualStrings("复制安装命令", model.copy_fx_install_label());
     try testing.expectEqualStrings("复制登录命令", model.copy_fx_login_label());
     try testing.expectEqualStrings("复制 serve 命令", model.copy_opencode2_serve_label());
+    try testing.expectEqualStrings("检查 serve", model.check_opencode2_serve_label());
     try testing.expectEqualStrings("复制 web 命令", model.copy_deepseek_web_label());
     try testing.expectEqualStrings(i18n.providersChromeFor(.simplified_chinese, "").apply, model.apply_session_provider_label());
     try testing.expectEqualStrings("未找到", providers.statusFor(&model, .fx));
@@ -38376,6 +38383,7 @@ test "Settings Providers Available Not found Enable Disable Copy First-party fol
     try testing.expectEqualStrings("インストールコマンドをコピー", model.copy_fx_install_label());
     try testing.expectEqualStrings("ログインコマンドをコピー", model.copy_fx_login_label());
     try testing.expectEqualStrings("serve コマンドをコピー", model.copy_opencode2_serve_label());
+    try testing.expectEqualStrings("serve を確認", model.check_opencode2_serve_label());
     try testing.expectEqualStrings("web コマンドをコピー", model.copy_deepseek_web_label());
     try testing.expectEqualStrings(i18n.providersChromeFor(.japanese, "").apply, model.apply_session_provider_label());
     tree = try buildTree(arena, &model);
@@ -38609,6 +38617,12 @@ test "Settings Providers OpenCode 2 Copy serve command when Available; Not found
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{copy_opencode2_serve_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"copy_opencode2_serve\""));
     try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"copy_opencode2_serve\">Copy serve command</button>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{can_check_opencode2_serve}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{check_opencode2_serve_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"check_opencode2_serve\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "on-press=\"check_opencode2_serve\">Check serve</button>"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{has_opencode2_health_status}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{opencode2_health_status}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{p.show_deepseek_web}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{can_copy_deepseek_web}"));
 
@@ -38627,6 +38641,7 @@ test "Settings Providers OpenCode 2 Copy serve command when Available; Not found
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Serve attach URL");
     try testing.expect(findByText(tree.root, .button, "Copy serve command") == null);
+    try testing.expect(findByText(tree.root, .button, "Check serve") == null);
     try testing.expect(findByText(tree.root, .button, "Copy web command") == null);
     var noop_fx = Effects.init(testing.allocator);
     defer noop_fx.deinit();
@@ -38637,10 +38652,12 @@ test "Settings Providers OpenCode 2 Copy serve command when Available; Not found
 
     model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
     try testing.expect(model.can_copy_opencode2_serve());
+    try testing.expect(!model.can_check_opencode2_serve());
     try testing.expect(!model.can_copy_deepseek_web());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Serve attach URL");
     const serve = try expectButtonMsg(tree, "Copy serve command", .copy_opencode2_serve);
+    try testing.expect(findByText(tree.root, .button, "Check serve") == null);
     try testing.expect(findByText(tree.root, .button, "Copy web command") == null);
     var serve_fx = Effects.init(testing.allocator);
     defer serve_fx.deinit();
@@ -38679,6 +38696,102 @@ test "Settings Providers OpenCode 2 Copy serve command when Available; Not found
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .button, "serve コマンドをコピー") == null);
     try testing.expect(findByText(tree.root, .button, "Copy serve command") == null);
+}
+
+test "Settings Providers OpenCode 2 Check serve when Available + attach URL; injects curl health; empty/Not found hide" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = boot.initialModel();
+    try testing.expectEqualStrings("Check serve", model.check_opencode2_serve_label());
+    try testing.expectEqualStrings(i18n.providersOpencodeHealthChromeFor(.english, "").check_serve, model.check_opencode2_serve_label());
+    try testing.expectEqualStrings(providers.check_serve_label, model.check_opencode2_serve_label());
+    try testing.expect(!std.mem.eql(u8, model.check_opencode2_serve_label(), model.copy_opencode2_serve_label()));
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_providers, &fx);
+    main.update(&model, .{ .toggle_provider_expanded = providers.rowId(.opencode2) }, &fx);
+    try testing.expect(!model.can_check_opencode2_serve());
+    try testing.expect(!model.has_opencode2_health_status());
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Check serve") == null);
+
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    try testing.expect(!model.can_check_opencode2_serve());
+    main.update(&model, .{ .opencode2_attach_edit = .{ .insert_text = "http://localhost:4096" } }, &fx);
+    main.update(&model, .apply_opencode2_attach, &fx);
+    try testing.expect(model.can_check_opencode2_serve());
+    tree = try buildTree(arena, &model);
+    const check = try expectButtonMsg(tree, "Check serve", .check_opencode2_serve);
+    try testing.expect(findByText(tree.root, .text, "Checking…") == null);
+    try testing.expect(findByText(tree.root, .text, "Reachable") == null);
+    try testing.expect(findByText(tree.root, .text, "Unreachable") == null);
+
+    var check_fx = Effects.init(testing.allocator);
+    defer check_fx.deinit();
+    check_fx.executor = .fake;
+    main.update(&model, tree.msgForPointer(check.id, .up).?, &check_fx);
+    try testing.expectEqual(@as(usize, 1), check_fx.pendingSpawnCount());
+    try testing.expectEqual(@as(usize, 0), check_fx.pendingClipboardCount());
+    const spawn = check_fx.pendingSpawnAt(0).?;
+    try testing.expect(providers.isHealthArgv(spawn.argv));
+    try testing.expectEqualStrings("http://localhost:4096/global/health", spawn.argv[8]);
+    try testing.expect(model.has_opencode2_health_status());
+    try testing.expectEqualStrings("Checking…", model.opencode2_health_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Checking…");
+
+    main.update(&model, .{ .fx_line = .{ .key = spawn.key, .line = "{\"healthy\":true,\"version\":\"1.0.1\"}" } }, &check_fx);
+    main.update(&model, .{ .fx_exit = .{ .key = spawn.key, .reason = .exited, .code = 0 } }, &check_fx);
+    try testing.expectEqualStrings("Reachable · v1.0.1", model.opencode2_health_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Reachable · v1.0.1");
+    try testing.expect(findByText(tree.root, .text, "Checking…") == null);
+
+    model.setLanguagePreference(.simplified_chinese);
+    try testing.expectEqualStrings("检查 serve", model.check_opencode2_serve_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "检查 serve", .check_opencode2_serve);
+    _ = try expectByText(tree.root, .text, "可达 · v1.0.1");
+    try testing.expect(findByText(tree.root, .button, "Check serve") == null);
+
+    model.setLanguagePreference(.japanese);
+    try testing.expectEqualStrings("serve を確認", model.check_opencode2_serve_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "serve を確認", .check_opencode2_serve);
+    _ = try expectByText(tree.root, .text, "到達可能 · v1.0.1");
+    try testing.expect(findByText(tree.root, .button, "Check serve") == null);
+
+    model.setLanguagePreference(.english);
+    main.update(&model, .clear_opencode2_attach, &fx);
+    try testing.expect(!model.can_check_opencode2_serve());
+    try testing.expect(!model.has_opencode2_health_status());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Check serve") == null);
+    try testing.expect(findByText(tree.root, .text, "Reachable · v1.0.1") == null);
+
+    main.update(&model, .{ .opencode2_attach_edit = .{ .insert_text = "http://127.0.0.1:4096/" } }, &fx);
+    main.update(&model, .apply_opencode2_attach, &fx);
+    var fail_fx = Effects.init(testing.allocator);
+    defer fail_fx.deinit();
+    fail_fx.executor = .fake;
+    main.update(&model, .check_opencode2_serve, &fail_fx);
+    const fail_spawn = fail_fx.pendingSpawnAt(0).?;
+    try testing.expectEqualStrings("http://127.0.0.1:4096/global/health", fail_spawn.argv[8]);
+    main.update(&model, .{ .fx_exit = .{ .key = fail_spawn.key, .reason = .exited, .code = 22 } }, &fail_fx);
+    try testing.expectEqualStrings("Unreachable", model.opencode2_health_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Unreachable");
+
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = false;
+    try testing.expect(!model.can_check_opencode2_serve());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Check serve") == null);
 }
 
 test "Settings Providers DeepSeek Copy web command when Available; Not found hides; override binary" {

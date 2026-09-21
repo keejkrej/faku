@@ -452,7 +452,8 @@ pub const UsageMeterRow = usage_meter.Row;
 /// Enable/Disable persists `disabled_providers`. Expand + Binary
 /// path persist `provider_binary_overrides`. OpenCode 2 expanded
 /// Serve attach URL persists `opencode2_attach_url`. Copy serve
-/// command copies `{binary} serve` when Available.
+/// command copies `{binary} serve` when Available. Check serve
+/// probes GET `/global/health` when Available and attach URL is set.
 pub const ProviderRow = providers.ProviderRow;
 
 /// Composer model picker row. `row_id` is a 1-based Native `for` key.
@@ -814,6 +815,10 @@ pub const Msg = union(enum) {
     /// Settings Providers OpenCode 2: copy `{binary} serve`. Clipboard
     /// only; does not spawn serve. Hidden / no-op when Not found.
     copy_opencode2_serve,
+    /// Settings Providers OpenCode 2: one-shot GET
+    /// `{attach_url}/global/health`. Hidden / no-op when Not found or
+    /// attach URL is empty. Does not spawn serve.
+    check_opencode2_serve,
     /// Settings Providers DeepSeek: copy `{binary} web`. Clipboard
     /// only; does not spawn web. Hidden / no-op when Not found.
     copy_deepseek_web,
@@ -1599,6 +1604,18 @@ pub const Model = struct {
     /// Return / expand-switch; Reset clears. Not persisted (the
     /// applied URL lives in `opencode2_attach_url_*`).
     opencode2_attach_buffer: canvas.TextBuffer(max_opencode2_attach_url) = .{},
+    /// Runtime-only OpenCode 2 Check serve health. Not persisted.
+    opencode2_health_pending_key: u64 = 0,
+    opencode2_health_next_key: u64 = 0,
+    opencode2_health_state: providers.Opencode2HealthState = .idle,
+    opencode2_health_version_storage: [providers.opencode2_health_version_max]u8 = [_]u8{0} ** providers.opencode2_health_version_max,
+    opencode2_health_version_len: usize = 0,
+    opencode2_health_label_storage: [i18n.providers_opencode_health_label_max]u8 = [_]u8{0} ** i18n.providers_opencode_health_label_max,
+    opencode2_health_label_len: usize = 0,
+    opencode2_health_body_storage: [providers.opencode2_health_body_max]u8 = [_]u8{0} ** providers.opencode2_health_body_max,
+    opencode2_health_body_len: usize = 0,
+    opencode2_health_url_storage: [providers.opencode2_health_url_max]u8 = [_]u8{0} ** providers.opencode2_health_url_max,
+    opencode2_health_url_len: usize = 0,
     /// Runtime-only last PATH `--help` probe exit stamp (`now_ms`).
     /// Not persisted on `sessions.json`. 0 hides the Providers
     /// Coding agents Checked … caption (boot / Refresh mid-flight).
@@ -2545,6 +2562,7 @@ pub const Model = struct {
         "providersBinaryOverrideChrome",
         "providersOpencodeAttachChrome",
         "providersOpencodeServeChrome",
+        "providersOpencodeHealthChrome",
         "skillsEnableChrome",
         "skillsEnableStatusChrome",
         "skillsTrashChrome",
@@ -2573,6 +2591,18 @@ pub const Model = struct {
         "applyOpencode2AttachEdit",
         "providersOpencodeAttachChrome",
         "providersOpencodeServeChrome",
+        "providersOpencodeHealthChrome",
+        "opencode2_health_pending_key",
+        "opencode2_health_next_key",
+        "opencode2_health_state",
+        "opencode2_health_version_storage",
+        "opencode2_health_version_len",
+        "opencode2_health_label_storage",
+        "opencode2_health_label_len",
+        "opencode2_health_body_storage",
+        "opencode2_health_body_len",
+        "opencode2_health_url_storage",
+        "opencode2_health_url_len",
         "provider_detection_checked_at_ms",
         "settings_search_buffer",
         "applySettingsSearch",
@@ -5580,6 +5610,13 @@ pub const Model = struct {
         return model.providersOpencodeServeChrome().copy_serve;
     }
 
+    /// Settings Providers OpenCode 2 Check serve. `on-press` stays
+    /// `check_opencode2_serve`. Distinct from Copy serve
+    /// (`ProvidersOpencodeServeChrome`).
+    pub fn check_opencode2_serve_label(model: *const Model) []const u8 {
+        return model.providersOpencodeHealthChrome().check_serve;
+    }
+
     /// Settings Providers DeepSeek Copy web command. `on-press`
     /// stays `copy_deepseek_web`. Command text stays English.
     /// Distinct from Copy install / Copy login (`ProvidersChrome`)
@@ -6334,6 +6371,10 @@ pub const Model = struct {
         return i18n.providersOpencodeServeChromeFor(model.language_preference, model.systemLocaleId());
     }
 
+    fn providersOpencodeHealthChrome(model: *const Model) i18n.ProvidersOpencodeHealthChrome {
+        return i18n.providersOpencodeHealthChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
     fn providersDeepseekWebChrome(model: *const Model) i18n.ProvidersDeepseekWebChrome {
         return i18n.providersDeepseekWebChromeFor(model.language_preference, model.systemLocaleId());
     }
@@ -6741,6 +6782,7 @@ pub const Model = struct {
 
     pub fn setLanguagePreference(model: *Model, preference: LanguagePreference) void {
         model.language_preference = preference;
+        providers.refreshOpencode2HealthLabel(model);
     }
 
     pub fn provider_rows(model: *const Model, arena: std.mem.Allocator) []const ProviderRow {
@@ -6768,6 +6810,23 @@ pub const Model = struct {
     /// (same class as fx Copy install / Copy login).
     pub fn can_copy_opencode2_serve(model: *const Model) bool {
         return model.settings_page == .providers and providers.canCopyOpencode2Serve(model);
+    }
+
+    /// Settings Providers OpenCode 2 Check serve. True when OpenCode 2
+    /// is Available and persisted `opencode2_attach_url` is non-empty.
+    /// Markup hides the button otherwise (same class as Copy serve).
+    pub fn can_check_opencode2_serve(model: *const Model) bool {
+        return model.settings_page == .providers and providers.canCheckOpencode2Serve(model);
+    }
+
+    /// Runtime-only Check serve status. Empty when idle / never checked.
+    pub fn opencode2_health_status(model: *const Model) []const u8 {
+        return providers.healthStatusText(model);
+    }
+
+    /// True when Check serve has a pending / ok / fail string to paint.
+    pub fn has_opencode2_health_status(model: *const Model) bool {
+        return model.settings_page == .providers and model.opencode2_health_state != .idle;
     }
 
     /// Settings Providers DeepSeek Copy web command. True when
