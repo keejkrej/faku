@@ -20,7 +20,12 @@
 //! (string; missing / empty / overflow → empty = cold `run`) and
 //! copies `{binary} serve` when Available (`copyOpencode2Serve`;
 //! honor `provider_binary_overrides` / `binaryFor`; hide / no-op
-//! when Not found; clipboard only, never spawns serve). DeepSeek
+//! when Not found; clipboard only, never spawns serve) and one-shot
+//! Check serve health (`startCheckOpencode2Serve`; GET
+//! `{attach_url}/global/health` when Available and persisted
+//! `opencode2_attach_url` trim is non-empty; hide / no-op when Not
+//! found / unset / empty attach URL; runtime-only status; no
+//! password UI this cut; never spawns serve). DeepSeek
 //! expanded row copies `{binary} web` when Available
 //! (`copyDeepseekWeb`; documented `dsh web` alias for `--profile
 //! web`; honor `provider_binary_overrides` / `binaryFor`; hide /
@@ -64,7 +69,7 @@
 //! one-shot `{binary} run --format json --auto` (documented `--session`
 //! / `--model` / `--file`; documented `--attach {url}` when
 //! `opencode2_attach_url` is set; not `opencode acp`; user-owned
-//! serve; Copy serve command ships; in-app HTTP/SSE serve client stays deferred). Available DeepSeek is one-shot `dsh --profile acp`
+//! serve; Copy serve command ships; Check serve health ships; in-app HTTP/SSE Send stays deferred). Available DeepSeek is one-shot `dsh --profile acp`
 //! via acp-proxy (not `dsh acp`; composer image fail-closes to demo;
 //! Copy web command ships; Harness HTTP/SSE / in-app web client stay
 //! deferred; `--profile headless` ships on empty-Commit… generate
@@ -92,7 +97,12 @@
 //! user-owned serve; Faku only passes `--attach`). Copy serve command
 //! follows `i18n.ProvidersOpencodeServeChrome` (clipboard
 //! `{binary} serve` when Available; honor override; hide / no-op
-//! when Not found). Copy web command follows
+//! when Not found). Check serve health follows
+//! `i18n.ProvidersOpencodeHealthChrome` (one-shot GET
+//! `{attach_url}/global/health` when Available and attach URL is
+//! non-empty; hide / no-op when Not found / unset / empty attach
+//! URL; runtime-only status; no password UI this cut; Faku does
+//! not spawn serve). Copy web command follows
 //! `i18n.ProvidersDeepseekWebChrome` (clipboard `{binary} web` when
 //! Available; honor override; hide / no-op when Not found; Faku
 //! does not spawn web). Model-count /
@@ -105,7 +115,8 @@
 //! LiteLLM rate-table; T3 layered Usage chart; amend/force and
 //! remote `--track` over daemon (local already); Native-blocked UI
 //! (gauge / chart fill / DevTools / edge fades / sticky / KaTeX);
-//! OpenCode 2 HTTP/SSE serve client (Copy serve command ships;
+//! OpenCode 2 HTTP/SSE Send (Check serve / GET /global/health ships;
+//! no OPENCODE_SERVER_PASSWORD UI this cut; 401 is Unreachable;
 //! Faku still does not spawn serve); DeepSeek Harness HTTP/SSE /
 //! in-app web client (Copy web command ships; Faku still does not
 //! spawn web). `--profile headless` ships on empty-Commit…
@@ -140,7 +151,7 @@
 //! bypass). OpenCode 2 one-shot `run --format json --auto` ships this
 //! cut (display **OpenCode 2**; not `opencode acp`; documented
 //! `--attach {url}` when `opencode2_attach_url` is set; user-owned
-//! serve; Copy serve command ships; in-app HTTP/SSE serve client still deferred). DeepSeek one-shot
+//! serve; Copy serve command ships; Check serve health ships; in-app HTTP/SSE Send still deferred). DeepSeek one-shot
 //! `dsh --profile acp` via acp-proxy ships this cut (display **DeepSeek**;
 //! no image attach; Copy web command ships; Harness HTTP/SSE / in-app
 //! web client still deferred; `--profile headless` ships on
@@ -150,6 +161,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
 const model_exports = @import("model_exports.zig");
 const sidecar_keys = @import("sidecar_keys.zig");
@@ -159,9 +171,11 @@ const cli_probe = @import("cli_probe.zig");
 const cli_version = @import("cli_version.zig");
 const copy_helpers = @import("copy.zig");
 const i18n = @import("i18n.zig");
+const litellm_rates = @import("litellm_rates.zig");
 
 const Model = model_exports.Model;
 const Effects = main.Effects;
+const writeFixed = model_exports.writeFixed;
 
 fn chrome(model: *const Model) i18n.ProvidersChrome {
     return i18n.providersChromeFor(model.language_preference, model.systemLocaleId());
@@ -212,8 +226,11 @@ pub const copy_login_label = providers_chrome_en.copy_login;
 /// English default from `i18n.ProvidersOpencodeServeChrome`. Distinct
 /// from Copy install / Copy login.
 pub const copy_serve_label = i18n.providersOpencodeServeChromeFor(.english, "").copy_serve;
+/// English default from `i18n.ProvidersOpencodeHealthChrome`. Distinct
+/// from Copy serve / Copy install / Copy login.
+pub const check_serve_label = i18n.providersOpencodeHealthChromeFor(.english, "").check_serve;
 /// English default from `i18n.ProvidersDeepseekWebChrome`. Distinct
-/// from Copy install / Copy login / Copy serve.
+/// from Copy install / Copy login / Copy serve / Check serve.
 pub const copy_web_label = i18n.providersDeepseekWebChromeFor(.english, "").copy_web;
 pub const fx_login_note = providers_detail_chrome_en.fx_login_note;
 pub const fx_login_codex_note = providers_detail_chrome_en.fx_login_codex_note;
@@ -446,7 +463,8 @@ pub fn clearPathOverride(model: *Model, fx: *Effects) bool {
 /// Apply the OpenCode 2 expanded row's Serve attach URL draft.
 /// Empty / whitespace / overflow clears (cold `run`). Returns true
 /// when the persisted URL changed. No-op when another row is expanded.
-pub fn applyAttachUrl(model: *Model) bool {
+/// Changing the URL clears runtime Check serve status.
+pub fn applyAttachUrl(model: *Model, fx: *Effects) bool {
     const id = fromRowId(model.provider_expanded_id) orelse return false;
     if (id != .opencode2) return false;
     const trimmed = std.mem.trim(u8, model.opencode2_attach_buffer.text(), " \t\r\n");
@@ -454,12 +472,14 @@ pub fn applyAttachUrl(model: *Model) bool {
     if (std.mem.eql(u8, trimmed, current)) return false;
     model.setOpencode2AttachUrl(trimmed);
     model.opencode2_attach_buffer.set(model.opencode2AttachUrl());
+    clearOpencode2Health(model, fx);
     return true;
 }
 
 /// Clear the OpenCode 2 attach URL and draft. Returns true when a
-/// URL was cleared. No-op when another row is expanded.
-pub fn clearAttachUrl(model: *Model) bool {
+/// URL was cleared. No-op when another row is expanded. Clears
+/// runtime Check serve status.
+pub fn clearAttachUrl(model: *Model, fx: *Effects) bool {
     const id = fromRowId(model.provider_expanded_id) orelse return false;
     if (id != .opencode2) {
         model.opencode2_attach_buffer.clear();
@@ -471,6 +491,7 @@ pub fn clearAttachUrl(model: *Model) bool {
     }
     model.setOpencode2AttachUrl("");
     model.opencode2_attach_buffer.clear();
+    clearOpencode2Health(model, fx);
     return true;
 }
 
@@ -494,18 +515,21 @@ fn restartProbeFor(model: *Model, fx: *Effects, id: protocol.ProviderId) void {
 /// applies then collapses.
 pub fn toggleExpanded(model: *Model, fx: *Effects, row_id: u32) bool {
     const id = fromRowId(row_id) orelse return false;
+    const prev_id = fromRowId(model.provider_expanded_id);
     if (model.provider_expanded_id != 0 and model.provider_expanded_id != row_id) {
         _ = applyPathOverride(model, fx);
-        _ = applyAttachUrl(model);
+        _ = applyAttachUrl(model, fx);
     }
     if (model.provider_expanded_id == row_id) {
         _ = applyPathOverride(model, fx);
-        _ = applyAttachUrl(model);
+        _ = applyAttachUrl(model, fx);
         model.provider_expanded_id = 0;
         model.provider_override_buffer.clear();
         model.opencode2_attach_buffer.clear();
+        if (prev_id == .opencode2) clearOpencode2Health(model, fx);
         return true;
     }
+    if (prev_id == .opencode2 and id != .opencode2) clearOpencode2Health(model, fx);
     model.provider_expanded_id = row_id;
     seedOverrideDraft(model, id);
     seedAttachDraft(model, id);
@@ -801,6 +825,256 @@ pub fn copyOpencode2Serve(model: *const Model, fx: *Effects) void {
     copy_helpers.copyText(fx, opencode2ServeCommand(model, &buf));
 }
 
+/// One-shot OpenCode 2 serve health curl. Distinct from LiteLLM (650)
+/// and Browser `page_title` (660–699). Band 651–659 so a cancelled
+/// probe cannot collide with a replacement spawn.
+pub const opencode2_health_key_first: u64 = 651;
+pub const opencode2_health_key_last: u64 = 659;
+pub const opencode2_health_path = "/global/health";
+pub const opencode2_health_max_time = "8";
+pub const opencode2_health_max_filesize = "65536";
+pub const opencode2_health_accept_header = "Accept: application/json";
+pub const opencode2_health_argv_len: usize = 9;
+pub const opencode2_health_body_max: usize = 4096;
+pub const opencode2_health_version_max: usize = 64;
+pub const opencode2_health_url_max: usize = model_exports.max_opencode2_attach_url + opencode2_health_path.len;
+
+pub const Opencode2HealthState = enum { idle, pending, ok, fail };
+
+fn healthChrome(model: *const Model) i18n.ProvidersOpencodeHealthChrome {
+    return i18n.providersOpencodeHealthChromeFor(model.language_preference, model.systemLocaleId());
+}
+
+/// Join documented `GET /global/health` onto the serve base URL.
+/// Trailing slash on the base does not double-slash. A pasted full
+/// health URL (suffix `/global/health`, optional trailing slash) is
+/// used as-is.
+pub fn healthUrl(attach: []const u8, buf: []u8) []const u8 {
+    const trimmed = std.mem.trim(u8, attach, " \t\r\n");
+    if (trimmed.len == 0) return "";
+    const stripped = std.mem.trimRight(u8, trimmed, "/");
+    if (std.mem.endsWith(u8, stripped, opencode2_health_path)) {
+        if (trimmed.len > buf.len) return "";
+        @memcpy(buf[0..trimmed.len], trimmed);
+        return buf[0..trimmed.len];
+    }
+    const base = if (std.mem.endsWith(u8, trimmed, "/"))
+        trimmed[0 .. trimmed.len - 1]
+    else
+        trimmed;
+    return std.fmt.bufPrint(buf, "{s}{s}", .{ base, opencode2_health_path }) catch "";
+}
+
+pub fn argvForHealth(url: []const u8, argv_buf: *[opencode2_health_argv_len][]const u8) []const []const u8 {
+    return argvForHealthBin(litellm_rates.curlBin(), url, argv_buf);
+}
+
+pub fn argvForHealthBin(bin: []const u8, url: []const u8, argv_buf: *[opencode2_health_argv_len][]const u8) []const []const u8 {
+    argv_buf[0] = bin;
+    argv_buf[1] = "-fsSL";
+    argv_buf[2] = "--max-time";
+    argv_buf[3] = opencode2_health_max_time;
+    argv_buf[4] = "--max-filesize";
+    argv_buf[5] = opencode2_health_max_filesize;
+    argv_buf[6] = "-H";
+    argv_buf[7] = opencode2_health_accept_header;
+    argv_buf[8] = url;
+    return argv_buf[0..opencode2_health_argv_len];
+}
+
+pub fn isHealthArgv(argv: []const []const u8) bool {
+    if (argv.len != opencode2_health_argv_len) return false;
+    const bin_ok = std.mem.eql(u8, argv[0], litellm_rates.unix_curl_bin) or
+        std.mem.eql(u8, argv[0], litellm_rates.path_curl_bin) or
+        std.mem.eql(u8, argv[0], litellm_rates.windows_curl_bin);
+    if (!bin_ok) return false;
+    if (!std.mem.eql(u8, argv[1], "-fsSL")) return false;
+    if (!std.mem.eql(u8, argv[2], "--max-time")) return false;
+    if (!std.mem.eql(u8, argv[3], opencode2_health_max_time)) return false;
+    if (!std.mem.eql(u8, argv[4], "--max-filesize")) return false;
+    if (!std.mem.eql(u8, argv[5], opencode2_health_max_filesize)) return false;
+    if (!std.mem.eql(u8, argv[6], "-H")) return false;
+    if (!std.mem.eql(u8, argv[7], opencode2_health_accept_header)) return false;
+    return argv[8].len > 0;
+}
+
+pub fn isHealthKey(key: u64) bool {
+    return key >= opencode2_health_key_first and key <= opencode2_health_key_last;
+}
+
+pub fn isPendingHealthKey(model: *const Model, key: u64) bool {
+    return isHealthKey(key) and model.opencode2_health_pending_key == key;
+}
+
+/// OpenCode 2 Available and persisted attach URL is non-empty.
+/// Check serve hide / no-op gate; does not spawn `serve`.
+pub fn canCheckOpencode2Serve(model: *const Model) bool {
+    return isAvailable(model, .opencode2) and model.opencode2AttachUrl().len > 0;
+}
+
+fn nextHealthKey(model: *Model) u64 {
+    var key = model.opencode2_health_next_key;
+    if (key < opencode2_health_key_first or key > opencode2_health_key_last) {
+        key = opencode2_health_key_first;
+    }
+    model.opencode2_health_next_key = if (key >= opencode2_health_key_last)
+        opencode2_health_key_first
+    else
+        key + 1;
+    return key;
+}
+
+fn cancelOpencode2Health(model: *Model, fx: *Effects) void {
+    if (model.opencode2_health_pending_key == 0) return;
+    fx.cancel(model.opencode2_health_pending_key);
+    model.opencode2_health_pending_key = 0;
+}
+
+pub fn clearOpencode2Health(model: *Model, fx: *Effects) void {
+    cancelOpencode2Health(model, fx);
+    model.opencode2_health_state = .idle;
+    model.opencode2_health_version_len = 0;
+    model.opencode2_health_label_len = 0;
+    model.opencode2_health_body_len = 0;
+    model.opencode2_health_url_len = 0;
+}
+
+pub fn refreshOpencode2HealthLabel(model: *Model) void {
+    if (model.opencode2_health_state != .ok) {
+        model.opencode2_health_label_len = 0;
+        return;
+    }
+    const version = model.opencode2_health_version_storage[0..model.opencode2_health_version_len];
+    if (version.len == 0) {
+        model.opencode2_health_label_len = 0;
+        return;
+    }
+    const text = i18n.formatProvidersOpencodeHealthReachableVersion(
+        healthChrome(model),
+        version,
+        &model.opencode2_health_label_storage,
+    );
+    model.opencode2_health_label_len = text.len;
+}
+
+pub fn healthStatusText(model: *const Model) []const u8 {
+    const pack = healthChrome(model);
+    return switch (model.opencode2_health_state) {
+        .idle => "",
+        .pending => pack.checking,
+        .fail => pack.unreachable,
+        .ok => blk: {
+            const version = model.opencode2_health_version_storage[0..model.opencode2_health_version_len];
+            if (version.len == 0) break :blk pack.reachable;
+            const painted = model.opencode2_health_label_storage[0..model.opencode2_health_label_len];
+            break :blk if (painted.len == 0) pack.reachable else painted;
+        },
+    };
+}
+
+/// One-shot GET `{attach_url}/global/health`. No-op when the button
+/// would be hidden. Does not spawn `opencode2 serve`. Probe has no
+/// basic-auth UI this cut (401 is Unreachable).
+pub fn startCheckOpencode2Serve(model: *Model, fx: *Effects) void {
+    if (!canCheckOpencode2Serve(model)) return;
+    var url_buf: [opencode2_health_url_max]u8 = undefined;
+    const url = healthUrl(model.opencode2AttachUrl(), &url_buf);
+    if (url.len == 0) return;
+    cancelOpencode2Health(model, fx);
+    writeFixed(&model.opencode2_health_url_storage, &model.opencode2_health_url_len, url);
+    const key = nextHealthKey(model);
+    model.opencode2_health_pending_key = key;
+    model.opencode2_health_state = .pending;
+    model.opencode2_health_version_len = 0;
+    model.opencode2_health_label_len = 0;
+    model.opencode2_health_body_len = 0;
+    var argv_buf: [opencode2_health_argv_len][]const u8 = undefined;
+    fx.spawn(.{
+        .key = key,
+        .argv = argvForHealth(model.opencode2_health_url_storage[0..model.opencode2_health_url_len], &argv_buf),
+        .max_line_bytes = opencode2_health_body_max,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+}
+
+pub fn applyHealthLine(model: *Model, line: native_sdk.EffectLine) void {
+    if (!isPendingHealthKey(model, line.key)) return;
+    const chunk = line.line;
+    if (std.mem.indexOfScalar(u8, chunk, 0) != null) {
+        model.opencode2_health_body_len = 0;
+        return;
+    }
+    if (model.opencode2_health_body_len >= opencode2_health_body_max) return;
+    if (model.opencode2_health_body_len > 0) {
+        model.opencode2_health_body_storage[model.opencode2_health_body_len] = '\n';
+        model.opencode2_health_body_len += 1;
+        if (model.opencode2_health_body_len >= opencode2_health_body_max) return;
+    }
+    const room = opencode2_health_body_max - model.opencode2_health_body_len;
+    const take = @min(room, chunk.len);
+    @memcpy(model.opencode2_health_body_storage[model.opencode2_health_body_len .. model.opencode2_health_body_len + take], chunk[0..take]);
+    model.opencode2_health_body_len += take;
+}
+
+const ParsedHealth = struct {
+    ok: bool = false,
+    version: []const u8 = "",
+};
+
+pub fn parseHealthJson(json: []const u8, version_buf: []u8) ParsedHealth {
+    const trimmed = std.mem.trim(u8, json, " \t\r\n");
+    if (trimmed.len == 0) return .{};
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const root = std.json.parseFromSliceLeaky(std.json.Value, arena_state.allocator(), trimmed, .{}) catch return .{};
+    if (root != .object) return .{};
+    const healthy_val = root.object.get("healthy") orelse return .{};
+    const healthy = switch (healthy_val) {
+        .bool => |b| b,
+        else => return .{},
+    };
+    if (!healthy) return .{};
+    var version: []const u8 = "";
+    if (root.object.get("version")) |v| {
+        if (v == .string) {
+            const s = std.mem.trim(u8, v.string, " \t\r\n");
+            if (s.len > 0 and s.len <= version_buf.len) {
+                @memcpy(version_buf[0..s.len], s);
+                version = version_buf[0..s.len];
+            }
+        }
+    }
+    return .{ .ok = true, .version = version };
+}
+
+pub fn handleOpencode2HealthExit(model: *Model, exit: native_sdk.EffectExit) void {
+    if (!isPendingHealthKey(model, exit.key)) return;
+    const body = model.opencode2_health_body_storage[0..model.opencode2_health_body_len];
+    var body_copy: [opencode2_health_body_max]u8 = undefined;
+    const body_len = @min(body.len, body_copy.len);
+    @memcpy(body_copy[0..body_len], body[0..body_len]);
+    model.opencode2_health_pending_key = 0;
+    model.opencode2_health_body_len = 0;
+    if (exit.reason != .exited or exit.code != 0) {
+        model.opencode2_health_state = .fail;
+        model.opencode2_health_version_len = 0;
+        model.opencode2_health_label_len = 0;
+        return;
+    }
+    var version_buf: [opencode2_health_version_max]u8 = undefined;
+    const parsed = parseHealthJson(body_copy[0..body_len], &version_buf);
+    if (!parsed.ok) {
+        model.opencode2_health_state = .fail;
+        model.opencode2_health_version_len = 0;
+        model.opencode2_health_label_len = 0;
+        return;
+    }
+    model.opencode2_health_state = .ok;
+    writeFixed(&model.opencode2_health_version_storage, &model.opencode2_health_version_len, parsed.version);
+    refreshOpencode2HealthLabel(model);
+}
+
 /// `{binary} web` scratch: override path cap plus the documented
 /// DeepSeek CLI web alias. Same class as `opencode2_serve_command_max`.
 pub const deepseek_web_command_max: usize = model_exports.max_fx_path + " web".len;
@@ -830,7 +1104,8 @@ pub fn copyDeepseekWeb(model: *const Model, fx: *Effects) void {
 
 pub fn close(model: *Model, fx: *Effects) void {
     _ = applyPathOverride(model, fx);
-    _ = applyAttachUrl(model);
+    _ = applyAttachUrl(model, fx);
+    clearOpencode2Health(model, fx);
     model.provider_expanded_id = 0;
     model.provider_override_buffer.clear();
     model.opencode2_attach_buffer.clear();
@@ -1621,6 +1896,155 @@ test "OpenCode 2 Available does not unlock DeepSeek Copy web; DeepSeek Available
     try testing.expect(canCopyDeepseekWeb(&model));
 }
 
+test "healthUrl joins /global/health; no double-slash; pasted health URL is kept" {
+    const testing = std.testing;
+    var buf: [opencode2_health_url_max]u8 = undefined;
+    try testing.expectEqualStrings("", healthUrl("", &buf));
+    try testing.expectEqualStrings("", healthUrl("   ", &buf));
+    try testing.expectEqualStrings(
+        "http://localhost:4096/global/health",
+        healthUrl("http://localhost:4096", &buf),
+    );
+    try testing.expectEqualStrings(
+        "http://localhost:4096/global/health",
+        healthUrl("http://localhost:4096/", &buf),
+    );
+    try testing.expectEqualStrings(
+        "http://localhost:4096/global/health",
+        healthUrl("  http://localhost:4096/  ", &buf),
+    );
+    try testing.expectEqualStrings(
+        "http://localhost:4096/global/health",
+        healthUrl("http://localhost:4096/global/health", &buf),
+    );
+    try testing.expectEqualStrings(
+        "http://localhost:4096/global/health/",
+        healthUrl("http://localhost:4096/global/health/", &buf),
+    );
+}
+
+test "parseHealthJson requires healthy true; version optional" {
+    const testing = std.testing;
+    var version_buf: [opencode2_health_version_max]u8 = undefined;
+    const ok = parseHealthJson("{\"healthy\":true,\"version\":\"1.2.3\"}", &version_buf);
+    try testing.expect(ok.ok);
+    try testing.expectEqualStrings("1.2.3", ok.version);
+    const no_version = parseHealthJson(" { \"healthy\" : true } ", &version_buf);
+    try testing.expect(no_version.ok);
+    try testing.expectEqualStrings("", no_version.version);
+    try testing.expect(!parseHealthJson("{\"healthy\":false,\"version\":\"1.2.3\"}", &version_buf).ok);
+    try testing.expect(!parseHealthJson("not json", &version_buf).ok);
+    try testing.expect(!parseHealthJson("", &version_buf).ok);
+    try testing.expect(!parseHealthJson("{\"healthy\":\"yes\"}", &version_buf).ok);
+    try testing.expect(!parseHealthJson("{\"version\":\"1.2.3\"}", &version_buf).ok);
+}
+
+test "canCheckOpencode2Serve needs Available and non-empty attach URL; Check serve is curl not serve" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    try testing.expectEqual(@as(u64, 651), opencode2_health_key_first);
+    try testing.expectEqual(@as(u64, 659), opencode2_health_key_last);
+    try testing.expect(opencode2_health_key_first > 650);
+    try testing.expect(opencode2_health_key_last < 660);
+    try testing.expectEqualStrings("Check serve", check_serve_label);
+    try testing.expect(!std.mem.eql(u8, check_serve_label, copy_serve_label));
+    try testing.expect(!canCheckOpencode2Serve(&model));
+    startCheckOpencode2Serve(&model, &fx);
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expectEqual(Opencode2HealthState.idle, model.opencode2_health_state);
+
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    try testing.expect(canCopyOpencode2Serve(&model));
+    try testing.expect(!canCheckOpencode2Serve(&model));
+    startCheckOpencode2Serve(&model, &fx);
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+
+    model.setOpencode2AttachUrl("http://localhost:4096");
+    try testing.expect(canCheckOpencode2Serve(&model));
+    startCheckOpencode2Serve(&model, &fx);
+    try testing.expectEqual(Opencode2HealthState.pending, model.opencode2_health_state);
+    try testing.expectEqualStrings("Checking…", healthStatusText(&model));
+    const spawn = pendingHealthSpawn(&fx, model.opencode2_health_pending_key) orelse return error.MissingHealthSpawn;
+    try testing.expect(isHealthArgv(spawn.argv));
+    try testing.expectEqualStrings("http://localhost:4096/global/health", spawn.argv[8]);
+    try testing.expect(!std.mem.eql(u8, spawn.argv[0], "opencode2"));
+    try testing.expect(!std.mem.eql(u8, spawn.argv[spawn.argv.len - 1], "serve"));
+    try testing.expectEqual(@as(u64, opencode2_health_key_first), spawn.key);
+
+    applyHealthLine(&model, .{ .key = spawn.key, .line = "{\"healthy\":true,\"version\":\"0.9.0\"}" });
+    handleOpencode2HealthExit(&model, .{ .key = spawn.key, .reason = .exited, .code = 0 });
+    try testing.expectEqual(Opencode2HealthState.ok, model.opencode2_health_state);
+    try testing.expectEqualStrings("Reachable · v0.9.0", healthStatusText(&model));
+    try testing.expectEqual(@as(u64, 0), model.opencode2_health_pending_key);
+
+    model.language_preference = .simplified_chinese;
+    refreshOpencode2HealthLabel(&model);
+    try testing.expectEqualStrings("可达 · v0.9.0", healthStatusText(&model));
+    model.language_preference = .japanese;
+    refreshOpencode2HealthLabel(&model);
+    try testing.expectEqualStrings("到達可能 · v0.9.0", healthStatusText(&model));
+    model.language_preference = .english;
+    refreshOpencode2HealthLabel(&model);
+    try testing.expectEqualStrings("Reachable · v0.9.0", healthStatusText(&model));
+
+    try testing.expect(toggleExpanded(&model, &fx, rowId(.opencode2)));
+    try testing.expect(clearAttachUrl(&model, &fx));
+    try testing.expectEqual(Opencode2HealthState.idle, model.opencode2_health_state);
+    try testing.expectEqualStrings("", healthStatusText(&model));
+    try testing.expect(!canCheckOpencode2Serve(&model));
+}
+
+test "Check serve fail / bad JSON / non-2xx is Unreachable; collapse clears; healthy without version is Reachable" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    model.setOpencode2AttachUrl("http://127.0.0.1:4096/");
+    startCheckOpencode2Serve(&model, &fx);
+    const first = pendingHealthSpawn(&fx, model.opencode2_health_pending_key) orelse return error.MissingFirstHealth;
+    try testing.expectEqualStrings("http://127.0.0.1:4096/global/health", first.argv[8]);
+    handleOpencode2HealthExit(&model, .{ .key = first.key, .reason = .exited, .code = 22 });
+    try testing.expectEqual(Opencode2HealthState.fail, model.opencode2_health_state);
+    try testing.expectEqualStrings("Unreachable", healthStatusText(&model));
+
+    startCheckOpencode2Serve(&model, &fx);
+    const second = pendingHealthSpawn(&fx, model.opencode2_health_pending_key) orelse return error.MissingSecondHealth;
+    applyHealthLine(&model, .{ .key = second.key, .line = "not json" });
+    handleOpencode2HealthExit(&model, .{ .key = second.key, .reason = .exited, .code = 0 });
+    try testing.expectEqualStrings("Unreachable", healthStatusText(&model));
+
+    startCheckOpencode2Serve(&model, &fx);
+    const third = pendingHealthSpawn(&fx, model.opencode2_health_pending_key) orelse return error.MissingThirdHealth;
+    applyHealthLine(&model, .{ .key = third.key, .line = "{\"healthy\":true}" });
+    handleOpencode2HealthExit(&model, .{ .key = third.key, .reason = .exited, .code = 0 });
+    try testing.expectEqual(Opencode2HealthState.ok, model.opencode2_health_state);
+    try testing.expectEqualStrings("Reachable", healthStatusText(&model));
+
+    handleOpencode2HealthExit(&model, .{ .key = third.key, .reason = .exited, .code = 1 });
+    try testing.expectEqual(Opencode2HealthState.ok, model.opencode2_health_state);
+
+    try testing.expect(toggleExpanded(&model, &fx, rowId(.opencode2)));
+    try testing.expectEqual(Opencode2HealthState.ok, model.opencode2_health_state);
+    try testing.expect(toggleExpanded(&model, &fx, rowId(.opencode2)));
+    try testing.expectEqual(Opencode2HealthState.idle, model.opencode2_health_state);
+    try testing.expectEqualStrings("", healthStatusText(&model));
+}
+
+fn pendingHealthSpawn(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key) return spawn;
+    }
+    return null;
+}
+
 test "providerEnabled is not-disabled AND probe-installed; chip is disable-flag-only" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
@@ -2016,8 +2440,8 @@ test "applyAttachUrl empty clears; OpenCode 2 row only; switching applies pendin
     fx.executor = .fake;
 
     var model = Model{};
-    try testing.expect(!applyAttachUrl(&model));
-    try testing.expect(!clearAttachUrl(&model));
+    try testing.expect(!applyAttachUrl(&model, &fx));
+    try testing.expect(!clearAttachUrl(&model, &fx));
     try testing.expect(!rowFor(&model, .fx, arena).show_opencode_attach);
     try testing.expect(!rowFor(&model, .claude, arena).show_opencode_attach);
     try testing.expect(rowFor(&model, .opencode2, arena).show_opencode_attach);
@@ -2029,7 +2453,7 @@ test "applyAttachUrl empty clears; OpenCode 2 row only; switching applies pendin
 
     try testing.expect(toggleExpanded(&model, &fx, rowId(.opencode2)));
     model.opencode2_attach_buffer.set("  http://localhost:4096  ");
-    try testing.expect(applyAttachUrl(&model));
+    try testing.expect(applyAttachUrl(&model, &fx));
     try testing.expectEqualStrings("http://localhost:4096", model.opencode2AttachUrl());
     try testing.expectEqualStrings("http://localhost:4096", model.opencode2_attach_buffer.text());
     try testing.expect(rowFor(&model, .opencode2, arena).has_opencode_attach);
@@ -2037,18 +2461,18 @@ test "applyAttachUrl empty clears; OpenCode 2 row only; switching applies pendin
     try testing.expect(toggleExpanded(&model, &fx, rowId(.fx)));
     try testing.expectEqualStrings("http://localhost:4096", model.opencode2AttachUrl());
     try testing.expectEqualStrings("", model.opencode2_attach_buffer.text());
-    try testing.expect(!applyAttachUrl(&model));
+    try testing.expect(!applyAttachUrl(&model, &fx));
 
     try testing.expect(toggleExpanded(&model, &fx, rowId(.opencode2)));
     try testing.expectEqualStrings("http://localhost:4096", model.opencode2_attach_buffer.text());
     model.opencode2_attach_buffer.set("");
-    try testing.expect(applyAttachUrl(&model));
+    try testing.expect(applyAttachUrl(&model, &fx));
     try testing.expectEqualStrings("", model.opencode2AttachUrl());
     try testing.expect(!rowFor(&model, .opencode2, arena).has_opencode_attach);
 
     model.setOpencode2AttachUrl("http://127.0.0.1:4096");
     model.opencode2_attach_buffer.set("http://127.0.0.1:4096");
-    try testing.expect(clearAttachUrl(&model));
+    try testing.expect(clearAttachUrl(&model, &fx));
     try testing.expectEqualStrings("", model.opencode2AttachUrl());
     try testing.expectEqualStrings("", model.opencode2_attach_buffer.text());
 }

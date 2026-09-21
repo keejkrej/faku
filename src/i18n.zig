@@ -456,9 +456,22 @@
 //! independently evolvable; OpenCode 2 expanded row when Available;
 //! clipboard `{binary} serve` via `providers.binaryFor`; honor
 //! `provider_binary_overrides`; hide / no-op when Not found; Faku
-//! does not spawn serve; in-app HTTP/SSE serve client still
-//! deferred; on-press stays `copy_opencode2_serve`; command text
-//! stays English)
+//! does not spawn serve; on-press stays `copy_opencode2_serve`;
+//! command text stays English)
+//! plus Settings Providers OpenCode 2 Check serve health
+//! (same `ProvidersOpencodeHealthChrome` strings; EN Check serve /
+//! Checking… / Reachable / Reachable · v%{version} / Unreachable /
+//! zh-CN 检查 serve / 正在检查… / 可达 / 可达 · v%{version} / 不可达 /
+//! ja serve を確認 / 確認中… / 到達可能 / 到達可能 · v%{version} /
+//! 到達不能; distinct from `ProvidersOpencodeServeChrome` /
+//! `ProvidersOpencodeAttachChrome` so health chrome stays
+//! independently evolvable; OpenCode 2 expanded row when Available
+//! and persisted `opencode2_attach_url` trim is non-empty; one-shot
+//! GET `{attach_url}/global/health` via curl spawn; hide / no-op
+//! when Not found / unset / empty attach URL; runtime-only status;
+//! no OPENCODE_SERVER_PASSWORD UI this cut; 401 is Unreachable;
+//! Faku does not spawn serve; in-app HTTP/SSE Send still deferred;
+//! on-press stays `check_opencode2_serve`; version token stays Latin data)
 //! plus Settings Providers DeepSeek Copy web command
 //! (same `ProvidersDeepseekWebChrome` strings; EN Copy web
 //! command / zh-CN 复制 web 命令 / ja web コマンドをコピー;
@@ -922,8 +935,8 @@
 //! Settings Providers / Skills / Usage Refresh `on-press` stay
 //! English (`refresh_providers` / `refresh_skills` /
 //! `refresh_usage_history`). Settings Providers Apply / Copy install /
-//! Copy login / Copy serve / Copy web `on-press` stay English (`apply_session_provider` /
-//! `copy_fx_install` / `copy_fx_login` / `copy_opencode2_serve` / `copy_deepseek_web`). Refresh goal / plan Refresh `on-press`
+//! Copy login / Copy serve / Check serve / Copy web `on-press` stay English (`apply_session_provider` /
+//! `copy_fx_install` / `copy_fx_login` / `copy_opencode2_serve` / `check_opencode2_serve` / `copy_deepseek_web`). Refresh goal / plan Refresh `on-press`
 //! stay English (`goal_refresh` / `refresh_plan_usage`). Set goal /
 //! Clear goal `on-press` stay English (`goal_set` / `goal_clear`).
 //! Composer Goal empty label (`No goal`) follows the resolved
@@ -4776,7 +4789,7 @@ const providers_detail_chrome_en: ProvidersDetailChrome = .{
     .amp_transport_note = "Live Send is one-shot amp -x / --execute when Available (`@path` when attached).",
     .pi_transport_note = "Live Send is one-shot pi --mode rpc --no-session when Available (RPC images when attached).",
     .ohmypi_transport_note = "Live Send is one-shot omp --mode rpc --yolo --no-session when Available (RPC images when attached).",
-    .opencode2_transport_note = "Live Send is one-shot opencode2 run --format json --auto when Available (`--file` when attached; `--attach {url}` when opencode2_attach_url is set). Unavailable stays demo. User-owned serve; in-app HTTP/SSE serve client still deferred. Not opencode acp (that is the OpenCode row).",
+    .opencode2_transport_note = "Live Send is one-shot opencode2 run --format json --auto when Available (`--file` when attached; `--attach {url}` when opencode2_attach_url is set). Unavailable stays demo. User-owned serve; Settings Check serve probes GET /global/health (no password UI this cut; 401 is Unreachable); in-app HTTP/SSE Send still deferred. Not opencode acp (that is the OpenCode row).",
     .deepseek_transport_note = "Live Send is one-shot dsh --profile acp via acp-proxy when Available. Unavailable stays demo. No image attach this cut. User-owned dsh web; Copy web command ships (clipboard only; Faku does not spawn web). Harness HTTP/SSE / in-app web client still deferred.",
     .fx_login_note = "Faku does not detect auth state from the --help probe. Copy is a convenience, not sign-in UI or OAuth.",
     .fx_login_codex_note = "Optional: fx login grok / fx login codex (no Gateway required).",
@@ -4795,7 +4808,7 @@ const providers_detail_chrome_zh_cn: ProvidersDetailChrome = .{
     .amp_transport_note = "可用时，实际 Send 是一次性 amp -x / --execute（附加时使用 `@path`）。",
     .pi_transport_note = "可用时，实际 Send 是一次性 pi --mode rpc --no-session（附加时使用 RPC images）。",
     .ohmypi_transport_note = "可用时，实际 Send 是一次性 omp --mode rpc --yolo --no-session（附加时使用 RPC images）。",
-    .opencode2_transport_note = "可用时，实际 Send 是一次性 opencode2 run --format json --auto（附加时使用 `--file`；设置了 opencode2_attach_url 时使用 `--attach {url}`）。不可用时仍为演示。serve 由用户自行启动；应用内 HTTP/SSE serve 客户端仍延后。不是 opencode acp（那是单独的 OpenCode 行）。",
+    .opencode2_transport_note = "可用时，实际 Send 是一次性 opencode2 run --format json --auto（附加时使用 `--file`；设置了 opencode2_attach_url 时使用 `--attach {url}`）。不可用时仍为演示。serve 由用户自行启动；设置中的检查 serve 会探测 GET /global/health（本轮无密码界面；401 视为不可达）；应用内 HTTP/SSE Send 仍延后。不是 opencode acp（那是单独的 OpenCode 行）。",
     .deepseek_transport_note = "可用时，实际 Send 是通过 acp-proxy 的一次性 dsh --profile acp。不可用时仍为演示。本轮不附加图片。dsh web 由用户自行启动；Copy web 命令仅复制剪贴板（Faku 不会启动 web）。Harness HTTP/SSE / 应用内 web 客户端仍延后。",
     .fx_login_note = "Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。",
     .fx_login_codex_note = "可选：fx login grok / fx login codex（无需 Gateway）。",
@@ -4814,7 +4827,7 @@ const providers_detail_chrome_ja: ProvidersDetailChrome = .{
     .amp_transport_note = "利用可能なとき、実際の Send はワンショット amp -x / --execute です（添付時は `@path`）。",
     .pi_transport_note = "利用可能なとき、実際の Send はワンショット pi --mode rpc --no-session です（添付時は RPC images）。",
     .ohmypi_transport_note = "利用可能なとき、実際の Send はワンショット omp --mode rpc --yolo --no-session です（添付時は RPC images）。",
-    .opencode2_transport_note = "利用可能なとき、実際の Send はワンショット opencode2 run --format json --auto です（添付時は `--file`。opencode2_attach_url が設定されているときは `--attach {url}`）。利用不可のときはデモのままです。serve はユーザー側で起動します。アプリ内 HTTP/SSE serve クライアントは後回しです。opencode acp ではありません（それは別の OpenCode 行です）。",
+    .opencode2_transport_note = "利用可能なとき、実際の Send はワンショット opencode2 run --format json --auto です（添付時は `--file`。opencode2_attach_url が設定されているときは `--attach {url}`）。利用不可のときはデモのままです。serve はユーザー側で起動します。設定の serve 確認は GET /global/health をプローブします（この段階ではパスワード UI なし。401 は到達不能です）。アプリ内 HTTP/SSE Send は後回しです。opencode acp ではありません（それは別の OpenCode 行です）。",
     .deepseek_transport_note = "利用可能なとき、実際の Send は acp-proxy 経由のワンショット dsh --profile acp です。利用不可のときはデモのままです。この段階では画像添付なし。dsh web はユーザー側で起動します。Copy web はクリップボードのみです（Faku は web を起動しません）。Harness HTTP/SSE / アプリ内 web クライアントは後回しです。",
     .fx_login_note = "Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。",
     .fx_login_codex_note = "任意: fx login grok / fx login codex（Gateway は不要）。",
@@ -5007,11 +5020,59 @@ const providers_opencode_serve_chrome_ja: ProvidersOpencodeServeChrome = .{
     .copy_serve = "serve コマンドをコピー",
 };
 
+/// Capped scratch for `formatProvidersOpencodeHealthReachableVersion`.
+/// Template plus a Latin version token stay short in every locale.
+pub const providers_opencode_health_label_max: usize = 160;
+
+/// Settings Providers OpenCode 2 Check serve health for the resolved
+/// locale. Same resolve path as ProvidersChrome. Distinct from
+/// `ProvidersOpencodeServeChrome` / `ProvidersOpencodeAttachChrome`
+/// so health chrome stays independently evolvable. OpenCode 2
+/// expanded row when Available and persisted `opencode2_attach_url`
+/// trim is non-empty. One-shot GET `{attach_url}/global/health`;
+/// hide / no-op when Not found / unset / empty attach URL.
+/// Runtime-only status (not `sessions.json`). No password UI this
+/// cut; 401 is Unreachable. Faku does not spawn serve; in-app
+/// HTTP/SSE Send still deferred. Wire ids / on-press stay English
+/// (`check_opencode2_serve`). Version token stays Latin data.
+pub const ProvidersOpencodeHealthChrome = struct {
+    check_serve: []const u8,
+    checking: []const u8,
+    reachable: []const u8,
+    reachable_version: []const u8,
+    unreachable: []const u8,
+};
+
+const providers_opencode_health_chrome_en: ProvidersOpencodeHealthChrome = .{
+    .check_serve = "Check serve",
+    .checking = "Checking…",
+    .reachable = "Reachable",
+    .reachable_version = "Reachable · v%{version}",
+    .unreachable = "Unreachable",
+};
+
+const providers_opencode_health_chrome_zh_cn: ProvidersOpencodeHealthChrome = .{
+    .check_serve = "检查 serve",
+    .checking = "正在检查…",
+    .reachable = "可达",
+    .reachable_version = "可达 · v%{version}",
+    .unreachable = "不可达",
+};
+
+const providers_opencode_health_chrome_ja: ProvidersOpencodeHealthChrome = .{
+    .check_serve = "serve を確認",
+    .checking = "確認中…",
+    .reachable = "到達可能",
+    .reachable_version = "到達可能 · v%{version}",
+    .unreachable = "到達不能",
+};
+
 /// Settings Providers DeepSeek Copy web command for the resolved
 /// locale. Same resolve path as ProvidersChrome. Distinct from
 /// `ProvidersChrome` Copy install / Copy login,
-/// `ProvidersOpencodeAttachChrome`, and
-/// `ProvidersOpencodeServeChrome` so web-copy chrome stays
+/// `ProvidersOpencodeAttachChrome`,
+/// `ProvidersOpencodeServeChrome`, and
+/// `ProvidersOpencodeHealthChrome` so web-copy chrome stays
 /// independently evolvable. DeepSeek expanded row when Available.
 /// Clipboard `{binary} web` (documented `dsh web` alias for
 /// `--profile web`; honor `provider_binary_overrides` /
@@ -5047,7 +5108,8 @@ pub const providers_model_count_label_max: usize = 64;
 /// `ProvidersChrome` / `ProvidersDetailChrome` /
 /// `ProvidersEnableNamedChrome` / `ProvidersCodingAgentsChrome` /
 /// `ProvidersBinaryOverrideChrome` / `ProvidersOpencodeAttachChrome` /
-/// `ProvidersOpencodeServeChrome` / `ProvidersDeepseekWebChrome`
+/// `ProvidersOpencodeServeChrome` / `ProvidersOpencodeHealthChrome` /
+/// `ProvidersDeepseekWebChrome`
 /// so the caption stays independently evolvable. Templates keep Waku `%{count}` slots;
 /// numbers stay Latin. Available + disabled paints
 /// `disabled_for_new_tasks` (not the count). Available + enabled
@@ -7305,12 +7367,28 @@ pub fn providersOpencodeServeChromeFor(preference: LanguagePreference, system_lo
     };
 }
 
+/// Settings Providers OpenCode 2 Check serve health for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from ProvidersOpencodeServeChrome / ProvidersOpencodeAttachChrome
+/// so health chrome stays independently evolvable. Wire ids /
+/// on-press stay English (`check_opencode2_serve`). Version token
+/// stays Latin data.
+pub fn providersOpencodeHealthChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ProvidersOpencodeHealthChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => providers_opencode_health_chrome_zh_cn,
+        .japanese => providers_opencode_health_chrome_ja,
+        .system, .english => providers_opencode_health_chrome_en,
+    };
+}
+
 /// Settings Providers DeepSeek Copy web command for the resolved
 /// locale. Callers pass Model `language_preference` +
 /// `system_locale_id`; this file does not read process env. Distinct
 /// from ProvidersChrome Copy install / Copy login,
-/// ProvidersOpencodeAttachChrome, and ProvidersOpencodeServeChrome
-/// so web-copy chrome stays independently evolvable. Wire ids /
+/// ProvidersOpencodeAttachChrome, ProvidersOpencodeServeChrome, and
+/// ProvidersOpencodeHealthChrome so web-copy chrome stays
+/// independently evolvable. Wire ids /
 /// on-press stay English (`copy_deepseek_web`). Command text stays
 /// English.
 pub fn providersDeepseekWebChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ProvidersDeepseekWebChrome {
@@ -7327,7 +7405,8 @@ pub fn providersDeepseekWebChromeFor(preference: LanguagePreference, system_loca
 /// from ProvidersChrome / ProvidersDetailChrome /
 /// ProvidersEnableNamedChrome / ProvidersCodingAgentsChrome /
 /// ProvidersBinaryOverrideChrome / ProvidersOpencodeAttachChrome /
-/// ProvidersOpencodeServeChrome / ProvidersDeepseekWebChrome so
+/// ProvidersOpencodeServeChrome / ProvidersOpencodeHealthChrome /
+/// ProvidersDeepseekWebChrome so
 /// the caption stays independently evolvable. English matches Waku `providers.model_count_one` /
 /// `model_count_many` / `disabled_for_new_tasks`. Numbers stay
 /// Latin. Wire ids stay English.
@@ -7812,6 +7891,16 @@ pub fn formatProvidersSearchesPath(
     buf: []u8,
 ) []const u8 {
     return formatSkillsNamedText(chrome.searches_path, "command", command, buf);
+}
+
+/// `reachable_version` with `%{version}` replaced. Overflow returns
+/// `""`. Empty version still paints (Reachable · v).
+pub fn formatProvidersOpencodeHealthReachableVersion(
+    chrome: ProvidersOpencodeHealthChrome,
+    version: []const u8,
+    buf: []u8,
+) []const u8 {
+    return formatSkillsNamedText(chrome.reachable_version, "version", version, buf);
 }
 
 /// `model_count_one` / `model_count_many` with Latin `%{count}`.
@@ -11670,7 +11759,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
         providersDetailChromeFor(.english, "").ohmypi_transport_note,
     );
     try testing.expectEqualStrings(
-        "Live Send is one-shot opencode2 run --format json --auto when Available (`--file` when attached; `--attach {url}` when opencode2_attach_url is set). Unavailable stays demo. User-owned serve; in-app HTTP/SSE serve client still deferred. Not opencode acp (that is the OpenCode row).",
+        "Live Send is one-shot opencode2 run --format json --auto when Available (`--file` when attached; `--attach {url}` when opencode2_attach_url is set). Unavailable stays demo. User-owned serve; Settings Check serve probes GET /global/health (no password UI this cut; 401 is Unreachable); in-app HTTP/SSE Send still deferred. Not opencode acp (that is the OpenCode row).",
         providersDetailChromeFor(.english, "").opencode2_transport_note,
     );
     try testing.expectEqualStrings(
@@ -11711,7 +11800,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 amp -x / --execute（附加时使用 `@path`）。", providersDetailChromeFor(.simplified_chinese, "").amp_transport_note);
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 pi --mode rpc --no-session（附加时使用 RPC images）。", providersDetailChromeFor(.simplified_chinese, "").pi_transport_note);
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 omp --mode rpc --yolo --no-session（附加时使用 RPC images）。", providersDetailChromeFor(.simplified_chinese, "").ohmypi_transport_note);
-    try testing.expectEqualStrings("可用时，实际 Send 是一次性 opencode2 run --format json --auto（附加时使用 `--file`；设置了 opencode2_attach_url 时使用 `--attach {url}`）。不可用时仍为演示。serve 由用户自行启动；应用内 HTTP/SSE serve 客户端仍延后。不是 opencode acp（那是单独的 OpenCode 行）。", providersDetailChromeFor(.simplified_chinese, "").opencode2_transport_note);
+    try testing.expectEqualStrings("可用时，实际 Send 是一次性 opencode2 run --format json --auto（附加时使用 `--file`；设置了 opencode2_attach_url 时使用 `--attach {url}`）。不可用时仍为演示。serve 由用户自行启动；设置中的检查 serve 会探测 GET /global/health（本轮无密码界面；401 视为不可达）；应用内 HTTP/SSE Send 仍延后。不是 opencode acp（那是单独的 OpenCode 行）。", providersDetailChromeFor(.simplified_chinese, "").opencode2_transport_note);
     try testing.expectEqualStrings("可用时，实际 Send 是通过 acp-proxy 的一次性 dsh --profile acp。不可用时仍为演示。本轮不附加图片。dsh web 由用户自行启动；Copy web 命令仅复制剪贴板（Faku 不会启动 web）。Harness HTTP/SSE / 应用内 web 客户端仍延后。", providersDetailChromeFor(.simplified_chinese, "").deepseek_transport_note);
     try testing.expectEqualStrings("Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。", providersDetailChromeFor(.simplified_chinese, "").fx_login_note);
     try testing.expectEqualStrings("可选：fx login grok / fx login codex（无需 Gateway）。", providersDetailChromeFor(.simplified_chinese, "").fx_login_codex_note);
@@ -11728,7 +11817,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット amp -x / --execute です（添付時は `@path`）。", providersDetailChromeFor(.japanese, "").amp_transport_note);
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット pi --mode rpc --no-session です（添付時は RPC images）。", providersDetailChromeFor(.japanese, "").pi_transport_note);
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット omp --mode rpc --yolo --no-session です（添付時は RPC images）。", providersDetailChromeFor(.japanese, "").ohmypi_transport_note);
-    try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット opencode2 run --format json --auto です（添付時は `--file`。opencode2_attach_url が設定されているときは `--attach {url}`）。利用不可のときはデモのままです。serve はユーザー側で起動します。アプリ内 HTTP/SSE serve クライアントは後回しです。opencode acp ではありません（それは別の OpenCode 行です）。", providersDetailChromeFor(.japanese, "").opencode2_transport_note);
+    try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット opencode2 run --format json --auto です（添付時は `--file`。opencode2_attach_url が設定されているときは `--attach {url}`）。利用不可のときはデモのままです。serve はユーザー側で起動します。設定の serve 確認は GET /global/health をプローブします（この段階ではパスワード UI なし。401 は到達不能です）。アプリ内 HTTP/SSE Send は後回しです。opencode acp ではありません（それは別の OpenCode 行です）。", providersDetailChromeFor(.japanese, "").opencode2_transport_note);
     try testing.expectEqualStrings("利用可能なとき、実際の Send は acp-proxy 経由のワンショット dsh --profile acp です。利用不可のときはデモのままです。この段階では画像添付なし。dsh web はユーザー側で起動します。Copy web はクリップボードのみです（Faku は web を起動しません）。Harness HTTP/SSE / アプリ内 web クライアントは後回しです。", providersDetailChromeFor(.japanese, "").deepseek_transport_note);
     try testing.expectEqualStrings("Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。", providersDetailChromeFor(.japanese, "").fx_login_note);
     try testing.expectEqualStrings("任意: fx login grok / fx login codex（Gateway は不要）。", providersDetailChromeFor(.japanese, "").fx_login_codex_note);
@@ -11955,6 +12044,49 @@ test "providersOpencodeServeChromeFor english default; zh and ja chrome; english
     try testing.expect(!std.mem.eql(u8, providersOpencodeServeChromeFor(.english, "").copy_serve, providersOpencodeAttachChromeFor(.english, "").attach_url));
 }
 
+test "providersOpencodeHealthChromeFor english default; zh and ja chrome; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Check serve", providersOpencodeHealthChromeFor(.english, "ja").check_serve);
+    try testing.expectEqualStrings("Check serve", providersOpencodeHealthChromeFor(.english, "").check_serve);
+    try testing.expectEqualStrings("Check serve", providersOpencodeHealthChromeFor(.system, "").check_serve);
+    try testing.expectEqualStrings("Checking…", providersOpencodeHealthChromeFor(.english, "").checking);
+    try testing.expectEqualStrings("Reachable", providersOpencodeHealthChromeFor(.english, "").reachable);
+    try testing.expectEqualStrings("Reachable · v%{version}", providersOpencodeHealthChromeFor(.english, "").reachable_version);
+    try testing.expectEqualStrings("Unreachable", providersOpencodeHealthChromeFor(.english, "").unreachable);
+    try testing.expectEqualStrings("检查 serve", providersOpencodeHealthChromeFor(.simplified_chinese, "").check_serve);
+    try testing.expectEqualStrings("正在检查…", providersOpencodeHealthChromeFor(.simplified_chinese, "").checking);
+    try testing.expectEqualStrings("可达", providersOpencodeHealthChromeFor(.simplified_chinese, "").reachable);
+    try testing.expectEqualStrings("可达 · v%{version}", providersOpencodeHealthChromeFor(.simplified_chinese, "").reachable_version);
+    try testing.expectEqualStrings("不可达", providersOpencodeHealthChromeFor(.simplified_chinese, "").unreachable);
+    try testing.expectEqualStrings("serve を確認", providersOpencodeHealthChromeFor(.japanese, "").check_serve);
+    try testing.expectEqualStrings("確認中…", providersOpencodeHealthChromeFor(.japanese, "").checking);
+    try testing.expectEqualStrings("到達可能", providersOpencodeHealthChromeFor(.japanese, "").reachable);
+    try testing.expectEqualStrings("到達可能 · v%{version}", providersOpencodeHealthChromeFor(.japanese, "").reachable_version);
+    try testing.expectEqualStrings("到達不能", providersOpencodeHealthChromeFor(.japanese, "").unreachable);
+    try testing.expectEqualStrings("检查 serve", providersOpencodeHealthChromeFor(.system, "zh_CN.UTF-8").check_serve);
+    try testing.expectEqualStrings("serve を確認", providersOpencodeHealthChromeFor(.system, "ja_JP.UTF-8").check_serve);
+    try testing.expectEqualStrings("Check serve", providersOpencodeHealthChromeFor(.english, "zh_CN.UTF-8").check_serve);
+    try testing.expect(!std.mem.eql(u8, providersOpencodeHealthChromeFor(.english, "").check_serve, providersOpencodeServeChromeFor(.english, "").copy_serve));
+    try testing.expect(!std.mem.eql(u8, providersOpencodeHealthChromeFor(.english, "").check_serve, providersOpencodeAttachChromeFor(.english, "").attach_url));
+    var buf: [providers_opencode_health_label_max]u8 = undefined;
+    try testing.expectEqualStrings(
+        "Reachable · v1.2.3",
+        formatProvidersOpencodeHealthReachableVersion(providersOpencodeHealthChromeFor(.english, ""), "1.2.3", &buf),
+    );
+    try testing.expectEqualStrings(
+        "可达 · v1.2.3",
+        formatProvidersOpencodeHealthReachableVersion(providersOpencodeHealthChromeFor(.simplified_chinese, ""), "1.2.3", &buf),
+    );
+    try testing.expectEqualStrings(
+        "到達可能 · v1.2.3",
+        formatProvidersOpencodeHealthReachableVersion(providersOpencodeHealthChromeFor(.japanese, ""), "1.2.3", &buf),
+    );
+    try testing.expectEqualStrings(
+        "Reachable · v",
+        formatProvidersOpencodeHealthReachableVersion(providersOpencodeHealthChromeFor(.english, ""), "", &buf),
+    );
+}
+
 test "providersDeepseekWebChromeFor english default; zh and ja chrome; english ignores ja LANG" {
     const testing = std.testing;
     try testing.expectEqualStrings("Copy web command", providersDeepseekWebChromeFor(.english, "ja").copy_web);
@@ -11968,6 +12100,7 @@ test "providersDeepseekWebChromeFor english default; zh and ja chrome; english i
     try testing.expect(!std.mem.eql(u8, providersDeepseekWebChromeFor(.english, "").copy_web, providersChromeFor(.english, "").copy_install));
     try testing.expect(!std.mem.eql(u8, providersDeepseekWebChromeFor(.english, "").copy_web, providersChromeFor(.english, "").copy_login));
     try testing.expect(!std.mem.eql(u8, providersDeepseekWebChromeFor(.english, "").copy_web, providersOpencodeServeChromeFor(.english, "").copy_serve));
+    try testing.expect(!std.mem.eql(u8, providersDeepseekWebChromeFor(.english, "").copy_web, providersOpencodeHealthChromeFor(.english, "").check_serve));
     try testing.expect(!std.mem.eql(u8, providersDeepseekWebChromeFor(.english, "").copy_web, providersOpencodeAttachChromeFor(.english, "").attach_url));
 }
 

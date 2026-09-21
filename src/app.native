@@ -577,6 +577,12 @@
                             <if test="{can_copy_opencode2_serve}">
                               <button variant="ghost" size="sm" on-press="copy_opencode2_serve">{copy_opencode2_serve_label}</button>
                             </if>
+                            <if test="{can_check_opencode2_serve}">
+                              <button variant="ghost" size="sm" on-press="check_opencode2_serve">{check_opencode2_serve_label}</button>
+                            </if>
+                            <if test="{has_opencode2_health_status}">
+                              <text wrap="true" foreground="text_muted">{opencode2_health_status}</text>
+                            </if>
                           </if>
                           <if test="{p.show_deepseek_web}">
                             <if test="{can_copy_deepseek_web}">

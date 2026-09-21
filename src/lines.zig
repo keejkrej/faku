@@ -58,6 +58,7 @@ const slash_commands = @import("slash_commands.zig");
 const usage_history = @import("usage_history.zig");
 const usage_meter = @import("usage_meter.zig");
 const litellm_rates = @import("litellm_rates.zig");
+const providers = @import("providers.zig");
 const background_work = @import("background_work.zig");
 const projectless = @import("projectless.zig");
 const environment_summary = @import("environment_summary.zig");
@@ -265,6 +266,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
     }
     if (browser_pane.isPendingTitleKey(model, line.key)) {
         browser_pane.applyLine(model, line);
+        return;
+    }
+    if (providers.isPendingHealthKey(model, line.key)) {
+        providers.applyHealthLine(model, line);
         return;
     }
     if (model.daemon_background_work_key != 0 and line.key == model.daemon_background_work_key) {
@@ -1321,6 +1326,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (browser_pane.isPendingTitleKey(model, exit.key)) {
         browser_pane.handleExit(model, exit);
+        return;
+    }
+    if (providers.isPendingHealthKey(model, exit.key)) {
+        providers.handleOpencode2HealthExit(model, exit);
         return;
     }
     if (model.daemon_load_key != 0 and exit.key == model.daemon_load_key) {
