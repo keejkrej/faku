@@ -38613,7 +38613,7 @@ test "Settings Providers OpenCode 2 expanded row paints Serve password; fx row o
     defer fx.deinit();
     fx.executor = .fake;
 
-    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{providers_opencode_password_label}"));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{providers_opencode_password_label}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{providers_opencode_password_description}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{opencode2_password_draft}"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-input=\"opencode2_password_edit\""));
