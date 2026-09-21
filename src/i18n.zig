@@ -469,9 +469,26 @@
 //! and persisted `opencode2_attach_url` trim is non-empty; one-shot
 //! GET `{attach_url}/global/health` via curl spawn; hide / no-op
 //! when Not found / unset / empty attach URL; runtime-only status;
-//! no OPENCODE_SERVER_PASSWORD UI this cut; 401 is Unreachable;
-//! Faku does not spawn serve; in-app HTTP/SSE Send still deferred;
-//! on-press stays `check_opencode2_serve`; version token stays Latin data)
+//! OPENCODE_SERVER_PASSWORD UI ships (`ProvidersOpencodePasswordChrome`;
+//! Check serve `-u opencode:{password}` when set; 401 is Unreachable
+//! when unset); Faku does not spawn serve; in-app HTTP/SSE Send still
+//! deferred; on-press stays `check_opencode2_serve`; version token
+//! stays Latin data)
+//! plus Settings Providers OpenCode 2 Serve password
+//! (same `ProvidersOpencodePasswordChrome` strings; EN Serve
+//! password / For OPENCODE_SERVER_PASSWORD basic auth. Faku passes
+//! it to Check serve and to run --attach. Leave empty when the
+//! serve has no password. / zh-CN Serve 密码 / 用于
+//! OPENCODE_SERVER_PASSWORD 基本认证。Faku 会把它传给检查 serve
+//! 和 run --attach。无密码的 serve 请留空。 / ja Serve パスワード /
+//! OPENCODE_SERVER_PASSWORD の Basic 認証用です。Faku は Check
+//! serve と run --attach に渡します。パスワードなしの serve では
+//! 空欄にしてください。; distinct from Attach / Serve / Health packs
+//! so password chrome stays independently evolvable; OpenCode 2
+//! expanded row only (same `show_opencode_attach` gate); on-press
+//! stays `apply_opencode2_password` / `clear_opencode2_password`;
+//! typed password stays data; username stays documented default
+//! `opencode`)
 //! plus Settings Providers DeepSeek Copy web command
 //! (same `ProvidersDeepseekWebChrome` strings; EN Copy web
 //! command / zh-CN 复制 web 命令 / ja web コマンドをコピー;
@@ -4789,7 +4806,7 @@ const providers_detail_chrome_en: ProvidersDetailChrome = .{
     .amp_transport_note = "Live Send is one-shot amp -x / --execute when Available (`@path` when attached).",
     .pi_transport_note = "Live Send is one-shot pi --mode rpc --no-session when Available (RPC images when attached).",
     .ohmypi_transport_note = "Live Send is one-shot omp --mode rpc --yolo --no-session when Available (RPC images when attached).",
-    .opencode2_transport_note = "Live Send is one-shot opencode2 run --format json --auto when Available (`--file` when attached; `--attach {url}` when opencode2_attach_url is set). Unavailable stays demo. User-owned serve; Settings Check serve probes GET /global/health (no password UI this cut; 401 is Unreachable); in-app HTTP/SSE Send still deferred. Not opencode acp (that is the OpenCode row).",
+    .opencode2_transport_note = "Live Send is one-shot opencode2 run --format json --auto when Available (`--file` when attached; `--attach {url}` when opencode2_attach_url is set; `--password` when a serve password is set). Unavailable stays demo. User-owned serve; Settings Check serve probes GET /global/health (password UI ships; 401 is Unreachable when unset); in-app HTTP/SSE Send still deferred. Faku does not spawn serve. Not opencode acp (that is the OpenCode row).",
     .deepseek_transport_note = "Live Send is one-shot dsh --profile acp via acp-proxy when Available. Unavailable stays demo. No image attach this cut. User-owned dsh web; Copy web command ships (clipboard only; Faku does not spawn web). Harness HTTP/SSE / in-app web client still deferred.",
     .fx_login_note = "Faku does not detect auth state from the --help probe. Copy is a convenience, not sign-in UI or OAuth.",
     .fx_login_codex_note = "Optional: fx login grok / fx login codex (no Gateway required).",
@@ -4808,7 +4825,7 @@ const providers_detail_chrome_zh_cn: ProvidersDetailChrome = .{
     .amp_transport_note = "可用时，实际 Send 是一次性 amp -x / --execute（附加时使用 `@path`）。",
     .pi_transport_note = "可用时，实际 Send 是一次性 pi --mode rpc --no-session（附加时使用 RPC images）。",
     .ohmypi_transport_note = "可用时，实际 Send 是一次性 omp --mode rpc --yolo --no-session（附加时使用 RPC images）。",
-    .opencode2_transport_note = "可用时，实际 Send 是一次性 opencode2 run --format json --auto（附加时使用 `--file`；设置了 opencode2_attach_url 时使用 `--attach {url}`）。不可用时仍为演示。serve 由用户自行启动；设置中的检查 serve 会探测 GET /global/health（本轮无密码界面；401 视为不可达）；应用内 HTTP/SSE Send 仍延后。不是 opencode acp（那是单独的 OpenCode 行）。",
+    .opencode2_transport_note = "可用时，实际 Send 是一次性 opencode2 run --format json --auto（附加时使用 `--file`；设置了 opencode2_attach_url 时使用 `--attach {url}`；设置了 serve 密码时使用 `--password`）。不可用时仍为演示。serve 由用户自行启动；设置中的检查 serve 会探测 GET /global/health（密码界面已提供；未设置时 401 视为不可达）；应用内 HTTP/SSE Send 仍延后。Faku 不会启动 serve。不是 opencode acp（那是单独的 OpenCode 行）。",
     .deepseek_transport_note = "可用时，实际 Send 是通过 acp-proxy 的一次性 dsh --profile acp。不可用时仍为演示。本轮不附加图片。dsh web 由用户自行启动；Copy web 命令仅复制剪贴板（Faku 不会启动 web）。Harness HTTP/SSE / 应用内 web 客户端仍延后。",
     .fx_login_note = "Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。",
     .fx_login_codex_note = "可选：fx login grok / fx login codex（无需 Gateway）。",
@@ -4827,7 +4844,7 @@ const providers_detail_chrome_ja: ProvidersDetailChrome = .{
     .amp_transport_note = "利用可能なとき、実際の Send はワンショット amp -x / --execute です（添付時は `@path`）。",
     .pi_transport_note = "利用可能なとき、実際の Send はワンショット pi --mode rpc --no-session です（添付時は RPC images）。",
     .ohmypi_transport_note = "利用可能なとき、実際の Send はワンショット omp --mode rpc --yolo --no-session です（添付時は RPC images）。",
-    .opencode2_transport_note = "利用可能なとき、実際の Send はワンショット opencode2 run --format json --auto です（添付時は `--file`。opencode2_attach_url が設定されているときは `--attach {url}`）。利用不可のときはデモのままです。serve はユーザー側で起動します。設定の serve 確認は GET /global/health をプローブします（この段階ではパスワード UI なし。401 は到達不能です）。アプリ内 HTTP/SSE Send は後回しです。opencode acp ではありません（それは別の OpenCode 行です）。",
+    .opencode2_transport_note = "利用可能なとき、実際の Send はワンショット opencode2 run --format json --auto です（添付時は `--file`。opencode2_attach_url が設定されているときは `--attach {url}`。serve パスワードが設定されているときは `--password`）。利用不可のときはデモのままです。serve はユーザー側で起動します。設定の serve 確認は GET /global/health をプローブします（パスワード UI は提供済み。未設定時の 401 は到達不能です）。アプリ内 HTTP/SSE Send は後回しです。Faku は serve を起動しません。opencode acp ではありません（それは別の OpenCode 行です）。",
     .deepseek_transport_note = "利用可能なとき、実際の Send は acp-proxy 経由のワンショット dsh --profile acp です。利用不可のときはデモのままです。この段階では画像添付なし。dsh web はユーザー側で起動します。Copy web はクリップボードのみです（Faku は web を起動しません）。Harness HTTP/SSE / アプリ内 web クライアントは後回しです。",
     .fx_login_note = "Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。",
     .fx_login_codex_note = "任意: fx login grok / fx login codex（Gateway は不要）。",
@@ -5031,10 +5048,12 @@ pub const providers_opencode_health_label_max: usize = 160;
 /// expanded row when Available and persisted `opencode2_attach_url`
 /// trim is non-empty. One-shot GET `{attach_url}/global/health`;
 /// hide / no-op when Not found / unset / empty attach URL.
-/// Runtime-only status (not `sessions.json`). No password UI this
-/// cut; 401 is Unreachable. Faku does not spawn serve; in-app
-/// HTTP/SSE Send still deferred. Wire ids / on-press stay English
-/// (`check_opencode2_serve`). Version token stays Latin data.
+/// Runtime-only status (not `sessions.json`). Password UI ships
+/// (`ProvidersOpencodePasswordChrome`; Check serve `-u
+/// opencode:{password}` when set; 401 is Unreachable when unset).
+/// Faku does not spawn serve; in-app HTTP/SSE Send still deferred.
+/// Wire ids / on-press stay English (`check_opencode2_serve`).
+/// Version token stays Latin data.
 pub const ProvidersOpencodeHealthChrome = struct {
     check_serve: []const u8,
     checking: []const u8,
@@ -5066,6 +5085,37 @@ const providers_opencode_health_chrome_ja: ProvidersOpencodeHealthChrome = .{
     .reachable = "到達可能",
     .reachable_version = "到達可能 · v%{version}",
     .@"unreachable" = "到達不能",
+};
+
+/// Settings Providers OpenCode 2 Serve password for the resolved
+/// locale. Same resolve path as ProvidersChrome. Distinct from
+/// `ProvidersOpencodeAttachChrome` / `ProvidersOpencodeServeChrome` /
+/// `ProvidersOpencodeHealthChrome` so password chrome stays
+/// independently evolvable. OpenCode 2 expanded row only (same
+/// `show_opencode_attach` gate). For `OPENCODE_SERVER_PASSWORD` /
+/// basic auth; Faku passes it to Check serve and to `run --attach`.
+/// Leave empty when the serve has no password. Username stays the
+/// documented default `opencode` (no persist key this cut). Wire
+/// ids / on-press stay English (`apply_opencode2_password` /
+/// `clear_opencode2_password`). Typed password stays data.
+pub const ProvidersOpencodePasswordChrome = struct {
+    serve_password: []const u8,
+    serve_password_description: []const u8,
+};
+
+const providers_opencode_password_chrome_en: ProvidersOpencodePasswordChrome = .{
+    .serve_password = "Serve password",
+    .serve_password_description = "For OPENCODE_SERVER_PASSWORD basic auth. Faku passes it to Check serve and to run --attach. Leave empty when the serve has no password.",
+};
+
+const providers_opencode_password_chrome_zh_cn: ProvidersOpencodePasswordChrome = .{
+    .serve_password = "Serve 密码",
+    .serve_password_description = "用于 OPENCODE_SERVER_PASSWORD 基本认证。Faku 会把它传给检查 serve 和 run --attach。无密码的 serve 请留空。",
+};
+
+const providers_opencode_password_chrome_ja: ProvidersOpencodePasswordChrome = .{
+    .serve_password = "Serve パスワード",
+    .serve_password_description = "OPENCODE_SERVER_PASSWORD の Basic 認証用です。Faku は Check serve と run --attach に渡します。パスワードなしの serve では空欄にしてください。",
 };
 
 /// Settings Providers DeepSeek Copy web command for the resolved
@@ -7380,6 +7430,22 @@ pub fn providersOpencodeHealthChromeFor(preference: LanguagePreference, system_l
         .simplified_chinese => providers_opencode_health_chrome_zh_cn,
         .japanese => providers_opencode_health_chrome_ja,
         .system, .english => providers_opencode_health_chrome_en,
+    };
+}
+
+/// Settings Providers OpenCode 2 Serve password for the resolved
+/// locale. Callers pass Model `language_preference` +
+/// `system_locale_id`; this file does not read process env. Distinct
+/// from ProvidersOpencodeAttachChrome / ProvidersOpencodeServeChrome /
+/// ProvidersOpencodeHealthChrome so password chrome stays
+/// independently evolvable. Wire ids / on-press stay English
+/// (`apply_opencode2_password` / `clear_opencode2_password`). Typed
+/// password stays data.
+pub fn providersOpencodePasswordChromeFor(preference: LanguagePreference, system_locale_id: []const u8) ProvidersOpencodePasswordChrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => providers_opencode_password_chrome_zh_cn,
+        .japanese => providers_opencode_password_chrome_ja,
+        .system, .english => providers_opencode_password_chrome_en,
     };
 }
 
@@ -11760,7 +11826,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
         providersDetailChromeFor(.english, "").ohmypi_transport_note,
     );
     try testing.expectEqualStrings(
-        "Live Send is one-shot opencode2 run --format json --auto when Available (`--file` when attached; `--attach {url}` when opencode2_attach_url is set). Unavailable stays demo. User-owned serve; Settings Check serve probes GET /global/health (no password UI this cut; 401 is Unreachable); in-app HTTP/SSE Send still deferred. Not opencode acp (that is the OpenCode row).",
+        "Live Send is one-shot opencode2 run --format json --auto when Available (`--file` when attached; `--attach {url}` when opencode2_attach_url is set; `--password` when a serve password is set). Unavailable stays demo. User-owned serve; Settings Check serve probes GET /global/health (password UI ships; 401 is Unreachable when unset); in-app HTTP/SSE Send still deferred. Faku does not spawn serve. Not opencode acp (that is the OpenCode row).",
         providersDetailChromeFor(.english, "").opencode2_transport_note,
     );
     try testing.expectEqualStrings(
@@ -11801,7 +11867,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 amp -x / --execute（附加时使用 `@path`）。", providersDetailChromeFor(.simplified_chinese, "").amp_transport_note);
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 pi --mode rpc --no-session（附加时使用 RPC images）。", providersDetailChromeFor(.simplified_chinese, "").pi_transport_note);
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 omp --mode rpc --yolo --no-session（附加时使用 RPC images）。", providersDetailChromeFor(.simplified_chinese, "").ohmypi_transport_note);
-    try testing.expectEqualStrings("可用时，实际 Send 是一次性 opencode2 run --format json --auto（附加时使用 `--file`；设置了 opencode2_attach_url 时使用 `--attach {url}`）。不可用时仍为演示。serve 由用户自行启动；设置中的检查 serve 会探测 GET /global/health（本轮无密码界面；401 视为不可达）；应用内 HTTP/SSE Send 仍延后。不是 opencode acp（那是单独的 OpenCode 行）。", providersDetailChromeFor(.simplified_chinese, "").opencode2_transport_note);
+    try testing.expectEqualStrings("可用时，实际 Send 是一次性 opencode2 run --format json --auto（附加时使用 `--file`；设置了 opencode2_attach_url 时使用 `--attach {url}`；设置了 serve 密码时使用 `--password`）。不可用时仍为演示。serve 由用户自行启动；设置中的检查 serve 会探测 GET /global/health（密码界面已提供；未设置时 401 视为不可达）；应用内 HTTP/SSE Send 仍延后。Faku 不会启动 serve。不是 opencode acp（那是单独的 OpenCode 行）。", providersDetailChromeFor(.simplified_chinese, "").opencode2_transport_note);
     try testing.expectEqualStrings("可用时，实际 Send 是通过 acp-proxy 的一次性 dsh --profile acp。不可用时仍为演示。本轮不附加图片。dsh web 由用户自行启动；Copy web 命令仅复制剪贴板（Faku 不会启动 web）。Harness HTTP/SSE / 应用内 web 客户端仍延后。", providersDetailChromeFor(.simplified_chinese, "").deepseek_transport_note);
     try testing.expectEqualStrings("Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。", providersDetailChromeFor(.simplified_chinese, "").fx_login_note);
     try testing.expectEqualStrings("可选：fx login grok / fx login codex（无需 Gateway）。", providersDetailChromeFor(.simplified_chinese, "").fx_login_codex_note);
@@ -11818,7 +11884,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット amp -x / --execute です（添付時は `@path`）。", providersDetailChromeFor(.japanese, "").amp_transport_note);
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット pi --mode rpc --no-session です（添付時は RPC images）。", providersDetailChromeFor(.japanese, "").pi_transport_note);
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット omp --mode rpc --yolo --no-session です（添付時は RPC images）。", providersDetailChromeFor(.japanese, "").ohmypi_transport_note);
-    try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット opencode2 run --format json --auto です（添付時は `--file`。opencode2_attach_url が設定されているときは `--attach {url}`）。利用不可のときはデモのままです。serve はユーザー側で起動します。設定の serve 確認は GET /global/health をプローブします（この段階ではパスワード UI なし。401 は到達不能です）。アプリ内 HTTP/SSE Send は後回しです。opencode acp ではありません（それは別の OpenCode 行です）。", providersDetailChromeFor(.japanese, "").opencode2_transport_note);
+    try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット opencode2 run --format json --auto です（添付時は `--file`。opencode2_attach_url が設定されているときは `--attach {url}`。serve パスワードが設定されているときは `--password`）。利用不可のときはデモのままです。serve はユーザー側で起動します。設定の serve 確認は GET /global/health をプローブします（パスワード UI は提供済み。未設定時の 401 は到達不能です）。アプリ内 HTTP/SSE Send は後回しです。Faku は serve を起動しません。opencode acp ではありません（それは別の OpenCode 行です）。", providersDetailChromeFor(.japanese, "").opencode2_transport_note);
     try testing.expectEqualStrings("利用可能なとき、実際の Send は acp-proxy 経由のワンショット dsh --profile acp です。利用不可のときはデモのままです。この段階では画像添付なし。dsh web はユーザー側で起動します。Copy web はクリップボードのみです（Faku は web を起動しません）。Harness HTTP/SSE / アプリ内 web クライアントは後回しです。", providersDetailChromeFor(.japanese, "").deepseek_transport_note);
     try testing.expectEqualStrings("Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。", providersDetailChromeFor(.japanese, "").fx_login_note);
     try testing.expectEqualStrings("任意: fx login grok / fx login codex（Gateway は不要）。", providersDetailChromeFor(.japanese, "").fx_login_codex_note);
@@ -12086,6 +12152,37 @@ test "providersOpencodeHealthChromeFor english default; zh and ja chrome; englis
         "Reachable · v",
         formatProvidersOpencodeHealthReachableVersion(providersOpencodeHealthChromeFor(.english, ""), "", &buf),
     );
+}
+
+test "providersOpencodePasswordChromeFor english default; zh and ja chrome; Faku not Waku; english ignores ja LANG" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Serve password", providersOpencodePasswordChromeFor(.english, "ja").serve_password);
+    try testing.expectEqualStrings(
+        "For OPENCODE_SERVER_PASSWORD basic auth. Faku passes it to Check serve and to run --attach. Leave empty when the serve has no password.",
+        providersOpencodePasswordChromeFor(.english, "").serve_password_description,
+    );
+    try testing.expectEqualStrings("Serve password", providersOpencodePasswordChromeFor(.system, "").serve_password);
+    try testing.expectEqualStrings("Serve 密码", providersOpencodePasswordChromeFor(.simplified_chinese, "").serve_password);
+    try testing.expectEqualStrings(
+        "用于 OPENCODE_SERVER_PASSWORD 基本认证。Faku 会把它传给检查 serve 和 run --attach。无密码的 serve 请留空。",
+        providersOpencodePasswordChromeFor(.simplified_chinese, "").serve_password_description,
+    );
+    try testing.expectEqualStrings("Serve パスワード", providersOpencodePasswordChromeFor(.japanese, "").serve_password);
+    try testing.expectEqualStrings(
+        "OPENCODE_SERVER_PASSWORD の Basic 認証用です。Faku は Check serve と run --attach に渡します。パスワードなしの serve では空欄にしてください。",
+        providersOpencodePasswordChromeFor(.japanese, "").serve_password_description,
+    );
+    try testing.expectEqualStrings("Serve 密码", providersOpencodePasswordChromeFor(.system, "zh_CN.UTF-8").serve_password);
+    try testing.expectEqualStrings("Serve パスワード", providersOpencodePasswordChromeFor(.system, "ja_JP.UTF-8").serve_password);
+    try testing.expectEqualStrings("Serve password", providersOpencodePasswordChromeFor(.english, "zh_CN.UTF-8").serve_password);
+    try testing.expect(!std.mem.eql(u8, providersOpencodePasswordChromeFor(.english, "").serve_password, providersOpencodeAttachChromeFor(.english, "").attach_url));
+    try testing.expect(!std.mem.eql(u8, providersOpencodePasswordChromeFor(.english, "").serve_password, providersOpencodeHealthChromeFor(.english, "").check_serve));
+    try testing.expect(std.mem.indexOf(u8, providersOpencodePasswordChromeFor(.english, "").serve_password_description, "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, providersOpencodePasswordChromeFor(.english, "").serve_password_description, "Waku") == null);
+    try testing.expect(std.mem.indexOf(u8, providersOpencodePasswordChromeFor(.simplified_chinese, "").serve_password_description, "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, providersOpencodePasswordChromeFor(.simplified_chinese, "").serve_password_description, "Waku") == null);
+    try testing.expect(std.mem.indexOf(u8, providersOpencodePasswordChromeFor(.japanese, "").serve_password_description, "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, providersOpencodePasswordChromeFor(.japanese, "").serve_password_description, "Waku") == null);
 }
 
 test "providersDeepseekWebChromeFor english default; zh and ja chrome; english ignores ja LANG" {

@@ -637,6 +637,20 @@ pub fn handleClearOpencode2Attach(model: *Model, fx: *Effects) void {
     store.persistSettingsIfPossible(model);
 }
 
+pub fn handleOpencode2PasswordEdit(model: *Model, edit: canvas.TextInputEvent) void {
+    model.applyOpencode2PasswordEdit(edit);
+}
+
+pub fn handleApplyOpencode2Password(model: *Model, fx: *Effects) void {
+    if (!providers.applyServerPassword(model, fx)) return;
+    store.persistSettingsIfPossible(model);
+}
+
+pub fn handleClearOpencode2Password(model: *Model, fx: *Effects) void {
+    if (!providers.clearServerPassword(model, fx)) return;
+    store.persistSettingsIfPossible(model);
+}
+
 pub fn handleApplySessionProvider(model: *Model, fx: *Effects) void {
     if (!providers.applyToSession(model)) return;
     store.persistIfPossible(model, model.selected, fx);
@@ -1004,4 +1018,31 @@ test "handleApplyOpencode2Attach persists; empty apply and Reset clear" {
     handleClearOpencode2Attach(&model, &fx);
     try testing.expectEqualStrings("", model.opencode2AttachUrl());
     try testing.expectEqualStrings("", model.opencode2_attach_draft());
+}
+
+test "handleApplyOpencode2Password persists; empty apply and Reset clear" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    handleToggleProviderExpanded(&model, &fx, providers.rowId(.opencode2));
+    try testing.expectEqual(providers.rowId(.opencode2), model.provider_expanded_id);
+    handleOpencode2PasswordEdit(&model, .{ .insert_text = "s3cret" });
+    try testing.expectEqualStrings("s3cret", model.opencode2_password_draft());
+    handleApplyOpencode2Password(&model, &fx);
+    try testing.expectEqualStrings("s3cret", model.opencode2ServerPassword());
+
+    handleToggleProviderExpanded(&model, &fx, providers.rowId(.fx));
+    try testing.expectEqualStrings("s3cret", model.opencode2ServerPassword());
+    handleOpencode2PasswordEdit(&model, .{ .insert_text = "ignored" });
+    handleApplyOpencode2Password(&model, &fx);
+    try testing.expectEqualStrings("s3cret", model.opencode2ServerPassword());
+
+    handleToggleProviderExpanded(&model, &fx, providers.rowId(.opencode2));
+    try testing.expectEqualStrings("s3cret", model.opencode2_password_draft());
+    handleClearOpencode2Password(&model, &fx);
+    try testing.expectEqualStrings("", model.opencode2ServerPassword());
+    try testing.expectEqualStrings("", model.opencode2_password_draft());
 }
