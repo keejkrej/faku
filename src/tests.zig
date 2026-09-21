@@ -38604,6 +38604,86 @@ test "Settings Providers OpenCode 2 expanded row paints Serve attach URL; fx row
     try testing.expect(findByText(tree.root, .text, "Serve attach URL") == null);
 }
 
+test "Settings Providers OpenCode 2 expanded row paints Serve password; fx row omits it; apply/Reset; collapse hides" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{providers_opencode_password_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{providers_opencode_password_description}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{opencode2_password_draft}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-input=\"opencode2_password_edit\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-submit=\"apply_opencode2_password\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"clear_opencode2_password\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{p.has_opencode_password}"));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "password="));
+
+    var model = boot.initialModel();
+    try testing.expectEqualStrings("Serve password", model.providers_opencode_password_label());
+    try testing.expectEqualStrings(
+        i18n.providersOpencodePasswordChromeFor(.english, "").serve_password_description,
+        model.providers_opencode_password_description(),
+    );
+    try testing.expect(std.mem.indexOf(u8, model.providers_opencode_password_description(), "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, model.providers_opencode_password_description(), "Waku") == null);
+    try testing.expect(std.mem.indexOf(u8, model.providers_opencode_password_description(), "OPENCODE_SERVER_PASSWORD") != null);
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_providers, &fx);
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "Serve password") == null);
+    try testing.expect(findByText(tree.root, .text_field, "Serve password") == null);
+
+    main.update(&model, .{ .toggle_provider_expanded = 1 }, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Binary path");
+    try testing.expect(findByText(tree.root, .text, "Serve password") == null);
+    try testing.expect(findByText(tree.root, .text_field, "Serve password") == null);
+
+    main.update(&model, .{ .toggle_provider_expanded = providers.rowId(.opencode2) }, &fx);
+    try testing.expectEqual(providers.rowId(.opencode2), model.provider_expanded_id);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Serve password");
+    _ = try expectByText(tree.root, .text_field, "Serve password");
+    try testing.expect(findTextContaining(tree.root, "OPENCODE_SERVER_PASSWORD") != null);
+    try testing.expect(findTextContaining(tree.root, "Faku passes it to Check serve") != null);
+    try testing.expect(findByText(tree.root, .button, "Reset") == null);
+
+    main.update(&model, .{ .opencode2_password_edit = .{ .insert_text = "s3cret" } }, &fx);
+    try testing.expectEqualStrings("s3cret", model.opencode2_password_draft());
+    main.update(&model, .apply_opencode2_password, &fx);
+    try testing.expectEqualStrings("s3cret", model.opencode2ServerPassword());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Reset", .clear_opencode2_password);
+
+    main.update(&model, .clear_opencode2_password, &fx);
+    try testing.expectEqualStrings("", model.opencode2ServerPassword());
+    try testing.expectEqualStrings("", model.opencode2_password_draft());
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("Serve 密码", model.providers_opencode_password_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Serve 密码");
+    try testing.expect(findByText(tree.root, .text, "Serve password") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("Serve パスワード", model.providers_opencode_password_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Serve パスワード");
+    try testing.expect(findByText(tree.root, .text, "Serve password") == null);
+
+    model.language_preference = .english;
+    main.update(&model, .{ .toggle_provider_expanded = providers.rowId(.opencode2) }, &fx);
+    try testing.expectEqual(@as(u32, 0), model.provider_expanded_id);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "Serve password") == null);
+    try testing.expect(findByText(tree.root, .text_field, "Serve password") == null);
+}
+
 test "Settings Providers OpenCode 2 Copy serve command when Available; Not found hides; override binary" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
@@ -38740,7 +38820,7 @@ test "Settings Providers OpenCode 2 Check serve when Available + attach URL; inj
     try testing.expectEqual(@as(usize, 0), check_fx.pendingClipboardCount());
     const spawn = check_fx.pendingSpawnAt(0).?;
     try testing.expect(providers.isHealthArgv(spawn.argv));
-    try testing.expectEqualStrings("http://localhost:4096/global/health", spawn.argv[8]);
+    try testing.expectEqualStrings("http://localhost:4096/global/health", spawn.argv[spawn.argv.len - 1]);
     try testing.expect(model.has_opencode2_health_status());
     try testing.expectEqualStrings("Checking…", model.opencode2_health_status());
     tree = try buildTree(arena, &model);
@@ -38782,7 +38862,7 @@ test "Settings Providers OpenCode 2 Check serve when Available + attach URL; inj
     fail_fx.executor = .fake;
     main.update(&model, .check_opencode2_serve, &fail_fx);
     const fail_spawn = fail_fx.pendingSpawnAt(0).?;
-    try testing.expectEqualStrings("http://127.0.0.1:4096/global/health", fail_spawn.argv[8]);
+    try testing.expectEqualStrings("http://127.0.0.1:4096/global/health", fail_spawn.argv[fail_spawn.argv.len - 1]);
     main.update(&model, .{ .fx_exit = .{ .key = fail_spawn.key, .reason = .exited, .code = 22 } }, &fail_fx);
     try testing.expectEqualStrings("Unreachable", model.opencode2_health_status());
     tree = try buildTree(arena, &model);

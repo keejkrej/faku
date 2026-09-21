@@ -101,6 +101,10 @@ pub const max_fx_path = 256;
 /// expanded-row draft. Same cap as other path/URL drafts. Missing /
 /// empty / overflow → empty (cold `run`, no `--attach`).
 pub const max_opencode2_attach_url = 256;
+/// OpenCode 2 `sessions.json` extras `opencode2_server_password` plus
+/// the expanded-row draft. Same cap as attach URL. Missing / empty /
+/// overflow → empty (no Check serve `-u`, no `run --password`).
+pub const max_opencode2_server_password = 256;
 /// Runtime-only `{binary} --version` token (Waku `parse_cli_version`).
 /// No extra `v` prefix; markup/`rowFor` paints `v{version}`.
 pub const max_cli_version = 64;
@@ -807,6 +811,15 @@ pub const Msg = union(enum) {
     /// Settings Providers: clear the OpenCode 2 attach URL (Reset).
     /// Empty persist = cold `run` (no `--attach`).
     clear_opencode2_attach,
+    /// Settings Providers OpenCode 2 expanded Serve password field
+    /// `on-input`. Draft only until Return / expand-switch / Reset.
+    opencode2_password_edit: canvas.TextInputEvent,
+    /// Settings Providers: apply the OpenCode 2 serve password draft
+    /// (empty clears). `on-submit` / expand-switch.
+    apply_opencode2_password,
+    /// Settings Providers: clear the OpenCode 2 serve password (Reset).
+    /// Empty persist = no Check serve `-u` / no `run --password`.
+    clear_opencode2_password,
     apply_session_provider,
     /// Settings Providers: copy verified fx install command. Clipboard only.
     copy_fx_install,
@@ -1604,6 +1617,10 @@ pub const Model = struct {
     /// Return / expand-switch; Reset clears. Not persisted (the
     /// applied URL lives in `opencode2_attach_url_*`).
     opencode2_attach_buffer: canvas.TextBuffer(max_opencode2_attach_url) = .{},
+    /// Runtime-only OpenCode 2 Serve password draft. Applied on
+    /// Return / expand-switch; Reset clears. Not persisted (the
+    /// applied password lives in `opencode2_server_password_*`).
+    opencode2_password_buffer: canvas.TextBuffer(max_opencode2_server_password) = .{},
     /// Runtime-only OpenCode 2 Check serve health. Not persisted.
     opencode2_health_pending_key: u64 = 0,
     opencode2_health_next_key: u64 = 0,
@@ -1616,6 +1633,8 @@ pub const Model = struct {
     opencode2_health_body_len: usize = 0,
     opencode2_health_url_storage: [providers.opencode2_health_url_max]u8 = [_]u8{0} ** providers.opencode2_health_url_max,
     opencode2_health_url_len: usize = 0,
+    opencode2_health_userpass_storage: [providers.opencode2_health_userpass_max]u8 = [_]u8{0} ** providers.opencode2_health_userpass_max,
+    opencode2_health_userpass_len: usize = 0,
     /// Runtime-only last PATH `--help` probe exit stamp (`now_ms`).
     /// Not persisted on `sessions.json`. 0 hides the Providers
     /// Coding agents Checked … caption (boot / Refresh mid-flight).
@@ -2196,6 +2215,13 @@ pub const Model = struct {
     /// empty = cold `run`). Not a daemon field. Empty = no `--attach`.
     opencode2_attach_url_storage: [max_opencode2_attach_url]u8 = [_]u8{0} ** max_opencode2_attach_url,
     opencode2_attach_url_len: usize = 0,
+    /// Persisted OpenCode 2 serve password. `sessions.json` extras
+    /// `opencode2_server_password` (string; missing / empty /
+    /// overflow → empty). Not a daemon field. Empty = no Check
+    /// serve `-u` / no `run --password`. Username stays the
+    /// documented default `opencode` (no persist key this cut).
+    opencode2_server_password_storage: [max_opencode2_server_password]u8 = [_]u8{0} ** max_opencode2_server_password,
+    opencode2_server_password_len: usize = 0,
     /// Runtime-only non-fx `--help` probe results. Index is
     /// `@intFromEnum(ProviderId)`. Slot 0 (fx) is unused — fx stays
     /// on `fx_available` / `fx_probe`. Not persisted.
@@ -2583,13 +2609,20 @@ pub const Model = struct {
         "opencode2_attach_url_len",
         "opencode2AttachUrl",
         "setOpencode2AttachUrl",
+        "opencode2_server_password_storage",
+        "opencode2_server_password_len",
+        "opencode2ServerPassword",
+        "setOpencode2ServerPassword",
         "provider_selected_id",
         "provider_expanded_id",
         "provider_override_buffer",
         "applyProviderOverrideEdit",
         "opencode2_attach_buffer",
         "applyOpencode2AttachEdit",
+        "opencode2_password_buffer",
+        "applyOpencode2PasswordEdit",
         "providersOpencodeAttachChrome",
+        "providersOpencodePasswordChrome",
         "providersOpencodeServeChrome",
         "providersOpencodeHealthChrome",
         "opencode2_health_pending_key",
@@ -2603,6 +2636,8 @@ pub const Model = struct {
         "opencode2_health_body_len",
         "opencode2_health_url_storage",
         "opencode2_health_url_len",
+        "opencode2_health_userpass_storage",
+        "opencode2_health_userpass_len",
         "provider_detection_checked_at_ms",
         "settings_search_buffer",
         "applySettingsSearch",
@@ -5731,6 +5766,49 @@ pub const Model = struct {
         writeFixed(&model.opencode2_attach_url_storage, &model.opencode2_attach_url_len, trimmed);
     }
 
+    /// Settings Providers OpenCode 2 Serve password field label.
+    /// Localized via `i18n.ProvidersOpencodePasswordChrome`. OpenCode 2
+    /// expanded row only.
+    pub fn providers_opencode_password_label(model: *const Model) []const u8 {
+        return model.providersOpencodePasswordChrome().serve_password;
+    }
+
+    /// Settings Providers OpenCode 2 Serve password description.
+    /// Localized via `i18n.ProvidersOpencodePasswordChrome`. Product
+    /// strings say Faku, not Waku. For `OPENCODE_SERVER_PASSWORD`
+    /// basic auth; Faku passes it to Check serve and `run --attach`.
+    pub fn providers_opencode_password_description(model: *const Model) []const u8 {
+        return model.providersOpencodePasswordChrome().serve_password_description;
+    }
+
+    /// Expanded OpenCode 2 Serve password draft. `on-input` stays
+    /// `opencode2_password_edit`. Typed password stays data.
+    pub fn opencode2_password_draft(model: *const Model) []const u8 {
+        return model.opencode2_password_buffer.text();
+    }
+
+    pub fn applyOpencode2PasswordEdit(model: *Model, edit: canvas.TextInputEvent) void {
+        model.opencode2_password_buffer.apply(edit);
+    }
+
+    /// Persisted OpenCode 2 serve password. Empty = no Check serve
+    /// `-u` / no `run --password`.
+    pub fn opencode2ServerPassword(model: *const Model) []const u8 {
+        return model.opencode2_server_password_storage[0..model.opencode2_server_password_len];
+    }
+
+    /// Set or clear persisted `opencode2_server_password`. Empty /
+    /// whitespace / overflow (longer than `max_opencode2_server_password`)
+    /// clears.
+    pub fn setOpencode2ServerPassword(model: *Model, password: []const u8) void {
+        const trimmed = std.mem.trim(u8, password, " \t\r\n");
+        if (trimmed.len == 0 or trimmed.len > max_opencode2_server_password) {
+            model.opencode2_server_password_len = 0;
+            return;
+        }
+        writeFixed(&model.opencode2_server_password_storage, &model.opencode2_server_password_len, trimmed);
+    }
+
     /// Persisted binary-path override for `id`. Empty = PATH detect.
     pub fn providerBinaryOverride(model: *const Model, id: protocol.ProviderId) []const u8 {
         const index = @intFromEnum(id);
@@ -6365,6 +6443,10 @@ pub const Model = struct {
 
     fn providersOpencodeAttachChrome(model: *const Model) i18n.ProvidersOpencodeAttachChrome {
         return i18n.providersOpencodeAttachChromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    fn providersOpencodePasswordChrome(model: *const Model) i18n.ProvidersOpencodePasswordChrome {
+        return i18n.providersOpencodePasswordChromeFor(model.language_preference, model.systemLocaleId());
     }
 
     fn providersOpencodeServeChrome(model: *const Model) i18n.ProvidersOpencodeServeChrome {
@@ -7378,6 +7460,7 @@ pub const Model = struct {
         model.provider_expanded_id = 0;
         model.provider_override_buffer.clear();
         model.opencode2_attach_buffer.clear();
+        model.opencode2_password_buffer.clear();
         model.usage_view = .daily;
         model.settings_search_buffer.clear();
         usage_history.clearProjectFilter(model);
