@@ -852,7 +852,7 @@ fn healthChrome(model: *const Model) i18n.ProvidersOpencodeHealthChrome {
 pub fn healthUrl(attach: []const u8, buf: []u8) []const u8 {
     const trimmed = std.mem.trim(u8, attach, " \t\r\n");
     if (trimmed.len == 0) return "";
-    const stripped = std.mem.trimRight(u8, trimmed, "/");
+    const stripped = std.mem.trimEnd(u8, trimmed, "/");
     if (std.mem.endsWith(u8, stripped, opencode2_health_path)) {
         if (trimmed.len > buf.len) return "";
         @memcpy(buf[0..trimmed.len], trimmed);
