@@ -436,11 +436,11 @@
 //! English)
 //! plus Settings Providers OpenCode 2 Serve attach URL
 //! (same `ProvidersOpencodeAttachChrome` strings; EN Serve attach
-//! URL / Start opencode2 serve yourself. Faku only passes --attach.
-//! Leave empty for a cold run. / zh-CN Serve 附加 URL / 请自行启动
-//! opencode2 serve。Faku 只会传入 --attach。留空则为冷启动。 /
+//! URL / Start opencode2 serve yourself. When set, Faku POSTs /session
+//! and /session/{id}/message. Leave empty for a cold CLI run. / zh-CN Serve 附加 URL / 请自行启动
+//! opencode2 serve。设置后 Faku 会 POST /session 和 /session/{id}/message。留空则为冷启动 CLI。 /
 //! ja Serve 接続 URL / opencode2 serve は自分で起動してください。
-//! Faku は --attach を渡すだけです。空欄のときは通常の起動です。;
+//! 設定すると Faku は POST /session と /session/{id}/message です。空欄のときは通常の CLI 起動です。;
 //! product-named strings say Faku, not Waku; distinct from
 //! `ProvidersChrome` / `ProvidersDetailChrome` /
 //! `ProvidersEnableNamedChrome` / `ProvidersCodingAgentsChrome` /
@@ -473,18 +473,18 @@
 //! Check serve `-u {user}:{password}` when set (`{user}` persist or
 //! default `opencode`); 401 is Unreachable when unset); username
 //! override UI ships (`ProvidersOpencodeUsernameChrome`); Faku does
-//! not spawn serve; in-app HTTP/SSE Send still
+//! not spawn serve; HTTP Send first-cut ships; SSE live stream still
 //! deferred; on-press stays `check_opencode2_serve`; version token
 //! stays Latin data)
 //! plus Settings Providers OpenCode 2 Serve password
 //! (same `ProvidersOpencodePasswordChrome` strings; EN Serve
 //! password / For OPENCODE_SERVER_PASSWORD basic auth. Faku passes
-//! it to Check serve and to run --attach. Leave empty when the
+//! it to Check serve and to HTTP Send. Leave empty when the
 //! serve has no password. / zh-CN Serve 密码 / 用于
 //! OPENCODE_SERVER_PASSWORD 基本认证。Faku 会把它传给检查 serve
-//! 和 run --attach。无密码的 serve 请留空。 / ja Serve パスワード /
+//! 和 HTTP Send。无密码的 serve 请留空。 / ja Serve パスワード /
 //! OPENCODE_SERVER_PASSWORD の Basic 認証用です。Faku は Check
-//! serve と run --attach に渡します。パスワードなしの serve では
+//! serve と HTTP Send に渡します。パスワードなしの serve では
 //! 空欄にしてください。; distinct from Attach / Serve / Health / Username packs
 //! so password chrome stays independently evolvable; OpenCode 2
 //! expanded row only (same `show_opencode_attach` gate); on-press
@@ -493,12 +493,12 @@
 //! plus Settings Providers OpenCode 2 Serve username
 //! (same `ProvidersOpencodeUsernameChrome` strings; EN Serve
 //! username / For OPENCODE_SERVER_USERNAME basic auth. Faku passes
-//! it to Check serve and to run --attach. Leave empty for the
+//! it to Check serve and to HTTP Send. Leave empty for the
 //! default opencode. / zh-CN Serve 用户名 / 用于
 //! OPENCODE_SERVER_USERNAME 基本认证。Faku 会把它传给检查 serve
-//! 和 run --attach。留空则使用默认的 opencode。 / ja Serve ユーザー名 /
+//! 和 HTTP Send。留空则使用默认的 opencode。 / ja Serve ユーザー名 /
 //! OPENCODE_SERVER_USERNAME の Basic 認証用です。Faku は Check
-//! serve と run --attach に渡します。空欄のときはデフォルトの
+//! serve と HTTP Send に渡します。空欄のときはデフォルトの
 //! opencode です。; distinct from Password / Attach / Serve / Health packs
 //! so username chrome stays independently evolvable; OpenCode 2
 //! expanded row only (same `show_opencode_attach` gate); on-press
@@ -4821,7 +4821,7 @@ const providers_detail_chrome_en: ProvidersDetailChrome = .{
     .amp_transport_note = "Live Send is one-shot amp -x / --execute when Available (`@path` when attached).",
     .pi_transport_note = "Live Send is one-shot pi --mode rpc --no-session when Available (RPC images when attached).",
     .ohmypi_transport_note = "Live Send is one-shot omp --mode rpc --yolo --no-session when Available (RPC images when attached).",
-    .opencode2_transport_note = "Live Send is one-shot opencode2 run --format json --auto when Available (`--file` when attached; `--attach {url}` when opencode2_attach_url is set; `--password` when a serve password is set; `--username` when a serve username is set). Unavailable stays demo. User-owned serve; Settings Check serve probes GET /global/health (password UI ships; username UI ships; 401 is Unreachable when unset); in-app HTTP/SSE Send still deferred. Faku does not spawn serve. Not opencode acp (that is the OpenCode row).",
+    .opencode2_transport_note = "Live Send is one-shot opencode2 run --format json --auto when Available (`--file` when attached). When opencode2_attach_url is set, Send is blocking HTTP POST /session + /session/{id}/message (curl; `-u` when a serve password is set; composer image omitted). Unavailable stays demo. User-owned serve; Settings Check serve probes GET /global/health (password UI ships; username UI ships; 401 is Unreachable when unset); SSE live stream still deferred. Faku does not spawn serve. Not opencode acp (that is the OpenCode row).",
     .deepseek_transport_note = "Live Send is one-shot dsh --profile acp via acp-proxy when Available. Unavailable stays demo. No image attach this cut. User-owned dsh web; Copy web command ships (clipboard only; Faku does not spawn web). Harness HTTP/SSE / in-app web client still deferred.",
     .fx_login_note = "Faku does not detect auth state from the --help probe. Copy is a convenience, not sign-in UI or OAuth.",
     .fx_login_codex_note = "Optional: fx login grok / fx login codex (no Gateway required).",
@@ -4840,7 +4840,7 @@ const providers_detail_chrome_zh_cn: ProvidersDetailChrome = .{
     .amp_transport_note = "可用时，实际 Send 是一次性 amp -x / --execute（附加时使用 `@path`）。",
     .pi_transport_note = "可用时，实际 Send 是一次性 pi --mode rpc --no-session（附加时使用 RPC images）。",
     .ohmypi_transport_note = "可用时，实际 Send 是一次性 omp --mode rpc --yolo --no-session（附加时使用 RPC images）。",
-    .opencode2_transport_note = "可用时，实际 Send 是一次性 opencode2 run --format json --auto（附加时使用 `--file`；设置了 opencode2_attach_url 时使用 `--attach {url}`；设置了 serve 密码时使用 `--password`；设置了 serve 用户名时使用 `--username`）。不可用时仍为演示。serve 由用户自行启动；设置中的检查 serve 会探测 GET /global/health（密码界面已提供；用户名界面已提供；未设置时 401 视为不可达）；应用内 HTTP/SSE Send 仍延后。Faku 不会启动 serve。不是 opencode acp（那是单独的 OpenCode 行）。",
+    .opencode2_transport_note = "可用时，实际 Send 是一次性 opencode2 run --format json --auto（附加时使用 `--file`）。设置了 opencode2_attach_url 时，Send 是阻塞 HTTP POST /session + /session/{id}/message（curl；设置了 serve 密码时使用 `-u`；本轮省略附加图片）。不可用时仍为演示。serve 由用户自行启动；设置中的检查 serve 会探测 GET /global/health（密码界面已提供；用户名界面已提供；未设置时 401 视为不可达）；SSE 实时流仍延后。Faku 不会启动 serve。不是 opencode acp（那是单独的 OpenCode 行）。",
     .deepseek_transport_note = "可用时，实际 Send 是通过 acp-proxy 的一次性 dsh --profile acp。不可用时仍为演示。本轮不附加图片。dsh web 由用户自行启动；Copy web 命令仅复制剪贴板（Faku 不会启动 web）。Harness HTTP/SSE / 应用内 web 客户端仍延后。",
     .fx_login_note = "Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。",
     .fx_login_codex_note = "可选：fx login grok / fx login codex（无需 Gateway）。",
@@ -4859,7 +4859,7 @@ const providers_detail_chrome_ja: ProvidersDetailChrome = .{
     .amp_transport_note = "利用可能なとき、実際の Send はワンショット amp -x / --execute です（添付時は `@path`）。",
     .pi_transport_note = "利用可能なとき、実際の Send はワンショット pi --mode rpc --no-session です（添付時は RPC images）。",
     .ohmypi_transport_note = "利用可能なとき、実際の Send はワンショット omp --mode rpc --yolo --no-session です（添付時は RPC images）。",
-    .opencode2_transport_note = "利用可能なとき、実際の Send はワンショット opencode2 run --format json --auto です（添付時は `--file`。opencode2_attach_url が設定されているときは `--attach {url}`。serve パスワードが設定されているときは `--password`。serve ユーザー名が設定されているときは `--username`）。利用不可のときはデモのままです。serve はユーザー側で起動します。設定の serve 確認は GET /global/health をプローブします（パスワード UI は提供済み。ユーザー名 UI は提供済み。未設定時の 401 は到達不能です）。アプリ内 HTTP/SSE Send は後回しです。Faku は serve を起動しません。opencode acp ではありません（それは別の OpenCode 行です）。",
+    .opencode2_transport_note = "利用可能なとき、実際の Send はワンショット opencode2 run --format json --auto です（添付時は `--file`）。opencode2_attach_url が設定されているときは、Send はブロッキング HTTP POST /session + /session/{id}/message です（curl。serve パスワードが設定されているときは `-u`。この段階では画像添付を省略）。利用不可のときはデモのままです。serve はユーザー側で起動します。設定の serve 確認は GET /global/health をプローブします（パスワード UI は提供済み。ユーザー名 UI は提供済み。未設定時の 401 は到達不能です）。SSE ライブストリームは後回しです。Faku は serve を起動しません。opencode acp ではありません（それは別の OpenCode 行です）。",
     .deepseek_transport_note = "利用可能なとき、実際の Send は acp-proxy 経由のワンショット dsh --profile acp です。利用不可のときはデモのままです。この段階では画像添付なし。dsh web はユーザー側で起動します。Copy web はクリップボードのみです（Faku は web を起動しません）。Harness HTTP/SSE / アプリ内 web クライアントは後回しです。",
     .fx_login_note = "Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。",
     .fx_login_codex_note = "任意: fx login grok / fx login codex（Gateway は不要）。",
@@ -5013,17 +5013,17 @@ pub const ProvidersOpencodeAttachChrome = struct {
 
 const providers_opencode_attach_chrome_en: ProvidersOpencodeAttachChrome = .{
     .attach_url = "Serve attach URL",
-    .attach_url_description = "Start opencode2 serve yourself. Faku only passes --attach. Leave empty for a cold run.",
+    .attach_url_description = "Start opencode2 serve yourself. When set, Faku POSTs /session and /session/{id}/message. Leave empty for a cold CLI run.",
 };
 
 const providers_opencode_attach_chrome_zh_cn: ProvidersOpencodeAttachChrome = .{
     .attach_url = "Serve 附加 URL",
-    .attach_url_description = "请自行启动 opencode2 serve。Faku 只会传入 --attach。留空则为冷启动。",
+    .attach_url_description = "请自行启动 opencode2 serve。设置后 Faku 会 POST /session 和 /session/{id}/message。留空则为冷启动 CLI。",
 };
 
 const providers_opencode_attach_chrome_ja: ProvidersOpencodeAttachChrome = .{
     .attach_url = "Serve 接続 URL",
-    .attach_url_description = "opencode2 serve は自分で起動してください。Faku は --attach を渡すだけです。空欄のときは通常の起動です。",
+    .attach_url_description = "opencode2 serve は自分で起動してください。設定すると Faku は POST /session と /session/{id}/message です。空欄のときは通常の CLI 起動です。",
 };
 
 /// Settings Providers OpenCode 2 Copy serve command for the resolved
@@ -5033,8 +5033,8 @@ const providers_opencode_attach_chrome_ja: ProvidersOpencodeAttachChrome = .{
 /// independently evolvable. OpenCode 2 expanded row when Available.
 /// Clipboard `{binary} serve` (honor `provider_binary_overrides` /
 /// `providers.binaryFor`; default `opencode2`); hide / no-op when
-/// Not found. Faku does not spawn serve; in-app HTTP/SSE serve
-/// client still deferred. Wire ids / on-press stay English
+/// Not found. Faku does not spawn serve; HTTP Send first-cut ships;
+/// SSE live stream still deferred. Wire ids / on-press stay English
 /// (`copy_opencode2_serve`). Command text stays English.
 pub const ProvidersOpencodeServeChrome = struct {
     copy_serve: []const u8,
@@ -5068,7 +5068,8 @@ pub const providers_opencode_health_label_max: usize = 160;
 /// {user}:{password}` when set; `{user}` persist or default
 /// `opencode`; 401 is Unreachable when unset). Username UI ships
 /// (`ProvidersOpencodeUsernameChrome`).
-/// Faku does not spawn serve; in-app HTTP/SSE Send still deferred.
+/// Faku does not spawn serve; HTTP Send first-cut ships; SSE live
+/// stream still deferred.
 /// Wire ids / on-press stay English (`check_opencode2_serve`).
 /// Version token stays Latin data.
 pub const ProvidersOpencodeHealthChrome = struct {
@@ -5111,7 +5112,7 @@ const providers_opencode_health_chrome_ja: ProvidersOpencodeHealthChrome = .{
 /// so password chrome stays independently evolvable. OpenCode 2
 /// expanded row only (same `show_opencode_attach` gate). For
 /// `OPENCODE_SERVER_PASSWORD` / basic auth; Faku passes it to Check
-/// serve and to `run --attach`. Leave empty when the serve has no
+/// serve and to HTTP Send. Leave empty when the serve has no
 /// password. Wire ids / on-press stay English
 /// (`apply_opencode2_password` / `clear_opencode2_password`). Typed
 /// password stays data.
@@ -5122,17 +5123,17 @@ pub const ProvidersOpencodePasswordChrome = struct {
 
 const providers_opencode_password_chrome_en: ProvidersOpencodePasswordChrome = .{
     .serve_password = "Serve password",
-    .serve_password_description = "For OPENCODE_SERVER_PASSWORD basic auth. Faku passes it to Check serve and to run --attach. Leave empty when the serve has no password.",
+    .serve_password_description = "For OPENCODE_SERVER_PASSWORD basic auth. Faku passes it to Check serve and to HTTP Send. Leave empty when the serve has no password.",
 };
 
 const providers_opencode_password_chrome_zh_cn: ProvidersOpencodePasswordChrome = .{
     .serve_password = "Serve 密码",
-    .serve_password_description = "用于 OPENCODE_SERVER_PASSWORD 基本认证。Faku 会把它传给检查 serve 和 run --attach。无密码的 serve 请留空。",
+    .serve_password_description = "用于 OPENCODE_SERVER_PASSWORD 基本认证。Faku 会把它传给检查 serve 和 HTTP Send。无密码的 serve 请留空。",
 };
 
 const providers_opencode_password_chrome_ja: ProvidersOpencodePasswordChrome = .{
     .serve_password = "Serve パスワード",
-    .serve_password_description = "OPENCODE_SERVER_PASSWORD の Basic 認証用です。Faku は Check serve と run --attach に渡します。パスワードなしの serve では空欄にしてください。",
+    .serve_password_description = "OPENCODE_SERVER_PASSWORD の Basic 認証用です。Faku は Check serve と HTTP Send に渡します。パスワードなしの serve では空欄にしてください。",
 };
 
 /// Settings Providers OpenCode 2 Serve username for the resolved
@@ -5142,7 +5143,7 @@ const providers_opencode_password_chrome_ja: ProvidersOpencodePasswordChrome = .
 /// so username chrome stays independently evolvable. OpenCode 2
 /// expanded row only (same `show_opencode_attach` gate). For
 /// `OPENCODE_SERVER_USERNAME` / basic auth; Faku passes it to Check
-/// serve and to `run --attach`. Leave empty for the documented
+/// serve and to HTTP Send. Leave empty for the documented
 /// default `opencode`. Wire ids / on-press stay English
 /// (`apply_opencode2_username` / `clear_opencode2_username`). Typed
 /// username stays data.
@@ -5153,17 +5154,17 @@ pub const ProvidersOpencodeUsernameChrome = struct {
 
 const providers_opencode_username_chrome_en: ProvidersOpencodeUsernameChrome = .{
     .serve_username = "Serve username",
-    .serve_username_description = "For OPENCODE_SERVER_USERNAME basic auth. Faku passes it to Check serve and to run --attach. Leave empty for the default opencode.",
+    .serve_username_description = "For OPENCODE_SERVER_USERNAME basic auth. Faku passes it to Check serve and to HTTP Send. Leave empty for the default opencode.",
 };
 
 const providers_opencode_username_chrome_zh_cn: ProvidersOpencodeUsernameChrome = .{
     .serve_username = "Serve 用户名",
-    .serve_username_description = "用于 OPENCODE_SERVER_USERNAME 基本认证。Faku 会把它传给检查 serve 和 run --attach。留空则使用默认的 opencode。",
+    .serve_username_description = "用于 OPENCODE_SERVER_USERNAME 基本认证。Faku 会把它传给检查 serve 和 HTTP Send。留空则使用默认的 opencode。",
 };
 
 const providers_opencode_username_chrome_ja: ProvidersOpencodeUsernameChrome = .{
     .serve_username = "Serve ユーザー名",
-    .serve_username_description = "OPENCODE_SERVER_USERNAME の Basic 認証用です。Faku は Check serve と run --attach に渡します。空欄のときはデフォルトの opencode です。",
+    .serve_username_description = "OPENCODE_SERVER_USERNAME の Basic 認証用です。Faku は Check serve と HTTP Send に渡します。空欄のときはデフォルトの opencode です。",
 };
 
 /// Settings Providers DeepSeek Copy web command for the resolved
@@ -11890,7 +11891,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
         providersDetailChromeFor(.english, "").ohmypi_transport_note,
     );
     try testing.expectEqualStrings(
-        "Live Send is one-shot opencode2 run --format json --auto when Available (`--file` when attached; `--attach {url}` when opencode2_attach_url is set; `--password` when a serve password is set; `--username` when a serve username is set). Unavailable stays demo. User-owned serve; Settings Check serve probes GET /global/health (password UI ships; username UI ships; 401 is Unreachable when unset); in-app HTTP/SSE Send still deferred. Faku does not spawn serve. Not opencode acp (that is the OpenCode row).",
+        "Live Send is one-shot opencode2 run --format json --auto when Available (`--file` when attached). When opencode2_attach_url is set, Send is blocking HTTP POST /session + /session/{id}/message (curl; `-u` when a serve password is set; composer image omitted). Unavailable stays demo. User-owned serve; Settings Check serve probes GET /global/health (password UI ships; username UI ships; 401 is Unreachable when unset); SSE live stream still deferred. Faku does not spawn serve. Not opencode acp (that is the OpenCode row).",
         providersDetailChromeFor(.english, "").opencode2_transport_note,
     );
     try testing.expectEqualStrings(
@@ -11931,7 +11932,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 amp -x / --execute（附加时使用 `@path`）。", providersDetailChromeFor(.simplified_chinese, "").amp_transport_note);
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 pi --mode rpc --no-session（附加时使用 RPC images）。", providersDetailChromeFor(.simplified_chinese, "").pi_transport_note);
     try testing.expectEqualStrings("可用时，实际 Send 是一次性 omp --mode rpc --yolo --no-session（附加时使用 RPC images）。", providersDetailChromeFor(.simplified_chinese, "").ohmypi_transport_note);
-    try testing.expectEqualStrings("可用时，实际 Send 是一次性 opencode2 run --format json --auto（附加时使用 `--file`；设置了 opencode2_attach_url 时使用 `--attach {url}`；设置了 serve 密码时使用 `--password`；设置了 serve 用户名时使用 `--username`）。不可用时仍为演示。serve 由用户自行启动；设置中的检查 serve 会探测 GET /global/health（密码界面已提供；用户名界面已提供；未设置时 401 视为不可达）；应用内 HTTP/SSE Send 仍延后。Faku 不会启动 serve。不是 opencode acp（那是单独的 OpenCode 行）。", providersDetailChromeFor(.simplified_chinese, "").opencode2_transport_note);
+    try testing.expectEqualStrings("可用时，实际 Send 是一次性 opencode2 run --format json --auto（附加时使用 `--file`）。设置了 opencode2_attach_url 时，Send 是阻塞 HTTP POST /session + /session/{id}/message（curl；设置了 serve 密码时使用 `-u`；本轮省略附加图片）。不可用时仍为演示。serve 由用户自行启动；设置中的检查 serve 会探测 GET /global/health（密码界面已提供；用户名界面已提供；未设置时 401 视为不可达）；SSE 实时流仍延后。Faku 不会启动 serve。不是 opencode acp（那是单独的 OpenCode 行）。", providersDetailChromeFor(.simplified_chinese, "").opencode2_transport_note);
     try testing.expectEqualStrings("可用时，实际 Send 是通过 acp-proxy 的一次性 dsh --profile acp。不可用时仍为演示。本轮不附加图片。dsh web 由用户自行启动；Copy web 命令仅复制剪贴板（Faku 不会启动 web）。Harness HTTP/SSE / 应用内 web 客户端仍延后。", providersDetailChromeFor(.simplified_chinese, "").deepseek_transport_note);
     try testing.expectEqualStrings("Faku 不会从 --help 探测中检测认证状态。复制仅为便利，不是登录界面或 OAuth。", providersDetailChromeFor(.simplified_chinese, "").fx_login_note);
     try testing.expectEqualStrings("可选：fx login grok / fx login codex（无需 Gateway）。", providersDetailChromeFor(.simplified_chinese, "").fx_login_codex_note);
@@ -11948,7 +11949,7 @@ test "providersDetailChromeFor english default; zh and ja chrome; english ignore
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット amp -x / --execute です（添付時は `@path`）。", providersDetailChromeFor(.japanese, "").amp_transport_note);
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット pi --mode rpc --no-session です（添付時は RPC images）。", providersDetailChromeFor(.japanese, "").pi_transport_note);
     try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット omp --mode rpc --yolo --no-session です（添付時は RPC images）。", providersDetailChromeFor(.japanese, "").ohmypi_transport_note);
-    try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット opencode2 run --format json --auto です（添付時は `--file`。opencode2_attach_url が設定されているときは `--attach {url}`。serve パスワードが設定されているときは `--password`。serve ユーザー名が設定されているときは `--username`）。利用不可のときはデモのままです。serve はユーザー側で起動します。設定の serve 確認は GET /global/health をプローブします（パスワード UI は提供済み。ユーザー名 UI は提供済み。未設定時の 401 は到達不能です）。アプリ内 HTTP/SSE Send は後回しです。Faku は serve を起動しません。opencode acp ではありません（それは別の OpenCode 行です）。", providersDetailChromeFor(.japanese, "").opencode2_transport_note);
+    try testing.expectEqualStrings("利用可能なとき、実際の Send はワンショット opencode2 run --format json --auto です（添付時は `--file`）。opencode2_attach_url が設定されているときは、Send はブロッキング HTTP POST /session + /session/{id}/message です（curl。serve パスワードが設定されているときは `-u`。この段階では画像添付を省略）。利用不可のときはデモのままです。serve はユーザー側で起動します。設定の serve 確認は GET /global/health をプローブします（パスワード UI は提供済み。ユーザー名 UI は提供済み。未設定時の 401 は到達不能です）。SSE ライブストリームは後回しです。Faku は serve を起動しません。opencode acp ではありません（それは別の OpenCode 行です）。", providersDetailChromeFor(.japanese, "").opencode2_transport_note);
     try testing.expectEqualStrings("利用可能なとき、実際の Send は acp-proxy 経由のワンショット dsh --profile acp です。利用不可のときはデモのままです。この段階では画像添付なし。dsh web はユーザー側で起動します。Copy web はクリップボードのみです（Faku は web を起動しません）。Harness HTTP/SSE / アプリ内 web クライアントは後回しです。", providersDetailChromeFor(.japanese, "").deepseek_transport_note);
     try testing.expectEqualStrings("Faku は --help プローブから認証状態を検出しません。コピーは便宜であり、サインイン UI や OAuth ではありません。", providersDetailChromeFor(.japanese, "").fx_login_note);
     try testing.expectEqualStrings("任意: fx login grok / fx login codex（Gateway は不要）。", providersDetailChromeFor(.japanese, "").fx_login_codex_note);
@@ -12134,18 +12135,18 @@ test "providersOpencodeAttachChromeFor english default; zh and ja chrome; Faku n
     const testing = std.testing;
     try testing.expectEqualStrings("Serve attach URL", providersOpencodeAttachChromeFor(.english, "ja").attach_url);
     try testing.expectEqualStrings(
-        "Start opencode2 serve yourself. Faku only passes --attach. Leave empty for a cold run.",
+        "Start opencode2 serve yourself. When set, Faku POSTs /session and /session/{id}/message. Leave empty for a cold CLI run.",
         providersOpencodeAttachChromeFor(.english, "").attach_url_description,
     );
     try testing.expectEqualStrings("Serve attach URL", providersOpencodeAttachChromeFor(.system, "").attach_url);
     try testing.expectEqualStrings("Serve 附加 URL", providersOpencodeAttachChromeFor(.simplified_chinese, "").attach_url);
     try testing.expectEqualStrings(
-        "请自行启动 opencode2 serve。Faku 只会传入 --attach。留空则为冷启动。",
+        "请自行启动 opencode2 serve。设置后 Faku 会 POST /session 和 /session/{id}/message。留空则为冷启动 CLI。",
         providersOpencodeAttachChromeFor(.simplified_chinese, "").attach_url_description,
     );
     try testing.expectEqualStrings("Serve 接続 URL", providersOpencodeAttachChromeFor(.japanese, "").attach_url);
     try testing.expectEqualStrings(
-        "opencode2 serve は自分で起動してください。Faku は --attach を渡すだけです。空欄のときは通常の起動です。",
+        "opencode2 serve は自分で起動してください。設定すると Faku は POST /session と /session/{id}/message です。空欄のときは通常の CLI 起動です。",
         providersOpencodeAttachChromeFor(.japanese, "").attach_url_description,
     );
     try testing.expectEqualStrings("Serve 附加 URL", providersOpencodeAttachChromeFor(.system, "zh_CN.UTF-8").attach_url);
@@ -12222,18 +12223,18 @@ test "providersOpencodePasswordChromeFor english default; zh and ja chrome; Faku
     const testing = std.testing;
     try testing.expectEqualStrings("Serve password", providersOpencodePasswordChromeFor(.english, "ja").serve_password);
     try testing.expectEqualStrings(
-        "For OPENCODE_SERVER_PASSWORD basic auth. Faku passes it to Check serve and to run --attach. Leave empty when the serve has no password.",
+        "For OPENCODE_SERVER_PASSWORD basic auth. Faku passes it to Check serve and to HTTP Send. Leave empty when the serve has no password.",
         providersOpencodePasswordChromeFor(.english, "").serve_password_description,
     );
     try testing.expectEqualStrings("Serve password", providersOpencodePasswordChromeFor(.system, "").serve_password);
     try testing.expectEqualStrings("Serve 密码", providersOpencodePasswordChromeFor(.simplified_chinese, "").serve_password);
     try testing.expectEqualStrings(
-        "用于 OPENCODE_SERVER_PASSWORD 基本认证。Faku 会把它传给检查 serve 和 run --attach。无密码的 serve 请留空。",
+        "用于 OPENCODE_SERVER_PASSWORD 基本认证。Faku 会把它传给检查 serve 和 HTTP Send。无密码的 serve 请留空。",
         providersOpencodePasswordChromeFor(.simplified_chinese, "").serve_password_description,
     );
     try testing.expectEqualStrings("Serve パスワード", providersOpencodePasswordChromeFor(.japanese, "").serve_password);
     try testing.expectEqualStrings(
-        "OPENCODE_SERVER_PASSWORD の Basic 認証用です。Faku は Check serve と run --attach に渡します。パスワードなしの serve では空欄にしてください。",
+        "OPENCODE_SERVER_PASSWORD の Basic 認証用です。Faku は Check serve と HTTP Send に渡します。パスワードなしの serve では空欄にしてください。",
         providersOpencodePasswordChromeFor(.japanese, "").serve_password_description,
     );
     try testing.expectEqualStrings("Serve 密码", providersOpencodePasswordChromeFor(.system, "zh_CN.UTF-8").serve_password);
@@ -12253,18 +12254,18 @@ test "providersOpencodeUsernameChromeFor english default; zh and ja chrome; Faku
     const testing = std.testing;
     try testing.expectEqualStrings("Serve username", providersOpencodeUsernameChromeFor(.english, "ja").serve_username);
     try testing.expectEqualStrings(
-        "For OPENCODE_SERVER_USERNAME basic auth. Faku passes it to Check serve and to run --attach. Leave empty for the default opencode.",
+        "For OPENCODE_SERVER_USERNAME basic auth. Faku passes it to Check serve and to HTTP Send. Leave empty for the default opencode.",
         providersOpencodeUsernameChromeFor(.english, "").serve_username_description,
     );
     try testing.expectEqualStrings("Serve username", providersOpencodeUsernameChromeFor(.system, "").serve_username);
     try testing.expectEqualStrings("Serve 用户名", providersOpencodeUsernameChromeFor(.simplified_chinese, "").serve_username);
     try testing.expectEqualStrings(
-        "用于 OPENCODE_SERVER_USERNAME 基本认证。Faku 会把它传给检查 serve 和 run --attach。留空则使用默认的 opencode。",
+        "用于 OPENCODE_SERVER_USERNAME 基本认证。Faku 会把它传给检查 serve 和 HTTP Send。留空则使用默认的 opencode。",
         providersOpencodeUsernameChromeFor(.simplified_chinese, "").serve_username_description,
     );
     try testing.expectEqualStrings("Serve ユーザー名", providersOpencodeUsernameChromeFor(.japanese, "").serve_username);
     try testing.expectEqualStrings(
-        "OPENCODE_SERVER_USERNAME の Basic 認証用です。Faku は Check serve と run --attach に渡します。空欄のときはデフォルトの opencode です。",
+        "OPENCODE_SERVER_USERNAME の Basic 認証用です。Faku は Check serve と HTTP Send に渡します。空欄のときはデフォルトの opencode です。",
         providersOpencodeUsernameChromeFor(.japanese, "").serve_username_description,
     );
     try testing.expectEqualStrings("Serve 用户名", providersOpencodeUsernameChromeFor(.system, "zh_CN.UTF-8").serve_username);

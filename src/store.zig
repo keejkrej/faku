@@ -1796,7 +1796,7 @@ fn parseProviderBinaryOverrides(arena: std.mem.Allocator, value: ?std.json.Value
 }
 
 /// Trim on read. Missing / empty / overflow (longer than
-/// `max_opencode2_attach_url`) → empty (cold `run`, no `--attach`).
+/// `max_opencode2_attach_url`) → empty (cold CLI `run`).
 fn parseOpencode2AttachUrl(value: ?std.json.Value) []const u8 {
     const raw = jsonString(value) orelse return "";
     const trimmed = std.mem.trim(u8, raw, " \t\r\n");
@@ -1806,7 +1806,7 @@ fn parseOpencode2AttachUrl(value: ?std.json.Value) []const u8 {
 
 /// Trim on read. Missing / empty / overflow (longer than
 /// `max_opencode2_server_password`) → empty (no Check serve `-u`,
-/// no `run --password`).
+/// no HTTP Send `-u`).
 fn parseOpencode2ServerPassword(value: ?std.json.Value) []const u8 {
     const raw = jsonString(value) orelse return "";
     const trimmed = std.mem.trim(u8, raw, " \t\r\n");
@@ -1816,7 +1816,7 @@ fn parseOpencode2ServerPassword(value: ?std.json.Value) []const u8 {
 
 /// Trim on read. Missing / empty / overflow (longer than
 /// `max_opencode2_server_username`) → empty (Check serve default
-/// `opencode`, no `run --username`).
+/// `opencode`; HTTP Send `-u` only when password is set).
 fn parseOpencode2ServerUsername(value: ?std.json.Value) []const u8 {
     const raw = jsonString(value) orelse return "";
     const trimmed = std.mem.trim(u8, raw, " \t\r\n");

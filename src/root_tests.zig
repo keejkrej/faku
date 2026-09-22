@@ -83,6 +83,7 @@ test {
     _ = @import("projectless.zig");
     _ = @import("skills.zig");
     _ = @import("providers.zig");
+    _ = @import("opencode2_http.zig");
     _ = @import("environment_summary.zig");
     _ = @import("review_diff.zig");
     _ = @import("util.zig");

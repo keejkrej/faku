@@ -99,16 +99,16 @@ pub const max_queued_text = 1024;
 pub const max_fx_path = 256;
 /// OpenCode 2 `sessions.json` extras `opencode2_attach_url` plus the
 /// expanded-row draft. Same cap as other path/URL drafts. Missing /
-/// empty / overflow → empty (cold `run`, no `--attach`).
+/// empty / overflow → empty (cold CLI `run`; HTTP Send when set).
 pub const max_opencode2_attach_url = 256;
 /// OpenCode 2 `sessions.json` extras `opencode2_server_password` plus
 /// the expanded-row draft. Same cap as attach URL. Missing / empty /
-/// overflow → empty (no Check serve `-u`, no `run --password`).
+/// overflow → empty (no Check serve `-u`, no HTTP Send `-u`).
 pub const max_opencode2_server_password = 256;
 /// OpenCode 2 `sessions.json` extras `opencode2_server_username` plus
 /// the expanded-row draft. Same cap as attach URL / password. Missing /
-/// empty / overflow → empty (Check serve uses documented default
-/// `opencode`; Send omits `--username`).
+/// empty / overflow → empty (Check serve / HTTP Send use documented
+/// default `opencode`).
 pub const max_opencode2_server_username = 256;
 /// Runtime-only `{binary} --version` token (Waku `parse_cli_version`).
 /// No extra `v` prefix; markup/`rowFor` paints `v{version}`.
@@ -814,7 +814,7 @@ pub const Msg = union(enum) {
     /// (empty clears). `on-submit` / expand-switch.
     apply_opencode2_attach,
     /// Settings Providers: clear the OpenCode 2 attach URL (Reset).
-    /// Empty persist = cold `run` (no `--attach`).
+    /// Empty persist = cold CLI `run`.
     clear_opencode2_attach,
     /// Settings Providers OpenCode 2 expanded Serve password field
     /// `on-input`. Draft only until Return / expand-switch / Reset.
@@ -823,7 +823,7 @@ pub const Msg = union(enum) {
     /// (empty clears). `on-submit` / expand-switch.
     apply_opencode2_password,
     /// Settings Providers: clear the OpenCode 2 serve password (Reset).
-    /// Empty persist = no Check serve `-u` / no `run --password`.
+    /// Empty persist = no Check serve `-u` / no HTTP Send `-u`.
     clear_opencode2_password,
     /// Settings Providers OpenCode 2 expanded Serve username field
     /// `on-input`. Draft only until Return / expand-switch / Reset.
@@ -832,7 +832,7 @@ pub const Msg = union(enum) {
     /// (empty clears). `on-submit` / expand-switch.
     apply_opencode2_username,
     /// Settings Providers: clear the OpenCode 2 serve username (Reset).
-    /// Empty persist = Check serve default `opencode` / no `run --username`.
+    /// Empty persist = Check serve default `opencode` (HTTP Send `-u`).
     clear_opencode2_username,
     apply_session_provider,
     /// Settings Providers: copy verified fx install command. Clipboard only.
@@ -1653,6 +1653,18 @@ pub const Model = struct {
     opencode2_health_url_len: usize = 0,
     opencode2_health_userpass_storage: [providers.opencode2_health_userpass_max]u8 = [_]u8{0} ** providers.opencode2_health_userpass_max,
     opencode2_health_userpass_len: usize = 0,
+    /// Runtime-only OpenCode 2 HTTP Send curl (attach URL set).
+    /// Not persisted. Sequential POST /session then /message.
+    opencode2_http_url_storage: [512]u8 = [_]u8{0} ** 512,
+    opencode2_http_url_len: usize = 0,
+    opencode2_http_userpass_storage: [providers.opencode2_health_userpass_max]u8 = [_]u8{0} ** providers.opencode2_health_userpass_max,
+    opencode2_http_userpass_len: usize = 0,
+    opencode2_http_json_storage: [16384]u8 = [_]u8{0} ** 16384,
+    opencode2_http_json_len: usize = 0,
+    opencode2_http_body_storage: [65536]u8 = [_]u8{0} ** 65536,
+    opencode2_http_body_len: usize = 0,
+    opencode2_http_prompt_storage: [max_body]u8 = [_]u8{0} ** max_body,
+    opencode2_http_prompt_len: usize = 0,
     /// Runtime-only last PATH `--help` probe exit stamp (`now_ms`).
     /// Not persisted on `sessions.json`. 0 hides the Providers
     /// Coding agents Checked … caption (boot / Refresh mid-flight).
@@ -2230,19 +2242,20 @@ pub const Model = struct {
     provider_binary_override_len: [protocol.provider_id_count]usize = [_]usize{0} ** protocol.provider_id_count,
     /// Persisted OpenCode 2 attach URL. `sessions.json` extras
     /// `opencode2_attach_url` (string; missing / empty / overflow →
-    /// empty = cold `run`). Not a daemon field. Empty = no `--attach`.
+    /// empty = cold CLI `run`). Not a daemon field. Non-empty Send is
+    /// HTTP POST `/session` + `/message`.
     opencode2_attach_url_storage: [max_opencode2_attach_url]u8 = [_]u8{0} ** max_opencode2_attach_url,
     opencode2_attach_url_len: usize = 0,
     /// Persisted OpenCode 2 serve password. `sessions.json` extras
     /// `opencode2_server_password` (string; missing / empty /
     /// overflow → empty). Not a daemon field. Empty = no Check
-    /// serve `-u` / no `run --password`.
+    /// serve `-u` / no HTTP Send `-u`.
     opencode2_server_password_storage: [max_opencode2_server_password]u8 = [_]u8{0} ** max_opencode2_server_password,
     opencode2_server_password_len: usize = 0,
     /// Persisted OpenCode 2 serve username. `sessions.json` extras
     /// `opencode2_server_username` (string; missing / empty /
-    /// overflow → empty). Not a daemon field. Empty = Check serve
-    /// documented default `opencode` / no `run --username`.
+    /// overflow → empty). Not a daemon field. Empty = Check serve /
+    /// HTTP Send documented default `opencode`.
     opencode2_server_username_storage: [max_opencode2_server_username]u8 = [_]u8{0} ** max_opencode2_server_username,
     opencode2_server_username_len: usize = 0,
     /// Runtime-only non-fx `--help` probe results. Index is
@@ -2434,6 +2447,14 @@ pub const Model = struct {
     /// is not dumped into the transcript). Distinct from Claude / Pi
     /// — OpenCode's `sessionID` / `part` shape is not theirs. Not ACP.
     fx_spawn_opencode_run_json: bool = false,
+    /// OpenCode 2 HTTP Send (attach URL set) is blocking curl JSON,
+    /// not NDJSON run events. When true, `handleFxLine` accumulates
+    /// the body and `handleFxExit` parses Session `id` or message
+    /// `parts`. Distinct from `fx_spawn_opencode_run_json`.
+    fx_spawn_opencode_http: bool = false,
+    /// True while POST `/session` is in flight; exit then POSTs
+    /// `/session/{id}/message`.
+    fx_spawn_opencode_http_create: bool = false,
     /// Journaled wall-clock ms from `fx.wallMs` (or a test pin). 0 means
     /// grouping treats missing `updated_at` as Today and relative-time
     /// labels stay omitted.
@@ -2668,6 +2689,16 @@ pub const Model = struct {
         "opencode2_health_url_len",
         "opencode2_health_userpass_storage",
         "opencode2_health_userpass_len",
+        "opencode2_http_url_storage",
+        "opencode2_http_url_len",
+        "opencode2_http_userpass_storage",
+        "opencode2_http_userpass_len",
+        "opencode2_http_json_storage",
+        "opencode2_http_json_len",
+        "opencode2_http_body_storage",
+        "opencode2_http_body_len",
+        "opencode2_http_prompt_storage",
+        "opencode2_http_prompt_len",
         "provider_detection_checked_at_ms",
         "settings_search_buffer",
         "applySettingsSearch",
@@ -3292,6 +3323,8 @@ pub const Model = struct {
         "fx_spawn_pi_json",
         "fx_spawn_claude_json",
         "fx_spawn_opencode_run_json",
+        "fx_spawn_opencode_http",
+        "fx_spawn_opencode_http_create",
         "daemonAddress",
         "setDaemonAddress",
         "lastDaemonAddress",
@@ -5763,8 +5796,8 @@ pub const Model = struct {
 
     /// Settings Providers OpenCode 2 Serve attach URL description.
     /// Localized via `i18n.ProvidersOpencodeAttachChrome`. Product
-    /// strings say Faku, not Waku. User-owned serve; Faku only
-    /// passes `--attach`.
+    /// strings say Faku, not Waku. User-owned serve; Faku POSTs
+    /// `/session` + `/message` when set.
     pub fn providers_opencode_attach_description(model: *const Model) []const u8 {
         return model.providersOpencodeAttachChrome().attach_url_description;
     }
@@ -5779,7 +5812,7 @@ pub const Model = struct {
         model.opencode2_attach_buffer.apply(edit);
     }
 
-    /// Persisted OpenCode 2 attach URL. Empty = cold `run` (no `--attach`).
+    /// Persisted OpenCode 2 attach URL. Empty = cold CLI `run`.
     pub fn opencode2AttachUrl(model: *const Model) []const u8 {
         return model.opencode2_attach_url_storage[0..model.opencode2_attach_url_len];
     }
@@ -5806,7 +5839,7 @@ pub const Model = struct {
     /// Settings Providers OpenCode 2 Serve password description.
     /// Localized via `i18n.ProvidersOpencodePasswordChrome`. Product
     /// strings say Faku, not Waku. For `OPENCODE_SERVER_PASSWORD`
-    /// basic auth; Faku passes it to Check serve and `run --attach`.
+    /// basic auth; Faku passes it to Check serve and HTTP Send.
     pub fn providers_opencode_password_description(model: *const Model) []const u8 {
         return model.providersOpencodePasswordChrome().serve_password_description;
     }
@@ -5822,7 +5855,7 @@ pub const Model = struct {
     }
 
     /// Persisted OpenCode 2 serve password. Empty = no Check serve
-    /// `-u` / no `run --password`.
+    /// `-u` / no HTTP Send `-u`.
     pub fn opencode2ServerPassword(model: *const Model) []const u8 {
         return model.opencode2_server_password_storage[0..model.opencode2_server_password_len];
     }
@@ -5849,7 +5882,7 @@ pub const Model = struct {
     /// Settings Providers OpenCode 2 Serve username description.
     /// Localized via `i18n.ProvidersOpencodeUsernameChrome`. Product
     /// strings say Faku, not Waku. For `OPENCODE_SERVER_USERNAME`
-    /// basic auth; Faku passes it to Check serve and `run --attach`.
+    /// basic auth; Faku passes it to Check serve and HTTP Send.
     pub fn providers_opencode_username_description(model: *const Model) []const u8 {
         return model.providersOpencodeUsernameChrome().serve_username_description;
     }
@@ -5865,7 +5898,7 @@ pub const Model = struct {
     }
 
     /// Persisted OpenCode 2 serve username. Empty = Check serve
-    /// documented default `opencode` / no `run --username`.
+    /// documented default `opencode` (HTTP Send `-u`).
     pub fn opencode2ServerUsername(model: *const Model) []const u8 {
         return model.opencode2_server_username_storage[0..model.opencode2_server_username_len];
     }

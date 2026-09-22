@@ -1,7 +1,8 @@
 //! Sidecar stdout / ACP / daemon line handlers and fx-exit routing.
 //!
 //! `handleFxLine` / `handleAcpLine` / `handlePiJsonLine` /
-//! `handleClaudeJsonLine` / `handleOpencodeRunJsonLine` / `handleDaemonLine`, ACP apply helpers,
+//! `handleClaudeJsonLine` / `handleOpencodeRunJsonLine` /
+//! `handleOpencodeHttp` / `handleDaemonLine`, ACP apply helpers,
 //! daemon goalUpdated apply, `handleFxExit`, `stripFxDiagnostics`,
 //! and `max_line_keep` live here. Callers import this module
 //! directly (`lines.stripFxDiagnostics`). Not re-exported from
@@ -23,7 +24,9 @@
 //! for display; Environment Summary stays a one-line preview); it
 //! does not `appendToTurn` and does not register a new Monitor.
 //! OpenCode 2 live assistant text is NDJSON `type == "text"` with
-//! `part.text`; `sessionID` reuses `fx_session_id`. Not ACP.
+//! `part.text`; `sessionID` reuses `fx_session_id`. HTTP Send
+//! first-cut (attach URL set) accumulates curl JSON then paints
+//! `parts` where `type == "text"`. Not ACP.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -71,6 +74,7 @@ const open_url = @import("open_url.zig");
 const browser_pane = @import("browser_pane.zig");
 const open_editor = @import("open_editor.zig");
 const session_fork = @import("fork.zig");
+const opencode2_http = @import("opencode2_http.zig");
 
 const Model = model_exports.Model;
 const Effects = main.Effects;
@@ -305,6 +309,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
     }
     if (model.fx_spawn_claude_json) {
         handleClaudeJsonLine(model, fx, line);
+        return;
+    }
+    if (model.fx_spawn_opencode_http) {
+        opencode2_http.applyLine(model, line);
         return;
     }
     if (model.fx_spawn_opencode_run_json) {
@@ -1424,6 +1432,19 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     if (exit.key != fx_ask_key and !daemon and !fx_child) return;
     if (fx_child or exit.key == fx_ask_key) {
         if (model.fx_spawn_key != 0 and exit.key != model.fx_spawn_key) return;
+        if (model.fx_spawn_opencode_http) {
+            switch (opencode2_http.handleExit(model, fx, exit)) {
+                .none => {},
+                .spawn_message => {
+                    if (!prompt_spawn.continueOpencodeHttpMessage(model, fx)) {
+                        turn_stream.finishStream(model, fx, false);
+                    }
+                },
+                .finish_ok => turn_stream.finishStream(model, fx, true),
+                .finish_fail => turn_stream.finishStream(model, fx, false),
+            }
+            return;
+        }
         model.fx_spawn_live = false;
         if (model.phase != .streaming) {
             if (exit.key == model.fx_spawn_key) model.fx_spawn_key = 0;

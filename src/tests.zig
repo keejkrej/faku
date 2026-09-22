@@ -40,6 +40,7 @@ const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
 const skills = @import("skills.zig");
 const providers = @import("providers.zig");
+const opencode2_http = @import("opencode2_http.zig");
 const i18n = @import("i18n.zig");
 const litellm_rates = @import("litellm_rates.zig");
 const fx_probe = @import("fx_probe.zig");
@@ -2437,6 +2438,7 @@ test "send with opencode2 cli_available spawns run --format json --auto and stre
     try testing.expect(!model.fx_spawn_pi_json);
     try testing.expect(!model.fx_spawn_claude_json);
     try testing.expect(model.fx_spawn_opencode_run_json);
+    try testing.expect(!model.fx_spawn_opencode_http);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
@@ -2489,6 +2491,70 @@ test "send with opencode2 cli_available spawns run --format json --auto and stre
     try testing.expect(!model.is_streaming());
 }
 
+test "send with opencode2 attach URL uses HTTP curl POST not run --attach; captures id; paints text parts" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    model.setOpencode2AttachUrl("http://localhost:4096");
+    model.setOpencode2ServerPassword("s3cret");
+    const id = model.addSession("opencode2 http send", .opencode2);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "hello http send" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_opencode_run_json);
+    try testing.expect(model.fx_spawn_opencode_http);
+    try testing.expect(model.fx_spawn_opencode_http_create);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const create = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(effect_keys.fx_ask_key, create.key);
+    try testing.expect(opencode2_http.isHttpArgv(create.argv));
+    try testing.expect(argvHas(create.argv, "http://localhost:4096/session"));
+    try testing.expect(argvHas(create.argv, "-u"));
+    try testing.expect(argvHas(create.argv, "opencode:s3cret"));
+    try testing.expect(!argvHas(create.argv, "run"));
+    try testing.expect(!argvHas(create.argv, "--attach"));
+    try testing.expect(!argvHas(create.argv, "opencode2"));
+    try testing.expect(!argvHas(create.argv, "serve"));
+
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"id\":\"ses-http-1\",\"title\":\"hello http send\"}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("", lastAssistant(&model));
+    try fx.feedExit(effect_keys.fx_ask_key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("ses-http-1", model.sessionById(id).?.fxSessionId());
+    try testing.expect(model.is_streaming());
+    try testing.expect(model.fx_spawn_opencode_http);
+    try testing.expect(!model.fx_spawn_opencode_http_create);
+
+    const message = fx.pendingSpawnAt(0).?;
+    try testing.expect(opencode2_http.isHttpArgv(message.argv));
+    try testing.expect(argvHas(message.argv, "http://localhost:4096/session/ses-http-1/message"));
+    try testing.expect(argvHas(message.argv, "-u"));
+    try testing.expect(!argvHas(message.argv, "run"));
+    try testing.expect(!argvHas(message.argv, "--attach"));
+    const d_at = argvIndex(message.argv, "-d") orelse return error.MissingBody;
+    try testing.expect(std.mem.indexOf(u8, message.argv[d_at + 1], "hello http send") != null);
+
+    try fx.feedLine(effect_keys.fx_ask_key, "{\"info\":{\"id\":\"m1\",\"role\":\"assistant\"},\"parts\":[{\"type\":\"reasoning\",\"text\":\"skip\"},{\"type\":\"text\",\"text\":\"hello from http send\"}]}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("", lastAssistant(&model));
+    try fx.feedExit(effect_keys.fx_ask_key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from http send") != null);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "skip") == null);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "\"type\":\"text\"") == null);
+}
+
 test "send with opencode2 unavailable still starts the demo timer" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
@@ -2505,6 +2571,7 @@ test "send with opencode2 unavailable still starts the demo timer" {
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(!model.fx_spawn_pi_json);
     try testing.expect(!model.fx_spawn_opencode_run_json);
+    try testing.expect(!model.fx_spawn_opencode_http);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
@@ -38573,8 +38640,8 @@ test "Settings Providers OpenCode 2 expanded row paints Serve attach URL; fx row
     _ = try expectByText(tree.root, .text, "Serve attach URL");
     _ = try expectByText(tree.root, .text_field, "Serve attach URL");
     try testing.expect(findTextContaining(tree.root, "Start opencode2 serve yourself") != null);
-    try testing.expect(findTextContaining(tree.root, "Faku only passes --attach") != null);
-    try testing.expect(findTextContaining(tree.root, "Start opencode2 serve yourself. Faku only passes --attach") != null);
+    try testing.expect(findTextContaining(tree.root, "Faku POSTs /session") != null);
+    try testing.expect(findTextContaining(tree.root, "Start opencode2 serve yourself. When set, Faku POSTs /session") != null);
     try testing.expect(findByText(tree.root, .button, "Reset") == null);
     try testing.expect(!model.can_copy_opencode2_serve());
     try testing.expect(!model.can_copy_deepseek_web());
