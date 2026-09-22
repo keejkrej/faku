@@ -62,7 +62,7 @@
 //! `file_preview_find_case_sensitive` / `file_preview_find_whole_word` /
 //! `file_preview_find_use_regex` / `disabled_providers` /
 //! `provider_binary_overrides` / `opencode2_attach_url` /
-//! `opencode2_server_password` /
+//! `opencode2_server_password` / `opencode2_server_username` /
 //! `usage_view` / `usage_window` / `usage_metric` / `usage_breakdown` /
 //! `usage_project_filter` so the settings gear and
 //! composer chips can edit persisted defaults, and `folders` /
@@ -325,6 +325,7 @@ pub fn saveSession(model: *const Model, session_id: u32, allocator: std.mem.Allo
     document.provider_binary_overrides = providerBinaryOverridesFromModel(model);
     document.opencode2_attach_url = model.opencode2AttachUrl();
     document.opencode2_server_password = model.opencode2ServerPassword();
+    document.opencode2_server_username = model.opencode2ServerUsername();
     applyUsageExtras(&document, model);
     applySidebarExtras(&document, model);
     try applyFolderExtras(&document, arena, model);
@@ -383,6 +384,7 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
     document.provider_binary_overrides = providerBinaryOverridesFromModel(model);
     document.opencode2_attach_url = model.opencode2AttachUrl();
     document.opencode2_server_password = model.opencode2ServerPassword();
+    document.opencode2_server_username = model.opencode2ServerUsername();
     applyUsageExtras(&document, model);
     applySidebarExtras(&document, model);
     try applyFolderExtras(&document, arena, model);
@@ -453,7 +455,7 @@ pub fn persistLayoutIfPossible(model: *const Model) void {
 /// `usage_meter_open`, `commands_open`, `analytics_enabled`, `render_math`, `automatic_updates_enabled`, `file_preview_find_case_sensitive`,
 /// `file_preview_find_whole_word`, `file_preview_find_use_regex`, `disabled_providers`,
 /// `provider_binary_overrides`, `opencode2_attach_url`,
-/// `opencode2_server_password`,
+/// `opencode2_server_password`, `opencode2_server_username`,
 /// `usage_view`, `usage_window`, `usage_metric`, `usage_breakdown`,
 /// `usage_project_filter`) plus remembered `new_task`.
 /// Same first-run rule as sidebar collapse: does not create `sessions.json`
@@ -577,6 +579,7 @@ fn applySettingsExtras(document: *Document, model: *const Model) void {
     document.provider_binary_overrides = providerBinaryOverridesFromModel(model);
     document.opencode2_attach_url = model.opencode2AttachUrl();
     document.opencode2_server_password = model.opencode2ServerPassword();
+    document.opencode2_server_username = model.opencode2ServerUsername();
     applyUsageExtras(document, model);
 }
 
@@ -1130,6 +1133,7 @@ const Document = struct {
     provider_binary_overrides: [protocol.provider_id_count][]const u8 = [_][]const u8{""} ** protocol.provider_id_count,
     opencode2_attach_url: []const u8 = "",
     opencode2_server_password: []const u8 = "",
+    opencode2_server_username: []const u8 = "",
     usage_view: usage_history.View = .daily,
     usage_window: usage_history.WindowChoice = .trailing_30,
     usage_metric: usage_history.ShareMetric = .cost,
@@ -1185,6 +1189,7 @@ const Document = struct {
             .provider_binary_overrides = providerBinaryOverridesFromModel(model),
             .opencode2_attach_url = model.opencode2AttachUrl(),
             .opencode2_server_password = model.opencode2ServerPassword(),
+            .opencode2_server_username = model.opencode2ServerUsername(),
             .usage_view = model.usage_view,
             .usage_window = model.usage_window,
             .usage_metric = model.usage_share_metric,
@@ -1297,6 +1302,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     applyProviderBinaryOverrides(model, document.provider_binary_overrides);
     model.setOpencode2AttachUrl(document.opencode2_attach_url);
     model.setOpencode2ServerPassword(document.opencode2_server_password);
+    model.setOpencode2ServerUsername(document.opencode2_server_username);
     model.usage_view = document.usage_view;
     model.usage_window = document.usage_window;
     model.usage_share_metric = document.usage_metric;
@@ -1631,6 +1637,7 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .provider_binary_overrides = parseProviderBinaryOverrides(arena, obj.get("provider_binary_overrides")),
         .opencode2_attach_url = parseOpencode2AttachUrl(obj.get("opencode2_attach_url")),
         .opencode2_server_password = parseOpencode2ServerPassword(obj.get("opencode2_server_password")),
+        .opencode2_server_username = parseOpencode2ServerUsername(obj.get("opencode2_server_username")),
         .usage_view = usage_history.View.fromPersist(jsonString(obj.get("usage_view")) orelse ""),
         .usage_window = usage_history.WindowChoice.fromPersist(jsonString(obj.get("usage_window")) orelse ""),
         .usage_metric = usage_history.ShareMetric.fromPersist(jsonString(obj.get("usage_metric")) orelse ""),
@@ -1804,6 +1811,16 @@ fn parseOpencode2ServerPassword(value: ?std.json.Value) []const u8 {
     const raw = jsonString(value) orelse return "";
     const trimmed = std.mem.trim(u8, raw, " \t\r\n");
     if (trimmed.len == 0 or trimmed.len > model_exports.max_opencode2_server_password) return "";
+    return trimmed;
+}
+
+/// Trim on read. Missing / empty / overflow (longer than
+/// `max_opencode2_server_username`) → empty (Check serve default
+/// `opencode`, no `run --username`).
+fn parseOpencode2ServerUsername(value: ?std.json.Value) []const u8 {
+    const raw = jsonString(value) orelse return "";
+    const trimmed = std.mem.trim(u8, raw, " \t\r\n");
+    if (trimmed.len == 0 or trimmed.len > model_exports.max_opencode2_server_username) return "";
     return trimmed;
 }
 
@@ -2279,6 +2296,8 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
     try appendJsonString(&out, allocator, document.opencode2_attach_url);
     try out.appendSlice(allocator, ",\"opencode2_server_password\":");
     try appendJsonString(&out, allocator, document.opencode2_server_password);
+    try out.appendSlice(allocator, ",\"opencode2_server_username\":");
+    try appendJsonString(&out, allocator, document.opencode2_server_username);
     try out.appendSlice(allocator, ",\"usage_view\":");
     try appendJsonString(&out, allocator, document.usage_view.persistName());
     try out.appendSlice(allocator, ",\"usage_window\":");
@@ -4380,6 +4399,88 @@ test "opencode2_server_password extras persist round-trip; empty/missing/overflo
     var overflow_set = Model{};
     overflow_set.setOpencode2ServerPassword(overflow);
     try testing.expectEqualStrings("", overflow_set.opencode2ServerPassword());
+}
+
+test "opencode2_server_username extras persist round-trip; empty/missing/overflow stay empty" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var missing = Model{};
+    missing.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&missing, allocator, io));
+    try testing.expectEqualStrings("", missing.opencode2ServerUsername());
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"opencode2_server_username":"   ","sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var blank = Model{};
+    blank.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&blank, allocator, io));
+    try testing.expectEqualStrings("", blank.opencode2ServerUsername());
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"opencode2_server_username":null,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var nulls = Model{};
+    nulls.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&nulls, allocator, io));
+    try testing.expectEqualStrings("", nulls.opencode2ServerUsername());
+
+    const overflow = "u" ** 257;
+    var overflow_json: std.ArrayList(u8) = .empty;
+    defer overflow_json.deinit(allocator);
+    try overflow_json.appendSlice(allocator, "{\"version\":1,\"selected\":1,\"next_id\":2,\"next_turn_id\":2,\"next_queued_id\":1,\"opencode2_server_username\":\"");
+    try overflow_json.appendSlice(allocator, overflow);
+    try overflow_json.appendSlice(allocator, "\",\"sessions\":[{\"id\":1,\"title\":\"legacy\",\"provider\":\"fx\",\"untitled\":false,\"has_started\":true,\"turns\":[{\"id\":1,\"role\":\"user\",\"body\":\"hi\"}],\"queued_messages\":[]}]}");
+    try writeRaw(io, dir, overflow_json.items);
+    var too_long = Model{};
+    too_long.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&too_long, allocator, io));
+    try testing.expectEqualStrings("", too_long.opencode2ServerUsername());
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("username later", .opencode2);
+    _ = source.appendTurn(id, .user, "remember username");
+    try saveSession(&source, id, allocator, io);
+    source.setOpencode2ServerUsername("  alice  ");
+    persistSettingsIfPossible(&source);
+    try saveSession(&source, id, allocator, io);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = io;
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqualStrings("alice", loaded.opencode2ServerUsername());
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, catalogPath(dir, &path_buf).?, allocator, .limited(64 * 1024));
+    defer allocator.free(bytes);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"opencode2_server_username\":\"alice\"") != null);
+
+    loaded.setOpencode2ServerUsername("");
+    persistSettingsIfPossible(&loaded);
+    var cleared = Model{};
+    cleared.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&cleared, allocator, io));
+    try testing.expectEqualStrings("", cleared.opencode2ServerUsername());
+    const cleared_bytes = try std.Io.Dir.cwd().readFileAlloc(io, catalogPath(dir, &path_buf).?, allocator, .limited(64 * 1024));
+    defer allocator.free(cleared_bytes);
+    try testing.expect(std.mem.indexOf(u8, cleared_bytes, "\"opencode2_server_username\":\"\"") != null);
+
+    var overflow_set = Model{};
+    overflow_set.setOpencode2ServerUsername(overflow);
+    try testing.expectEqualStrings("", overflow_set.opencode2ServerUsername());
 }
 
 test "usage chrome extras persist on sessions.json; missing or unknown load defaults" {

@@ -60,8 +60,8 @@
 //! `opencode2_attach_url` trim is non-empty (user-owned `opencode2
 //! serve`; Faku does not spawn serve), documented `--password` when
 //! attach URL and `opencode2_server_password` are both set
-//! (documented `run --attach --password`; username stays CLI default
-//! `opencode`; omit `--username` this cut), documented `--session
+//! (documented `run --attach --password`), documented `--username`
+//! when persist is non-empty, documented `--session
 //! {fx_session_id}` when that field is non-empty (first Send and Fork
 //! omit it), documented `--model` when the session model is non-empty
 //! (`provider/model` form; no invented catalog), and documented
@@ -974,8 +974,11 @@ pub fn startPiRpc(model: *Model, fx: *Effects, session: *const Session, prompt: 
 /// both non-empty, documented `--password {password}` is two argv
 /// slots after `--attach {url}` and before `--session` / `--model` /
 /// `--file` / prompt. Prefer long `--password` not `-p`. Empty
-/// password omits both — never a bare `--password`. Omit
-/// `--username` this cut (CLI defaults to `opencode`). When
+/// password omits both — never a bare `--password`. When attach URL
+/// and persisted `opencode2_server_username` trim are both
+/// non-empty, documented `--username {username}` is two argv slots
+/// after optional `--password` (do not invent flags). Empty persist
+/// omits both — CLI defaults to `opencode`. When
 /// `session.fxSessionId()` is non-empty, documented `--session {id}`
 /// is two argv slots after `--auto` / optional `--attach` and
 /// before optional `--model` / `--file` / the prompt. Empty
@@ -1005,41 +1008,54 @@ pub fn startOpencodeRun(model: *Model, fx: *Effects, session: *const Session, pr
     const file_path = model.resolveSpawnImage();
     const attach_url = model.opencode2AttachUrl();
     const password = if (attach_url.len > 0) model.opencode2ServerPassword() else "";
+    const username = if (attach_url.len > 0) model.opencode2ServerUsername() else "";
 
     model.setLastSpawnCwd(cwd);
     model.setLastSpawnImagePath(file_path);
 
     // Packed Unix chdir when generic host argv would exceed Native
-    // `max_effect_argv` 16. `--password` stays a literal in the `-c`
-    // script; cwd / binary / attach / password / optionals / prompt
-    // stay `$N` slots — never drop attach or password when set.
+    // `max_effect_argv` 16. `--password` / `--username` stay literals
+    // in the `-c` script; cwd / binary / attach / password / username
+    // / optionals / prompt stay `$N` slots — never drop attach,
+    // password, or username when set.
     const opencode2_run_chdir_password_script =
         "cd -- \"$1\" && exec \"$2\" run --format json --auto --attach \"$3\" --password \"$4\"${5:+ --session \"$5\"}${6:+ --model \"$6\"}${7:+ --file \"$7\"} \"$8\"";
+    const opencode2_run_chdir_password_username_script =
+        "cd -- \"$1\" && exec \"$2\" run --format json --auto --attach \"$3\" --password \"$4\" --username \"$5\"${6:+ --session \"$6\"}${7:+ --model \"$7\"}${8:+ --file \"$8\"} \"$9\"";
+    const opencode2_run_chdir_username_script =
+        "cd -- \"$1\" && exec \"$2\" run --format json --auto --attach \"$3\" --username \"$4\"${5:+ --session \"$5\"}${6:+ --model \"$6\"}${7:+ --file \"$7\"} \"$8\"";
 
     var generic_len: usize = 5; // binary run --format json --auto
     if (cwd.len > 0) generic_len += 5;
     if (attach_url.len > 0) generic_len += 2;
     if (password.len > 0) generic_len += 2;
+    if (username.len > 0) generic_len += 2;
     if (resume_id.len > 0) generic_len += 2;
     if (model_id.len > 0) generic_len += 2;
     if (file_path.len > 0) generic_len += 2;
     generic_len += 1; // prompt
 
-    const pack_password = cwd.len > 0 and attach_url.len > 0 and password.len > 0 and
+    const pack_auth = cwd.len > 0 and attach_url.len > 0 and (password.len > 0 or username.len > 0) and
         generic_len > git_commit_generate.max_effect_argv;
 
     // chdir (5) + binary + run + --format + json + --auto +
-    // --attach + url + --password + password + --session + id +
-    // --model + id + --file + path + prompt = 21. Packed form is 12.
-    // Keep headroom rather than truncating (fake-executor tests).
+    // --attach + url + --password + password + --username + username +
+    // --session + id + --model + id + --file + path + prompt = 23.
+    // Packed password+username form is 13. Keep headroom rather than
+    // truncating (fake-executor tests).
     var argv_buf: [24][]const u8 = undefined;
     var n: usize = 0;
-    if (pack_password) {
+    if (pack_auth) {
         argv_buf[n] = "/bin/sh";
         n += 1;
         argv_buf[n] = "-c";
         n += 1;
-        argv_buf[n] = opencode2_run_chdir_password_script;
+        argv_buf[n] = if (password.len > 0 and username.len > 0)
+            opencode2_run_chdir_password_username_script
+        else if (password.len > 0)
+            opencode2_run_chdir_password_script
+        else
+            opencode2_run_chdir_username_script;
         n += 1;
         argv_buf[n] = "sh";
         n += 1;
@@ -1049,8 +1065,14 @@ pub fn startOpencodeRun(model: *Model, fx: *Effects, session: *const Session, pr
         n += 1;
         argv_buf[n] = attach_url;
         n += 1;
-        argv_buf[n] = password;
-        n += 1;
+        if (password.len > 0) {
+            argv_buf[n] = password;
+            n += 1;
+        }
+        if (username.len > 0) {
+            argv_buf[n] = username;
+            n += 1;
+        }
         argv_buf[n] = resume_id;
         n += 1;
         argv_buf[n] = model_id;
@@ -1092,6 +1114,12 @@ pub fn startOpencodeRun(model: *Model, fx: *Effects, session: *const Session, pr
             argv_buf[n] = "--password";
             n += 1;
             argv_buf[n] = password;
+            n += 1;
+        }
+        if (username.len > 0) {
+            argv_buf[n] = "--username";
+            n += 1;
+            argv_buf[n] = username;
             n += 1;
         }
         if (resume_id.len > 0) {
@@ -2718,6 +2746,130 @@ test "opencode2 chdir + attach + password + session + model + file packs --passw
     try testing.expect(testArgvHas(request.argv, "packed prompt"));
     try testing.expect(!testArgvHas(request.argv, "--username"));
     try testing.expectEqualStrings("s3cret", request.argv[7]);
+}
+
+test "opencode2 + attach URL + password + username passes --username then the username as separate slots" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    model.setOpencode2AttachUrl("http://localhost:4096");
+    model.setOpencode2ServerPassword("s3cret");
+    model.setOpencode2ServerUsername("alice");
+    const id = model.addSession("opencode2 username", .opencode2);
+    startPrompt(&model, &fx, id, "hello username");
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_opencode_run_json);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, "--attach"));
+    try testing.expect(testArgvHas(request.argv, "http://localhost:4096"));
+    try testing.expect(testArgvHas(request.argv, "--password"));
+    try testing.expect(testArgvHas(request.argv, "s3cret"));
+    try testing.expect(testArgvHas(request.argv, "--username"));
+    try testing.expect(testArgvHas(request.argv, "alice"));
+    try testing.expect(testArgvHas(request.argv, "hello username"));
+    try testing.expect(!testArgvHas(request.argv, "-u"));
+    try testing.expect(!testArgvHas(request.argv, "serve"));
+    const password_at = testArgvIndex(request.argv, "--password") orelse return error.MissingPassword;
+    const username_at = testArgvIndex(request.argv, "--username") orelse return error.MissingUsername;
+    const prompt_at = testArgvIndex(request.argv, "hello username") orelse return error.MissingPrompt;
+    try testing.expectEqual(password_at + 2, username_at);
+    try testing.expectEqualStrings("alice", request.argv[username_at + 1]);
+    try testing.expectEqual(username_at + 2, prompt_at);
+}
+
+test "opencode2 + attach URL + username without password passes --username only" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    model.setOpencode2AttachUrl("http://localhost:4096");
+    model.setOpencode2ServerUsername("alice");
+    const id = model.addSession("opencode2 username no password", .opencode2);
+    startPrompt(&model, &fx, id, "hello user only");
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, "--attach"));
+    try testing.expect(testArgvHas(request.argv, "--username"));
+    try testing.expect(testArgvHas(request.argv, "alice"));
+    try testing.expect(!testArgvHas(request.argv, "--password"));
+}
+
+test "opencode2 username without attach URL omits --username" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    model.setOpencode2ServerUsername("alice");
+    const id = model.addSession("opencode2 username no attach", .opencode2);
+    startPrompt(&model, &fx, id, "hello no attach user");
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(!testArgvHas(request.argv, "--attach"));
+    try testing.expect(!testArgvHas(request.argv, "--username"));
+    try testing.expect(!testArgvHas(request.argv, "--password"));
+}
+
+test "opencode2 chdir + attach + password + username + session + model + file packs --username into the Unix chdir script" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/opencode2-user-cwd", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/opencode2-user-shot.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    model.setOpencode2AttachUrl("http://localhost:4096");
+    model.setOpencode2ServerPassword("s3cret");
+    model.setOpencode2ServerUsername("alice");
+    const id = model.addSession("opencode2 packed username", .opencode2);
+    model.selected = id;
+    model.setDraftImagePath(image);
+    if (model.sessionById(id)) |session| {
+        session.setProjectPath(project);
+        session.setFxSessionId("oc2-sess-user");
+        session.setModel("opencode/gpt-5");
+    }
+
+    startPrompt(&model, &fx, id, "packed user prompt");
+    try testing.expectEqual(model_exports.ReplyPath.fx, model.reply_path);
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, "/bin/sh"));
+    try testing.expect(testArgvHas(request.argv, "-c"));
+    try testing.expect(request.argv.len <= git_commit_generate.max_effect_argv);
+    try testing.expect(std.mem.indexOf(u8, request.argv[2], "--password") != null);
+    try testing.expect(std.mem.indexOf(u8, request.argv[2], "--username") != null);
+    try testing.expect(testArgvHas(request.argv, "http://localhost:4096"));
+    try testing.expect(testArgvHas(request.argv, "s3cret"));
+    try testing.expect(testArgvHas(request.argv, "alice"));
+    try testing.expect(testArgvHas(request.argv, "oc2-sess-user"));
+    try testing.expect(testArgvHas(request.argv, "opencode/gpt-5"));
+    try testing.expect(testArgvHas(request.argv, image));
+    try testing.expect(testArgvHas(request.argv, "packed user prompt"));
+    try testing.expectEqualStrings("s3cret", request.argv[7]);
+    try testing.expectEqualStrings("alice", request.argv[8]);
 }
 
 test "opencode2 whitespace-only attach URL omits --attach" {

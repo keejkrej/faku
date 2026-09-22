@@ -651,6 +651,20 @@ pub fn handleClearOpencode2Password(model: *Model, fx: *Effects) void {
     store.persistSettingsIfPossible(model);
 }
 
+pub fn handleOpencode2UsernameEdit(model: *Model, edit: canvas.TextInputEvent) void {
+    model.applyOpencode2UsernameEdit(edit);
+}
+
+pub fn handleApplyOpencode2Username(model: *Model, fx: *Effects) void {
+    if (!providers.applyServerUsername(model, fx)) return;
+    store.persistSettingsIfPossible(model);
+}
+
+pub fn handleClearOpencode2Username(model: *Model, fx: *Effects) void {
+    if (!providers.clearServerUsername(model, fx)) return;
+    store.persistSettingsIfPossible(model);
+}
+
 pub fn handleApplySessionProvider(model: *Model, fx: *Effects) void {
     if (!providers.applyToSession(model)) return;
     store.persistIfPossible(model, model.selected, fx);
@@ -1045,4 +1059,31 @@ test "handleApplyOpencode2Password persists; empty apply and Reset clear" {
     handleClearOpencode2Password(&model, &fx);
     try testing.expectEqualStrings("", model.opencode2ServerPassword());
     try testing.expectEqualStrings("", model.opencode2_password_draft());
+}
+
+test "handleApplyOpencode2Username persists; empty apply and Reset clear" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    handleToggleProviderExpanded(&model, &fx, providers.rowId(.opencode2));
+    try testing.expectEqual(providers.rowId(.opencode2), model.provider_expanded_id);
+    handleOpencode2UsernameEdit(&model, .{ .insert_text = "alice" });
+    try testing.expectEqualStrings("alice", model.opencode2_username_draft());
+    handleApplyOpencode2Username(&model, &fx);
+    try testing.expectEqualStrings("alice", model.opencode2ServerUsername());
+
+    handleToggleProviderExpanded(&model, &fx, providers.rowId(.fx));
+    try testing.expectEqualStrings("alice", model.opencode2ServerUsername());
+    handleOpencode2UsernameEdit(&model, .{ .insert_text = "ignored" });
+    handleApplyOpencode2Username(&model, &fx);
+    try testing.expectEqualStrings("alice", model.opencode2ServerUsername());
+
+    handleToggleProviderExpanded(&model, &fx, providers.rowId(.opencode2));
+    try testing.expectEqualStrings("alice", model.opencode2_username_draft());
+    handleClearOpencode2Username(&model, &fx);
+    try testing.expectEqualStrings("", model.opencode2ServerUsername());
+    try testing.expectEqualStrings("", model.opencode2_username_draft());
 }

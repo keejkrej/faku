@@ -38684,6 +38684,85 @@ test "Settings Providers OpenCode 2 expanded row paints Serve password; fx row o
     try testing.expect(findByText(tree.root, .text_field, "Serve password") == null);
 }
 
+test "Settings Providers OpenCode 2 expanded row paints Serve username; fx row omits it; apply/Reset; collapse hides" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{providers_opencode_username_label}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{providers_opencode_username_description}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{opencode2_username_draft}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-input=\"opencode2_username_edit\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-submit=\"apply_opencode2_username\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "on-press=\"clear_opencode2_username\""));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "{p.has_opencode_username}"));
+
+    var model = boot.initialModel();
+    try testing.expectEqualStrings("Serve username", model.providers_opencode_username_label());
+    try testing.expectEqualStrings(
+        i18n.providersOpencodeUsernameChromeFor(.english, "").serve_username_description,
+        model.providers_opencode_username_description(),
+    );
+    try testing.expect(std.mem.indexOf(u8, model.providers_opencode_username_description(), "Faku") != null);
+    try testing.expect(std.mem.indexOf(u8, model.providers_opencode_username_description(), "Waku") == null);
+    try testing.expect(std.mem.indexOf(u8, model.providers_opencode_username_description(), "OPENCODE_SERVER_USERNAME") != null);
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_providers, &fx);
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "Serve username") == null);
+    try testing.expect(findByText(tree.root, .text_field, "Serve username") == null);
+
+    main.update(&model, .{ .toggle_provider_expanded = 1 }, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Binary path");
+    try testing.expect(findByText(tree.root, .text, "Serve username") == null);
+    try testing.expect(findByText(tree.root, .text_field, "Serve username") == null);
+
+    main.update(&model, .{ .toggle_provider_expanded = providers.rowId(.opencode2) }, &fx);
+    try testing.expectEqual(providers.rowId(.opencode2), model.provider_expanded_id);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Serve username");
+    _ = try expectByText(tree.root, .text_field, "Serve username");
+    try testing.expect(findTextContaining(tree.root, "OPENCODE_SERVER_USERNAME") != null);
+    try testing.expect(findTextContaining(tree.root, "Faku passes it to Check serve") != null);
+    try testing.expect(findByText(tree.root, .button, "Reset") == null);
+
+    main.update(&model, .{ .opencode2_username_edit = .{ .insert_text = "alice" } }, &fx);
+    try testing.expectEqualStrings("alice", model.opencode2_username_draft());
+    main.update(&model, .apply_opencode2_username, &fx);
+    try testing.expectEqualStrings("alice", model.opencode2ServerUsername());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Reset", .clear_opencode2_username);
+
+    main.update(&model, .clear_opencode2_username, &fx);
+    try testing.expectEqualStrings("", model.opencode2ServerUsername());
+    try testing.expectEqualStrings("", model.opencode2_username_draft());
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("Serve 用户名", model.providers_opencode_username_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Serve 用户名");
+    try testing.expect(findByText(tree.root, .text, "Serve username") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("Serve ユーザー名", model.providers_opencode_username_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Serve ユーザー名");
+    try testing.expect(findByText(tree.root, .text, "Serve username") == null);
+
+    model.language_preference = .english;
+    main.update(&model, .{ .toggle_provider_expanded = providers.rowId(.opencode2) }, &fx);
+    try testing.expectEqual(@as(u32, 0), model.provider_expanded_id);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "Serve username") == null);
+    try testing.expect(findByText(tree.root, .text_field, "Serve username") == null);
+}
+
 test "Settings Providers OpenCode 2 Copy serve command when Available; Not found hides; override binary" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
