@@ -580,6 +580,12 @@
                             <if test="{p.has_opencode_password}">
                               <button variant="ghost" size="sm" on-press="clear_opencode2_password">{providers_reset_label}</button>
                             </if>
+                            <text><span weight="bold">{providers_opencode_username_label}</span></text>
+                            <text wrap="true" foreground="text_muted">{providers_opencode_username_description}</text>
+                            <text-field text="{opencode2_username_draft}" on-input="opencode2_username_edit" on-submit="apply_opencode2_username" label="{providers_opencode_username_label}" />
+                            <if test="{p.has_opencode_username}">
+                              <button variant="ghost" size="sm" on-press="clear_opencode2_username">{providers_reset_label}</button>
+                            </if>
                             <if test="{can_copy_opencode2_serve}">
                               <button variant="ghost" size="sm" on-press="copy_opencode2_serve">{copy_opencode2_serve_label}</button>
                             </if>

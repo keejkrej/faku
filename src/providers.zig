@@ -19,8 +19,10 @@
 //! OpenCode 2 expanded row also persists optional `opencode2_attach_url`
 //! (string; missing / empty / overflow → empty = cold `run`) and
 //! optional `opencode2_server_password` (string; missing / empty /
-//! overflow → empty; cap 256 like attach; username stays documented
-//! default `opencode`) and
+//! overflow → empty; cap 256 like attach) and optional
+//! `opencode2_server_username` (string; missing / empty / overflow →
+//! empty = Check serve default `opencode` / omit Send `--username`;
+//! cap 256) and
 //! copies `{binary} serve` when Available (`copyOpencode2Serve`;
 //! honor `provider_binary_overrides` / `binaryFor`; hide / no-op
 //! when Not found; clipboard only, never spawns serve) and one-shot
@@ -29,7 +31,8 @@
 //! `opencode2_attach_url` trim is non-empty; hide / no-op when Not
 //! found / unset / empty attach URL; runtime-only status; password
 //! UI ships (`OPENCODE_SERVER_PASSWORD` / curl `-u
-//! opencode:{password}` when set; 401 is Unreachable when unset);
+//! {user}:{password}` when set; `{user}` persist or default
+//! `opencode`; 401 is Unreachable when unset); username UI ships;
 //! never spawns serve). DeepSeek
 //! expanded row copies `{binary} web` when Available
 //! (`copyDeepseekWeb`; documented `dsh web` alias for `--profile
@@ -74,8 +77,9 @@
 //! one-shot `{binary} run --format json --auto` (documented `--session`
 //! / `--model` / `--file`; documented `--attach {url}` when
 //! `opencode2_attach_url` is set; documented `--password` when
-//! attach URL and `opencode2_server_password` are set; not `opencode acp`; user-owned
-//! serve; Copy serve command ships; Check serve health ships; password UI ships; in-app HTTP/SSE Send stays deferred). Available DeepSeek is one-shot `dsh --profile acp`
+//! attach URL and `opencode2_server_password` are set; documented
+//! `--username` when persist is non-empty; not `opencode acp`; user-owned
+//! serve; Copy serve command ships; Check serve health ships; password UI ships; username UI ships; in-app HTTP/SSE Send stays deferred). Available DeepSeek is one-shot `dsh --profile acp`
 //! via acp-proxy (not `dsh acp`; composer image fail-closes to demo;
 //! Copy web command ships; Harness HTTP/SSE / in-app web client stay
 //! deferred; `--profile headless` ships on empty-Commit… generate
@@ -108,8 +112,10 @@
 //! `{attach_url}/global/health` when Available and attach URL is
 //! non-empty; hide / no-op when Not found / unset / empty attach
 //! URL; runtime-only status; password UI ships
-//! (`OPENCODE_SERVER_PASSWORD` / curl `-u opencode:{password}`
-//! when set; 401 is Unreachable when unset); Faku does
+//! (`OPENCODE_SERVER_PASSWORD` / curl `-u {user}:{password}`
+//! when set; `{user}` persist or default `opencode`; 401 is
+//! Unreachable when unset); username UI ships
+//! (`OPENCODE_SERVER_USERNAME`); Faku does
 //! not spawn serve). Copy web command follows
 //! `i18n.ProvidersDeepseekWebChrome` (clipboard `{binary} web` when
 //! Available; honor override; hide / no-op when Not found; Faku
@@ -124,8 +130,8 @@
 //! remote `--track` over daemon (local already); Native-blocked UI
 //! (gauge / chart fill / DevTools / edge fades / sticky / KaTeX);
 //! OpenCode 2 HTTP/SSE Send (Check serve / GET /global/health ships;
-//! OPENCODE_SERVER_PASSWORD UI ships; 401 is Unreachable when unset;
-//! Faku still does not spawn serve; username override UI stays out);
+//! OPENCODE_SERVER_PASSWORD UI ships; username override UI ships;
+//! 401 is Unreachable when unset; Faku still does not spawn serve);
 //! DeepSeek Harness HTTP/SSE /
 //! in-app web client (Copy web command ships; Faku still does not
 //! spawn web). `--profile headless` ships on empty-Commit…
@@ -160,7 +166,7 @@
 //! bypass). OpenCode 2 one-shot `run --format json --auto` ships this
 //! cut (display **OpenCode 2**; not `opencode acp`; documented
 //! `--attach {url}` when `opencode2_attach_url` is set; user-owned
-//! serve; Copy serve command ships; Check serve health ships; password UI ships; in-app HTTP/SSE Send still deferred). DeepSeek one-shot
+//! serve; Copy serve command ships; Check serve health ships; password UI ships; username UI ships; in-app HTTP/SSE Send still deferred). DeepSeek one-shot
 //! `dsh --profile acp` via acp-proxy ships this cut (display **DeepSeek**;
 //! no image attach; Copy web command ships; Harness HTTP/SSE / in-app
 //! web client still deferred; `--profile headless` ships on
@@ -299,6 +305,8 @@ pub const ProviderRow = struct {
     has_opencode_attach: bool = false,
     /// Persisted `opencode2_server_password` is non-empty (Reset visible).
     has_opencode_password: bool = false,
+    /// Persisted `opencode2_server_username` is non-empty (Reset visible).
+    has_opencode_username: bool = false,
     /// Painted `v{token}` when Available and the `--version` parse
     /// succeeded. Empty otherwise. Arena-owned. Latin data, not i18n.
     version: []const u8 = "",
@@ -438,9 +446,11 @@ fn seedAttachDraft(model: *Model, id: protocol.ProviderId) void {
     if (id == .opencode2) {
         model.opencode2_attach_buffer.set(model.opencode2AttachUrl());
         model.opencode2_password_buffer.set(model.opencode2ServerPassword());
+        model.opencode2_username_buffer.set(model.opencode2ServerUsername());
     } else {
         model.opencode2_attach_buffer.clear();
         model.opencode2_password_buffer.clear();
+        model.opencode2_username_buffer.clear();
     }
 }
 
@@ -543,6 +553,41 @@ pub fn clearServerPassword(model: *Model, fx: *Effects) bool {
     return true;
 }
 
+/// Apply the OpenCode 2 expanded row's Serve username draft.
+/// Empty / whitespace / overflow clears. Returns true when the
+/// persisted username changed. No-op when another row is expanded.
+/// Changing the username clears runtime Check serve status.
+pub fn applyServerUsername(model: *Model, fx: *Effects) bool {
+    const id = fromRowId(model.provider_expanded_id) orelse return false;
+    if (id != .opencode2) return false;
+    const trimmed = std.mem.trim(u8, model.opencode2_username_buffer.text(), " \t\r\n");
+    const current = model.opencode2ServerUsername();
+    if (std.mem.eql(u8, trimmed, current)) return false;
+    model.setOpencode2ServerUsername(trimmed);
+    model.opencode2_username_buffer.set(model.opencode2ServerUsername());
+    clearOpencode2Health(model, fx);
+    return true;
+}
+
+/// Clear the OpenCode 2 serve username and draft. Returns true when a
+/// username was cleared. No-op when another row is expanded. Clears
+/// runtime Check serve status.
+pub fn clearServerUsername(model: *Model, fx: *Effects) bool {
+    const id = fromRowId(model.provider_expanded_id) orelse return false;
+    if (id != .opencode2) {
+        model.opencode2_username_buffer.clear();
+        return false;
+    }
+    if (model.opencode2ServerUsername().len == 0) {
+        model.opencode2_username_buffer.clear();
+        return false;
+    }
+    model.setOpencode2ServerUsername("");
+    model.opencode2_username_buffer.clear();
+    clearOpencode2Health(model, fx);
+    return true;
+}
+
 fn restartProbeFor(model: *Model, fx: *Effects, id: protocol.ProviderId) void {
     if (id == .fx) {
         if (model.providerBinaryOverride(.fx).len > 0) {
@@ -568,15 +613,18 @@ pub fn toggleExpanded(model: *Model, fx: *Effects, row_id: u32) bool {
         _ = applyPathOverride(model, fx);
         _ = applyAttachUrl(model, fx);
         _ = applyServerPassword(model, fx);
+        _ = applyServerUsername(model, fx);
     }
     if (model.provider_expanded_id == row_id) {
         _ = applyPathOverride(model, fx);
         _ = applyAttachUrl(model, fx);
         _ = applyServerPassword(model, fx);
+        _ = applyServerUsername(model, fx);
         model.provider_expanded_id = 0;
         model.provider_override_buffer.clear();
         model.opencode2_attach_buffer.clear();
         model.opencode2_password_buffer.clear();
+        model.opencode2_username_buffer.clear();
         if (prev_id == .opencode2) clearOpencode2Health(model, fx);
         return true;
     }
@@ -689,6 +737,7 @@ pub fn rowFor(model: *const Model, id: protocol.ProviderId, arena: std.mem.Alloc
         .show_opencode_attach = id == .opencode2,
         .has_opencode_attach = id == .opencode2 and model.opencode2AttachUrl().len > 0,
         .has_opencode_password = id == .opencode2 and model.opencode2ServerPassword().len > 0,
+        .has_opencode_username = id == .opencode2 and model.opencode2ServerUsername().len > 0,
         .show_deepseek_web = id == .deepseek,
         .version = version,
         .has_version = version.len > 0,
@@ -887,15 +936,23 @@ pub const opencode2_health_max_time = "8";
 pub const opencode2_health_max_filesize = "65536";
 pub const opencode2_health_accept_header = "Accept: application/json";
 /// Documented OpenCode server basic-auth username default
-/// (`OPENCODE_SERVER_USERNAME` unset). No username persist / UI this cut.
+/// (`OPENCODE_SERVER_USERNAME` unset). Empty persist uses this.
 pub const opencode2_server_username = "opencode";
-/// Max host argv: no-auth 9, with `-u opencode:{password}` 11.
+/// Max host argv: no-auth 9, with `-u {user}:{password}` 11.
 pub const opencode2_health_argv_len: usize = 11;
 pub const opencode2_health_argv_len_plain: usize = 9;
 pub const opencode2_health_body_max: usize = 4096;
 pub const opencode2_health_version_max: usize = 64;
 pub const opencode2_health_url_max: usize = model_exports.max_opencode2_attach_url + opencode2_health_path.len;
-pub const opencode2_health_userpass_max: usize = opencode2_server_username.len + 1 + model_exports.max_opencode2_server_password;
+pub const opencode2_health_userpass_max: usize = model_exports.max_opencode2_server_username + 1 + model_exports.max_opencode2_server_password;
+
+/// Check serve / curl `-u` username: persisted trim when non-empty,
+/// else documented default `opencode`.
+pub fn opencode2HealthUsername(model: *const Model) []const u8 {
+    const persisted = model.opencode2ServerUsername();
+    if (persisted.len > 0) return persisted;
+    return opencode2_server_username;
+}
 
 pub const Opencode2HealthState = enum { idle, pending, ok, fail };
 
@@ -932,7 +989,7 @@ pub fn argvForHealthBin(bin: []const u8, url: []const u8, argv_buf: *[opencode2_
 }
 
 /// One-shot GET `/global/health` curl argv. When `userpass` is
-/// non-empty it is `-u` then `opencode:{password}` (two slots) after
+/// non-empty it is `-u` then `{user}:{password}` (two slots) after
 /// `--max-filesize`. Empty `userpass` keeps today's 9-slot no-auth
 /// shape (401 stays Unreachable).
 pub fn argvForHealthAuth(bin: []const u8, url: []const u8, userpass: []const u8, argv_buf: *[opencode2_health_argv_len][]const u8) []const []const u8 {
@@ -973,8 +1030,8 @@ pub fn isHealthArgv(argv: []const []const u8) bool {
         return argv[8].len > 0;
     }
     if (!std.mem.eql(u8, argv[6], "-u")) return false;
-    if (!std.mem.startsWith(u8, argv[7], opencode2_server_username ++ ":")) return false;
-    if (argv[7].len <= opencode2_server_username.len + 1) return false;
+    const colon = std.mem.indexOfScalar(u8, argv[7], ':') orelse return false;
+    if (colon == 0 or colon + 1 >= argv[7].len) return false;
     if (!std.mem.eql(u8, argv[8], "-H")) return false;
     if (!std.mem.eql(u8, argv[9], opencode2_health_accept_header)) return false;
     return argv[10].len > 0;
@@ -1058,8 +1115,9 @@ pub fn healthStatusText(model: *const Model) []const u8 {
 /// One-shot GET `{attach_url}/global/health`. No-op when the button
 /// would be hidden. Does not spawn `opencode2 serve`. When persisted
 /// `opencode2_server_password` trim is non-empty, curl basic auth is
-/// `-u opencode:{password}` (documented default username). Empty
-/// password keeps today's no-auth argv (401 is Unreachable).
+/// `-u {user}:{password}` (`{user}` persist if non-empty else
+/// documented default `opencode`). Empty password keeps today's
+/// no-auth argv (401 is Unreachable).
 pub fn startCheckOpencode2Serve(model: *Model, fx: *Effects) void {
     if (!canCheckOpencode2Serve(model)) return;
     var url_buf: [opencode2_health_url_max]u8 = undefined;
@@ -1070,7 +1128,7 @@ pub fn startCheckOpencode2Serve(model: *Model, fx: *Effects) void {
     const password = model.opencode2ServerPassword();
     if (password.len > 0) {
         var userpass_buf: [opencode2_health_userpass_max]u8 = undefined;
-        const userpass = std.fmt.bufPrint(&userpass_buf, "{s}:{s}", .{ opencode2_server_username, password }) catch "";
+        const userpass = std.fmt.bufPrint(&userpass_buf, "{s}:{s}", .{ opencode2HealthUsername(model), password }) catch "";
         writeFixed(&model.opencode2_health_userpass_storage, &model.opencode2_health_userpass_len, userpass);
     } else {
         model.opencode2_health_userpass_len = 0;
@@ -1205,11 +1263,13 @@ pub fn close(model: *Model, fx: *Effects) void {
     _ = applyPathOverride(model, fx);
     _ = applyAttachUrl(model, fx);
     _ = applyServerPassword(model, fx);
+    _ = applyServerUsername(model, fx);
     clearOpencode2Health(model, fx);
     model.provider_expanded_id = 0;
     model.provider_override_buffer.clear();
     model.opencode2_attach_buffer.clear();
     model.opencode2_password_buffer.clear();
+    model.opencode2_username_buffer.clear();
     model.provider_selected_id = 0;
 }
 
@@ -2185,6 +2245,48 @@ test "Check serve with password adds -u opencode:{password}; empty password keep
     try testing.expectEqualStrings("", healthStatusText(&model));
 }
 
+test "Check serve with password uses persisted username; empty persist keeps opencode" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode2)] = true;
+    model.setOpencode2AttachUrl("http://localhost:4096");
+    model.setOpencode2ServerPassword("s3cret");
+    model.setOpencode2ServerUsername("   ");
+    startCheckOpencode2Serve(&model, &fx);
+    const defaulted = pendingHealthSpawn(&fx, model.opencode2_health_pending_key) orelse return error.MissingDefaultUserHealth;
+    try testing.expect(isHealthArgv(defaulted.argv));
+    try testing.expectEqualStrings("-u", defaulted.argv[6]);
+    try testing.expectEqualStrings("opencode:s3cret", defaulted.argv[7]);
+
+    model.setOpencode2ServerUsername("alice");
+    startCheckOpencode2Serve(&model, &fx);
+    const custom = pendingHealthSpawn(&fx, model.opencode2_health_pending_key) orelse return error.MissingCustomUserHealth;
+    try testing.expect(isHealthArgv(custom.argv));
+    try testing.expectEqualStrings("-u", custom.argv[6]);
+    try testing.expectEqualStrings("alice:s3cret", custom.argv[7]);
+    try testing.expectEqualStrings("http://localhost:4096/global/health", custom.argv[10]);
+
+    model.setOpencode2ServerUsername("bob");
+    model.setOpencode2ServerPassword("");
+    startCheckOpencode2Serve(&model, &fx);
+    const no_auth = pendingHealthSpawn(&fx, model.opencode2_health_pending_key) orelse return error.MissingNoAuthHealth;
+    try testing.expect(isHealthArgv(no_auth.argv));
+    try testing.expectEqual(@as(usize, opencode2_health_argv_len_plain), no_auth.argv.len);
+    try testing.expect(!std.mem.eql(u8, no_auth.argv[6], "-u"));
+
+    try testing.expect(toggleExpanded(&model, &fx, rowId(.opencode2)));
+    model.setOpencode2ServerPassword("s3cret");
+    model.setOpencode2ServerUsername("alice");
+    startCheckOpencode2Serve(&model, &fx);
+    try testing.expectEqual(Opencode2HealthState.pending, model.opencode2_health_state);
+    try testing.expect(clearServerUsername(&model, &fx));
+    try testing.expectEqual(Opencode2HealthState.idle, model.opencode2_health_state);
+}
+
 fn pendingHealthSpawn(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
     var i: usize = 0;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
@@ -2678,6 +2780,65 @@ test "applyServerPassword empty clears; OpenCode 2 row only; changing password c
 
     model.setOpencode2ServerPassword("again");
     model.opencode2_password_buffer.set("again");
+    model.opencode2_health_state = .ok;
+    try testing.expect(toggleExpanded(&model, &fx, rowId(.opencode2)));
+    try testing.expectEqual(@as(u32, 0), model.provider_expanded_id);
+    try testing.expectEqual(Opencode2HealthState.idle, model.opencode2_health_state);
+}
+
+test "applyServerUsername empty clears; OpenCode 2 row only; changing username clears health" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    try testing.expect(!applyServerUsername(&model, &fx));
+    try testing.expect(!clearServerUsername(&model, &fx));
+    try testing.expect(!rowFor(&model, .opencode2, arena).has_opencode_username);
+
+    try testing.expect(toggleExpanded(&model, &fx, rowId(.opencode2)));
+    model.opencode2_username_buffer.set("  alice  ");
+    try testing.expect(applyServerUsername(&model, &fx));
+    try testing.expectEqualStrings("alice", model.opencode2ServerUsername());
+    try testing.expectEqualStrings("alice", model.opencode2_username_buffer.text());
+    try testing.expect(rowFor(&model, .opencode2, arena).has_opencode_username);
+
+    model.opencode2_health_state = .ok;
+    model.opencode2_username_buffer.set("bob");
+    try testing.expect(applyServerUsername(&model, &fx));
+    try testing.expectEqualStrings("bob", model.opencode2ServerUsername());
+    try testing.expectEqual(Opencode2HealthState.idle, model.opencode2_health_state);
+
+    model.opencode2_username_buffer.set("alice");
+    try testing.expect(applyServerUsername(&model, &fx));
+    try testing.expectEqualStrings("alice", model.opencode2ServerUsername());
+
+    try testing.expect(toggleExpanded(&model, &fx, rowId(.fx)));
+    try testing.expectEqualStrings("alice", model.opencode2ServerUsername());
+    try testing.expectEqualStrings("", model.opencode2_username_buffer.text());
+    try testing.expect(!applyServerUsername(&model, &fx));
+
+    try testing.expect(toggleExpanded(&model, &fx, rowId(.opencode2)));
+    try testing.expectEqualStrings("alice", model.opencode2_username_buffer.text());
+    model.opencode2_username_buffer.set("");
+    try testing.expect(applyServerUsername(&model, &fx));
+    try testing.expectEqualStrings("", model.opencode2ServerUsername());
+    try testing.expect(!rowFor(&model, .opencode2, arena).has_opencode_username);
+
+    model.setOpencode2ServerUsername("keep");
+    model.opencode2_username_buffer.set("keep");
+    model.opencode2_health_state = .ok;
+    try testing.expect(clearServerUsername(&model, &fx));
+    try testing.expectEqualStrings("", model.opencode2ServerUsername());
+    try testing.expectEqualStrings("", model.opencode2_username_buffer.text());
+    try testing.expectEqual(Opencode2HealthState.idle, model.opencode2_health_state);
+
+    model.setOpencode2ServerUsername("again");
+    model.opencode2_username_buffer.set("again");
     model.opencode2_health_state = .ok;
     try testing.expect(toggleExpanded(&model, &fx, rowId(.opencode2)));
     try testing.expectEqual(@as(u32, 0), model.provider_expanded_id);
