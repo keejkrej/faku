@@ -21,7 +21,7 @@
 //! optional `opencode2_server_password` (string; missing / empty /
 //! overflow → empty; cap 256 like attach) and optional
 //! `opencode2_server_username` (string; missing / empty / overflow →
-//! empty = Check serve default `opencode` / omit Send `--username`;
+//! empty = Check serve default `opencode` / HTTP Send `-u` user;
 //! cap 256) and
 //! copies `{binary} serve` when Available (`copyOpencode2Serve`;
 //! honor `provider_binary_overrides` / `binaryFor`; hide / no-op
@@ -74,12 +74,13 @@
 //! (same Pi RPC parser / stdin prompt JSONL / RPC `images`; Waku
 //! `PiFlavor::OhMyPi` full-access arg `--yolo`; `--no-session` is a
 //! documented omp flag used by Waku model discovery). Available OpenCode 2 is
-//! one-shot `{binary} run --format json --auto` (documented `--session`
-//! / `--model` / `--file`; documented `--attach {url}` when
-//! `opencode2_attach_url` is set; documented `--password` when
-//! attach URL and `opencode2_server_password` are set; documented
-//! `--username` when persist is non-empty; not `opencode acp`; user-owned
-//! serve; Copy serve command ships; Check serve health ships; password UI ships; username UI ships; in-app HTTP/SSE Send stays deferred). Available DeepSeek is one-shot `dsh --profile acp`
+//! one-shot `{binary} run --format json --auto` when attach URL is empty
+//! (documented `--session` / `--model` / `--file`) and first-cut blocking
+//! HTTP POST `{attach_url}/session` then `{attach_url}/session/{id}/message`
+//! when persist is non-empty (curl; Check serve `-u` rules; composer image
+//! omitted this cut; not `opencode acp`; user-owned serve; Copy serve
+//! command ships; Check serve health ships; password UI ships; username UI
+//! ships; SSE live stream stays deferred). Available DeepSeek is one-shot `dsh --profile acp`
 //! via acp-proxy (not `dsh acp`; composer image fail-closes to demo;
 //! Copy web command ships; Harness HTTP/SSE / in-app web client stay
 //! deferred; `--profile headless` ships on empty-Commit… generate
@@ -104,7 +105,7 @@
 //! Binary path override follow `i18n.ProvidersBinaryOverrideChrome`
 //! (Faku, not Waku, in product-named strings). OpenCode 2 Serve attach
 //! URL follows `i18n.ProvidersOpencodeAttachChrome` (Faku, not Waku;
-//! user-owned serve; Faku only passes `--attach`). Copy serve command
+//! user-owned serve; Faku POSTs /session + /message when set). Copy serve command
 //! follows `i18n.ProvidersOpencodeServeChrome` (clipboard
 //! `{binary} serve` when Available; honor override; hide / no-op
 //! when Not found). Check serve health follows
@@ -129,9 +130,11 @@
 //! LiteLLM rate-table; T3 layered Usage chart; amend/force and
 //! remote `--track` over daemon (local already); Native-blocked UI
 //! (gauge / chart fill / DevTools / edge fades / sticky / KaTeX);
-//! OpenCode 2 HTTP/SSE Send (Check serve / GET /global/health ships;
-//! OPENCODE_SERVER_PASSWORD UI ships; username override UI ships;
-//! 401 is Unreachable when unset; Faku still does not spawn serve);
+//! OpenCode 2 HTTP Send first-cut ships (blocking POST /session +
+//! /message when attach URL is set; Check serve / GET /global/health
+//! ships; OPENCODE_SERVER_PASSWORD UI ships; username override UI
+//! ships; 401 is Unreachable when unset; SSE live stream still
+//! deferred; Faku still does not spawn serve);
 //! DeepSeek Harness HTTP/SSE /
 //! in-app web client (Copy web command ships; Faku still does not
 //! spawn web). `--profile headless` ships on empty-Commit…
@@ -164,9 +167,9 @@
 //! --no-session`, same stdin / images path) ship this cut (not ACP,
 //! not a long-lived RPC loop, not `--mode json`, not permissions
 //! bypass). OpenCode 2 one-shot `run --format json --auto` ships this
-//! cut (display **OpenCode 2**; not `opencode acp`; documented
-//! `--attach {url}` when `opencode2_attach_url` is set; user-owned
-//! serve; Copy serve command ships; Check serve health ships; password UI ships; username UI ships; in-app HTTP/SSE Send still deferred). DeepSeek one-shot
+//! cut (display **OpenCode 2**; not `opencode acp`; HTTP Send
+//! first-cut when `opencode2_attach_url` is set; user-owned
+//! serve; Copy serve command ships; Check serve health ships; password UI ships; username UI ships; SSE live stream still deferred). DeepSeek one-shot
 //! `dsh --profile acp` via acp-proxy ships this cut (display **DeepSeek**;
 //! no image attach; Copy web command ships; Harness HTTP/SSE / in-app
 //! web client still deferred; `--profile headless` ships on

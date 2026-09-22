@@ -667,7 +667,8 @@ pub const ProviderId = enum {
     }
 
     /// True when Faku can spawn one-shot OpenCode 2 `run --format json`
-    /// for this id (`startOpencodeRun` / `fx_spawn_opencode_run_json`).
+    /// or first-cut HTTP Send for this id (`startOpencodeRun` /
+    /// `fx_spawn_opencode_run_json` / `fx_spawn_opencode_http`).
     /// Not ACP — `opencode acp` is `ProviderId.opencode`.
     pub fn speaksOpencodeRun(id: ProviderId) bool {
         return id == .opencode2;
