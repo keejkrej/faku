@@ -123,7 +123,7 @@ jobs:
           native package --help
       - name: Install Linux GTK host deps
         if: matrix.target == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev pkg-config dpkg-dev
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev pkg-config dpkg-dev
       - name: Install NSIS
         if: matrix.target == 'windows'
         run: |
@@ -132,7 +132,35 @@ jobs:
           echo "C:\\Program Files (x86)\\NSIS" >> "$GITHUB_PATH"
           echo "C:\\Program Files\\NSIS" >> "$GITHUB_PATH"
       - name: Build
-        run: native build --yes
+        run: |
+          set -euo pipefail
+          if [[ "${{ matrix.target }}" == "windows" ]]; then
+            # The GitHub archive tarball of native_sdk does not vendor Windows WebView2 headers/DLLs
+            # (they are bundled in the @native-sdk/cli npm package).
+            # Trigger dependency fetch so zig-pkg/native_sdk-* is unpacked, then stage webview2.
+            native build --yes || true
+            node -e '
+              const fs = require("fs");
+              const path = require("path");
+              const { execSync } = require("child_process");
+              const npmRoot = execSync("npm root -g").toString().trim();
+              const src = path.join(npmRoot, "@native-sdk", "cli", "third_party", "webview2");
+              if (fs.existsSync(src)) {
+                const pkgDir = path.join(process.cwd(), "zig-pkg");
+                if (fs.existsSync(pkgDir)) {
+                  for (const entry of fs.readdirSync(pkgDir)) {
+                    if (entry.startsWith("native_sdk")) {
+                      const dest = path.join(pkgDir, entry, "third_party", "webview2");
+                      console.log("Staging WebView2 from " + src + " to " + dest);
+                      fs.mkdirSync(path.dirname(dest), { recursive: true });
+                      fs.cpSync(src, dest, { recursive: true });
+                    }
+                  }
+                }
+              }
+            '
+          fi
+          native build --yes
       - name: Package
         env:
           VERSION: ${{ needs.meta.outputs.version }}
