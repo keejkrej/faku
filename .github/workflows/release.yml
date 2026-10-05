@@ -101,10 +101,6 @@ jobs:
         include:
           - os: macos-14
             target: macos
-          - os: ubuntu-latest
-            target: linux
-          - os: windows-latest
-            target: windows
     steps:
       - uses: actions/checkout@v4
       # Ensure Zig 0.16.0 is on PATH across all platforms so sub-builds
@@ -307,9 +303,9 @@ jobs:
             echo "refusing zip/tarball artifacts: ${zips[*]}" >&2
             exit 1
           fi
-          files=(*.dmg *.deb *.exe)
-          if (( ${#files[@]} != 3 )); then
-            echo "expected dmg + deb + exe, got: ${files[*]:-none}" >&2
+          files=(*.dmg)
+          if (( ${#files[@]} == 0 )); then
+            echo "expected dmg, got: ${files[*]:-none}" >&2
             exit 1
           fi
           sha256sum "${files[@]}" | tee SHA256SUMS
@@ -328,16 +324,13 @@ jobs:
           set -euo pipefail
           notes="$(mktemp)"
           cat > "$notes" <<EOF
-          Faku ${VERSION} desktop installers.
+          Faku ${VERSION} desktop installer.
 
           Built host-native with documented \`native build\` / \`native package\`, then wrapped for normal users.
-          Not iOS/Android. Experts compile with Native CLI.
 
           - macOS: unsigned \`.dmg\` (\`--signing none\`; no Apple identity / notarize)
-          - Linux: amd64 \`.deb\` (Debian/Ubuntu; GTK 4 runtime). Fedora/Arch compile with Native CLI.
-          - Windows: silent NSIS \`.exe\` (unsigned; SmartScreen). Double-click installs with no wizard. Not MSI.
           EOF
           gh release create "$TAG" --repo keejkrej/faku \
             --title "$TAG" \
             --notes-file "$notes" \
-            dist/*.dmg dist/*.deb dist/*.exe dist/SHA256SUMS
+            dist/*.dmg dist/SHA256SUMS
