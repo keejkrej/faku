@@ -38,7 +38,7 @@ pub const PROTOCOL_VERSION: u32 = 1;
 pub const JSONRPC_VERSION = "2.0";
 
 pub const CLIENT_NAME = "faku";
-pub const CLIENT_VERSION = "0.1.0";
+pub const CLIENT_VERSION = "0.2.0";
 
 pub const ID_INITIALIZE: u64 = 1;
 pub const ID_SESSION: u64 = 2;

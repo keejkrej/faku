@@ -1,7 +1,7 @@
 .{
     .name = .faku,
     .fingerprint = 0xd07ae10b5a707070,
-    .version = "0.1.0",
+    .version = "0.2.0",
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
         // Native 0.10.1 (CLI commit 064ca98). `native eject` wrote a

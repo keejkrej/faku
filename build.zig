@@ -24,4 +24,5 @@ pub fn build(b: *std.Build) void {
     // Sidebar date buckets use libc localtime. The desktop host already
     // links libc; `native test` / `zig build test` does not unless set.
     artifacts.tests.root_module.link_libc = true;
+    artifacts.tests.stack_size = 64 * 1024 * 1024;
 }

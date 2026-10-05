@@ -4,7 +4,7 @@
   "name": "faku",
   "display_name": "Faku",
   "description": "Native Zig desktop for coding agents, first-party fx (keejkrej/fx), Waku-protocol compatible.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "icons": ["assets/icon.png"],
   "platforms": ["macos", "linux", "windows"],
   "theme": "house",
