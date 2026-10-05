@@ -96,13 +96,15 @@ fn spawnFxProbe(model: *Model, fx: *Effects) void {
 
 pub fn handleFxProbeExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     if (exit.key != fx_probe_key) return;
-    // Cancel (Providers Refresh) must not chain to the PATH probe.
-    if (exit.reason != .exited) return;
-    model.provider_detection_checked_at_ms = model.now_ms;
-    if (exit.code == 0) {
-        model.fx_available = true;
-        cli_version.startVersionProbe(model, fx, .fx);
-        return;
+    // Cancel (Providers Refresh) or rejected must not chain to the PATH probe.
+    if (exit.reason == .cancelled or exit.reason == .rejected) return;
+    if (exit.reason == .exited) {
+        model.provider_detection_checked_at_ms = model.now_ms;
+        if (exit.code == 0) {
+            model.fx_available = true;
+            cli_version.startVersionProbe(model, fx, .fx);
+            return;
+        }
     }
     model.fx_available = false;
     cli_version.cancelVersionProbe(model, fx, .fx);
@@ -227,4 +229,29 @@ test "handleFxProbeExit stamps now_ms; cancel is ignored" {
 
     handleFxProbeExit(&model, &fx, .{ .key = 601, .reason = .exited, .code = 0 });
     try testing.expectEqual(@as(i64, 99_000), model.provider_detection_checked_at_ms);
+}
+
+test "handleFxProbeExit cascades on spawn_failed (missing binary) until available" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setHome("/home/probe");
+    startFxProbe(&model, &fx);
+    try testing.expect(model.fx_probe_started);
+    try testing.expectEqual(@as(u32, 0), model.fx_probe_index);
+    try testing.expectEqualStrings("/home/probe/.fx/bin/fx", model.fxPath());
+
+    // ~/.fx/bin/fx does not exist -> spawn_failed
+    handleFxProbeExit(&model, &fx, .{ .key = fx_probe_key, .reason = .spawn_failed, .code = -1 });
+    try testing.expect(!model.fx_available);
+    try testing.expectEqual(@as(u32, 1), model.fx_probe_index);
+    try testing.expectEqualStrings("/home/probe/.local/bin/fx", model.fxPath());
+
+    // ~/.local/bin/fx succeeds -> exited 0
+    handleFxProbeExit(&model, &fx, .{ .key = fx_probe_key, .reason = .exited, .code = 0 });
+    try testing.expect(model.fx_available);
+    try testing.expectEqualStrings("/home/probe/.local/bin/fx", model.fxPath());
 }
