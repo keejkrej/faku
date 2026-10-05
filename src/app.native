@@ -160,8 +160,8 @@
         <if test="{sidebar_expanded}">
           <spacer width="6" />
           <row gap="2" cross="center">
-            <button variant="ghost" size="icon" icon="chevron-left" label="{sidebar_history_back_label}" on-press="history_back"></button>
-            <button variant="ghost" size="icon" icon="chevron-right" label="{sidebar_history_forward_label}" on-press="history_forward"></button>
+            <button variant="ghost" size="icon" icon="app:arrow-left" label="{sidebar_history_back_label}" on-press="history_back"></button>
+            <button variant="ghost" size="icon" icon="arrow-right" label="{sidebar_history_forward_label}" on-press="history_forward"></button>
           </row>
           <spacer grow="1" />
         </if>
@@ -169,12 +169,12 @@
       <if test="{sidebar_expanded}">
         <column padding="10" grow="1">
           <list-item height="32" padding="8" gap="8" cross="center" on-press="new_session" label="{new_task_label}">
-            <icon name="edit" width="14" height="14" />
-            <text>{new_task_label}</text>
+            <icon name="app:compose" width="14" height="14" foreground="text_muted" />
+            <text foreground="text_muted">{new_task_label}</text>
           </list-item>
           <list-item height="32" padding="8" gap="8" cross="center" on-press="start_search" label="{search_label}">
-            <icon name="search" width="14" height="14" />
-            <text>{search_label}</text>
+            <icon name="search" width="14" height="14" foreground="text_muted" />
+            <text foreground="text_muted">{search_label}</text>
           </list-item>
           <spacer height="10" />
           <row height="28" cross="center">
@@ -186,9 +186,9 @@
             </list-item>
             <spacer grow="1" />
             <if test="{can_collapse_folders}">
-              <button variant="ghost" size="icon" icon="chevron-down" label="{collapse_all_folders_label}" on-press="collapse_all_folders"></button>
+              <button variant="ghost" size="icon" icon="app:list-filter" label="{collapse_all_folders_label}" on-press="collapse_all_folders"></button>
             </if>
-            <button variant="ghost" size="icon" icon="folder" label="{new_folder_label}" on-press="new_folder"></button>
+            <button variant="ghost" size="icon" icon="app:folder-new" label="{new_folder_label}" on-press="new_folder"></button>
           </row>
           <spacer height="10" />
           <scroll grow="1">
@@ -211,21 +211,19 @@
                     <else>
                       <button variant="ghost" size="icon" icon="chevron-down" label="{collapse_folder_label}" on-press="toggle_folder:{s.folder_id}"></button>
                     </else>
-                    <icon name="folder" />
+                    <icon name="folder" foreground="text_muted" />
                     <if test="{s.editing}">
                       <text-field grow="1" height="24" placeholder="{new_folder_label}" text="{folder_title_draft}" on-input="folder_title_edit" autofocus="true" />
                     </if>
                     <else>
                       <text grow="1" wrap="false" overflow="ellipsis" foreground="text_muted">{s.title}</text>
                     </else>
-                    <button variant="ghost" size="icon" icon="trash" label="{delete_folder_label}" on-press="delete_folder:{s.folder_id}"></button>
                     <context-menu>
                       <menu-item on-press="rename_folder:{s.folder_id}">{rename_folder_label}</menu-item>
                       <separator />
                       <!-- Folder context-menu Rename / Delete follow
                            Appearance language. Chevron a11y uses
                            expand_folder_label / collapse_folder_label.
-                           Trash button uses delete_folder_label.
                            Session menus use rename_session_label /
                            remove_label. -->
                       <menu-item on-press="delete_folder:{s.folder_id}">{delete_label}</menu-item>
@@ -253,14 +251,13 @@
                             </if>
                           </row>
                           <row gap="5" cross="center">
-                            <icon name="folder" />
+                            <icon name="folder" width="13" height="13" foreground="text_muted" />
                             <text grow="1" wrap="false" overflow="ellipsis" foreground="text_muted">{s.provider}</text>
                             <if test="{s.has_relative_time}">
                               <text wrap="false" overflow="ellipsis" foreground="text_muted">{s.relative_time}</text>
                             </if>
                           </row>
                         </column>
-                        <button variant="ghost" size="icon" icon="trash" label="{remove_session_label}" on-press="remove_session:{s.id}"></button>
                         <context-menu>
                           <menu-item on-press="rename_session:{s.id}">{rename_session_label}</menu-item>
                           <separator />
@@ -284,14 +281,13 @@
                           </if>
                         </row>
                         <row gap="5" cross="center">
-                          <icon name="folder" />
+                          <icon name="folder" width="13" height="13" foreground="text_muted" />
                           <text grow="1" wrap="false" overflow="ellipsis" foreground="text_muted">{s.provider}</text>
                           <if test="{s.has_relative_time}">
                             <text wrap="false" overflow="ellipsis" foreground="text_muted">{s.relative_time}</text>
                           </if>
                         </row>
                       </column>
-                      <button variant="ghost" size="icon" icon="trash" label="{remove_session_label}" on-press="remove_session:{s.id}"></button>
                       <context-menu>
                         <menu-item on-press="rename_session:{s.id}">{rename_session_label}</menu-item>
                         <separator />

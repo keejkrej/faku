@@ -463,7 +463,6 @@ test "boot is fx-first and New / send / ticks / stop drive the demo" {
     _ = try expectButton(tree.root, "Search");
     _ = try expectButton(tree.root, "port waku to zig");
     _ = try expectButton(tree.root, "fix auth listener");
-    _ = try expectButton(tree.root, "Remove session");
     _ = try expectByText(tree.root, .button, "Send");
     _ = try expectByText(tree.root, .text, "No project");
     _ = try expectChip(tree.root, "Full access");
@@ -19612,12 +19611,9 @@ test "deleting a folder unassigns its sessions; they stay in Today" {
 
     tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "Collapse folder");
-    const trash = try expectButton(tree.root, "Delete folder");
-    const remove_session = try expectButton(tree.root, "Remove session");
-    try testing.expect(trash.id != (try expectByText(tree.root, .list_item, "New folder")).id);
-    try testing.expect(trash.id != (try expectButton(tree.root, "Collapse folder")).id);
-    try testing.expect(trash.id != remove_session.id);
-    main.update(&model, tree.msgForPointer(trash.id, .up).?, &fx);
+    const folder_item = try expectByText(tree.root, .list_item, "New folder");
+    try expectFolderContextMenu(tree, folder_item, folder_id);
+    main.update(&model, tree.msgForContextMenu(folder_item.id, 2).?, &fx);
 
     try testing.expectEqual(@as(u32, 0), model.folder_count);
     try testing.expectEqual(@as(u32, 0), model.session_store[1].folder_id);
@@ -19637,7 +19633,6 @@ test "deleting a folder unassigns its sessions; they stay in Today" {
     try testing.expect(findPressableContaining(tree.root, "Collapse folder") == null);
     _ = try expectButton(tree.root, "port waku to zig");
     _ = try expectButton(tree.root, "fix auth listener");
-    _ = try expectButton(tree.root, "Remove session");
     _ = try expectByText(tree.root, .text, "Today");
     _ = try expectButton(tree.root, "New folder");
    
@@ -19676,7 +19671,6 @@ test "deleting a folder unassigns its sessions; they stay in Today" {
 
     tree = try buildTree(arena, &model);
     const collapse = try expectButton(tree.root, "Collapse folder");
-    _ = try expectButton(tree.root, "Delete folder");
     main.update(&model, tree.msgForPointer(collapse.id, .up).?, &fx);
     try testing.expect(model.folder_store[0].collapsed);
     try expectSidebarTitles(model.sidebar_rows(arena), &.{
@@ -19687,7 +19681,6 @@ test "deleting a folder unassigns its sessions; they stay in Today" {
     try testing.expect(findPressableContaining(tree.root, "fix auth listener") == null);
     _ = try expectByText(tree.root, .list_item, "Work");
     _ = try expectButton(tree.root, "Expand folder");
-    _ = try expectButton(tree.root, "Delete folder");
    }
 
 test "sidebar trash removes a session and it stays gone after reload" {
@@ -19720,15 +19713,9 @@ test "sidebar trash removes a session and it stays gone after reload" {
     const folder_id = model.folder_store[0].id;
 
     tree = try buildTree(arena, &model);
-    const folder_trash = try expectButton(tree.root, "Delete folder");
     const auth_row = try expectByText(tree.root, .list_item, "fix auth listener");
-    const remove = try expectButton(auth_row, "Remove session");
-    try testing.expect(remove.id != folder_trash.id);
-    try testing.expect(remove.id != auth_row.id);
-    try testing.expect(remove.id != (try expectButton(tree.root, "Collapse folder")).id);
-    try testing.expectEqual(Msg{ .remove_session = auth_id }, tree.msgForPointer(remove.id, .up).?);
-
-    main.update(&model, tree.msgForPointer(remove.id, .up).?, &fx);
+    try expectSessionContextMenu(tree, auth_row, auth_id);
+    main.update(&model, tree.msgForContextMenu(auth_row.id, 2).?, &fx);
     try testing.expect(model.sessionById(auth_id) == null);
     try testing.expectEqual(@as(u32, 1), model.session_count);
     try testing.expectEqual(@as(u32, 1), model.folder_count);
@@ -19746,9 +19733,7 @@ test "sidebar trash removes a session and it stays gone after reload" {
     try testing.expect(findByText(tree.root, .list_item, "fix auth listener") == null);
     try testing.expect(findPressableContaining(tree.root, "fix auth listener") == null);
     _ = try expectButton(tree.root, "port waku to zig");
-    _ = try expectButton(tree.root, "Remove session");
     _ = try expectButton(tree.root, "New folder");
-    _ = try expectButton(tree.root, "Delete folder");
    
     var loaded = Model{};
     loaded.setStoreDir(dir);
@@ -19763,8 +19748,8 @@ test "sidebar trash removes a session and it stays gone after reload" {
 
     tree = try buildTree(arena, &loaded);
     const last_row = try expectByText(tree.root, .list_item, "port waku to zig");
-    const last_remove = try expectButton(last_row, "Remove session");
-    main.update(&loaded, tree.msgForPointer(last_remove.id, .up).?, &fx);
+    try expectSessionContextMenu(tree, last_row, port_id);
+    main.update(&loaded, tree.msgForContextMenu(last_row.id, 2).?, &fx);
     try testing.expectEqual(@as(u32, 0), loaded.session_count);
     try testing.expectEqual(@as(u32, 1), loaded.folder_count);
     try testing.expectEqual(@as(u32, 0), loaded.selected);
@@ -19814,9 +19799,8 @@ test "sidebar Remove session with a daemon address records closeSession" {
 
     var tree = try buildTree(arena, &model);
     const gone_row = try expectByText(tree.root, .list_item, "remove me");
-    const remove = try expectButton(gone_row, "Remove session");
-    try testing.expectEqual(Msg{ .remove_session = gone }, tree.msgForPointer(remove.id, .up).?);
-    main.update(&model, tree.msgForPointer(remove.id, .up).?, &fx);
+    try expectSessionContextMenu(tree, gone_row, gone);
+    main.update(&model, tree.msgForContextMenu(gone_row.id, 2).?, &fx);
 
     const spawn = findCloseOnlySpawn(&fx) orelse return error.CloseSpawnMissing;
     try testing.expect(argvHas(spawn.argv, daemon_proxy.SUBCOMMAND));
@@ -19866,7 +19850,6 @@ test "sidebar session rows declare a Rename/Remove context menu" {
     try expectSessionContextMenu(tree, other_today, auth_id);
     try expectNoContextMenu(try expectByText(tree.root, .list_item, "Today"));
     try expectNoContextMenu(try expectByText(tree.root, .list_item, "New Task"));
-    _ = try expectButton(today_row, "Remove session");
    
     main.update(&model, .{ .rename_session = auth_id }, &fx);
     try testing.expectEqual(auth_id, model.editing_session_id);
@@ -19958,7 +19941,6 @@ test "sidebar folder rows declare a Rename/Delete context menu" {
     try testing.expectEqual(Msg{ .assign_selected = folder_id }, tree.msgForPointer(header.id, .up).?);
     try expectFolderContextMenu(tree, header, folder_id);
     _ = try expectButton(header, "Collapse folder");
-    _ = try expectButton(header, "Delete folder");
     try expectSessionContextMenu(tree, try expectByText(tree.root, .list_item, "port waku to zig"), port_id);
     try expectSessionContextMenu(tree, try expectByText(tree.root, .list_item, "fix auth listener"), auth_id);
     try expectNoContextMenu(try expectByText(tree.root, .list_item, "Today"));
@@ -19978,7 +19960,6 @@ test "sidebar folder rows declare a Rename/Delete context menu" {
     try expectFolderContextMenu(tree, editing_header, folder_id);
     try testing.expectEqual(Msg{ .assign_selected = folder_id }, tree.msgForPointer(editing_header.id, .up).?);
     _ = try expectButton(editing_header, "Collapse folder");
-    _ = try expectButton(editing_header, "Delete folder");
 
     main.update(&model, .{ .folder_title_edit = .clear }, &fx);
     main.update(&model, .{ .folder_title_edit = .{ .insert_text = "Work" } }, &fx);
@@ -20216,7 +20197,6 @@ test "long session and folder titles stay one line with Native ellipsis" {
     try testing.expectEqualStrings(long_folder, widgetName(folder_row));
     const folder_title = try expectByText(folder_row, .text, long_folder);
     try expectOneLineEllipsis(folder_title, 1.0);
-    _ = try expectButton(folder_row, "Delete folder");
     try expectLaidOutHeight(tree.root, folder_row.id, 32);
 
     const grouped_row = try expectByText(tree.root, .list_item, "fix auth listener");
@@ -25888,14 +25868,12 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     const session_id = model.addSession("gap audit session", .fx);
     tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "Collapse all folders");
-    _ = try expectButton(tree.root, "Delete folder");
     const en_folder = try expectByText(tree.root, .list_item, "New folder");
     try expectFolderContextMenu(tree, en_folder, model.folder_store[0].id);
     _ = try expectButton(en_folder, "Collapse folder");
     try testing.expect(findPressableContaining(en_folder, "Expand folder") == null);
     const en_session = try expectByText(tree.root, .list_item, "gap audit session");
     try expectSessionContextMenu(tree, en_session, session_id);
-    _ = try expectButton(en_session, "Remove session");
 
     main.update(&model, .{ .toggle_folder = model.folder_store[0].id }, &fx);
     tree = try buildTree(arena, &model);
@@ -25923,7 +25901,6 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     _ = try expectButton(tree.root, "搜索");
     _ = try expectButton(tree.root, "新建文件夹");
     _ = try expectButton(tree.root, "折叠所有文件夹");
-    _ = try expectButton(tree.root, "删除文件夹");
     const zh_folder = try expectByText(tree.root, .list_item, "New folder");
     try expectFolderContextMenuLabels(tree, zh_folder, model.folder_store[0].id, "重命名", "删除");
     _ = try expectButton(zh_folder, "折叠文件夹");
@@ -25931,7 +25908,6 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     try testing.expect(findPressableContaining(zh_folder, "Expand folder") == null);
     const zh_session = try expectByText(tree.root, .list_item, "gap audit session");
     try expectSessionContextMenuLabels(tree, zh_session, session_id, "重命名", "移除");
-    _ = try expectButton(zh_session, "移除会话");
     try testing.expect(findByText(tree.root, .list_item, "New Task") == null);
     try testing.expect(findPressableContaining(tree.root, "New Task") == null);
     try testing.expect(findPressableContaining(tree.root, "Search") == null);
@@ -25974,14 +25950,12 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     _ = try expectButton(tree.root, "検索");
     _ = try expectButton(tree.root, "新しいフォルダ");
     _ = try expectButton(tree.root, "すべてのフォルダを折りたたむ");
-    _ = try expectButton(tree.root, "フォルダを削除");
     const ja_folder = try expectByText(tree.root, .list_item, "New folder");
     try expectFolderContextMenuLabels(tree, ja_folder, model.folder_store[0].id, "名前を変更", "削除");
     _ = try expectButton(ja_folder, "フォルダを折りたたむ");
     try testing.expect(findPressableContaining(ja_folder, "Collapse folder") == null);
     const ja_session = try expectByText(tree.root, .list_item, "gap audit session");
     try expectSessionContextMenuLabels(tree, ja_session, session_id, "名前を変更", "取り除く");
-    _ = try expectButton(ja_session, "セッションを取り除く");
     try testing.expect(findPressableContaining(tree.root, "New Task") == null);
     try testing.expect(findPressableContaining(tree.root, "Remove session") == null);
     try testing.expect(findPressableContaining(tree.root, "Collapse folder") == null);
@@ -26020,12 +25994,10 @@ test "sidebar New Task Search folder chrome follow Appearance language" {
     _ = try expectButton(tree.root, "Search");
     _ = try expectButton(tree.root, "New folder");
     _ = try expectButton(tree.root, "Collapse all folders");
-    _ = try expectButton(tree.root, "Delete folder");
     const en_folder_again = try expectByText(tree.root, .list_item, "New folder");
     try expectFolderContextMenu(tree, en_folder_again, model.folder_store[0].id);
     _ = try expectButton(en_folder_again, "Collapse folder");
     try expectSessionContextMenu(tree, try expectByText(tree.root, .list_item, "gap audit session"), session_id);
-    _ = try expectButton(try expectByText(tree.root, .list_item, "gap audit session"), "Remove session");
 
     model.language_preference = .system;
     model.setSystemLocaleId("zh_CN.UTF-8");
