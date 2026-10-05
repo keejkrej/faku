@@ -103,6 +103,18 @@ const server_icon = canvas.svg_icon.parseComptime(@embedFile("icons/server.svg")
 /// no built-in cursor-spark glyph.
 const cursor_spark_icon = canvas.svg_icon.parseComptime(@embedFile("icons/cursor-spark.svg"));
 
+/// Sidebar navigation arrow-left (Native has arrow-right but lacks arrow-left).
+const arrow_left_icon = canvas.svg_icon.parseComptime(@embedFile("icons/arrow-left.svg"));
+
+/// Sidebar New Task compose icon (Waku `icons/compose.svg`).
+const compose_icon = canvas.svg_icon.parseComptime(@embedFile("icons/compose.svg"));
+
+/// Sidebar options list-filter icon (Waku `icons/list-filter.svg`).
+const list_filter_icon = canvas.svg_icon.parseComptime(@embedFile("icons/list-filter.svg"));
+
+/// Sidebar new folder / add project icon (Waku `icons/folder-new.svg`).
+const folder_new_icon = canvas.svg_icon.parseComptime(@embedFile("icons/folder-new.svg"));
+
 fn parseProvider(comptime name: []const u8) canvas.svg_icon.Icon {
     return canvas.svg_icon.parseComptime(@embedFile("icons/provider-" ++ name ++ ".svg"));
 }
@@ -141,6 +153,10 @@ const chrome_icons = [_]canvas.icons.Entry{
     .{ .name = "chart-column", .icon = &chart_column_icon },
     .{ .name = "server", .icon = &server_icon },
     .{ .name = "cursor-spark", .icon = &cursor_spark_icon },
+    .{ .name = "arrow-left", .icon = &arrow_left_icon },
+    .{ .name = "compose", .icon = &compose_icon },
+    .{ .name = "list-filter", .icon = &list_filter_icon },
+    .{ .name = "folder-new", .icon = &folder_new_icon },
 };
 const providers_icons = [_]canvas.icons.Entry{
     .{ .name = "provider-fx", .icon = &provider_fx_icon },
@@ -233,7 +249,7 @@ test "registerIcons resolves chrome and file-type app names" {
 
 test "app_icons names and shell window" {
     try std.testing.expectEqual(@as(usize, chrome_icons.len + providers_icons.len + file_type_icons.app_icons.len), app_icons.len);
-    try std.testing.expectEqual(@as(usize, 11), chrome_icons.len);
+    try std.testing.expectEqual(@as(usize, 15), chrome_icons.len);
     try std.testing.expectEqual(@as(usize, 12), providers_icons.len);
     try std.testing.expectEqualStrings("minimize", app_icons[0].name);
     try std.testing.expectEqualStrings("maximize", app_icons[1].name);
@@ -246,19 +262,23 @@ test "app_icons names and shell window" {
     try std.testing.expectEqualStrings("chart-column", app_icons[8].name);
     try std.testing.expectEqualStrings("server", app_icons[9].name);
     try std.testing.expectEqualStrings("cursor-spark", app_icons[10].name);
-    try std.testing.expectEqualStrings("provider-fx", app_icons[11].name);
-    try std.testing.expectEqualStrings("provider-claude", app_icons[12].name);
-    try std.testing.expectEqualStrings("provider-openai", app_icons[13].name);
-    try std.testing.expectEqualStrings("provider-cursor", app_icons[14].name);
-    try std.testing.expectEqualStrings("provider-amp", app_icons[15].name);
-    try std.testing.expectEqualStrings("provider-grok", app_icons[16].name);
-    try std.testing.expectEqualStrings("provider-opencode", app_icons[17].name);
-    try std.testing.expectEqualStrings("provider-pi", app_icons[18].name);
-    try std.testing.expectEqualStrings("provider-kimi", app_icons[19].name);
-    try std.testing.expectEqualStrings("provider-ohmypi", app_icons[20].name);
-    try std.testing.expectEqualStrings("provider-opencode2", app_icons[21].name);
-    try std.testing.expectEqualStrings("provider-deepseek", app_icons[22].name);
-    try std.testing.expectEqualStrings("zig", app_icons[23].name);
+    try std.testing.expectEqualStrings("arrow-left", app_icons[11].name);
+    try std.testing.expectEqualStrings("compose", app_icons[12].name);
+    try std.testing.expectEqualStrings("list-filter", app_icons[13].name);
+    try std.testing.expectEqualStrings("folder-new", app_icons[14].name);
+    try std.testing.expectEqualStrings("provider-fx", app_icons[15].name);
+    try std.testing.expectEqualStrings("provider-claude", app_icons[16].name);
+    try std.testing.expectEqualStrings("provider-openai", app_icons[17].name);
+    try std.testing.expectEqualStrings("provider-cursor", app_icons[18].name);
+    try std.testing.expectEqualStrings("provider-amp", app_icons[19].name);
+    try std.testing.expectEqualStrings("provider-grok", app_icons[20].name);
+    try std.testing.expectEqualStrings("provider-opencode", app_icons[21].name);
+    try std.testing.expectEqualStrings("provider-pi", app_icons[22].name);
+    try std.testing.expectEqualStrings("provider-kimi", app_icons[23].name);
+    try std.testing.expectEqualStrings("provider-ohmypi", app_icons[24].name);
+    try std.testing.expectEqualStrings("provider-opencode2", app_icons[25].name);
+    try std.testing.expectEqualStrings("provider-deepseek", app_icons[26].name);
+    try std.testing.expectEqualStrings("zig", app_icons[27].name);
     try std.testing.expectEqualStrings("file", app_icons[app_icons.len - 1].name);
     for (providers_icons) |entry| {
         try std.testing.expect(entry.icon.shapes.len > 0);

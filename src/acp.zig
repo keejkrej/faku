@@ -239,6 +239,7 @@ pub const Parsed = struct {
     used: ?u64 = null,
     size: ?u64 = null,
     has_error: bool = false,
+    error_message: []const u8 = "",
     has_result: bool = false,
 };
 
@@ -1575,6 +1576,9 @@ pub fn parseLine(line: []const u8) Parsed {
 
     if (parsed.has_error) {
         parsed.kind = .error_response;
+        if (findKey(trimmed, "message")) |at| {
+            parsed.error_message = parseJsonStringAt(trimmed, at);
+        }
     } else if (parsed.has_result) {
         parsed.kind = .response;
     } else if (parsed.method != .unknown and parsed.id == null) {
@@ -1823,6 +1827,7 @@ test "ACP parser classifies result, error, update, and stopReason" {
     const parsed_err = parseLine(err);
     try std.testing.expectEqual(FrameKind.error_response, parsed_err.kind);
     try std.testing.expect(parsed_err.has_error);
+    try std.testing.expectEqualStrings("invalid", parsed_err.error_message);
 
     const update = "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"sess-1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"hello acp\"}}}}";
     const parsed_update = parseLine(update);

@@ -384,6 +384,9 @@ fn handleAcpLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void 
         return;
     }
     if (acp.isPromptResult(parsed) or (parsed.has_error and parsed.id != null)) {
+        if (parsed.has_error and parsed.error_message.len > 0) {
+            model.appendToTurn(model.stream_turn_id, parsed.error_message);
+        }
         const drain = acp.promptSucceeded(parsed);
         if (model.fx_spawn_key != 0) fx.cancel(model.fx_spawn_key);
         turn_stream.finishStream(model, fx, drain);
