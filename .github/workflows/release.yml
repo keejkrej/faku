@@ -107,12 +107,9 @@ jobs:
             target: windows
     steps:
       - uses: actions/checkout@v4
-      # Native auto-downloads Zig on macOS/Linux. Windows has no managed
-      # toolchain, so 0.16.0 must be on PATH before `native build --yes`.
-      # setup-zig on macOS coincided with DMG ArchiveCreationFailed;
-      # the first tagged run packaged the DMG with Native's toolchain.
+      # Ensure Zig 0.16.0 is on PATH across all platforms so sub-builds
+      # (e.g. translate_c running `zig env` for ghostty) find the compiler.
       - uses: vercel-labs/setup-zig@v1
-        if: matrix.target == 'windows'
         with:
           version: "0.16.0"
       - uses: actions/setup-node@v4

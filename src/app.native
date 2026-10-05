@@ -153,7 +153,7 @@
   </column>
 </template>
 <column background="background">
-  <split grow="1" value="{sidebar_split}" on-resize="sidebar_resized">
+  <split grow="1" value="{sidebar_split}" on-resize="sidebar_resized" gap="1">
     <column min-width="{sidebar_pane_min}" background="surface_subtle">
       <row height="48" window-drag="true" cross="center" label="{sidebar_titlebar_label}">
         <button variant="ghost" size="icon" icon="panel-left" label="{sidebar_toggle_label}" on-press="toggle_sidebar"></button>
@@ -310,7 +310,7 @@
         </row>
       </if>
     </column>
-    <split grow="1" value="{right_panel_split}" on-resize="right_panel_resized">
+    <split grow="1" value="{right_panel_split}" on-resize="right_panel_resized" gap="1">
     <column grow="1" min-width="360">
       <if test="{settings_open}">
         <row height="48" padding="14" gap="10" cross="center" window-drag="true" label="{toolbar_label}">
@@ -1797,7 +1797,7 @@
                 <text wrap="true" foreground="text_muted">{review_diff_status}</text>
               </if>
               <if test="{review_diff_nested_split}">
-                <split grow="1" value="{right_panel_diff_file_list_split}" on-resize="right_panel_diff_file_list_resized">
+                <split grow="1" value="{right_panel_diff_file_list_split}" on-resize="right_panel_diff_file_list_resized" gap="1">
                 <column grow="1" min-width="140" gap="6">
                   <if test="{has_review_diff_hunk_file_header}">
                     <row height="36" gap="6" cross="center">
@@ -2089,7 +2089,7 @@
           <else>
           <column grow="1">
             <if test="{right_panel_file_preview_open}">
-              <split grow="1" value="{right_panel_file_tree_split}" on-resize="right_panel_file_tree_resized">
+              <split grow="1" value="{right_panel_file_tree_split}" on-resize="right_panel_file_tree_resized" gap="1">
               <column grow="1" min-width="140" gap="6" padding="10" label="{file_preview_label}">
                 <row gap="6" cross="center">
                   <text wrap="false" overflow="ellipsis" grow="1">{file_preview_path}</text>
